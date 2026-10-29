@@ -21,7 +21,7 @@ BattlescapeState, no dialog 62 / 68, held 2 s (MG-B's arrival: a miss is CAPTURE
        SD1-order   the client's walk for its alien C1 runs at once (one intent context, no deny, C1 on C1_DEST on both)
        SD1-common
   SD2  SD2-cycle   client END TURN, host "END TURN 1/2", host END TURN, each machine closes its own NextTurnState:
-                   side 0 of turn SAVE_TURN + 1 on both, the host's ev kinds = T4_KINDS
+                   side 0 of turn SAVE_TURN + 1 on both, the host's ev kinds = CYCLE_KINDS
        SD2-once    the host's opening line count stays 0 across the cycle
        SD2-common
 Common cell: every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
@@ -52,7 +52,7 @@ from test_client_shoot import new_contexts  # noqa: E402
 from test_host_combat import evs_since  # noqa: E402
 from test_pvp_gm3 import (Miss, stack, top, log_lines, log_count, bview, pos, es, tele_both, reactions_zero,  # noqa: E402
                              hash_now, common, ctx_cell, run_row, fail_all, shut)
-from test_pve2_turns import side_turn, drive_to_side0, cut_kinds, walk_done, T4_KINDS  # noqa: E402
+from test_pve2_turns import side_turn, drive_to_side0, cut_kinds, walk_done, CYCLE_KINDS  # noqa: E402
 
 KEY = "48864"
 HOST_DIR, CLIENT_DIR, CLIENT2_DIR = "r5u8_d_host", "r5u8_d_client", "r5u8_d_client2"
@@ -326,10 +326,10 @@ def row_sd2(host, client, crash0, crash_start):
               clientSaves=session.save_files(client.user_dir),
               crashSinceStart=sorted(session._crash_log_snapshot() - crash_start))
     return {"SD2-cycle": (done and last["side"] == [0, 0] and last["turn"] == [want, want]
-                          and last["tops"] == ["BattlescapeState"] * 2 and kinds == T4_KINDS and not steps,
+                          and last["tops"] == ["BattlescapeState"] * 2 and kinds == CYCLE_KINDS and not steps,
                           f"side {last['side']} turn {last['turn']} tops {last['tops']} (want 0 / {want} / BattlescapeState "
-                          f"on both; settled {done} in {secs} s, bound {SIDE_S}); host ev kinds {kinds} (want {T4_KINDS}); "
-                          f"{steps or 'END TURN 1/2 shown'}"),
+                          f"on both; settled {done} in {secs} s, bound {SIDE_S}); host ev kinds {kinds} "
+                          f"(want {CYCLE_KINDS}); {steps or 'END TURN 1/2 shown'}"),
             "SD2-once": (oc0 == oc1 == 0, f"host '{N_OPENING}' lines {oc0} -> {oc1} across the cycle (want 0 -> 0)"),
             "SD2-common": common(host, client, crash0)}, ev
 
