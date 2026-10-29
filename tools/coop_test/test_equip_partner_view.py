@@ -1,32 +1,35 @@
 """test_equip_partner_view.py: the pre-battle equip screen shows the partner's soldiers READ-ONLY.
 
-Owner D288 (b) (equip design session D287): on the pre-battle equip screen PREV / NEXT step through every player-side
-soldier with an inventory, this player's AND the partner's, in unit order, as the release line does; a partner's soldier
-is shown read-only - an "Owner: <name>" line, UNLOAD / copy / paste hidden, and every click, tool and rename on it does
-nothing. Not in battle; never between PvP opponents; a player with no soldier of its own
-still skips the screen. Spec docs rewrite/prompts/eq1_partner_soldiers_readonly.md ((f), PINNED SETUP VALUES,
-QEQ1-1 .. QEQ1-6 (a), VL-EQ1-1 .. VL-EQ1-8); every pin is TASK 0's (docs rewrite/eq1-task0/sa/CONSTANTS.md).
+On the pre-battle equip screen PREV / NEXT step through every player-side soldier with an inventory, this player's AND
+the partner's, in unit order, as the released game does; a partner's soldier is shown read-only - an "Owner: <name>"
+line, UNLOAD / copy / paste hidden, and every click, tool and rename on it does nothing. Not in battle; never between
+PvP opponents; a player with no soldier of its own still skips the screen.
 
-Boot V (ONE boot): S0 the roster-pinned lobby + session.bring_up_to_briefings (seat_count 2, set_seed SEED_MAP before
-newbattle_ok; MAP_FP, C_IDS, H_IDS asserted). S1 staging with both machines holding the battle (D210 b; client first,
-F607): C1 and H1 stripped; H1 = a loaded rifle (STR_RIGHT_HAND) + a grenade (STR_BELT 0,0); C1 = a loaded pistol
-(STR_LEFT_HAND) + a smoke grenade (STR_BELT 1,0); one rifle clip dropped on PILE. S2 both screens up (client C1, host H1).
-  PV1 / PV2  client / host cycle: NEXT x N_ALL from C1 / H1 = CYCLE_C / CYCLE_H; PREV = its [-2]; NEXT back. next, prev
-  PV3 / PV6  client look on H1 / host look on C1: "Owner: HOST_NAME" / "Owner: CLIENT_NAME" visible, UNLOAD / copy /
-             paste hidden.                                                                   reach, owner, buttons
-  PV4  client clicks on H1 (pick, the pile clip, right click on the belt grenade, Shift-click + UNLOAD): no cursor item,
-       no dialog, nothing moves or is sent.                                      pick, ground, prime, unload, sent
-  PV5  client tools on H1 (clear, auto-equip, personal load / save, Ctrl+1, 1, F5, F9, copy / paste, the rename): nothing
-       changes, no dialog, nothing sent; back on C1 the own look.  layout, personal, global, dialogs, rename, sent, back
-  PV7  host on C1: pick, right click, personal save, Ctrl+1, clear / auto / load / 1, the rename.  pick, prime, personal,
-       global, tools, rename
-  PV8  the client moves C1's smoke grenade while the host views C1, the host moves H1's grenade while the client views
-       H1: each lands on the viewer; forceCloseSkips unchanged; buckets equal.                  host, client, skips, hash
-  PV9  turn 1 from partner views (host on C1, client on H1, both OK): turn 1, own selections. reach, turn, select, hash
-RED (EQ-1 S-A, product untouched): exit 2, all 36 cells FAIL - PV1 / PV2 on their values (own-only cycles), PV3 .. PV9
-"partner view not reached" (their other cells "not reached"); the spine passes. GREEN: exit 0, 36 / 36.
+One boot: the roster-pinned lobby + session.bring_up_to_briefings (seat_count 2, set_seed SEED_MAP before
+newbattle_ok; MAP_FP, C_IDS, H_IDS asserted). Staging with both machines holding the battle (both briefings up; client
+first): C1 and H1 stripped; H1 = a loaded rifle (STR_RIGHT_HAND) + a grenade (STR_BELT 0,0); C1 = a loaded pistol
+(STR_LEFT_HAND) + a smoke grenade (STR_BELT 1,0); one rifle clip dropped on PILE. Then both screens up (client C1, host
+H1).
+  client_cycle / host_cycle  client / host cycle: NEXT x N_ALL from C1 / H1 = CYCLE_C / CYCLE_H; PREV = its [-2]; NEXT
+             back.                                                                                    next, prev
+  client_look / host_look  client look on H1 / host look on C1: "Owner: HOST_NAME" / "Owner: CLIENT_NAME" visible,
+             UNLOAD / copy / paste hidden.                                                 reach, owner, buttons
+  client_clicks  client clicks on H1 (pick, the pile clip, right click on the belt grenade, Shift-click + UNLOAD): no
+       cursor item, no dialog, nothing moves or is sent.                         pick, ground, prime, unload, sent
+  client_tools  client tools on H1 (clear, auto-equip, personal load / save, Ctrl+1, 1, F5, F9, copy / paste, the
+       rename): nothing changes, no dialog, nothing sent; back on C1 the own look.
+                                                                   layout, personal, global, dialogs, rename, sent, back
+  host_actions  host on C1: pick, right click, personal save, Ctrl+1, clear / auto / load / 1, the rename.
+                                                                       pick, prime, personal, global, tools, rename
+  moves_land  the client moves C1's smoke grenade while the host views C1, the host moves H1's grenade while the
+       client views H1: each lands on the viewer; forceCloseSkips unchanged; buckets equal.  host, client, skips, hash
+  turn_one  turn 1 from partner views (host on C1, client on H1, both OK): turn 1, own selections.
+                                                                                          reach, turn, select, hash
+A build without partner views exits 2 with all 36 cells failing: client_cycle / host_cycle on their values (own-only
+cycles), every other row "partner view not reached" (its other cells "not reached"); the spine passes. With partner
+views: exit 0, 36 / 36.
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot miss
-fails every row "boot" with ONE CAPTURE line. Cleanup inside a row (never needed at green): a cursor item ->
+fails every row "boot" with ONE CAPTURE line. Cleanup inside a row (never needed in a passing run): a cursor item ->
 inventory_cursor_clear, a dialog -> ESC, each recorded. one foreground run is the result, no
 skip path, no second boot. Exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_equip_partner_view.py
@@ -49,27 +52,30 @@ from test_prebattle_equip import (
     next_press, goto_unit, wait_until, evidence, stack, top, has, es, equip, turn, in_battle, drained, ammo_of, cell_of,
     pile_ids, strip_both, both, diff_buckets, items_by_id, bring_up_lobby_roster_pinned, short)
 
-# ----- pins (TASK 0, docs rewrite/eq1-task0/sa/CONSTANTS.md: boots a = b, boot c green) -----
+# ----- pinned setup values -----
 PORT = "49281"                     # this file's lobby key
-DIRS = ("eq1_v_host", "eq1_v_client")
+DIRS = ("equip_partner_view_host", "equip_partner_view_client")
 C1 = C_IDS[0]                      # 8: the client's first seated unit, its screen opens on it
-H1 = 10                            # the host screen's first unit at S2
+H1 = 10                            # the host screen's first unit once both screens are up
 N_ALL = len(C_IDS) + len(H_IDS)    # 7: every player-side soldier with an inventory
-CYCLE_C = [9, 10, 11, 12, 13, 14, 8]      # the client's NEXT order from C1 (unit order; boot c)
-CYCLE_H = [11, 12, 13, 14, 8, 9, 10]      # the host's NEXT order from H1 (boot c)
-OWNER_RECT = (28, 18, 210, 17)     # E10's owner line (list_widgets: a Text)
+CYCLE_C = [9, 10, 11, 12, 13, 14, 8]      # the client's NEXT order from C1 (unit order)
+CYCLE_H = [11, 12, 13, 14, 8, 9, 10]      # the host's NEXT order from H1
+OWNER_RECT = (28, 18, 210, 17)     # the owner line (list_widgets: a Text)
 BUTTON_RECTS = {"unload": (288, 32, 32, 25), "create": (288, 90, 32, 22), "apply": (288, 113, 32, 22)}
-HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"   # the D216 lines at boots a / b; the owner lines at boot c
+HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"   # as the "Waiting for ..." and owner lines show them
 OWNER_TEXT = "Owner: {}"           # STR_COOP_EQUIP_OWNER (en-US)
 PISTOL_T, PISTOL_CLIP_T, SMOKE_T = "STR_PISTOL", "STR_PISTOL_CLIP", "STR_SMOKE_GRENADE"
-KEY_CLEAR, KEY_AUTO, KEY_LOAD_P, KEY_SAVE_P = 120, 122, 108, 115   # equip_layouts.keys at boots a / b
-SDLK_1, SDLK_F5, SDLK_F9, SDLK_ESCAPE = 49, 286, 290, 27  # global layout 0; F5 / F9 open the save / load dialogs (boot a)
-SETTLE_S = 1.0                     # the read after a refused tool / rename (boot p shows each change within it)
-ROWS = (("PV1", ("next", "prev")), ("PV2", ("next", "prev")), ("PV3", ("reach", "owner", "buttons")),
-        ("PV4", ("pick", "ground", "prime", "unload", "sent")),
-        ("PV5", ("layout", "personal", "global", "dialogs", "rename", "sent", "back")),
-        ("PV6", ("reach", "owner", "buttons")), ("PV7", ("pick", "prime", "personal", "global", "tools", "rename")),
-        ("PV8", ("host", "client", "skips", "hash")), ("PV9", ("reach", "turn", "select", "hash")))
+KEY_CLEAR, KEY_AUTO, KEY_LOAD_P, KEY_SAVE_P = 120, 122, 108, 115   # equip_layouts.keys
+SDLK_1, SDLK_F5, SDLK_F9, SDLK_ESCAPE = 49, 286, 290, 27  # global layout 0; F5 / F9 open the save / load dialogs
+SETTLE_S = 1.0                     # the read after a refused tool / rename (a build that applies them shows each
+#                                    change within it)
+ROWS = (("client_cycle", ("next", "prev")), ("host_cycle", ("next", "prev")),
+        ("client_look", ("reach", "owner", "buttons")),
+        ("client_clicks", ("pick", "ground", "prime", "unload", "sent")),
+        ("client_tools", ("layout", "personal", "global", "dialogs", "rename", "sent", "back")),
+        ("host_look", ("reach", "owner", "buttons")),
+        ("host_actions", ("pick", "prime", "personal", "global", "tools", "rename")),
+        ("moves_land", ("host", "client", "skips", "hash")), ("turn_one", ("reach", "turn", "select", "hash")))
 
 class Row:
     def __init__(self, name, cells):
@@ -132,7 +138,7 @@ def key(gc, sym, mod=None):
     return r.get("error") or r.get("ok")
 
 def rename(gc):
-    """PEQ's rename recipe (P8-4c T0-R2): click the name field, one letter, click off it."""
+    """test_prebattle_equip.py's rename recipe: click the name field, one letter, click off it."""
     out = []
     for req in ({"kind": "click", "x": NAME_CLICK[0], "y": NAME_CLICK[1]}, {"kind": "key", "key": RENAME_LETTER[1]},
                 {"kind": "click", "x": UNFOCUS_CLICK[0], "y": UNFOCUS_CLICK[1]}):
@@ -151,8 +157,8 @@ def top_after(gc):
     return top(gc)
 
 def cleanup(gc, rec):
-    """Never needed at green: a dialog over the screen -> ESC (never with the screen on top: there ESC is OK), then an
-    item on the cursor -> inventory_cursor_clear. Each recorded."""
+    """Never needed in a passing run: a dialog over the screen -> ESC (never with the screen on top: there ESC is
+    OK), then an item on the cursor -> inventory_cursor_clear. Each recorded."""
     for _ in range(3):
         t = top(gc)
         if t == "InventoryState":
@@ -215,15 +221,15 @@ def boot(host, client):
     h_ids = sorted(u["id"] for u in hb["units"] if u.get("coop") == COOP_SEAT_0
                    and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
     assert h_ids == H_IDS, f"host-seat soldiers {h_ids} (want H {H_IDS})"
-    print(f"[eq1] boot ok: MAP_FP={MAP_FP!r} seated={seated_uids} H={h_ids}", flush=True)
+    print(f"[test_equip_partner_view] boot ok: MAP_FP={MAP_FP!r} seated={seated_uids} H={h_ids}", flush=True)
 
-def s1_stage(host, client, ctx):
+def stage_items(host, client, ctx):
     got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client) and in_battle(host),
                          CLIENT_BRIEFING_WAIT_S, 0.1)
     rec = {"bothBriefingsWithin": dt if got else None, "stacks": [stack(host), stack(client)]}
-    ctx["s1"] = rec
+    ctx["staging"] = rec
     if not got:
-        raise AssertionError(f"S1: both machines do not hold the battle with their briefings up ({rec})")
+        raise AssertionError(f"staging: both machines do not hold the battle with their briefings up ({rec})")
     session.wait_seq_barrier(host, client)  # the host's first evs applied before staging
     rec["stripped"] = {uid: strip_both(host, client, uid) for uid in (C1, H1)}
     ids = {}
@@ -244,12 +250,12 @@ def s1_stage(host, client, ctx):
     rec["fuses"] = {n: fuses(host, client, ids[n]) for n in ("grenade", "smoke")}
     rec["diff"] = diff_buckets(host, client)
     if rec["diff"]:
-        raise AssertionError(f"S1: buckets differ after the staging: {rec['diff']}")
+        raise AssertionError(f"staging: buckets differ after the staging: {rec['diff']}")
     ctx["ids"] = ids
 
-def s2_screens(host, client, ctx):
+def open_screens(host, client, ctx):
     rec = {"clientClose": client.cmd({"cmd": "close_briefing"}).get("ok")}
-    ctx["s2"] = rec
+    ctx["screens"] = rec
 
     up = lambda gc: inv_view(gc).get("preBattle") is True and inv_view(gc).get("top") is True  # noqa: E731
     g1, rec["clientScreenWithin"] = wait_until(lambda: up(client), ENTRY_WAIT_S)
@@ -258,10 +264,10 @@ def s2_screens(host, client, ctx):
     g3, rec["announcedWithin"] = wait_until(lambda: equip(host).get("openAnnounced") is True, ANSWER_WAIT_S)
     rec["views"] = [inv_view(host), inv_view(client)]
     if not (g1 and g2 and g3):
-        raise AssertionError(f"S2: the pre-battle screens are not both up and announced ({rec})")
+        raise AssertionError(f"screens: the pre-battle screens are not both up and announced ({rec})")
     got = [(v.get("unitId"), v.get("selectedItem")) for v in rec["views"]]
     if got != [(H1, -1), (C1, -1)]:
-        raise AssertionError(f"S2: host / client (unitId, cursor) {got} (want ({H1}, -1) / ({C1}, -1))")
+        raise AssertionError(f"screens: host / client (unitId, cursor) {got} (want ({H1}, -1) / ({C1}, -1))")
 
 def cycle_row(gc, start, cycle, row):
     ev, presses = row.ev, []
@@ -288,7 +294,7 @@ def look_row(gc, uid, own, want_text, row):
     row.cell("buttons", lk["buttons"] == {n: [False] for n in BUTTON_RECTS},
              f"UNLOAD / copy / paste visible = {lk['buttons']} (want each hidden)")
 
-def pv4(host, client, ctx, row):
+def row_client_clicks(host, client, ctx, row):
     if not reach(client, H1, C_IDS, row):
         return
     ids, ev, clean = ctx["ids"], row.ev, []
@@ -329,7 +335,7 @@ def pv4(host, client, ctx, row):
     ev["after"] = a = snap(host, client, H1)
     row.cell("sent", a["sent"] == b["sent"], f"client coopIntentsSent {b['sent']} -> {a['sent']} (want unchanged)")
 
-def pv5(host, client, ctx, row):
+def row_client_tools(host, client, ctx, row):
     if not reach(client, H1, C_IDS, row):
         return
     ev, clean, p, dialogs = row.ev, [], {}, {}
@@ -372,7 +378,7 @@ def pv5(host, client, ctx, row):
              f"back on C1 ({[x['to'] for x in nav]}): unitId {lk['unitId']}, owner line {lk['owner']}, buttons "
              f"{lk['buttons']} (want C1, no visible owner line, the three buttons visible)")
 
-def pv7(host, client, ctx, row):
+def row_host_actions(host, client, ctx, row):
     if not reach(host, C1, H_IDS, row):
         return
     ids, ev, clean = ctx["ids"], row.ev, []
@@ -416,7 +422,7 @@ def pv7(host, client, ctx, row):
     row.cell("rename", na == nb and ra.get("renames") == rb.get("renames"),
              f"C1's names host/client {nb} -> {na}, host renames.applied {ev['renames']} (want unchanged)")
 
-def pv8(host, client, ctx, row):
+def row_moves_land(host, client, ctx, row):
     if not reach(host, C1, H_IDS, row):
         return
     ids, ev = ctx["ids"], row.ev
@@ -445,7 +451,7 @@ def pv8(host, client, ctx, row):
              f"client equip.forceCloseSkips {ev['skips'][0]} -> {ev['skips'][1]} over the row (want unchanged)")
     hash_cell(host, client, row)
 
-def pv9(host, client, ctx, row):
+def row_turn_one(host, client, ctx, row):
     if not reach(host, C1, H_IDS, row) or not reach(client, H1, C_IDS, row):
         return
     ev = row.ev
@@ -462,7 +468,7 @@ def pv9(host, client, ctx, row):
     ev["turnWithin"] = dt if got else None
     row.cell("turn", got, f"turn host/client {[turn(host), turn(client)]} {round(time.time() - t1, 2)} s after the "
                           f"client's OK (want 1 on both within {TURN_WAIT_S} s)")
-    for gc in (client, host):   # each Turn-1 screen: PEQ EQ8's one real key
+    for gc in (client, host):   # each Turn-1 screen: one real key, as in test_prebattle_equip.py
         wait_until(lambda: top(gc) == "NextTurnState", 3.0)
         if top(gc) == "NextTurnState":
             ev[f"{gc.name}Key"] = gc.cmd({"cmd": "inject_input", "kind": "key", "key": SDLK_RETURN}).get("ok")
@@ -474,11 +480,12 @@ def pv9(host, client, ctx, row):
     row.cell("select", got, f"selectedId host/client {sel()} (want one of H {H_IDS} / one of C {C_IDS})")
     hash_cell(host, client, row)
 
-FNS = {"PV1": lambda h, c, ctx, row: cycle_row(c, C1, CYCLE_C, row),
-       "PV2": lambda h, c, ctx, row: cycle_row(h, H1, CYCLE_H, row),
-       "PV3": lambda h, c, ctx, row: look_row(c, H1, C_IDS, OWNER_TEXT.format(HOST_NAME), row),
-       "PV6": lambda h, c, ctx, row: look_row(h, C1, H_IDS, OWNER_TEXT.format(CLIENT_NAME), row),
-       "PV4": pv4, "PV5": pv5, "PV7": pv7, "PV8": pv8, "PV9": pv9}
+FNS = {"client_cycle": lambda h, c, ctx, row: cycle_row(c, C1, CYCLE_C, row),
+       "host_cycle": lambda h, c, ctx, row: cycle_row(h, H1, CYCLE_H, row),
+       "client_look": lambda h, c, ctx, row: look_row(c, H1, C_IDS, OWNER_TEXT.format(HOST_NAME), row),
+       "host_look": lambda h, c, ctx, row: look_row(h, C1, H_IDS, OWNER_TEXT.format(CLIENT_NAME), row),
+       "client_clicks": row_client_clicks, "client_tools": row_client_tools, "host_actions": row_host_actions,
+       "moves_land": row_moves_land, "turn_one": row_turn_one}
 
 def capture(host, client):
     out = {}
@@ -493,7 +500,8 @@ def capture(host, client):
     return out
 
 def run(host, client, log=print):
-    """Boot V, the spine and every row. Returns {cells: {cell: [ok, msg]}, ev: {row: evidence}, spine: [...], t: {...}}."""
+    """The boot, the spine and every row. Returns {cells: {cell: [ok, msg]}, ev: {row: evidence}, spine: [...],
+    t: {...}}."""
     out = {"cells": {}, "ev": {}, "spine": [], "t": {"start": time.time()}}
     ctx = {}
     try:
@@ -508,13 +516,13 @@ def run(host, client, log=print):
             log(f"FAIL {name}: boot")
         return out
     out["t"]["boot"] = time.time()
-    for fn in (s1_stage, s2_screens):
+    for fn in (stage_items, open_screens):
         try:
             fn(host, client, ctx)
         except Exception as e:
             out["spine"].append(f"{fn.__name__}: {type(e).__name__}: {short(e, 600)}")
             log(f"SPINE FAIL {fn.__name__}: {type(e).__name__}: {short(e, 600)}")
-    out["ctx"] = {k: ctx.get(k) for k in ("s1", "s2", "ids")}
+    out["ctx"] = {k: ctx.get(k) for k in ("staging", "screens", "ids")}
     log(f"SPINE {json.dumps(out['ctx'], sort_keys=True, default=str)}")
     out["t"]["spine"] = time.time()
     for name, cells in ROWS:
@@ -549,7 +557,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[eq1] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_equip_partner_view] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [c for c, (ok, _) in out["cells"].items() if ok]
     failed = [c for c, (ok, _) in out["cells"].items() if not ok]
     print(f"\ntest_equip_partner_view: {len(passed)}/{len(out['cells'])} cells passed (rows failing "
