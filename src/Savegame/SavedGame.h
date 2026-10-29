@@ -298,9 +298,9 @@ private:
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
 	/// True only for the cooperative one-world SEPARATE campaign: per-player
 	/// wallets, private research profiles and named base ownership. PvP campaigns
-	/// (game mode 2/3) are stored with the Separate type too, but keep main's
+	/// (game mode 2/3) are stored with the Separate type too, but keep the
 	/// two-world rules, so every Separate-only rule must test this, never the
-	/// campaign type alone (PR #213 F3).
+	/// campaign type alone.
 	bool isSeparateCoopCampaign() const;
 	/// Playtest B4: in a SHARED campaign every soldier needs an explicit owner (seat).
 	/// Any soldier still left UNOWNED (ownerPlayerId 999) - the starting roster of a
@@ -314,7 +314,7 @@ private:
 	{
 		_coopPlayers = players;
 		// Player profiles and wallets are the one-world Separate model only;
-		// SHARED and PvP keep main's single wallet (PR #213 F3).
+		// SHARED and PvP keep a single wallet.
 		if (!isSeparateCoopCampaign())
 			return;
 		_separateCampaign.reconcilePlayerNames(_coopPlayers);

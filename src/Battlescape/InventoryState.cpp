@@ -432,8 +432,8 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 		}
 		
-		// coop base (main's two-world craft item manifest). Separate is one host-owned
-		// world now: the items on a craft belong to the base owner, a soldier's own
+		// coop base (the two-world craft item manifest). Separate is one host-owned
+		// world: the items on a craft belong to the base owner, a soldier's own
 		// gear is its layout, and no per-craft manifest exists, so neither block runs.
 		const bool twoWorldManifest = !_game->getCoopMod()->isSeparateCampaign();
 		if (twoWorldManifest && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == true)
@@ -1412,7 +1412,7 @@ void InventoryState::btnOkClick(Action*)
 		{
 			// The host owns the world: the layouts go to it as one command. Separate
 			// mutates nothing here (the applier also moves the gear); SHARED keeps
-			// main's local write, which the command then makes the same everywhere.
+			// its local write, which the command then makes the same everywhere.
 			submitOneWorldLayouts();
 			if (!separateBaseScreen())
 			{

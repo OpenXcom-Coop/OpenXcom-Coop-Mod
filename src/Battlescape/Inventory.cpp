@@ -551,7 +551,7 @@ void Inventory::moveItem(BattleItem* item, const RuleInventory* slot, int x, int
 
 		// Separate single world: a base-screen move edits only this screen; the
 		// layouts reach the host as one soldier_layout command when it closes.
-		// main's two-world peer mirror (and its craft manifest) is retired here.
+		// The two-world peer mirror and its craft manifest do not apply.
 		if (_game->getCoopMod()->coopInventory == false && _game->getCoopMod()->isSeparateCampaign())
 		{
 			send = false;

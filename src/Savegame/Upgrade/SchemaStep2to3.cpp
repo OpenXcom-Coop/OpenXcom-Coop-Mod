@@ -330,7 +330,7 @@ public:
 		}
 		if (isPvp(set))
 		{
-			// PvP keeps main's two worlds: the client world stays embedded.
+			// PvP keeps two worlds: the client world stays embedded.
 			for (ClientWorld& client : set.clients)
 				setInt(client.world.header(), "saveSchema", 3);
 			set.schema = 3;

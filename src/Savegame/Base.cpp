@@ -655,7 +655,7 @@ UfoDetection Base::detect(const Ufo *target, const SavedGame *save, bool already
 	int radar_chance = 0;
 
 	// PvP mirror of the other player's base: it has no facilities, so detect with
-	// the peer base's synced radar data (main's behaviour, including its +1).
+	// the peer base's synced radar data (including its +1).
 	if (isPeerMirror())
 	{
 		for (const MirrorFacility& fac : _facilitiesCoop)
@@ -1820,7 +1820,7 @@ size_t Base::getDetectionChance() const
 	size_t mindShields = 0;
 	size_t completedFacilities = 0;
 
-	// PvP mirror: the peer base's synced facility totals (main).
+	// PvP mirror: the peer base's synced facility totals.
 	for (const MirrorFacility& fac : _facilitiesCoop)
 	{
 		if (!isPeerMirror())

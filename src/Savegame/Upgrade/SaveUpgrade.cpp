@@ -689,9 +689,9 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			return d;
 		}
 		stampedOld = true; // s < CURRENT: an older stamped schema, resolve variant below
-		// PvP (game mode 2/3) keeps one world per player. Schema 2 is main's
+		// PvP (game mode 2/3) keeps one world per player. Schema 2 is the
 		// current PvP layout, coopClientSaves included, and 2->3 only unifies
-		// the cooperative Separate campaign. Load it as it is (PR #213 F3).
+		// the cooperative Separate campaign. Load it as it is.
 		const int gamemode = body["coop_gamemode"].readVal<int>(0);
 		if (s == 2 && (gamemode == 2 || gamemode == 3))
 		{
@@ -699,9 +699,9 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			d.schema = SAVE_SCHEMA_CURRENT;
 			return d;
 		}
-		// SHARED already is one world: 2->3 only restamps it. Main loads a
-		// schema-2 SHARED save straight to the host window, so it must not
-		// stop at the upgrade dialog (RU11).
+		// SHARED already is one world: 2->3 only restamps it. A schema-2
+		// SHARED save loads straight to the host window, so it must not
+		// stop at the upgrade dialog.
 		if (s == 2 && header["coopCampaignType"].readVal<int>(0) == 1)
 		{
 			d.kind = DetectedSchema::Current;

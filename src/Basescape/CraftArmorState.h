@@ -54,7 +54,7 @@ private:
 	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
-	/// PRD-J10: the host's applies (soldier_order, soldier_armor) refresh the list.
+	/// The host's applies (soldier_order, soldier_armor) refresh the list.
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	///initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
@@ -73,7 +73,7 @@ public:
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier armors.
 	void init() override;
-	/// Applies a pending PRD-J10 live refresh.
+	/// Applies a pending live refresh from the host.
 	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);

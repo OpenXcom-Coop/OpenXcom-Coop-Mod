@@ -328,7 +328,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	if (!_gameOver)
 	{
 		// Separate judges the players' combined funds once, on the host, and both
-		// machines apply that verdict (RU2). Everyone else checks the local funds.
+		// machines apply that verdict. Everyone else checks the local funds.
 		const bool inDebt = separate ? _separateDebt
 			: _game->getSavedGame()->getFunds() <= _game->getMod()->getDefeatFunds();
 		const bool wasWarned = separate ? _separateWasWarned : _game->getSavedGame()->getWarned();
@@ -738,8 +738,8 @@ void MonthlyReportState::calculateChanges()
 
 /**
  * Separate host: each player's wallet gets an equal share of the performance
- * bonus, like country funding (RU7). The campaign is in debt when the SUM of
- * all players' funds is at or below the mod's defeat threshold (RU2); one
+ * bonus, like country funding. The campaign is in debt when the SUM of
+ * all players' funds is at or below the mod's defeat threshold; one
  * player may stay negative while the combined total is above it.
  */
 void MonthlyReportState::settleSeparateMonth()

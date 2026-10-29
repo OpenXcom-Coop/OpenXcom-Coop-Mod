@@ -1252,7 +1252,7 @@ void Globe::drawRadars()
 					}
 				}
 
-				// coop: a PvP mirror draws the peer base's synced radar range (main)
+				// coop: a PvP mirror draws the peer base's synced radar range
 				if (xbase->isPeerMirror() && xbase->_radar_range_coop != 0)
 				{
 					range = xbase->_radar_range_coop;

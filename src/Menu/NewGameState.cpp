@@ -296,7 +296,7 @@ void NewGameState::btnCancelClick(Action *)
 {
 	if (_clientSeparateStart)
 	{
-		// RU9: a client that backs out of its faction/difficulty pick leaves
+		// A client that backs out of its faction/difficulty pick leaves
 		// the session. The host sees a normal player drop instead of waiting
 		// for a base that never comes, and this player is not left in a lobby
 		// with no world.

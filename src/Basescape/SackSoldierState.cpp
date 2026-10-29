@@ -110,7 +110,7 @@ void SackSoldierState::btnOkClick(Action *)
 	// shared_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
 	// validates + removes + broadcasts shared_apply. Separate routes the same way
 	// at every base: a visitor sacking their own soldier stationed at another
-	// player's base goes through the host too (RU8), which checks the owner.
+	// player's base goes through the host too, which checks the owner.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
 		int baseId = 0;

@@ -921,8 +921,8 @@ void GeoscapeState::init()
 
 	}
 
-	// Graph requests (co-op). SHARED keeps main's refresh of the country and
-	// region graph series (RU11); only the one-world Separate campaign skips it.
+	// Graph requests (co-op). SHARED keeps the refresh of the country and
+	// region graph series; only the one-world Separate campaign skips it.
 	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false
 		&& !_game->getCoopMod()->isSeparateCampaign())
 	{
@@ -1997,7 +1997,7 @@ void GeoscapeState::think()
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
 						jc["shield"] = craft->getShield();
-						// Separate: the airborne status string, as main's Separate
+						// Separate: the airborne status string, as the two-world
 						// snapshot sends it for a peer's craft. The replica holds no
 						// destination, dogfight or fuel simulation to derive it from.
 						if (separateWorld)
@@ -2100,7 +2100,7 @@ void GeoscapeState::think()
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
 			// time heartbeat. The replica logs a warning on mismatch; full desync
-			// repair is PRD-J10. Separate stamps every player's wallet and
+			// repair is a world resync. Separate stamps every player's wallet and
 			// private research count instead of the host's own wallet.
 			if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			{
@@ -2535,10 +2535,10 @@ void GeoscapeState::timeAdvance()
 		// Combined with the host's own implicit pause (its GeoscapeState stops
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
-		// Separate only: SHARED and PvP keep main's rule, where the host freezes on
+		// Separate only: in SHARED and PvP the host freezes on
 		// a stale client heartbeat alone. A SHARED client's open dogfight window
-		// reports focus 0 while it stays on the geoscape, and main keeps time
-		// running through it (RU11).
+		// reports focus 0 while it stays on the geoscape, and time keeps
+		// running through it.
 		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
 		const bool peerStale =
 			SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace;
@@ -2667,8 +2667,8 @@ void GeoscapeState::time5Seconds()
 											 });
 
 	// Game over if there are no more bases. Separate is one world holding every
-	// player's bases: the campaign is lost only when no player has a base left
-	// (RU1). The host judges it; the lose cutscene carries the ending to the client.
+	// player's bases: the campaign is lost only when no player has a base left.
+	// The host judges it; the lose cutscene carries the ending to the client.
 	const bool separateWorld = _game->getCoopMod()->isSeparateCampaign();
 	if (_game->getSavedGame()->getBases()->empty() || (!separateWorld && noNonCoopBases && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))
 	{
@@ -3923,7 +3923,7 @@ void GeoscapeState::time30Minutes()
 
 /**
  * Plays a research-completion cutscene.
- * Separate (RU6): a win/lose ending is that player's faction finale result. A win
+ * Separate: a win/lose ending is that player's faction finale result. A win
  * completes the faction and, while other factions remain, queues the continuation
  * vote; a loss (or the last faction's win) ends the campaign for every player.
  * A non-ending cutscene plays only for the research owner; the owner's replica
@@ -4250,7 +4250,7 @@ void GeoscapeState::time1Hour()
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		std::map<Production*, productionProgress_e> toRemove;
-		// GAP-6: the count the host ACTUALLY materialized, NOT the raw time-based
+		// The count the host ACTUALLY materialized, NOT the raw time-based
 		// getAmountProduced(), which overshoots getAmountTotal() when a single
 		// hourly step advances _timeSpent past _amount*manufactureTime (big
 		// engineer pool, or a multi-day time jump). Production::step() caps
@@ -4282,7 +4282,7 @@ void GeoscapeState::time1Hour()
 		}
 		for (const auto& pair : toRemove)
 		{
-			// PRD-J04: mirror the units this step made to SHARED and Separate
+			// Mirror the units this step made to SHARED and Separate
 			// replicas (and the finished batch, before the Production object is
 			// destroyed): a craft or item unit appears there in the same hour as
 			// on the host, docked, stored or shipped as the host put it.
@@ -4907,7 +4907,7 @@ void GeoscapeState::time1Day()
 		{
 			auto* research = mod->getResearch(selfDestructCode, true);
 			// Private Separate research: the alien base owner's research, or any
-			// player's when the base has no owner (RU4).
+			// player's when the base has no owner.
 			SeparateResearchScope researchScope(saveGame, ab->getOwnerPlayerName());
 			if (ab->getOwnerPlayerName().empty() && saveGame->usesSeparatePrivateResearch()
 				? saveGame->isResearchedByAnyPlayer(selfDestructCode)
@@ -5082,7 +5082,7 @@ void GeoscapeState::time1Day()
 		}
 	}
 
-	// PRD-J04: mirror the step's soldier changes (wounds, martial and psi
+	// Mirror the step's soldier changes (wounds, martial and psi
 	// training, monthly psi training) to SHARED and Separate replicas, for
 	// CHANGED soldiers only.
 	SharedEcon::hostDayTick(_game);
@@ -6761,7 +6761,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 		// Owners are roster names: every consumer (event popups, mission access,
 		// arrivals) compares them with seatName(). Profiles are reconciled to the
 		// roster at load (CampaignData::reconcilePlayerNames), so a pending
-		// faction owner keeps its profile under the roster name (PR #213 F23).
+		// faction owner keeps its profile under the roster name.
 		std::vector<std::string> profileNames;
 		for (const std::string& name : save->getCoopPlayers())
 			if (!name.empty() && initialSeparatePlayers.count(name) != 0)

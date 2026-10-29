@@ -609,7 +609,7 @@ void BasescapeState::updateBaseAccessButtons()
 		// Separate foreign bases retain the established limited management view:
 		// browsing, soldiers, craft equipment and purchasing are allowed, while
 		// construction, research, production and selling stay owner-only. Transfers
-		// list only the visitor's own soldiers there (RU17).
+		// list only the visitor's own soldiers there.
 		if (_game->getCoopMod()->isSeparateCampaign()
 			&& !_base->getOwnerPlayerName().empty())
 		{

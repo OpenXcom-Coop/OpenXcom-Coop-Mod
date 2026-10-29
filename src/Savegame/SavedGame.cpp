@@ -355,7 +355,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
 				|| isSeparateCoopCampaign()));
 	}
-	// Player profiles are the one-world Separate model; PvP keeps none (F3).
+	// Player profiles are the one-world Separate model; PvP keeps none.
 	if (isSeparateCoopCampaign())
 	{
 		_separateCampaign.reconcilePlayerNames(_coopPlayers);
@@ -894,7 +894,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
 				|| isSeparateCoopCampaign()));
 	}
-	// Player profiles are the one-world Separate model; PvP keeps none (F3).
+	// Player profiles are the one-world Separate model; PvP keeps none.
 	if (isSeparateCoopCampaign())
 	{
 		_separateCampaign.reconcilePlayerNames(_coopPlayers);
@@ -2212,7 +2212,7 @@ int64_t SavedGame::getFunds() const
 
 bool SavedGame::isSeparateCoopCampaign() const
 {
-	// PvP (game mode 2/3) is stored with the Separate type but keeps main's
+	// PvP (game mode 2/3) is stored with the Separate type but keeps the
 	// two-world rules: one wallet, global research, no named-owner profiles.
 	return _coop && _campaignType == CoopCampaignType::Separate
 		&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3;
@@ -2431,7 +2431,7 @@ void SavedGame::monthlyFunding()
 			int playerMaintenance = 0;
 			for (Base* base : _bases)
 				// An ownerless (legacy) base came from the host world: bill it once,
-				// to the host, never to every player (PR #213 F13).
+				// to the host, never to every player.
 				if (base && (base->getOwnerPlayerName().empty()
 					? playerName == _coopPlayers.front()
 					: base->isOwnedByPlayer(playerName)))

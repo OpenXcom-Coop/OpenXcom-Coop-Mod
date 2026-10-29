@@ -672,7 +672,7 @@ void SoldierInfoState::edtSoldierChange(Action *)
 	// setName above stays for immediate UI feedback; the shared_apply re-asserts the
 	// winning name authoritatively on every machine.
 	// Separate routes it at every base, so a visitor's rename of their own soldier
-	// stationed at another player's base reaches the host too (RU8).
+	// stationed at another player's base reaches the host too.
 	if (_base != 0
 		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{

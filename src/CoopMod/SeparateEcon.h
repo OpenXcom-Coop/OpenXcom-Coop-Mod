@@ -51,7 +51,7 @@ private:
 	std::set<std::string> _completedFactions;
 	std::vector<std::string> _pendingFactionRechecks;
 	/// Owner of a finished faction finale whose continue/end vote has not run.
-	/// Persisted so a reload or a rejoin still holds the vote (PR #213 F11).
+	/// Persisted so a reload or a rejoin still holds the vote.
 	std::string _pendingFactionFinaleOwner;
 	bool _loadedFromSave = false;
 	bool _researchSharingEnabled = false;
@@ -65,7 +65,7 @@ public:
 	void ensurePlayers(const std::vector<std::string>& playerNames);
 	/// Map profiles saved under a name the roster no longer carries onto the
 	/// roster name that has no profile yet, so profile names always equal
-	/// roster names (PR #213 F23). Only an unambiguous one-to-one match is
+	/// roster names. Only an unambiguous one-to-one match is
 	/// renamed; anything else is logged and left as it is.
 	void reconcilePlayerNames(const std::vector<std::string>& roster);
 	void ensurePlayerFunds(const std::vector<std::string>& playerNames,
@@ -192,7 +192,7 @@ bool consumeSharedResearchItem(Game* game, Base* projectBase,
 /// Separate-only host policy for commands targeting another player's base.
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote);
 /// The same policy with the command's payload: a transfer out of @a base is
-/// allowed when every entry is a soldier that @a seat owns there (RU17), and a
+/// allowed when every entry is a soldier that @a seat owns there, and a
 /// live soldier's transformation is allowed (its validator checks the owner).
 bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
 	const Json::Value& payload, const Base* base, int seat);

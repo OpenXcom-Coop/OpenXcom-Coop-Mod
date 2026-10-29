@@ -192,7 +192,7 @@ int normalizeSoldierIds(Game* game)
 	int nextId = 1;
 	std::set<int> reserved;
 	// Soldiers in transit are live soldiers too: a transfer can still hold a
-	// player-local id from an imported world (PR #213 F12).
+	// player-local id from an imported world.
 	auto livingSoldiers = [](Base* base)
 	{
 		std::vector<Soldier*> soldiers(base->getSoldiers()->begin(), base->getSoldiers()->end());
@@ -264,7 +264,7 @@ int normalizeCraftIds(Game* game)
 
 	// Vanilla gives every craft an id that is unique per craft type across the
 	// whole world, and saves name a craft by that (type, id) pair: craft and UFO
-	// destinations, escorts, interception orders, harness levers. Each player's
+	// destinations, escorts, interception orders, harness commands. Each player's
 	// starting base was built in its own new-game world with its own id counters,
 	// so the merged world held SKYRANGER-1 at two bases. The first base in world
 	// order keeps its ids; a later duplicate takes the next free id of its type.
@@ -341,7 +341,7 @@ int playerMaintenance(Game* game, const std::string& playerName)
 	for (Base* base : *save->getBases())
 	{
 		if (!base) continue;
-		// An ownerless (legacy) base is the host's: billed once (PR #213 F13).
+		// An ownerless (legacy) base is the host's: billed once.
 		const bool billed = base->getOwnerPlayerName().empty()
 			? !save->getCoopPlayers().empty() && playerName == save->getCoopPlayers().front()
 			: base->isOwnedByPlayer(playerName);
@@ -721,10 +721,10 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	// the second group are host simulation results, never remote player requests.
 	// A visitor may buy, equip/crew with their own soldiers and vehicles, and
 	// sack, rename, re-armor or train their own soldier stationed there (the
-	// validators check the soldier's owner; armor comes from that base's stores,
-	// RU16; training uses that base's gym and psi lab), and equip their own
+	// validators check the soldier's owner; armor comes from that base's stores;
+	// training uses that base's gym and psi lab), and equip their own
 	// soldiers there from that base's stores (soldier_layout).
-	// Craft weapon rearm stays with the base owner (RU8).
+	// Craft weapon rearm stays with the base owner.
 	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_assign"
 		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor"
 		|| cmd == "soldier_training" || cmd == "soldier_layout")
@@ -736,13 +736,13 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
 	const Json::Value& payload, const Base* base, int seat)
 {
 	if (allowsForeignBaseCommand(cmd, remote)) return true;
-	// By analogy with RU16: a visitor may transform their own soldier stationed
+	// As with armor, a visitor may transform their own soldier stationed
 	// at another player's base. The validator checks the soldier's owner, the
 	// cost comes from the visitor's wallet and the required items from that
 	// base's stores. A dead soldier is not stationed there: it stays refused.
 	if (cmd == "soldier_transform")
 		return !payload.get("dead", false).asBool();
-	// RU17: a visitor may transfer their own soldiers out of another player's
+	// A visitor may transfer their own soldiers out of another player's
 	// base. Every entry must be one of the requester's soldiers there: items,
 	// crafts, staff and the partner's soldiers stay with the base owner.
 	if (cmd != "transfer" || !base) return false;

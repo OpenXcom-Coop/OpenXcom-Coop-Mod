@@ -817,8 +817,8 @@ class connectionTCP
 	static int coop_save_owner_player_id; // ID of the player who owns the co-op save
 	/// Value a just-loaded save may leave in coop_save_owner_player_id. In the
 	/// single-world campaigns the stored value is the writer's seat, not this
-	/// machine's, so it never overrides the local role (PR #213 F2). PvP and
-	/// custom battles keep main's rule: the loaded value names the battle host.
+	/// machine's, so it never overrides the local role. PvP and
+	/// custom battles use the loaded value as is: it names the battle host.
 	static int loadedSaveOwnerId(int storedOwnerId, bool singleWorldCampaign);
 	// PRD-J01: campaign economy model carried to a joining client during the
 	// lobby handshake (before its save exists) so the type label can render.

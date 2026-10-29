@@ -1029,7 +1029,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		}
 	}
 
-	// Separate single world (PR #213): a player's inventory screen at a base, their
+	// Separate single world: a player's inventory screen at a base, their
 	// own or the other player's, shows only that player's soldiers, and the other
 	// player's reserved items (their soldiers' layouts whose gear lies in this
 	// screen's item pool) stay off the ground pane: those items are still made for
@@ -1582,7 +1582,7 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod* mod, s
 							add = false;
 
 							// coop
-							// (main's two-world craft manifest; Separate is one host-owned world)
+							// (the two-world craft manifest; Separate is one host-owned world)
 							if (connectionTCP::getCoopStatic() == true && connectionTCP::_coopCampaign == true
 								&& !connectionTCP::isSeparateCampaignStatic())
 							{

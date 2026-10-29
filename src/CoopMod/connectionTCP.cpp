@@ -5702,14 +5702,14 @@ void connectionTCP::tryStartFactionFinaleVote()
 	broadcastVoteUpdate();
 }
 
-// PvP marker sync (main): a mirror base has no facilities, so the owner's
-// radar data rides its base marker. Main sends the per-facility list only
-// from the client and the circle range from both machines; kept as is.
+// PvP marker sync: a mirror base has no facilities, so the owner's
+// radar data rides its base marker. The per-facility list goes only
+// from the client and the circle range from both machines.
 static void writeMirrorRadar(Json::Value& marker, const Base* base, bool serverOwner)
 {
 	int facilitiesIndex = 0;
 	double radarRangeCoop = 0;
-	int mindShields = 0; // main carries the last shield power forward
+	int mindShields = 0; // the last shield power carries forward
 	for (const auto* fac : *const_cast<Base*>(base)->getFacilities())
 	{
 		if (fac->getBuildTime() != 0 || !fac->getRules())
@@ -5790,7 +5790,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			"SEND_FILE_HOST_SAVE_PROGRESS",
 			"sendCraft", "craftSoldiers", "changeHost", "changeHost3", "changeHost4"
 		};
-		// SHARED keeps main's graph refresh (RU11).
+		// SHARED keeps the graph refresh.
 		const bool sharedGraphPacket = isSharedCampaign()
 			&& (stateString == "graph_requests" || stateString == "update_graphs");
 		if (!bootstrapProgressPacket && !sharedGraphPacket
@@ -11013,7 +11013,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					ufo->setMissionInfo(mission, &traj);
 					sg->getUfos()->push_back(ufo);
 				}
-				// PRD-J08: the DISPLAY id (Target::getId(), which the dogfight lane
+				// The DISPLAY id (Target::getId(), which the dogfight lane
 				// and craft orders match by) follows the host: it changes from 0
 				// when the host detects the UFO.
 				ufo->setId(ufoId);
@@ -12734,7 +12734,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getCoopMod()->inventory_battle_window = false;
 			}
 
-			// Ask for the world now, as main does. The join popup goes on top in
+			// Ask for the world now. The join popup goes on top in
 			// the same frame, so the download dialog's init() would only send the
 			// request after the player closed that popup.
 			CoopState* download = new CoopState(COOP_DLG_WORLD_DOWNLOAD);
@@ -14397,7 +14397,7 @@ bool connectionTCP::isCampaignReplica()
 	if (getServerOwner())
 		return false;
 	// Only the single-world campaigns have replicas. PvP (game mode 2/3) keeps
-	// one independent world per player, which each machine simulates (main).
+	// one independent world per player, which each machine simulates.
 	if (!isSharedCampaign() && !isSeparateCampaign())
 		return false;
 

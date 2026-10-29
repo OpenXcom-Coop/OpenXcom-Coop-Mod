@@ -96,7 +96,7 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	// newResearch is null when the finished topic (or its lookup) was already
 	// researched, e.g. a repeatable getOneFree topic or one research sync delivered
 	// first; sendResearchSync is a no-op in SHARED and SEPARATE (one host-owned
-	// world, PRD-J04) and with sync off.
+	// world) and with sync off.
 	if (_coop == false)
 	{
 		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base);

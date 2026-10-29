@@ -802,7 +802,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// PR #213 F11: queue a different-faction finale exactly as a partial
+	// Queue a different-faction finale exactly as a partial
 	// faction victory does at the end of a battle.
 	if (cmd == "faction_finale_queue")
 	{
@@ -1893,7 +1893,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "add_research_score")
 	{
-		// Unit C test helper: add score to the current month (host), so a month
+		// Test helper: add score to the current month (host), so a month
 		// end has a known positive rating and a performance bonus.
 		SavedGame* sg = _game->getSavedGame();
 		if (!sg)
@@ -1906,7 +1906,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "spawn_event")
 	{
-		// Unit C test helper: queue a geoscape event for an owner (Separate) the
+		// Test helper: queue a geoscape event for an owner (Separate) the
 		// way scripts do (SavedGame::spawnEvent), with a 60-minute countdown.
 		SavedGame* sg = _game->getSavedGame();
 		const RuleEvent* rule = _game->getMod()->getEvent(req.get("name", "").asString(), false);
@@ -6391,11 +6391,11 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 }
 
 /**
- * PR 213 test hooks, a further sub-dispatcher. execute()'s command chain hit
+ * Base and roster screen test hooks, a further sub-dispatcher. execute()'s command chain hit
  * MSVC's C1061 nested-block limit once these commands joined it. Returns true
  * if @a cmd was one of ours (and @a resp was filled).
  */
-bool TestServer::executePr213(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+bool TestServer::executeBaseScreens(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
 	connectionTCP* coop = _game->getCoopMod();
 	(void)coop;
@@ -7064,7 +7064,7 @@ std::string TestServer::execute(const std::string& line)
 					// unlike SEPARATE, where each side rolls its own.
 					jb["coopBaseId"] = b->_coop_base_id;
 					jb["ownerPlayerName"] = b->getOwnerPlayerName();
-					jb["radarRangeCoop"] = b->_radar_range_coop; // PvP mirror radar (F3)
+					jb["radarRangeCoop"] = b->_radar_range_coop; // PvP mirror radar
 					Json::Value crafts(Json::arrayValue);
 					for (auto* c : *b->getCrafts())
 					{
@@ -7420,7 +7420,7 @@ std::string TestServer::execute(const std::string& line)
 					if (found) break;
 				}
 			}
-			// SHARED keeps main's harness contract: either machine may seat any
+			// In SHARED either machine may seat any
 			// soldier at the base (mixed-owner squads are built from one machine,
 			// and the SHARED host does not owner-gate craft_assign). Separate
 			// Campaign gates on the local seat, as its host validator does.
@@ -7466,9 +7466,9 @@ std::string TestServer::execute(const std::string& line)
 					resp["error"] = want ? "craft refused the soldier" : "soldier could not be unseated";
 			}
 		}
-		else if (executePr213(cmd, req, resp))
+		else if (executeBaseScreens(cmd, req, resp))
 		{
-			// handled by the PR 213 sub-dispatcher (executePr213), split off to
+			// handled by the base-screen sub-dispatcher (executeBaseScreens), split off to
 			// stay under MSVC's C1061 nested-block limit (same reason as executeShared10).
 		}
 		else if (cmd == "confirm_landing")
@@ -8093,10 +8093,10 @@ std::string TestServer::execute(const std::string& line)
 			// either of those transitional pointers.
 			// The turn screen and the vote menu are modal overlays of the live
 			// battlescape directly below them, never of a transitional stage, so
-			// reach through them as main's driver did: the abort-vote tests act
+			// reach through them: the abort-vote tests act
 			// while the turn-1 screen is still up, and repeat ABORT while the
 			// abandon-mission vote is open. The in-battle gift notice is the same
-			// kind of overlay: main's driver reached through it too.
+			// kind of overlay, so reach through it too.
 			BattlescapeState* bstate = nullptr;
 			for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 			{
@@ -8918,7 +8918,7 @@ std::string TestServer::execute(const std::string& line)
 			// compared against, so a test can pick a soldier this player owns.
 			resp["localSeat"] = connectionTCP::localSeat();
 			resp["saveID"] = Json::Value::Int64(connectionTCP::saveID);
-			// PR #213 F2/F3/F11: replica role, single-world rules and the finale.
+			// Replica role, single-world rules and the finale.
 			resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 			resp["campaignReplica"] = coop->isCampaignReplica();
 			resp["separateWorld"] = _game->getSavedGame() != nullptr

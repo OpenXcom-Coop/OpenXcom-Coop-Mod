@@ -244,7 +244,7 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 		}
 		// Playtest: SHARED must not reorder the shared host-authoritative roster; keep the
 		// dynamic-stat column but skip the sort/restore mutations. Separate likewise,
-		// at own and foreign bases alike (RU8: a visitor never reorders the host's roster).
+		// at own and foreign bases alike (a visitor never reorders the host's roster).
 		if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 		{
 			initList(_lstSoldiers->getScroll());
@@ -305,7 +305,7 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 		// One-world campaigns never reorder the host-owned roster locally: the
 		// player's own soldiers go back to their order from when this screen
 		// opened through the host (soldier_order), and the list refreshes when
-		// it lands. A visitor never reorders another player's roster (RU8).
+		// it lands. A visitor never reorders another player's roster.
 		if (!(_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase))
 		{
 			std::vector<Soldier*> ownOrder = SharedEcon::visibleSoldiers(_game, _base);
@@ -575,7 +575,7 @@ void CraftSoldiersState::moveSoldierUp(Action *action, unsigned int row, bool ma
 	// roster locally, and the row is an index into the owner-filtered list, not
 	// into _base->getSoldiers(). Separate sends the player's new order at their
 	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// SHARED does not reorder at all, and a visitor never reorders
 	// another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
@@ -652,7 +652,7 @@ void CraftSoldiersState::moveSoldierDown(Action *action, unsigned int row, bool 
 	// roster locally, and the row is an index into the owner-filtered list, not
 	// into _base->getSoldiers(). Separate sends the player's new order at their
 	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// SHARED does not reorder at all, and a visitor never reorders
 	// another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
@@ -901,7 +901,7 @@ void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 /**
  * coop (one-world campaigns): sends craft_assign(off) for every soldier seated on
  * @a craft (or on any craft at the base not out on a mission, when null) that this
- * player may move: in Separate their own soldiers, in SHARED every soldier (main).
+ * player may move: in Separate their own soldiers, in SHARED every soldier.
  * The list refreshes when the host's applies land.
  * @return true if the campaign routed it (nothing is changed locally).
  */

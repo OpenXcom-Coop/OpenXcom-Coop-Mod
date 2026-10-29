@@ -238,7 +238,7 @@ bool isHost() { return connectionTCP::getHost(); }
 // baseId decision (PRD offered coop_base_id OR index-in-_bases): we use the
 // INDEX into SavedGame::getBases(). The SHARED world is a byte-faithful streamed
 // replica, so host and every replica hold the same base list in the same order.
-// Base add/remove and base_move also ride shared_apply (J07), keeping the
+// Base add/remove and base_move also ride shared_apply, keeping the
 // ordering in lock-step. A command still in flight across a base_move would
 // name the wrong base by index alone, so each reference also carries the
 // base's _coop_base_id (resolveBaseRef below).
@@ -1635,7 +1635,7 @@ void baseRenameApply(Game* /*game*/, Json::Value& payload, Base* base, int /*sea
 // roster management, consistent with J05 sell). No refund (vanilla).
 // Separate Campaign: a player acts only on their own soldiers, wherever they are
 // stationed (a visitor may sack or rename their own soldier at another player's
-// base, RU8). SHARED keeps its any-player roster policy.
+// base). SHARED keeps its any-player roster policy.
 static bool separateSoldierOwnerOk(Game* game, const Soldier* s, int seat)
 {
 	if (!game || !game->getSavedGame()
@@ -1677,8 +1677,7 @@ void sackApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
 }
 
 // soldier_transform payload: { rule, soldierId, dead, name }. baseId = the base the
-// transformation screen was opened at. A transformation used to change only the
-// machine that pressed Start. The host re-checks the screen's gates against its own
+// transformation screen was opened at. The host re-checks the screen's gates against its own
 // world (the soldier's owner as for the other soldier commands, the transformation
 // list, funds, required items, living space), then runs vanilla's own transformation
 // once, so its dice roll only there. The result rides the payload and replicas adopt
@@ -1891,8 +1890,8 @@ void soldierGiftApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 			const int previousOwner = s->getOwnerPlayerId();
 			s->setOwnerPlayerId(newOwner);
 			s->setCoop(newOwner);
-			// Separate: tell the receiving player, as main's Separate gift does.
-			// SHARED never showed this notice on main and keeps that.
+			// Separate: tell the receiving player about the gift.
+			// SHARED shows no notice.
 			if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
 				&& previousOwner != newOwner && newOwner == connectionTCP::localSeat())
 			{
@@ -2506,7 +2505,7 @@ static void setSharedVehicleCount(Craft* craft, Base* base, const RuleItem* item
 // "cannot re-equip" shortfall; every machine runs the same steps, and the
 // player who loaded sees the shortfall. Separate: a player's own vehicles
 // only, with the craft screen's owner priority, and only the base owner may
-// load a template (RU8).
+// load a template.
 bool craftLoadoutValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                           int64_t& cost, std::string& failReason)
 {
@@ -2717,7 +2716,7 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // J09 "model the payload to the state, not literally a count" adaptation). Mirrors
 // SoldierArmorState / CraftArmorState: return the old armor's store item + consume
 // the new one against the shared stores.
-// Separate Campaign (RU16): a player changes only their own soldier's armor,
+// Separate Campaign: a player changes only their own soldier's armor,
 // also at another player's base, where the armor comes from that base's stores.
 bool soldierArmorValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                           int64_t& cost, std::string& failReason)
@@ -2895,7 +2894,7 @@ void soldierLayoutApply(Game* game, Json::Value& payload, Base* base, int /*seat
 }
 
 // base_move payload: {}. baseId = the base the mini base strip moves one place
-// left (main's right-click). Commands name bases by index, so the move is a host
+// left (a right-click in the strip). Commands name bases by index, so the move is a host
 // command that every machine applies at the same point in the apply order.
 bool baseMoveValidate(Game* game, const Json::Value& /*payload*/, Base* base, int /*seat*/,
                       int64_t& cost, std::string& failReason)

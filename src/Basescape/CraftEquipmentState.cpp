@@ -1262,7 +1262,7 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 	// One-world campaigns: the host loads the template (one craft_loadout command
 	// with the listed items and the template) and reports what was missing; this
 	// screen refreshes when the apply lands. In Separate only the base owner
-	// changes a craft's items (RU8), as the screen's own moves do.
+	// changes a craft's items, as the screen's own moves do.
 	const bool oneWorld = !_isNewBattle && _game->getCoopMod()
 		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign());
 	if (oneWorld)

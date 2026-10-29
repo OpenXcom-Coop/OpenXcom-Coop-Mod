@@ -152,7 +152,7 @@ TransferItemsState::TransferItemsState(Base *baseFrom, Base *baseTo, DebriefingS
 		_cats.push_back("STR_FILTER_RESEARCHABLE");
 	}
 
-	// Separate (RU17): at another player's base a visitor may move only their own
+	// Separate: at another player's base a visitor may move only their own
 	// soldiers out; its items, crafts and staff stay with the base owner.
 	const bool ownSoldiersOnly = _game->getCoopMod()->isSeparateCampaign()
 		&& _baseFrom->_isForeignBase;
@@ -786,7 +786,7 @@ void TransferItemsState::submitSharedTransfer()
 	// intra-world move, so it follows the vanilla "everything travels" rule.)
 	// Items the source base does not actually have are skipped, so a partly
 	// stocked loadout still ships what it can.
-	// At another player's Separate base the gear is that player's stock (RU17):
+	// At another player's Separate base the gear is that player's stock:
 	// the soldier leaves without it.
 	if (Options::oxceAlternateCraftEquipmentManagement && !soldiers.empty()
 		&& !(_game->getCoopMod()->isSeparateCampaign() && _baseFrom->_isForeignBase))
@@ -840,7 +840,7 @@ void TransferItemsState::submitSharedTransfer()
 	payload["engineers"] = engineers;
 	// Separate, option OFF: a soldier sent to another player's base leaves its
 	// gear behind and arrives with an empty layout, so it never re-equips from
-	// that player's stores (main's completeTransfer did the same).
+	// that player's stores.
 	if (_game->getCoopMod()->isSeparateCampaign() && !soldiers.empty()
 		&& !Options::oxceAlternateCraftEquipmentManagement && _baseTo->_isForeignBase)
 		payload["stripLayout"] = true;

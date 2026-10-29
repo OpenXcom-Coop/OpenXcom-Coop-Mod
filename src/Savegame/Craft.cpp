@@ -448,7 +448,7 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 	{
 		// A named owner means a real base of the unified Separate world, where
 		// _isForeignBase is only this seat's view flag (same rule as Soldier::save).
-		// Only an ownerless mirror/PvP base keeps main's omission.
+		// Only an ownerless mirror/PvP base omits coopItems.
 		if (_base->_isForeignBase == false || !_base->getOwnerPlayerName().empty())
 		{
 			writer.write("coopItems", _coopItems);

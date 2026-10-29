@@ -1337,7 +1337,7 @@ bool load(const std::string &filename)
 }
 
 /// The player's own values of options a multiplayer host overrides for the
-/// current session only (RU10).
+/// current session only.
 static std::map<bool*, bool> _sessionOriginals;
 
 void setSessionOverride(bool *option, bool sessionValue)

@@ -188,7 +188,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 	SortFunctor *compFunc = _sortFunctors[selIdx];
 	_dynGetter = NULL;
 	// A visitor never reorders another player's roster, by any sort or the
-	// original order (RU8). Keep the dynamic column only.
+	// original order. Keep the dynamic column only.
 	if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
 	{
 		if (compFunc && selIdx != 2 && selIdx != 3)
@@ -319,7 +319,7 @@ void CraftArmorState::init()
 }
 
 /**
- * Applies a pending PRD-J10 live refresh: rebuild the list in place.
+ * Applies a pending live refresh from the host: rebuild the list in place.
  */
 void CraftArmorState::think()
 {
@@ -430,7 +430,7 @@ void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 	// roster locally, and the row is an index into the owner-filtered list, not
 	// into _base->getSoldiers(). Separate sends the player's new order at their
 	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// SHARED does not reorder at all, and a visitor never reorders
 	// another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
@@ -507,7 +507,7 @@ void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max
 	// roster locally, and the row is an index into the owner-filtered list, not
 	// into _base->getSoldiers(). Separate sends the player's new order at their
 	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED keeps main's rule (no reordering), and a visitor never reorders
+	// SHARED does not reorder at all, and a visitor never reorders
 	// another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{

@@ -156,7 +156,7 @@ public:
 	/// Unique locked co-op player name that owns this real base. Empty denotes
 	/// a legacy/solo base; _isForeignBase remains only a local-view UI flag.
 	std::string _ownerPlayerName;
-	/// PvP mirror of the other player's base (main's two-world marker sync).
+	/// PvP mirror of the other player's base (two-world marker sync).
 	/// A mirror has no facilities of its own, so it carries the peer base's
 	/// radar data instead. Real bases (every SHARED/SEPARATE base) never use it.
 	struct MirrorFacility
