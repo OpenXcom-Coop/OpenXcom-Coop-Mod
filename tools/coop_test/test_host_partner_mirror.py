@@ -1,28 +1,32 @@
-"""W2-H62 S-B HPM (tools/coop_test/test_host_partner_mirror.py): after a SEPARATE guest battle in which the second player rejoined, the
-host shows the partner's base right after the debriefing (L-LH56-1, ruling R-H62-1). Spec docs rewrite/prompts/w2h62_sb_host_own_marker.md
-(f) (stage S-B) and the common file rewrite/prompts/w2h62_base_marker_cache.md; TASK 0 values in rewrite/w2h62-task0/sb/CONSTANTS.md.
-When the HOST clicks OK on its debriefing first, the client (still on its own debriefing, the host's battle world loaded) answers the host's
-post-battle baseRequest with the HOST's own base; the host coopBase3 caches it, the partner's later coopBase is ignored (cache non-empty)
-and the host shows no partner base until its next geoscape re-init (F18702-F18706, 4/4).
-TWO boots in turn (each shut down before the next), one SEPARATE guest battle each (session.bring_up_separate_guest_battle, PRE =
-set_seed SEED + the base reads HB / CB); END = the host's abort, AbortMissionState OK, the client's VoteMenu YES, the first machine's
-DebriefingState OK, OK_GAP_S, the other's; both GeoscapeState calm 2 s = T; READ at T + READ_S (no host geoscape re-init before it).
-  Row R-7 (boot 1, KA; no drop, the host's OK first; GUARD: the no-hide of the fix) R-7a (GUARD) mir(host) == [(CB_NAME, CB)] exactly
-           at READ. R-7b (GUARD) no base in mir(host) has coopBaseId HB. R-7c (GUARD) mir(client) holds (HB_NAME, HB) at READ.
-  Row R-4 (boot 2, KB; the ordinary rejoin: the client killed in battle, client2 "ClientPlayer" MainMenu NEW BATTLE > COOP > Direct
-           Connect, the host's RESUME once its 62 shows resumeAck; the host's OK first; RED) R-4a (FIX) as R-7a; R-4b (GUARD) as R-7b;
-           R-4c (GUARD) as R-7c for client2.
-  END      CRASH (GUARD): no crash file new since the file start (both boots); every process alive until its shutdown (the killed client
-           excepted).
-Red today: R-4a FAIL (mir(host) == []); every other cell PASS. Green (EB1): all PASS.
+"""After a SEPARATE guest battle in which the second player rejoined, the host shows the partner's base right after the
+debriefing. When broken: when the HOST clicks OK on its debriefing first, the client (still on its own debriefing, the
+host's battle world loaded) answers the host's post-battle baseRequest with the HOST's own base; the host coopBase3
+caches it, the partner's later coopBase is ignored (cache non-empty) and the host shows no partner base until its next
+geoscape re-init (4 of 4 runs).
+TWO boots in turn (each shut down before the next), one SEPARATE guest battle each
+(session.bring_up_separate_guest_battle, PRE = set_seed SEED + the base reads HB / CB); END = the host's abort,
+AbortMissionState OK, the client's VoteMenu YES, the first machine's DebriefingState OK, OK_GAP_S, the other's; both
+GeoscapeState calm 2 s = T; READ at T + READ_S (no host geoscape re-init before it).
+  Row no_drop (boot 1, KEY_NO_DROP; no drop, the host's OK first; GUARD: a battle without a rejoin keeps working)
+           no_drop-host_shows_partner (GUARD) mir(host) == [(CB_NAME, CB)] exactly at READ. no_drop-host_not_own (GUARD)
+           no base in mir(host) has coopBaseId HB. no_drop-client_shows_host (GUARD) mir(client) holds (HB_NAME, HB) at
+           READ.
+  Row ordinary_rejoin (boot 2, KEY_REJOIN; the ordinary rejoin: the client killed in battle, client2 "ClientPlayer"
+           MainMenu NEW BATTLE > COOP > Direct Connect, the host's RESUME once its 62 shows resumeAck; the host's OK
+           first; fails when broken) ordinary_rejoin-host_shows_partner (FIX) as no_drop-host_shows_partner;
+           ordinary_rejoin-host_not_own (GUARD) as no_drop-host_not_own; ordinary_rejoin-client_shows_host (GUARD) as
+           no_drop-client_shows_host for client2.
+  END      CRASH (GUARD): no crash file new since the file start (both boots); every process alive until its shutdown
+           (the killed client excepted).
+When broken: ordinary_rejoin-host_shows_partner FAILS (mir(host) == []); every other cell PASSES.
 mir(gc) = geo_state bases with coopIcon true as [name, coopBaseId]; own(gc) = bases with coopIcon and coopBase false.
 Every press is a real click_widget on a visible, not hidden widget, except the Direct Connect port keys,
-the host's battle_action abort and the VOTE rule (a vote_cast when the YES button is not shown within VOTE_S). Never a popup dismiss,
-a coop dialog back or a base leave; no host re-init before READ. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row
-verdict; a precondition miss ends its row (CAPTURE line, cells "not reached") and the file goes on to its next boot; a boot miss fails
-that boot's cells "boot" with ONE CAPTURE line.
+the host's battle_action abort and the VOTE rule (a vote_cast when the YES button is not shown within VOTE_S). Never a
+popup dismiss, a coop dialog back or a base leave; no host re-init before READ. One EVIDENCE line per row, one PASS /
+FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, cells "not reached") and the
+file goes on to its next boot; a boot miss fails that boot's cells "boot" with ONE CAPTURE line.
 ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
-Run: python tools/coop_test/test_host_partner_mirror.py   (OXC_HARNESS_SLOT selects the lane)"""
+Run: python tools/coop_test/test_host_partner_mirror.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import glob, json, os, subprocess, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -30,15 +34,19 @@ import harness  # noqa: E402
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-KA = "49215"
-KB = "49216"
+KEY_NO_DROP = "49215"
+KEY_REJOIN = "49216"
 NAME = "ClientPlayer"
 SEED = 7
 DROP_S, REJOIN_S, BOTH_S, VOTE_S, DEBRIEF_S, OK_GAP_S, READ_S = 30.0, 90.0, 5.0, 20.0, 120.0, 4.0, 5.0
 NEEDLES = ("[coop] coopBase3 marker", "[coop-session]", "COOP_READY")
-ROWS = (("R-7", ("R-7a", "R-7b", "R-7c")), ("R-4", ("R-4a", "R-4b", "R-4c")), ("END", ("CRASH",)))
-BOOTS = (("m1", KA, "R-7", lambda b, r: row_r7(b, r)), ("m2", KB, "R-4", lambda b, r: row_r4(b, r)))
-FIX = ("R-4a",)
+ROWS = (("no_drop", ("no_drop-host_shows_partner", "no_drop-host_not_own", "no_drop-client_shows_host")),
+        ("ordinary_rejoin", ("ordinary_rejoin-host_shows_partner", "ordinary_rejoin-host_not_own",
+                             "ordinary_rejoin-client_shows_host")),
+        ("END", ("CRASH",)))
+BOOTS = (("no_drop", KEY_NO_DROP, "no_drop", lambda b, r: row_no_drop(b, r)),
+         ("rejoin", KEY_REJOIN, "ordinary_rejoin", lambda b, r: row_ordinary_rejoin(b, r)))
+FIX = ("ordinary_rejoin-host_shows_partner",)
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 SDLK_END, SDLK_BACKSPACE = 279, 8
 T0 = [time.time()]
@@ -46,7 +54,7 @@ T0 = [time.time()]
 class Stop(Exception):
     """a precondition missed: the row ends here"""
 
-# ----- probes and real clicks (copied from the capture rewrite/lh56-1b-cap/lh56b.py, never imported; QH62-1 (a)) -----
+# ----- probes and real clicks (a standalone copy, never imported) -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 3)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -140,7 +148,7 @@ def watch_62(gc, timeout):
         time.sleep(0.05)
     return None
 def trail_until(b, host, cl):
-    """Profile OKs, the host's RESUME once its 62 shows resumeAck, until both tops BattlescapeState BOTH_S (CAP trail_until)"""
+    """Profile OKs, the host's RESUME once its 62 shows resumeAck, until both tops BattlescapeState BOTH_S"""
     tr, resumed, both_since, out = time.time(), False, None, []
     while time.time() - tr < REJOIN_S and alive(host) and alive(cl):
         for gc in (host, cl):
@@ -191,8 +199,8 @@ def both_calm(host, cl, secs=2.0, timeout=20.0):
 class Boot:
     def __init__(self, tag, key):
         self.tag, self.key, self.steps, self.census, self.c2, self.killed = tag, key, [], [], None, False
-        self.host = GameClient("host", None, make_user_dir("w2h62b_%s_host" % tag))
-        self.client = self.cur = GameClient("client", None, make_user_dir("w2h62b_%s_client" % tag))
+        self.host = GameClient("host", None, make_user_dir("partner_mirror_%s_host" % tag))
+        self.client = self.cur = GameClient("client", None, make_user_dir("partner_mirror_%s_client" % tag))
     def procs(self):
         return [g for g in (self.host, self.client, self.c2) if g is not None]
     def snap(self, label):
@@ -242,7 +250,7 @@ def rejoin_ordinary(b, r):
     b.killed, r.ev["kill"] = True, {"t": now(), "rc": b.client.proc.wait(timeout=15)}
     r.ev["host62"] = w = watch_62(b.host, DROP_S)
     r.need(w, "no host 62 within %.0f s of the kill" % DROP_S)
-    b.c2 = b.cur = GameClient("client2", None, make_user_dir("w2h62b_%s_client2" % b.tag))
+    b.c2 = b.cur = GameClient("client2", None, make_user_dir("partner_mirror_%s_client2" % b.tag))
     seed_player_name(b.c2.user_dir)
     b.c2.spawn()
     b.c2.connect()
@@ -269,7 +277,7 @@ def end_battle(b, r, first):
     v = e["voteState"] = {k: v.get(k) for k in ("active", "action", "menuOpen", "id")}
     if v.get("menuOpen") and real_click(b, cl, "VoteMenu", "yes", "vote-yes", timeout=VOTE_S, quiet=0.5):
         e["vote"] = "click"
-    else:  # the VOTE rule (PINNED SETUP VALUES): the helper's way, logged
+    else:  # the VOTE rule: the helper's way, logged
         e["vote"] = ["vote_cast", q(cl, {"cmd": "vote_cast", "id": v.get("id"), "yes": True})]
     wait_until(lambda: top(host) == "DebriefingState", DEBRIEF_S)
     b.snap("host at its DebriefingState")
@@ -293,11 +301,11 @@ def end_battle(b, r, first):
     time.sleep(READ_S)
     rd = b.snap("READ at T + %.0f s" % READ_S)
     return mir(rd["host"].get("bases")), mir(rd[cl.name].get("bases"))
-def row_r7(b, r):
-    """R-7: no drop; END(host)"""
+def row_no_drop(b, r):
+    """no_drop: no drop; END(host)"""
     return end_battle(b, r, "host")
-def row_r4(b, r):
-    """R-4: REJOIN(ordinary); END(host); the client cells read client2"""
+def row_ordinary_rejoin(b, r):
+    """ordinary_rejoin: REJOIN(ordinary); END(host); the client cells read client2"""
     rejoin_ordinary(b, r)
     return end_battle(b, r, "host")
 def run_boot(x, tag, key, rid, row_fn, seed, last):
@@ -318,7 +326,7 @@ def run_boot(x, tag, key, rid, row_fn, seed, last):
         ev["HB"], ev["CB"] = (oh[0], oc[0]) if one else (oh, oc)
         if not ok:
             ev["error"] = "PRE base reads: own(host) %s, own(client) %s (one base each, HB != CB)" % (oh, oc)
-            if one and not last:  # the HB / CB rule (PINNED SETUP VALUES): HB == CB runs the boot once more on the next seed
+            if one and not last:  # the HB / CB rule: HB == CB runs the boot once more on the next seed
                 print("EVIDENCE boot %s: %s; HB == CB: once more on seed %d" % (tag, js(ev), seed + 1), flush=True)
                 return "again"
     except Exception as e:  # noqa: BLE001 - a boot that raises is a boot miss
@@ -333,9 +341,11 @@ def run_boot(x, tag, key, rid, row_fn, seed, last):
     hb, cb, r = ev["HB"], ev["CB"], Row(x, b, rid)
     try:
         mh, mc = row_fn(b, r)
-        r.cell(rid + "a", mh == [cb], "mir(host) at READ %s (want exactly [%s])" % (mh, cb))
-        r.cell(rid + "b", isinstance(mh, list) and all(m[1] != hb[1] for m in mh), "mir(host) %s; HB %s" % (mh, hb))
-        r.cell(rid + "c", isinstance(mc, list) and hb in mc, "mir(%s) at READ %s (want %s in it)" % (b.cur.name, mc, hb))
+        r.cell(rid + "-host_shows_partner", mh == [cb], "mir(host) at READ %s (want exactly [%s])" % (mh, cb))
+        r.cell(rid + "-host_not_own", isinstance(mh, list) and all(m[1] != hb[1] for m in mh),
+               "mir(host) %s; HB %s" % (mh, hb))
+        r.cell(rid + "-client_shows_host", isinstance(mc, list) and hb in mc,
+               "mir(%s) at READ %s (want %s in it)" % (b.cur.name, mc, hb))
         r.finish()
     except Stop as e:
         r.finish(str(e))
@@ -374,8 +384,9 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [c for _r, cs in ROWS for c in cs]
-    print("SUMMARY W2-H62 S-B HPM: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                               sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_host_partner_mirror: %d/%d cells pass; failing %s; wall %.1f s" % (
+        len(cl) - len(set(x.fails)), len(cl),
+        sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
