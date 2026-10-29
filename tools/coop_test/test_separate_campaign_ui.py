@@ -33,9 +33,11 @@ def main():
         assert not menu["visible"]["newBase"], menu
         assert menu["baseOwnerVisible"], menu
         assert menu["baseOwnerText"] == "Owner: HostPlayer", menu
-        for button in ("facilities", "research", "manufacture",
-                       "transfer", "sell"):
+        for button in ("facilities", "research", "manufacture", "sell"):
             assert not menu["visible"][button], menu
+        # Owner ruling RU17: a visitor may transfer their own soldiers out of a
+        # partner base, so Transfer shows there.
+        assert menu["visible"]["transfer"], menu
         assert menu["miniBorderColors"]["HostBase"] == 1, menu
         host_costs = client.ok({"cmd": "base_report", "base": "HostBase"})
         assert host_costs["ownerPlayerMaintenance"] == \
