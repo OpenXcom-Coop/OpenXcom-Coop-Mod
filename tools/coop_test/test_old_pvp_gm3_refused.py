@@ -7,21 +7,24 @@ rewrite/d246u-task0/sc2/CONSTANTS.md (TASK 0 T0-1 .. T0-4, T0-W on the unchanged
 Each row is ONE host with no client (the refusal comes at the menu load, before any session; no lobby key, QSC2-3), spawned, the row,
 shut down. The load is load_save_menu (the LoadGameState LOAD GAME pushes); the box is read with list_widgets once its Text is no
 longer hidden (the popup window hides every surface while it opens); OK is the real button (click_widget), never dismiss_popup.
-Row G3 (dir d246sc2_g3_host): tools/coop_test/fixtures/pvp_gm3_battle.sav (copied, never edited).
-  G3-refused ErrorMessageState is the top within LOAD_S; no HostMenu / LobbyMenu / BattlescapeState in the stack; exactly 1 refusal
-             line and 0 [coop-convert] lines in the host log
-  G3-text    one TextButton OK_CAPTION; one Text == HEADER + SEP + TEXT_GM3, visible and not hidden; the log line's last tab field
-             == TEXT_GM3. Then a screenshot to <host dir>/d246sc2_g3_box.png (EVIDENCE shot, never a cell)
-  G3-ok      the real OK -> MainMenuState the top within OK_S, no ErrorMessageState; world_state.has_save false
+Row old_gm3 (dir d246sc2_g3_host): tools/coop_test/fixtures/pvp_gm3_battle.sav (copied, never edited).
+  old_gm3-refused ErrorMessageState is the top within LOAD_S; no HostMenu / LobbyMenu / BattlescapeState in the stack;
+                  exactly 1 refusal line and 0 [coop-convert] lines in the host log
+  old_gm3-text    one TextButton OK_CAPTION; one Text == HEADER + SEP + TEXT_GM3, visible and not hidden; the log line's
+                  last tab field == TEXT_GM3. Then a screenshot to <host dir>/d246sc2_g3_box.png (EVIDENCE shot, never a
+                  cell)
+  old_gm3-ok      the real OK -> MainMenuState the top within OK_S, no ErrorMessageState; world_state.has_save false
 Row N2S (dir d246sc2_n2s_host; VL-D284-2, stamped newer): FX-N2S = the fixture's working copy with ONE header line
   `coopBattleProtocol: 2` + the file's own line ending inserted before the first `---` line, as d246sc2_n2s.sav.
-  N2S-text   refused as G3-refused; the box == HEADER + SEP + TODAY, one TextButton OK_CAPTION; log field == TODAY; OK -> MainMenuState
+  N2S-text   refused as old_gm3-refused; the box == HEADER + SEP + TODAY, one TextButton OK_CAPTION; log field == TODAY;
+             OK -> MainMenuState
 Row N2M (dir d246sc2_n2m_host; VL-D284-2, another unconverted mode): FX-N2M = the working copy with the body's ONE
   `coop_gamemode: 3` line -> `coop_gamemode: 5` (header 0, line ending kept), as d246sc2_n2m.sav.
   N2M-text   as N2S-text
 C-common (after the three rows): 0 new crash files since the start; every host alive at its row's end; no save file in any host dir
   beyond the one its row placed.
-RED (R1, the unchanged build): exit 2, 5/6 - FAIL G3-text only (today's text in the box and in the log). GREEN (G1, E1): 6/6.
+RED (R1, the unchanged build): exit 2, 5/6 - FAIL old_gm3-text only (today's text in the box and in the log). GREEN (G1,
+E1): 6/6.
 One EVIDENCE line per row, one PASS / FAIL line per cell, one ROW line per row; every row runs after a failure; a precondition miss
 ends its row (later cells "not reached"); a boot miss prints ONE CAPTURE line and FAILs the row's cells "boot". run in the
 foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
@@ -55,12 +58,12 @@ HEADER, SEP, OK_CAPTION = "Load failed", "\x02", "OK"
 LOAD_S, LOG_S, OK_S, POPUP_S = 30, 10, 30, 5
 SHOT_SETTLE = 0.5                      # one drawn frame after the popup ends before the evidence screenshot (TASK 0: 0.5 s)
 G3_SAVE = os.path.join(HERE, "fixtures", "pvp_gm3_battle.sav")
-TAGS = {"G3": "d246sc2_g3", "N2S": "d246sc2_n2s", "N2M": "d246sc2_n2m"}
-FILES = {"G3": os.path.basename(G3_SAVE), "N2S": "d246sc2_n2s.sav", "N2M": "d246sc2_n2m.sav"}
+TAGS = {"old_gm3": "d246sc2_g3", "N2S": "d246sc2_n2s", "N2M": "d246sc2_n2m"}
+FILES = {"old_gm3": os.path.basename(G3_SAVE), "N2S": "d246sc2_n2s.sav", "N2M": "d246sc2_n2m.sav"}
 AWAY = ("HostMenu", "LobbyMenu", "BattlescapeState")
-ROWS = {"G3": ["G3-refused", "G3-text", "G3-ok"], "N2S": ["N2S-text"], "N2M": ["N2M-text"]}
-ALL = ROWS["G3"] + ROWS["N2S"] + ROWS["N2M"] + ["C-common"]
-FIX = {"G3-text"}
+ROWS = {"old_gm3": ["old_gm3-refused", "old_gm3-text", "old_gm3-ok"], "N2S": ["N2S-text"], "N2M": ["N2M-text"]}
+ALL = ROWS["old_gm3"] + ROWS["N2S"] + ROWS["N2M"] + ["C-common"]
+FIX = {"old_gm3-text"}
 stack, top, crash_set, wait, alive = RR.stack, RR.top, RR.crash_set, RR.wait, RR.alive
 if TEXT_GM3 != VL_D284_1:  # character for character (spec (f))
     print(f"FAIL setup: TEXT_GM3 {TEXT_GM3!r} != VL-D284-1 {VL_D284_1!r}", flush=True)
@@ -199,15 +202,17 @@ def press_ok(host, ev):
     return bad
 
 
-def row_g3(host, ev):
-    b, bad = load(host, "G3", ev)
-    cell("G3-refused", not bad, "; ".join(bad) or f"ErrorMessageState the top after {ev['boxS']} s, stack {ev['stack']}; "
+def row_old_gm3(host, ev):
+    b, bad = load(host, "old_gm3", ev)
+    cell("old_gm3-refused", not bad,
+         "; ".join(bad) or f"ErrorMessageState the top after {ev['boxS']} s, stack {ev['stack']}; "
          "1 refusal line, 0 convert lines")
     if b is None:
-        block(ROWS["G3"][1:], "not reached: no ErrorMessageState (G3-refused)")
+        block(ROWS["old_gm3"][1:], "not reached: no ErrorMessageState (old_gm3-refused)")
         return
     tbad = text_bad(b, ev["log"], TEXT_GM3)
-    cell("G3-text", not tbad, "; ".join(tbad) or "one TextButton OK; the box Text == HEADER + SEP + TEXT_GM3 (VL-D284-1), visible, "
+    cell("old_gm3-text", not tbad,
+         "; ".join(tbad) or "one TextButton OK; the box Text == HEADER + SEP + TEXT_GM3 (VL-D284-1), visible, "
          f"shown after {b['s']} s; the log field == TEXT_GM3")
     time.sleep(SHOT_SETTLE)
     shot = os.path.join(host.user_dir, "d246sc2_g3_box.png")
@@ -215,7 +220,8 @@ def row_g3(host, ev):
     ev["shot"] = shot if r.get("ok") else r
     obad = press_ok(host, ev)
     obad += [f"world_state.has_save {ev['ok']['has_save']!r} (want False)"] if ev["ok"]["has_save"] is not False else []
-    cell("G3-ok", not obad, "; ".join(obad) or f"OK -> MainMenuState after {ev['ok']['s']} s, no ErrorMessageState; has_save false")
+    cell("old_gm3-ok", not obad,
+         "; ".join(obad) or f"OK -> MainMenuState after {ev['ok']['s']} s, no ErrorMessageState; has_save false")
 
 
 def row_neg(row):
@@ -231,13 +237,14 @@ def row_neg(row):
 
 
 def run_row(row, fn):
-    """One row: the host's user dir (G3: the fixture; N2S / N2M: the FX file), spawn + connect, the row, the host shut down."""
-    d = make_user_dir(TAGS[row] + "_host", saves=(G3_SAVE,) if row == "G3" else ())
+    """One row: the host's user dir (old_gm3: the fixture; N2S / N2M: the FX file), spawn + connect, the row, the host
+    shut down."""
+    d = make_user_dir(TAGS[row] + "_host", saves=(G3_SAVE,) if row == "old_gm3" else ())
     host = GameClient("host", None, d)
     ROW_END[row] = {"alive": False, "dir": d, "placed": os.path.join("xcom1", FILES[row])}
     ev, t0 = {"file": FILES[row]}, time.time()
     try:
-        if row != "G3":
+        if row != "old_gm3":
             with open(G3_SAVE, "rb") as f:
                 try:
                     data = fx(row, f.read())
@@ -284,7 +291,7 @@ def common(crash0):
 def main():
     t0 = time.time()
     crash0 = crash_set()
-    run_row("G3", row_g3)
+    run_row("old_gm3", row_old_gm3)
     run_row("N2S", row_neg("N2S"))
     run_row("N2M", row_neg("N2M"))
     common(crash0)
