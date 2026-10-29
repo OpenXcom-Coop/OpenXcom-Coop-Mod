@@ -27,6 +27,9 @@ only and each detected and repaired like C2:
   C6 projects a research project only the replica's ClientBase runs.
   C7 counters a custom counter only the replica holds.
   C8 events   a pending geoscape event only the replica holds.
+  C10 soldier stats  one soldier's current stat differs on the replica only
+              (host training raises stats that no result carries). The replica
+              detects it and one request and one restream repair it.
   C9 fast     at the fastest clock (a game day per tick) a drift is repaired by
               exactly one resync request and one restream: the replica waits
               for the stream it asked for although many game hours pass during
@@ -289,6 +292,30 @@ def row_fast(host, client, host_dir):
           f"restream, 1 request and 1 stream")
 
 
+def row_soldier_stats(host, client, host_dir):
+    """C10: a soldier stat only the replica holds, with every count equal."""
+    def soldier(gc):
+        return sep.soldiers_at(gc, "ClientBase")[0]
+    target = soldier(host)
+    assert soldier(client)["id"] == target["id"], ("C10 precondition", target)
+    for gc in (host, client):
+        gc.ok({"cmd": "shared_reset_resync_stats"})
+    hlog = EngineLog(host_dir)
+    client.ok({"cmd": "set_soldier_stat", "base": "ClientBase", "id": target["id"],
+               "stat": "firing", "value": target["firing"] + 7})
+    assert soldier(client)["firing"] == target["firing"] + 7, "C10 the drift was not made"
+    repair(host, client, "C10 soldier stats",
+           lambda: soldier(client)["firing"] != soldier(host)["firing"])
+    # A second restream needs a surviving mismatch; wait well past the debounce.
+    time.sleep(2 * DEBOUNCE_S)
+    rs, streams = resync(client), hlog.count(STREAM_LINE)
+    assert rs["requests"] == 1 and streams == 1, (
+        f"C10 soldier stats: {rs['requests']} request(s) and {streams} restream(s) "
+        f"(want 1 and 1)")
+    print(f"PASS C10 soldier stats: a drifted soldier stat (firing "
+          f"{target['firing']}+7 on the replica) is repaired by one restream")
+
+
 def main():
     # Coop_EventSync_Test supplies the event C8 schedules; with the clock paused
     # none of its scripted events fires.
@@ -306,6 +333,7 @@ def main():
         for name, row in (("C1", row_terms), ("C2", row_research), ("C3", row_wallet),
                           ("C5", row_stores), ("C6", row_projects), ("C7", row_counters),
                           ("C8", row_events),
+                          ("C10", lambda h, c: row_soldier_stats(h, c, js.host_dir)),
                           ("C9", lambda h, c: row_fast(h, c, js.host_dir))):
             try:
                 row(host, client)

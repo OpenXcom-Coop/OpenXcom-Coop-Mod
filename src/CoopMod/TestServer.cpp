@@ -3894,6 +3894,39 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "set_soldier_stat")
+	{
+		// Sets one current stat of one soldier on THIS machine only, e.g. to make a
+		// replica's soldier differ from the host's. Params: base, id (soldier id),
+		// stat (tu, stamina, health, bravery, reactions, firing, throwing, strength,
+		// psiStrength, psiSkill, melee, mana), value.
+		static const std::map<std::string, UnitStats::Ptr> fields = {
+			{"tu", &UnitStats::tu}, {"stamina", &UnitStats::stamina},
+			{"health", &UnitStats::health}, {"bravery", &UnitStats::bravery},
+			{"reactions", &UnitStats::reactions}, {"firing", &UnitStats::firing},
+			{"throwing", &UnitStats::throwing}, {"strength", &UnitStats::strength},
+			{"psiStrength", &UnitStats::psiStrength}, {"psiSkill", &UnitStats::psiSkill},
+			{"melee", &UnitStats::melee}, {"mana", &UnitStats::mana},
+		};
+		SavedGame* sg = _game->getSavedGame();
+		const std::string baseName = req.get("base", "").asString();
+		const int id = req.get("id", -1).asInt();
+		auto field = fields.find(req.get("stat", "").asString());
+		Soldier* soldier = nullptr;
+		if (sg)
+			for (auto* base : *sg->getBases())
+				if (base->getName() == baseName)
+					for (auto* candidate : *base->getSoldiers())
+						if (candidate->getId() == id) { soldier = candidate; break; }
+		if (!soldier) resp["error"] = "soldier not found";
+		else if (field == fields.end()) resp["error"] = "unknown stat";
+		else
+		{
+			soldier->getCurrentStatsEditable()->*(field->second)
+				= (UnitStats::Type)req.get("value", 0).asInt();
+			resp["ok"] = true;
+		}
+	}
 	else if (cmd == "force_soldier_craft")
 	{
 		// Lock-step fixture setup without opening CraftSoldiersState/CoopState.
