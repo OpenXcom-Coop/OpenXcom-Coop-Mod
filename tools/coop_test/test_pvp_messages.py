@@ -86,7 +86,7 @@ W_ID, S_ID, PP_ID = 11, 12, 8     # the panic target, the bleed-out (opponent_de
 SHOOTER_B, VICTIM_B = 13, 14      # no row uses them; both outside A's sight
 FACE = 4                          # every X-COM unit: A outside its view sector, A still sees 8..11
 TILES = {u: (t, d if u == A_ID else FACE) for u, (t, d) in RM.TILES.items()}
-FLOOR_B = (37, 37, 0)             # test_ownerless_units' FLOOR rule from 13 on (33,33,0): k 4, d 3 on both censuses
+FLOOR_B = (37, 37, 0)             # a floor tile 4 tiles south-east (direction 3) of 13 on (33,33,0), on both machines
 B_TYPE = "STR_SECTOID_SOLDIER"
 TU = {A_ID: 54, PP_ID: 64, SHOOTER_B: 61}   # bring-up TUs
 ALIEN_PSI_SEED = PANIC_ROLL_SEED = XCOM_PSI_SEED = SEED_B = 1
