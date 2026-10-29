@@ -1,6 +1,6 @@
 """Regression: the port-file reader tolerates the publisher's rename handle.
 
-while the game publishes testserver_port.txt (it writes a .tmp
+While the game publishes testserver_port.txt (it writes a .tmp
 then std::rename()s it onto the final name), the CRT briefly holds a handle on
 the final file with DELETE access and share READ|WRITE|DELETE. A reader that
 opens with only share READ|WRITE is refused ERROR_SHARING_VIOLATION, surfaced as
