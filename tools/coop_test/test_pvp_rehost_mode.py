@@ -1,21 +1,22 @@
-"""test_pvp_rehost_mode.py: a resumed PvP campaign keeps its mode after the host's DISCONNECT and a second START HOST
-(L-SC5-1; R-H46-0; QC-16 (a), QC4A-1 (a), VL-C4A-1). A gm3 campaign (host = the aliens) and a gm2 campaign (host = X-COM) are each
-saved on the geoscape, both processes end, the host loads the save through the real host window, presses START HOST, the REAL
-DISCONNECT button and START HOST again, a fresh client2 joins and the host presses RESUME: both machines must play the save's PvP mode
-with both roles, and the next host save must keep it. Row L5 is the gm2 mid-battle campaign rejoin (L-SC5-5), a control passing today.
-L5-phase1 reads client2's phase-one world while client2 holds its battle_accept (TEST-ONLY hold_battle_accept; F24289).
-Spec: docs rewrite/prompts/w2h46_pvp_rehost_mode.md ((f) rows D3, D2, L5; QH46-1 .. QH46-7 (a); F17080-F17089, F17200-F17215); TASK 0
-pins: docs rewrite/w2h46-task0/sa/CONSTANTS.md (boots a3, a2, a5 unchanged; c3, c2 with E1). Key "49122", dirs w2h46_<row>_host / _client /
-_client2; one boot per row. D rows (T0-2 (1)-(13)): bring-up (PF.start_pvp_campaign; mode and noBases pair are preconditions); save1
-(save_game); both end, the host respawns on ITS dir and client2 on an EMPTY dir; load_save_menu; START 1 by host_menu_host visibility 0;
-the REAL DISCONNECT by click_widget once shown (the lobby_disconnect lever only as the logged fallback, failing -leave);
-START 2 the same way; client2 join_tcp with guarded profile_ok; RESUME (resume_campaign_via_button, resumeAck, press_back_when_shown
-60 / 62); SETTLE_S; views; save2; common. A bring-up, save1, relaunch, load or START 1 miss is a setup failure: ONE "CAPTURE <row>:"
-line, the boot's remaining cells FAIL "boot"; a later precondition miss ends its row ("blocked: <why>"); every row runs after a failure.
-Cells (one PASS / FAIL line each, one EVIDENCE and one ROW line per row): D3 (gm3) and D2 (gm2): -start1, -leave, -start2, -mode, -role,
--save, -common; L5 (gm2 rejoin): L5-pause, L5-phase1, L5-resume, L5-end, L5-common.
-RED (unchanged build; TASK 0 a3 / a2 / a5): 7/19 FAIL - D3-start2, D3-mode, D3-role, D3-save, D2-start2, D2-mode, D2-save. GREEN: 19/19.
-ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+"""test_pvp_rehost_mode.py: a resumed PvP campaign keeps its mode after the host's DISCONNECT and a second START HOST.
+A gm3 campaign (host = the aliens) and a gm2 campaign (host = X-COM) are each saved on the geoscape, both processes end,
+the host loads the save through the real host window, presses START HOST, the REAL DISCONNECT button and START HOST
+again, a fresh client2 joins and the host presses RESUME: both machines must play the save's PvP mode with both roles,
+and the next host save must keep it. Row battle_rejoin is the gm2 mid-battle campaign rejoin, a control that passes
+with and without the fix. battle_rejoin-phase1 reads client2's phase-one world while client2 holds its
+battle_accept (the test-only hold_battle_accept command).
+Key "49122", dirs <tag>_host / _client / _client2 (tags pvp_rehost_gm3, pvp_rehost_gm2, pvp_rehost_rejoin); one boot
+per row. The rehost rows: bring-up (PF.start_pvp_campaign; mode and noBases pair are preconditions); save1
+(save_game); both end, the host respawns on ITS dir and client2 on an EMPTY dir; load_save_menu; START 1 by
+host_menu_host visibility 0; the REAL DISCONNECT by click_widget once shown (the lobby_disconnect test command only as
+the logged fallback, failing -leave); START 2 the same way; client2 join_tcp with guarded profile_ok; RESUME
+(resume_campaign_via_button, resumeAck, press_back_when_shown 60 / 62); SETTLE_S; views; save2; common. A bring-up,
+save1, relaunch, load or START 1 miss is a setup failure: ONE "CAPTURE <row>:" line, the boot's remaining cells FAIL
+"boot"; a later precondition miss ends its row ("blocked: <why>"); every row runs after a failure.
+Cells (one PASS / FAIL line each, one EVIDENCE and one ROW line per row): gm3_rehost (gm3) and gm2_rehost (gm2):
+-start1, -leave, -start2, -mode, -role, -save, -common; battle_rejoin: -pause, -phase1, -resume, -end, -common.
+Without the fix 7 of 19 cells FAIL (FIX: gm3_rehost-start2, -mode, -role, -save; gm2_rehost-start2, -mode, -save); with
+it all 19 pass. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_pvp_rehost_mode.py
 """
 import contextlib
@@ -38,17 +39,21 @@ import test_campaign_rejoin as CR  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402  (pure helpers only)
 import test_campaign_resume_gm2 as RG2  # noqa: E402  (to_battle, snap, win_cell, hash_res)
 
-# ----- TASK 0 pins (docs rewrite/w2h46-task0/sa/CONSTANTS.md) -----
+# ----- fixture values (measured) -----
 KEY = "49122"
-SAVE = {"D3": "w2h46_d3.sav", "D2": "w2h46_d2.sav"}
-STUB, STUB_FUNDS = RR.STUB, RR.STUB_FUNDS          # RR's FX4A-11 stub: one unplaced, unnamed, empty base; funds 1000
-FIX = {"D3-start2", "D3-mode", "D3-role", "D3-save", "D2-start2", "D2-mode", "D2-save"}
-# ----- bounds (spec PINNED SETUP VALUES; TASK 0 measured 0.05 / 0.05 / 1.56 / 3.61 / - / 0.0 / 0.2 / 2.4 / 0.05 s) -----
+SAVE = {"gm3_rehost": "gm3_rehost.sav", "gm2_rehost": "gm2_rehost.sav"}
+STUB, STUB_FUNDS = RR.STUB, RR.STUB_FUNDS          # RR's stub: one unplaced, unnamed, empty base; funds 1000
+FIX = {"gm3_rehost-start2", "gm3_rehost-mode", "gm3_rehost-role", "gm3_rehost-save", "gm2_rehost-start2",
+       "gm2_rehost-mode", "gm2_rehost-save"}
+# ----- bounds (measured 0.05 / 0.05 / 1.56 / 3.61 / - / 0.0 / 0.2 / 2.4 / 0.05 s) -----
 DISC_S, LOBBY_S, JOIN_S, RESUME_S, SETTLE_S, SAVE_S, PAUSE_S, ACK_S, END_S = 15, 30, 120, 120, 5, 10, 30, 135, 10
-ROWS = {"D3": ["D3-start1", "D3-leave", "D3-start2", "D3-mode", "D3-role", "D3-save", "D3-common"],
-        "D2": ["D2-start1", "D2-leave", "D2-start2", "D2-mode", "D2-role", "D2-save", "D2-common"],
-        "L5": ["L5-pause", "L5-phase1", "L5-resume", "L5-end", "L5-common"]}
-BOOT = {"tag": "D3"}
+ROWS = {"gm3_rehost": ["gm3_rehost-start1", "gm3_rehost-leave", "gm3_rehost-start2", "gm3_rehost-mode",
+                       "gm3_rehost-role", "gm3_rehost-save", "gm3_rehost-common"],
+        "gm2_rehost": ["gm2_rehost-start1", "gm2_rehost-leave", "gm2_rehost-start2", "gm2_rehost-mode",
+                       "gm2_rehost-role", "gm2_rehost-save", "gm2_rehost-common"],
+        "battle_rejoin": ["battle_rejoin-pause", "battle_rejoin-phase1", "battle_rejoin-resume", "battle_rejoin-end",
+                          "battle_rejoin-common"]}
+BOOT = {"tag": "gm3_rehost"}
 view, census, capture, dlg = RR.view, RR.census, RR.capture, CR.dlg
 RESULTS = []          # (cell, ok, detail)
 
@@ -90,7 +95,7 @@ def top(gc):
 def crash_set():
     return set(glob.glob(os.path.join(harness.CRASH_DIR, "crash_*")))
 
-def wait(pred, timeout, interval=0.25):     # the capture's wait: a probe that raises is a False sample; returns (ok, seconds)
+def wait(pred, timeout, interval=0.25):     # a probe that raises is a False sample; returns (ok, seconds)
     t0 = time.time()
     while time.time() - t0 < timeout:
         with contextlib.suppress(Exception):
@@ -117,7 +122,8 @@ def profile_press(host, c2, rec, t0):
             rec.append([gc.name, round(time.time() - t0, 2), gc.cmd({"cmd": "profile_ok"}).get("ok")])
 
 def bring_up(host, client, gm, ev):
-    """RR.bring_up copied with KEY (FX4A-2): mode [g, g], the noBases pair and (gm3) the client's real base + Skyranger are preconditions."""
+    """RR.bring_up copied with KEY: mode [g, g], the noBases pair and (gm3) the client's real base + Skyranger are
+    preconditions."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         ev["lobbyGamemode"] = PF.start_pvp_campaign(host, client, KEY, alien_player="host" if gm == 3 else "client")
@@ -129,26 +135,28 @@ def bring_up(host, client, gm, ev):
     ev.update(HOST0=hv, CLIENT0=cv)
     want = (True, False) if gm == 3 else (False, True)
     if [hv["gamemode"], cv["gamemode"]] != [gm, gm] or (hv["noBases"], cv["noBases"]) != want:
-        capture_boot(f"bring-up preconditions (FX4A-2): gamemode {[hv['gamemode'], cv['gamemode']]} (want [{gm}, {gm}]), noBases host / "
-                     f"client {[hv['noBases'], cv['noBases']]} (want {list(want)})", host, client)
+        capture_boot(f"bring-up preconditions: gamemode {[hv['gamemode'], cv['gamemode']]} (want [{gm}, {gm}]), "
+                     f"noBases host / client {[hv['noBases'], cv['noBases']]} (want {list(want)})", host, client)
     if gm == 3 and (not xb or not sky):
         capture_boot(f"the client has no real base / Skyranger (base {xb and xb.get('name')}, sky {sky})", host, client)
     geo.slow_clock(host, client)
     return hv, cv
 
 def geo_save(host, client, name, ev, key):
-    """RR.geo_save copied (FX4A-3): save_game lever, the file within SAVE_S, RR.save_keys; a save1 miss is a setup failure."""
+    """RR.geo_save copied: the save_game test command, the file within SAVE_S, RR.save_keys; a save1 miss is a
+    setup failure."""
     path = os.path.join(host.user_dir, "xcom1", name)
     r = host.cmd({"cmd": "save_game", "file": name})
     ok, secs = wait(lambda: os.path.exists(path) and os.path.getsize(path) > 0, SAVE_S, 0.2)
     time.sleep(1.0)
     ev[key] = {"file": name, "reply": r, "s": secs, "keys": RR.save_keys(path) if ok else None}
     if (not r.get("ok") or not ok) and key == "save1":
-        capture_boot(f"host save_game {name}: {r}, file present {os.path.exists(path)} (FX4A-3)", host, client)
+        capture_boot(f"host save_game {name}: {r}, file present {os.path.exists(path)}", host, client)
     return bool(r.get("ok") and ok)
 
 def relaunch(x, ev):
-    """RR.relaunch copied (FX4A-4): both shut down; the host respawned on ITS dir; client2 on an EMPTY dir. Returns (host, client2)."""
+    """RR.relaunch copied: both shut down; the host respawned on ITS dir; client2 on an EMPTY dir. Returns (host,
+    client2)."""
     t0 = time.time()
     try:
         x["client"].shutdown(); x["host"].shutdown()
@@ -156,12 +164,12 @@ def relaunch(x, ev):
         c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
         host.spawn(); host.connect(); c2.spawn(); c2.connect()
     except Exception as e:  # noqa: BLE001
-        capture_boot(f"relaunch (FX4A-4): {type(e).__name__}: {str(e)[:300]}", x["host"], x.get("client2"))
+        capture_boot(f"relaunch: {type(e).__name__}: {str(e)[:300]}", x["host"], x.get("client2"))
     ev.update(relaunchS=round(time.time() - t0, 2), client2DirAtSpawn=session.save_files(c2.user_dir))
     return host, c2
 
 def start_host(host, ev, key):
-    """START HOST through the real host window (host_menu_host visibility 0 -> HostMenu::hostTCPGame; R-D250-SC4A-1)."""
+    """START HOST through the real host window (host_menu_host visibility 0 -> HostMenu::hostTCPGame)."""
     r = host.cmd({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": KEY, "player": "HostPlayer"})
     ok, s = wait(lambda: session.has_state(host, "LobbyMenu"), LOBBY_S)
     ev[key] = {"reply": r, "lobby": ok, "s": s, "stack": stack(host), "get_coop": gv(host),
@@ -182,7 +190,8 @@ def disconnect(host, ev):
     clicked, cs = wait(lambda: top(host) == "HostMenu", DISC_S, 0.05)
     d, back = {"ready": [rok, rs, seen], "click": click, "path": "click_widget", "s": cs}, clicked
     if not clicked:
-        d.update(path="lobby_disconnect (fallback)", stackAtTimeout=stack(host), lever=host.cmd({"cmd": "lobby_disconnect"}))
+        d.update(path="lobby_disconnect (fallback)", stackAtTimeout=stack(host),
+                 fallbackReply=host.cmd({"cmd": "lobby_disconnect"}))
         back, _s = wait(lambda: top(host) == "HostMenu", DISC_S, 0.05)
         d["s"] = round(time.time() - t0, 2)
     d.update(topHostMenu=back, stack=stack(host), get_coop=gv(host), hasSave=host.cmd({"cmd": "world_state"}).get("has_save"))
@@ -229,7 +238,8 @@ def resume(host, c2, ev):
     return ""
 
 def common(row, host, c2, crash0, zero_disk=True, hres=None):
-    """RR.common without a spine: desyncSeen false on both, 0 new crash files; D rows client2 zero-disk, L5 hash_now full after RESUME."""
+    """RR.common without a spine: desyncSeen false on both, 0 new crash files; the rehost rows client2 zero-disk,
+    battle_rejoin hash_now full after RESUME."""
     eh, ec = event_state(host), event_state(c2)
     new = sorted(crash_set() - crash0)
     bad = [f"desyncSeen host {eh.get('desyncSeen')!r} client2 {ec.get('desyncSeen')!r} (want false on both)"] \
@@ -245,7 +255,7 @@ def common(row, host, c2, crash0, zero_disk=True, hres=None):
          + ("client2 zero-disk" if zero_disk else "hash_now full EQUAL after RESUME"))
     return {"desyncSeen": [eh.get("desyncSeen"), ec.get("desyncSeen")], "newCrash": [os.path.basename(p) for p in new]}
 
-def row_d(row, gm, x, ev):
+def row_rehost(row, gm, x, ev):
     host, client = x["host"], x["client"]
     crash0, t_row, cells = crash_set(), time.time(), ROWS[row]
     host0, client0 = bring_up(host, client, gm, ev)
@@ -264,7 +274,8 @@ def row_d(row, gm, x, ev):
     try:
         clicked, back = disconnect(host, ev)
         d = ev["DISCONNECT"]
-        lbad = [] if clicked else [f"the click reached no top HostMenu in {DISC_S} s ({d.get('stackAtTimeout')}; fallback lever: {back})"]
+        lbad = [] if clicked else [f"the click reached no top HostMenu in {DISC_S} s ({d.get('stackAtTimeout')}; "
+                                   f"lobby_disconnect fallback: {back})"]
         lbad += [] if d["hasSave"] is True else [f"world_state.has_save {d['hasSave']!r} (want true)"]
         lbad += [] if d["get_coop"]["serverOwner"] is False else [f"serverOwner {d['get_coop']['serverOwner']!r} (want false)"]
         cell(f"{row}-leave", not lbad, "; ".join(lbad) or f"the DISCONNECT click -> top HostMenu {d['s']} s, has_save true, serverOwner "
@@ -294,7 +305,7 @@ def row_d(row, gm, x, ev):
         rbad += [f"client2 BuildNewBaseState at {ev['client2BuildNewBaseState']} s"] if ev["client2BuildNewBaseState"] else []
         cell(f"{row}-role", not rbad, "; ".join(rbad) or "; ".join(f"{nm} {k} {v[k]!r}" for nm, v, k, _w in want)
              + f" (HOST0's / CLIENT0's / the stub as wanted); no client2 BuildNewBaseState in SETTLE_S {SETTLE_S} s")
-        saved = geo_save(host, c2, f"w2h46_{row.lower()}_after.sav", ev, "save2")
+        saved = geo_save(host, c2, f"{row.lower()}_after.sav", ev, "save2")
         keys = ev["save2"]["keys"] or {}
         mode = [v for k, v in sorted(keys.items()) if k.startswith("coop_gamemode@")]
         nob = [v for k, v in sorted(keys.items()) if k.startswith("no_bases@")]
@@ -310,8 +321,9 @@ def seat1(gc):
     return sorted([u.get("id"), u.get("faction"), u.get("hasAI"), u.get("isOut")] for u in (CR.bs_raw(gc).get("units") or [])
                   if u.get("coop") == 1)
 
-def row_l5(x, ev):
-    """the capture's C3 (L-SC5-5): PF, RG2.to_battle + G2F.spine, client leaves, PAUSE, client2 rejoins (CR.rejoin), RESUME 62, win."""
+def row_battle_rejoin(x, ev):
+    """The gm2 mid-battle rejoin: PF, RG2.to_battle + G2F.spine, client leaves, PAUSE, client2 rejoins (CR.rejoin),
+    RESUME 62, win."""
     host, client = x["host"], x["client"]
     crash0, t_row, hres = crash_set(), time.time(), "not reached"
     host0, _c0 = bring_up(host, client, 2, ev)
@@ -319,18 +331,20 @@ def row_l5(x, ev):
     RG2.BOOT["tag"] = BOOT["tag"]
     both, detail, squad = RG2.to_battle(host, client, ev, False)
     if not both:
-        capture_boot(f"L5 landing (FX4A-6): {detail}", host, client)
+        capture_boot(f"battle_rejoin landing: {detail}", host, client)
     sp_ok, sp_detail = G2F.spine(host, client, ev)
     b = {"host": RG2.snap(host), "client": RG2.snap(client), "seat1": seat1(host), "census": census(host)}
     ev.update(squad=squad, BEFORE=b)
     if not sp_ok or b["host"]["coopGamemode"] != 2 or not b["seat1"] or any(u[1] != 1 or u[2] is not False for u in b["seat1"]):
-        capture_boot(f"L5 landing preconditions: spine {sp_detail}; coopGamemode {b['host']['coopGamemode']}; seat-1 {b['seat1']}", host, client)
+        capture_boot(f"battle_rejoin landing preconditions: spine {sp_detail}; coopGamemode "
+                     f"{b['host']['coopGamemode']}; seat-1 {b['seat1']}", host, client)
     b0, n_h = b["host"]["battleId"], len(CR.log(host))
     try:
         ev["leave"] = client.cmd({"cmd": "disconnect_to_menu"})
         ok, _s = wait(lambda: top(client) == "MainMenuState", 60)
         if not ok:
-            capture_boot(f"L5: the client's disconnect_to_menu reached no MainMenuState within 60 s ({stack(client)})", host, client)
+            capture_boot(f"battle_rejoin: the client's disconnect_to_menu reached no MainMenuState within 60 s "
+                         f"({stack(client)})", host, client)
         seen = {}
         def paused():
             seen.update(stack=stack(host), battle=CR.auth(host), dialog=dlg(host))
@@ -338,15 +352,17 @@ def row_l5(x, ev):
                 and seen["battle"].get("peerAbsent") is True and seen["stack"][-2:] == ["BattlescapeState", "CoopState"]
         ok, s = wait(paused, PAUSE_S)
         ev["PAUSE"] = dict(seen, s=s)
-        cell("L5-pause", ok, f"host code 62, backVisible false, peerAbsent true, stack ends [BattlescapeState, CoopState] {s} s after the leave"
+        cell("battle_rejoin-pause", ok, f"host code 62, backVisible false, peerAbsent true, stack ends "
+             f"[BattlescapeState, CoopState] {s} s after the leave"
              if ok else f"not within {PAUSE_S} s: {json.dumps(seen, sort_keys=True, default=str)[:400]}")
         if not ok:
             raise RowEnd("no host PAUSE")
         client.shutdown()
         c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
         c2.spawn(); c2.connect()
-        # client2's world-without-battle phase lasts ~0.24 s since CIT-G3, shorter than one 0.25 s poll. client2 holds its
-        # battle_accept (TEST-ONLY hold_battle_accept, W2-H82 L2) so the host streams no battle until phase one is read, then releases it.
+        # client2's world-without-battle phase lasts about 0.24 s, shorter than one 0.25 s poll, so client2 holds its
+        # battle_accept (the test-only hold_battle_accept command): the host streams no battle until phase one is
+        # read, then client2 releases it.
         hold = {"arm": c2.cmd({"cmd": "hold_battle_accept", "on": True})}
         t_j, prof, bnb, p1 = time.time(), [], [], {}
         ev["join"] = c2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
@@ -378,8 +394,8 @@ def row_l5(x, ev):
         pbad += [f"client2 {k} {v1.get(k)!r} (want {w!r})" for k, w in (("gamemode", 2), ("noBases", True), ("realBases", STUB), ("funds", STUB_FUNDS))
                  if p1 and v1.get(k) != w]
         pbad += [f"client2 BuildNewBaseState at {bnb} s"] if bnb else []
-        cell("L5-phase1", not pbad, "; ".join(pbad) or f"client2's first world ({p1['t']} s): gamemode 2, noBases true, the stub, funds "
-             f"{STUB_FUNDS}; no BuildNewBaseState at any sample")
+        cell("battle_rejoin-phase1", not pbad, "; ".join(pbad) or f"client2's first world ({p1['t']} s): "
+             f"gamemode 2, noBases true, the stub, funds {STUB_FUNDS}; no BuildNewBaseState at any sample")
         if not acked_ok:
             ev["ackCapture"] = capture("rejoin", host, c2)
             raise RowEnd(f"no host resumeAck true with peerAbsent false within {ACK_S} s")
@@ -405,13 +421,14 @@ def row_l5(x, ev):
             if a["seat1"] != b["seat1"] or a["seat1Client2"] != b["seat1"] else []
         rbad += [f"OFFER {a['OFFER']} (want one line reading battleId={b0},)"] if len(a["OFFER"]) != 1 or f"battleId={b0}," not in a["OFFER"][0] else []
         rbad += [f"REFUSED {a['REFUSED']} (want none)"] if a["REFUSED"] else []
-        cell("L5-resume", not rbad, "; ".join(rbad) or f"both tops BattlescapeState {ts} s after RESUME; battleId {b0} unchanged; battle "
-             f"coopGamemode 2; client2 localSeat 1; seat-1 set unchanged on host and client2; census equal; OFFER 1, REFUSED 0")
+        cell("battle_rejoin-resume", not rbad, "; ".join(rbad) or f"both tops BattlescapeState {ts} s after "
+             f"RESUME; battleId {b0} unchanged; battle coopGamemode 2; client2 localSeat 1; seat-1 set unchanged "
+             f"on host and client2; census equal; OFFER 1, REFUSED 0")
         if not tops:
             raise RowEnd("the battle did not resume on both")
         wv, buf, n_w = {}, io.StringIO(), len(RG2.RESULTS)
         try:
-            # RG2's own "resumed_win" line goes to EVIDENCE, its verdict to L5-end
+            # RG2's own "resumed_win" line goes to EVIDENCE, its verdict to battle_rejoin-end
             with contextlib.redirect_stdout(buf):
                 RG2.win_cell(host, c2, wv)
         except Exception as e:  # noqa: BLE001
@@ -428,11 +445,12 @@ def row_l5(x, ev):
         ebad += ["client2 BuildNewBaseState in END_S"] if any("BuildNewBaseState" in s for s in s2s) else []
         ebad += [f"host real bases {hv['realBases']} / roster {ev['END']['hostRoster']} (want {geo0})"] \
             if hv["realBases"] != geo0["realBases"] or ev["END"]["hostRoster"] != geo0["roster"] else []
-        cell("L5-end", not ebad, "; ".join(ebad) or "both left the debriefing after the X-COM win; client2 top GeoscapeState, gamemode 2, "
-             f"noBases true, the stub, no BuildNewBaseState in {END_S} s; host real bases and roster == before the landing")
+        cell("battle_rejoin-end", not ebad, "; ".join(ebad) or "both left the debriefing after the X-COM win; "
+             f"client2 top GeoscapeState, gamemode 2, noBases true, the stub, no BuildNewBaseState in {END_S} "
+             f"s; host real bases and roster == before the landing")
     except RowEnd as e:
-        block(ROWS["L5"][:-1], str(e))
-    ev["common"] = common("L5", host, x.get("client2") or client, crash0, zero_disk=False, hres=hres)
+        block(ROWS["battle_rejoin"][:-1], str(e))
+    ev["common"] = common("battle_rejoin", host, x.get("client2") or client, crash0, zero_disk=False, hres=hres)
     ev["wall"] = round(time.time() - t_row, 1)
 
 def run_boot(tag, row, fn):
@@ -461,15 +479,15 @@ def run_boot(tag, row, fn):
 
 def main():
     t0 = time.time()
-    run_boot("w2h46_d3", "D3", lambda x, ev: row_d("D3", 3, x, ev))
-    run_boot("w2h46_d2", "D2", lambda x, ev: row_d("D2", 2, x, ev))
-    run_boot("w2h46_l5", "L5", row_l5)
-    allc = ROWS["D3"] + ROWS["D2"] + ROWS["L5"]
+    run_boot("pvp_rehost_gm3", "gm3_rehost", lambda x, ev: row_rehost("gm3_rehost", 3, x, ev))
+    run_boot("pvp_rehost_gm2", "gm2_rehost", lambda x, ev: row_rehost("gm2_rehost", 2, x, ev))
+    run_boot("pvp_rehost_rejoin", "battle_rejoin", row_battle_rejoin)
+    allc = ROWS["gm3_rehost"] + ROWS["gm2_rehost"] + ROWS["battle_rejoin"]
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== W2-H46 resumed PvP campaign mode after the host's DISCONNECT and START HOST: {len(RESULTS) - len(fails)}/{len(allc)} "
-          f"cells PASS, wall {time.time() - t0:.1f} s ====", flush=True)
+    print(f"\n==== resumed PvP campaign mode after the host's DISCONNECT and START HOST: "
+          f"{len(RESULTS) - len(fails)}/{len(allc)} cells PASS, wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
-        print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
+        print(f"  FAIL {n}{' (fails without the fix)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
 
 if __name__ == "__main__":
