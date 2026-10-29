@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""W2-U13 self-test, rows U13-1..U13-9: run_parallel.py --slot-base / per-test logs and run_regression.py.
-Not a test_* file (CI, a default suite and REGRESSION never run it, F7929). Each row runs the tools as subprocesses
-by absolute path in its own temp dir (kept on a failure), drives only the regstub_* stubs on slots 20-27 (S29) and
-boots no game. EVIDENCE before each verdict; exit 0 only when all nine pass, else 2."""
+"""Self-test of the test runners, nine rows: run_parallel.py --slot-base / per-test logs and run_regression.py.
+Not a test_* file (CI, a default suite and run_regression.py never run it). Each row runs the tools as subprocesses
+by absolute path in its own temp dir (kept on a failure), drives only the regstub_* stubs on slots 20-27 (clear of
+the slots other harness runs use) and boots no game. EVIDENCE before each verdict; exit 0 only when all nine pass,
+else 2."""
 import glob, json, os, re, shutil, subprocess, sys, tempfile, time  # noqa: E401
 
 TESTDIR = os.path.dirname(os.path.abspath(__file__))
@@ -13,7 +14,7 @@ TOP_KEYS = ("slots", "wall", "serial", "speedup", "lane_busy", "results")
 RES_KEYS = ("test", "slot", "status", "seconds", "attempts", "rc", "rc_attempts", "timed_out", "budget",
             "over_budget", "reason", "start", "end")
 QUIET = ["--cpu-wait-min", "0", "--allow-stale"]
-R130 = {  # REGRESSION-130 batches (REGRESSION-BATCHES.md + W2i's R-130 block), typed for U13-9
+SAMPLE_BATCHES = {  # five batches of a real batches file, typed in for import_side_effect_free
     5: "test_delta_core test_delta_items test_host_combat test_host_combat_terrain test_light_scope "
        "test_hash_coverage test_death_side test_host_screens_turn".split(),
     9: "test_client_research test_inventory_baton test_rejoin_reveal_rearm test_soldier_removal_log".split(),
@@ -21,7 +22,7 @@ R130 = {  # REGRESSION-130 batches (REGRESSION-BATCHES.md + W2i's R-130 block), 
     18: "test_battle_end_campaign test_battle_end_campaign_fence test_synced_options".split(),
     19: "test_synced_options_ui test_synced_campaign_options test_synced_campaign_options_sep".split(),
 }
-F3 = ("## REGRESSION-3 (fixture)\n- batch 3: regstub_fail regstub_pass_a\n"
+THREE_BLOCKS = ("## REGRESSION-3 (fixture)\n- batch 3: regstub_fail regstub_pass_a\n"
       "## REGRESSION-2 (fixture)\n- batch 1 += regstub_pass_b\n"
       "## REGRESSION-1 (fixture root)\n- batch 1: regstub_pass_a\n- batch 2: regstub_pass_a regstub_pass_b\n")
 STUB_MD = "## REGRESSION-1 (fixture)\n- batch 1: regstub_pass_a regstub_pass_b\n"
@@ -33,7 +34,7 @@ class RowStop(Exception):
 class Row:
     def __init__(self, code):
         self.code, self.failed = code, []
-        self.tmp = tempfile.mkdtemp(prefix="u13_%s_" % code.replace("-", "").lower())
+        self.tmp = tempfile.mkdtemp(prefix="selftest_%s_" % code.replace("-", "").lower())
     def ev(self, text):
         print("EVIDENCE %s: %s" % (self.code, text.replace(self.tmp, "<tmp>").replace(TESTDIR, "<TESTDIR>")), flush=True)
     def cell(self, name, ok, detail=""):
@@ -83,14 +84,14 @@ def plan_has(text, slots):  # run_parallel's plan lines "  slot <n>: ..." name e
     plan = [ln for ln in lines_of(text) if re.match(r"^slot \d+:", ln)]
     return plan, all(any(ln.startswith("slot %d:" % k) for ln in plan) for k in slots)
 
-def fake_exe(row, old=False):  # an empty file, never executed (no firewall prompt, S19)
+def fake_exe(row, old=False):  # an empty file, never executed (so no firewall prompt for a new exe path)
     os.makedirs(row.path("fakeexe"), exist_ok=True)
     exe = row.path("fakeexe", "fake_openxcom.bin")
     open(exe, "wb").close()
     os.utime(exe, (946684800, 946684800) if old else None)  # old = 2000-01-01
     return exe
 
-def runner(row, args, env):  # the runner's absence is the named RED cell of U13-5, -6 and -8
+def runner(row, args, env):  # the runner's absence is the named failed cell of batches_file_resolves, summary_and_crash_census and two_pair_schedule
     p = run(row, [RR] + args, env)
     row.gate(os.path.exists(RR), "no regression runner")
     return p
@@ -99,11 +100,11 @@ def summary_rows(text):
     return {m.group(1): [c.strip() for c in ln.strip("|").split("|")]
             for ln in lines_of(text) for m in [re.match(r"^\|\s*(b\d\d)\s*\|", ln)] if m}
 
-def u13_1(row):
+def row_slot_base_lanes(row):
     j = row.path("J.json")
     p = run(row, [RP, "-k", "2", "--slot-base", "20", "--json", j, "regstub_pass_a", "regstub_pass_b"], env_for())
     row.gate(not (p.returncode == 2 and "unrecognized arguments: --slot-base" in p.stdout + p.stderr),
-             "run_parallel cannot run K=2 on slots 20/21 (F4550)")
+             "run_parallel cannot run K=2 on slots 20/21")
     recs, J, (plan, plan_ok) = stubs(row, p.stdout), load(j) or {}, plan_has(p.stdout, (20, 21))
     row.ev("plan %s; J slot_base=%s slots_used=%s result slots=%s" % (
         plan, J.get("slot_base"), J.get("slots_used"), sorted(r.get("slot") for r in J.get("results", []))))
@@ -118,41 +119,41 @@ def u13_1(row):
     row.cell("J result slots {20, 21}", {r.get("slot") for r in J.get("results", [])} == {20, 21})
     row.cell("plan lines name slots 20 and 21", plan_ok)
 
-def u13_2(row):
+def row_inherited_slot_lanes(row):
     j = row.path("J.json")
     p = run(row, [RP, "-k", "2", "--json", j, "regstub_pass_a", "regstub_pass_b"], env_for(OXC_HARNESS_SLOT="22"),
             over="OXC_HARNESS_SLOT=22")
     recs, J = stubs(row, p.stdout), load(j)
-    SHARED["u13_2_json"] = J
+    SHARED["inherited_slot_lanes_json"] = J
     res = (J or {}).get("results", [])
     row.ev("J result slots %s rc %s" % (sorted(r.get("slot") for r in res), [r.get("rc") for r in res]))
     row.gate(p.returncode == 0 and len(res) == 2 and all(r.get("rc") == 0 for r in res) and len(recs) == 2,
              "GUARD: the stubs' own exits (run rc %d, %d results, %d REGSTUB lines)" % (p.returncode, len(res), len(recs)))
     slots = {int(r["slot"]) for r in recs}
-    row.gate(slots != {0, 1}, "a lane run with OXC_HARNESS_SLOT=22 lands on slots 0/1 (RP :185, F7917)")
+    row.gate(slots != {0, 1}, "a lane run with OXC_HARNESS_SLOT=22 lands on slots 0/1 (RP :185)")
     row.cell("stubs report slots {22, 23}", slots == {22, 23}, str(sorted(slots)))
     row.cell("J slots {22, 23}", {r.get("slot") for r in res} == {22, 23})
 
-def u13_3(row):
+def row_list_only_and_json_keys(row):
     p = run(row, [RP, "-k", "2", "--list-only", "regstub_pass_a", "regstub_pass_b"], env_for())
     plan, plan_ok = plan_has(p.stdout, (0, 1))
     row.ev("plan lines %s" % plan)
     row.cell("exit 0", p.returncode == 0, "rc=%d" % p.returncode)
     row.cell("plan lines slot 0: and slot 1:", plan_ok)
-    J = SHARED.get("u13_2_json")
-    row.gate(isinstance(J, dict), "U13-2's J missing")
+    J = SHARED.get("inherited_slot_lanes_json")
+    row.gate(isinstance(J, dict), "inherited_slot_lanes's J missing")
     miss_top = [k for k in TOP_KEYS if k not in J]
     miss_res = sorted({k for r in J.get("results", []) for k in RES_KEYS if k not in r})
-    row.ev("U13-2 J top keys %s; missing top %s; missing per-result %s" % (sorted(J), miss_top, miss_res))
+    row.ev("inherited_slot_lanes J top keys %s; missing top %s; missing per-result %s" % (sorted(J), miss_top, miss_res))
     row.cell("J holds today's top-level keys", not miss_top, str(miss_top))
     row.cell("J results hold today's keys", bool(J.get("results")) and not miss_res, str(miss_res))
 
-def u13_4(row):
+def row_per_test_logs_and_copies(row):
     L, F, j, tl = row.path("L"), row.path("F"), row.path("J.json"), row.path("tl.csv")
     p = run(row, [RP, "-k", "2", "--slot-base", "24", "--log-dir", L, "--fail-copy-dir", F, "--json", j,
                   "regstub_fail", "regstub_pass_a"], env_for(OXC_TIMELOG=tl), over="OXC_TIMELOG=<tmp>\\tl.csv")
     tlr = [ln for ln in lines_of(read(tl)) if ",test_end," in ln and "regstub_fail.py" in ln]
-    row.ev("tl.csv test_end row for regstub_fail.py (EVIDENCE only, F7624): %s" % (tlr or "none"))
+    row.ev("tl.csv test_end row for regstub_fail.py (EVIDENCE only): %s" % (tlr or "none"))
     row.gate(not (p.returncode == 2 and "unrecognized arguments" in p.stdout + p.stderr), "no per-test logs")
     flog, plog = read(os.path.join(L, "regstub_fail.log")) or "", read(os.path.join(L, "regstub_pass_a.log")) or ""
     rp_stub = [ln for ln in p.stdout.splitlines() if "REGSTUB" in ln]
@@ -178,12 +179,13 @@ def u13_4(row):
              and rf["start_epoch"] < rf["end_epoch"])
     row.cell("J regstub_fail log and fail_copy set", bool(rf.get("log")) and bool(rf.get("fail_copy")))
 
-def u13_5(row):
-    md = row.write("F3.md", F3)
+def row_batches_file_resolves(row):
+    md = row.write("THREE_BLOCKS.md", THREE_BLOCKS)
     p = runner(row, ["--batches", md, "--list-only"] + QUIET, env_for())
     row.ev("list-only stdout: %s" % " | ".join(lines_of(p.stdout)))
     row.cell("exit 0", p.returncode == 0, "rc=%d" % p.returncode)
-    # F3 resolved: batch 1 = pass_a + pass_b (R-2's +=), batch 2 = 2, batch 3 = 2 -> 6 entries; R-2: 4.
+    # THREE_BLOCKS resolved: batch 1 = pass_a + pass_b (REGRESSION-2's +=), batch 2 = 2, batch 3 = 2 -> 6 entries;
+    # REGRESSION-2 alone: 4.
     for want in ("block REGRESSION-3: 3 batches, 6 tests", "batch 1: regstub_pass_a regstub_pass_b",
                  "batch 3: regstub_fail regstub_pass_a"):
         row.cell(want, want in lines_of(p.stdout))
@@ -192,8 +194,8 @@ def u13_5(row):
     row.cell("second exit 0", p2.returncode == 0, "rc=%d" % p2.returncode)
     row.cell("block REGRESSION-2: 2 batches, 4 tests", "block REGRESSION-2: 2 batches, 4 tests" in lines_of(p2.stdout))
 
-def u13_6(row):
-    md, out = row.write("F3.md", F3), row.path("O")
+def row_summary_and_crash_census(row):
+    md, out = row.write("THREE_BLOCKS.md", THREE_BLOCKS), row.path("O")
     p = runner(row, ["--batches", md, "--pairs", "20", "--out", out] + QUIET,
                env_for(OXC_TEST_EXE=fake_exe(row), REGSTUB_CRASH="1"))
     s = read(os.path.join(out, "SUMMARY.md")) or ""
@@ -215,42 +217,42 @@ def u13_6(row):
     row.cell("### b03 regstub_fail tail holds REGSTUB deliberate failure + line 40, not line 05", bool(m)
              and "REGSTUB deliberate failure" in tail and "REGSTUB line 40" in tail and "REGSTUB line 05" not in tail)
     row.cell("b03 copy path exists", bool(cm) and os.path.exists(cm.group(1)))
-    row.cell("census row: crash_regstub_<pid>.log, REGSTUB fake crash, regstub_fail, no H13-T1",
+    row.cell("census row: crash_regstub_<pid>.log, REGSTUB fake crash, regstub_fail, no known-benign tag",
              len(crow) == 1 and re.search(r"crash_regstub_\d+\.log", crow[0]) is not None
-             and "REGSTUB fake crash" in crow[0] and "regstub_fail" in crow[0] and "H13-T1" not in crow[0])
+             and "REGSTUB fake crash" in crow[0] and "regstub_fail" in crow[0] and "known benign" not in crow[0])
     row.cell("batches\\b01..b03.json exist", all(os.path.exists(os.path.join(out, "batches", "b0%d.json" % i)) for i in (1, 2, 3)))
 
-def u13_7(row):
-    mds = {"i": row.write("i.md", "## REGRESSION-1 (fixture)\n- batch 1: test_inventory test_host_screens\n"),
-           "ii": row.write("ii.md", "## REGRESSION-1 (fixture)\n- batch 1: regstub_missing\n"),
-           "iii": row.write("iii.md", STUB_MD), "iv": row.write("iv.md", STUB_MD)}
+def row_preflight_refusals(row):
+    mds = {"family": row.write("family.md", "## REGRESSION-1 (fixture)\n- batch 1: test_inventory test_host_screens\n"),
+           "missing": row.write("missing.md", "## REGRESSION-1 (fixture)\n- batch 1: regstub_missing\n"),
+           "busy": row.write("busy.md", STUB_MD), "stale": row.write("stale.md", STUB_MD)}
     row.ev("run_regression.py exists: %s" % os.path.exists(RR))
     row.gate(os.path.exists(RR), "no regression runner")
     code = ("import sys, time; sys.path.insert(0, %r); import harness; harness._acquire_machine_lock(); "
             "print('HELD', flush=True); time.sleep(300)" % TESTDIR)
-    for case, args, token in (("i", ["--pairs", "20"] + QUIET, "s26"), ("ii", ["--pairs", "20"] + QUIET, "regstub_missing"),
-                              ("iii", ["--pairs", "26"] + QUIET, "slot 26"), ("iv", ["--pairs", "20", "--cpu-wait-min", "0"], "STALE")):
-        out, holder, env = row.path("O_" + case), None, env_for(OXC_TEST_EXE=fake_exe(row, old=(case == "iv")))
+    for case, args, token in (("family", ["--pairs", "20"] + QUIET, "inventory_host_screens"), ("missing", ["--pairs", "20"] + QUIET, "regstub_missing"),
+                              ("busy", ["--pairs", "26"] + QUIET, "slot 26"), ("stale", ["--pairs", "20", "--cpu-wait-min", "0"], "STALE")):
+        out, holder, env = row.path("O_" + case), None, env_for(OXC_TEST_EXE=fake_exe(row, old=(case == "stale")))
         try:
-            if case == "iii":  # a child holds slot 26's lock; ended by its own handle below
+            if case == "busy":  # a child holds slot 26's lock; ended by its own handle below
                 holder = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True,
                                           env=env_for(OXC_HARNESS_SLOT="26"))
-                row.ev("(iii) holder pid %d says %r" % (holder.pid, holder.stdout.readline().strip()))
+                row.ev("(busy) holder pid %d says %r" % (holder.pid, holder.stdout.readline().strip()))
             p = run(row, [RR, "--batches", mds[case]] + args + ["--out", out], env, over="(%s)" % case)
         finally:
             if holder is not None:  # ended by its own handle, never by image name
                 holder.terminate()
-                row.ev("(iii) holder terminated by its handle, rc %s" % holder.wait(timeout=30))
+                row.ev("(busy) holder terminated by its handle, rc %s" % holder.wait(timeout=30))
         st = ([ln for ln in lines_of(read(os.path.join(out, "SUMMARY.md")) or p.stdout + p.stderr)
                if ln.startswith("STATUS: REFUSED:")] or [""])[0]
         jsons = glob.glob(os.path.join(out, "batches", "*.json"))
         row.ev("(%s) %s; batches json %d" % (case, st or "no STATUS: REFUSED line", len(jsons)))
-        named = (token in st) if case != "iii" else ("slot" in st.lower() and re.search(r"\b26\b", st) is not None)
+        named = (token in st) if case != "busy" else ("slot" in st.lower() and re.search(r"\b26\b", st) is not None)
         row.cell("(%s) exit 4" % case, p.returncode == 4, "rc=%d" % p.returncode)
         row.cell("(%s) STATUS: REFUSED: naming %s" % (case, token), bool(st) and named)
         row.cell("(%s) no batches json" % case, not jsons)
 
-def u13_8(row):
+def row_two_pair_schedule(row):
     md, out = row.write("k4.md", "## REGRESSION-8 (fixture)\n- batch 1: regstub_pass_a regstub_pass_b\n- batch 2: "
                         "regstub_pass_a regstub_pass_b\n- batch 3: regstub_fail regstub_pass_a\n"), row.path("O")
     p = runner(row, ["--batches", md, "--pairs", "20,22", "--exclusive", "regstub_fail", "--out", out] + QUIET,
@@ -282,7 +284,7 @@ subprocess.Popen = Rec
 try:
     import run_regression as rr
 except ImportError as exc:
-    print("U13-9-JSON " + json.dumps({"import_error": "%s: %s" % (type(exc).__name__, exc)}))
+    print("IMPORT-CHECK-JSON " + json.dumps({"import_error": "%s: %s" % (type(exc).__name__, exc)}))
     sys.exit(0)
 after = set(os.listdir(root)) if os.path.isdir(root) else set()
 out.update(new_dirs=sorted(d for d in after - before if d.startswith("s")), popen_calls=calls,
@@ -294,28 +296,28 @@ def safe(f, *a):
     except Exception as exc:
         return "error %r" % exc
 for key, names in (("fam_inv", ["test_inventory_held"]), ("fam_hs", ["test_host_screens_turn", "x"]),
-                   ("fam_u6", ["test_coop_peer_equip_screens"]), ("fam_none", ["test_client_shoot"]),
-                   ("fam_s16", ["test_harness_truth"])):  # W2-G1 Q5 (F8463): spec16 S2's lobby 49970
+                   ("fam_peer_equip_unload", ["test_coop_peer_equip_screens"]), ("fam_none", ["test_client_shoot"]),
+                   ("fam_pause_harness_truth", ["test_harness_truth"])):  # both bring up lobby 49970
     out[key] = safe(lambda n: sorted(rr.families(n)), names)
 for key, x, y in (("c16_18", "16", "18"), ("c5_9", "5", "9"), ("c18_19", "18", "19")):
     out[key] = safe(rr.conflicts, R[x], R[y], getattr(rr, "EXCLUSIVE_TESTS", None))
-out["c_s16"] = safe(rr.conflicts, ["test_pause_on_leave_alien_turn"], ["test_harness_truth"])  # W2-G1 Q5 (F8463)
-print("U13-9-JSON " + json.dumps(out, default=repr))
+out["c_pause_harness_truth"] = safe(rr.conflicts, ["test_pause_on_leave_alien_turn"], ["test_harness_truth"])
+print("IMPORT-CHECK-JSON " + json.dumps(out, default=repr))
 """
 
-def u13_9(row):
-    p = run(row, ["-c", CHILD, TESTDIR, TEST_ROOT, json.dumps(R130)], env_for())
-    line = ([ln for ln in p.stdout.splitlines() if ln.startswith("U13-9-JSON ")] or [None])[0]
+def row_import_side_effect_free(row):
+    p = run(row, ["-c", CHILD, TESTDIR, TEST_ROOT, json.dumps(SAMPLE_BATCHES)], env_for())
+    line = ([ln for ln in p.stdout.splitlines() if ln.startswith("IMPORT-CHECK-JSON ")] or [None])[0]
     row.gate(line is not None, "import child printed no result (rc %d)" % p.returncode)
-    res = json.loads(line[len("U13-9-JSON "):])
+    res = json.loads(line[len("IMPORT-CHECK-JSON "):])
     row.ev("import child: %s" % res)
     row.gate("import_error" not in res, "no regression runner")
-    for key, want, name in (("fam_inv", ["s26"], "families inventory_held {s26}"), ("fam_u6", ["u6"], "families peer_equip_screens {u6}"),
-                            ("fam_hs", ["s26"], "families host_screens_turn,x {s26}"), ("fam_none", [], "families client_shoot set()"),
-                            ("c16_18", True, "conflicts(R130[16], R130[18]) True"), ("c5_9", True, "conflicts(R130[5], R130[9]) True"),
-                            ("c18_19", False, "conflicts(R130[18], R130[19]) False"),
-                            ("fam_s16", ["s16s2"], "families harness_truth {s16s2}"),  # W2-G1 Q5
-                            ("c_s16", True, "conflicts(spec16_s2, harness_truth) True")):
+    for key, want, name in (("fam_inv", ["inventory_host_screens"], "families inventory_held {inventory_host_screens}"), ("fam_peer_equip_unload", ["peer_equip_unload"], "families peer_equip_screens {peer_equip_unload}"),
+                            ("fam_hs", ["inventory_host_screens"], "families host_screens_turn,x {inventory_host_screens}"), ("fam_none", [], "families client_shoot set()"),
+                            ("c16_18", True, "conflicts(SAMPLE_BATCHES[16], SAMPLE_BATCHES[18]) True"), ("c5_9", True, "conflicts(SAMPLE_BATCHES[5], SAMPLE_BATCHES[9]) True"),
+                            ("c18_19", False, "conflicts(SAMPLE_BATCHES[18], SAMPLE_BATCHES[19]) False"),
+                            ("fam_pause_harness_truth", ["pause_harness_truth"], "families harness_truth {pause_harness_truth}"),
+                            ("c_pause_harness_truth", True, "conflicts(pause_on_leave_alien_turn, harness_truth) True")):
         got = res.get(key)
         row.cell(name, got is want if isinstance(want, bool) else got == want, str(got))
     row.cell("import starts nothing (no new s* dir, no subprocess)", not res.get("new_dirs") and not res.get("popen_calls"),
@@ -323,7 +325,15 @@ def u13_9(row):
 
 def main():
     t0, failed = time.time(), []
-    for code, fn in [("U13-%d" % i, globals()["u13_%d" % i]) for i in range(1, 10)]:
+    for code, fn in [("slot_base_lanes", row_slot_base_lanes),
+                     ("inherited_slot_lanes", row_inherited_slot_lanes),
+                     ("list_only_and_json_keys", row_list_only_and_json_keys),
+                     ("per_test_logs_and_copies", row_per_test_logs_and_copies),
+                     ("batches_file_resolves", row_batches_file_resolves),
+                     ("summary_and_crash_census", row_summary_and_crash_census),
+                     ("preflight_refusals", row_preflight_refusals),
+                     ("two_pair_schedule", row_two_pair_schedule),
+                     ("import_side_effect_free", row_import_side_effect_free)]:
         row = Row(code)
         try:
             fn(row)

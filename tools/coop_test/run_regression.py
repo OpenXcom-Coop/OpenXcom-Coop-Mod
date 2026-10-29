@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Run the whole REGRESSION suite unattended and keep ONE summary file current.
+"""Run a batched regression suite unattended and keep ONE summary file current.
 
-    python tools/coop_test/run_regression.py --batches <docs>/rewrite/REGRESSION-BATCHES.md --out <dir>
+    python tools/coop_test/run_regression.py --batches <batches.md> --out <dir>
     python tools/coop_test/run_regression.py --batches <md> --pairs 0,2 --out <dir>   # K=4: two K=2 streams
     python tools/coop_test/run_regression.py --batches <md> --list-only               # resolve + check only
 
 Blocks `## REGRESSION-<n>` hold deltas (`- batch N: names` defines, `- batch N += names` appends), applied
 oldest (last in the file) -> newest up to --block (default: the first). Each batch = ONE `run_parallel.py
--k 2 --slot-base <pair>` subprocess (per-test logs, S27 fail copies). With two pairs a free stream takes the
+-k 2 --slot-base <pair>` subprocess (per-test logs, fail copies). With two pairs a free stream takes the
 lowest pending batch that conflicts() with no running batch (an EXCLUSIVE test on either side, or a family
-on both: s26 test_inventory* / test_host_screens*, s16s2 spec16_s2 / harness_truth, u6 test_coop_peer_equip_screens /
-test_unload_weapon_crash). Refused before anything runs (exit 4): a missing test, two family members in a
+on both: inventory_host_screens test_inventory* / test_host_screens*, pause_harness_truth test_pause_on_leave_alien_turn / test_harness_truth,
+peer_equip_unload test_coop_peer_equip_screens / test_unload_weapon_crash). Refused before anything runs (exit 4): a missing
+test, two family members in a
 batch, bad --pairs, a non-empty --out, a busy slot; unless --allow-stale, an exe older than the newest src
 file or unstaged bin/common, bin/standard. --out gets SUMMARY.md (rewritten after preflight, every batch and
-the end), batches/, logs/ (per-test + run_parallel.out), fail/ (S27), crash/ (new crash files), census.ps1.
+the end), batches/, logs/ (per-test + run_parallel.out), fail/ (a failed test's user dirs), crash/ (new crash
+files), census.ps1.
 CPU: GetSystemTimes every 5 s, a census every 30 s (processes > 10 %, OpenXcom by slot), a gate before a
 batch that starts alone (3 s average <= 50 %, every 30 s, <= --cpu-wait-min). No waiver, no class: the
 reader classifies. Exit 0 all batches exit 0; 1 any batch exit != 0; 4 refused; 5 aborted after the start.
@@ -24,17 +26,17 @@ TESTDIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTDIR))
 RUN_PARALLEL = os.path.join(TESTDIR, "run_parallel.py")
 EXCLUSIVE_TESTS = ("test_udp_rejoin",)
-FAMILY_PREFIXES = {"s26": ("test_inventory", "test_host_screens")}  # S26
-FAMILY_NAMES = {"u6": ("test_coop_peer_equip_screens", "test_unload_weapon_crash"),  # U6 Q5
-                "s16s2": ("test_pause_on_leave_alien_turn", "test_harness_truth")}  # W2-G1 Q5: lobby 49970
+FAMILY_PREFIXES = {"inventory_host_screens": ("test_inventory", "test_host_screens")}
+FAMILY_NAMES = {"peer_equip_unload": ("test_coop_peer_equip_screens", "test_unload_weapon_crash"),
+                "pause_harness_truth": ("test_pause_on_leave_alien_turn", "test_harness_truth")}  # both bring up lobby 49970
 HEADING_RE = re.compile(r"^##\s+(REGRESSION-\d+)\b")
 BATCH_RE = re.compile(r"^-\s+batch\s+(\d+)\s*(\+=|:)\s*(.*)$")
-H13_T1_LINE = "std::terminate called (no active exception)."
+BENIGN_TERMINATE_LINE = "std::terminate called (no active exception)."
 CRASH_HEADER = ("==== Crash/Log", "Time:", "Version:", "Compiled:", "Module:", "ImageBase:", "Mods:")
 CPU_SAMPLE_S, CENSUS_S, GATE_POLL_S, GATE_PCT, WATCH_S, TAIL_LINES = 5.0, 30.0, 30.0, 50.0, 150.0, 30
-# The Q7 slot probe: harness's own lock call in a child; rc 0 = the slot is free.
+# The slot probe: harness's own lock call in a child; rc 0 = the slot is free.
 PROBE = "import sys; sys.path.insert(0, sys.argv[1]); import harness; harness._acquire_machine_lock(timeout=0)"
-CENSUS_PS1 = r"""# run_regression.py census (cpu_check.ps1 method, F4445): processes above 10 % of the machine and the
+CENSUS_PS1 = r"""# run_regression.py census: processes above 10 % of the machine and the
 # OpenXcom instances by harness slot, one line each: PROC <name> <pct> / OXC s<slot> / OXC other.
 $n = [Environment]::ProcessorCount
 (Get-Counter '\Process(*)\% Processor Time' -SampleInterval 1 -MaxSamples 1 -ErrorAction SilentlyContinue).CounterSamples |
@@ -103,7 +105,7 @@ def fmt(v):
 def is_num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool)
 
-def _systimes():  # [epoch, idle, kernel, user] from kernel32 GetSystemTimes (stdlib ctypes; psutil is absent, F7925)
+def _systimes():  # [epoch, idle, kernel, user] from kernel32 GetSystemTimes (stdlib ctypes; psutil is absent)
     import ctypes
     from ctypes import wintypes
     ft = [wintypes.FILETIME() for _ in range(3)]
@@ -187,7 +189,7 @@ def git_tip():
     return "%s (%s)" % (sha or "unknown", "clean" if not st else "dirty: %d files" % len(st))
 
 def crash_snapshot(exe_dir):
-    """{path: mtime} of every file under <exe dir>/crashlogs (its root and each lane's s<slot> folder, W2-U8h) plus
+    """{path: mtime} of every file under <exe dir>/crashlogs (its root and each lane's s<slot> folder) plus
     every <exe dir>/**/*.dmp."""
     cdir = os.path.join(exe_dir, "crashlogs")
     paths = [os.path.join(d, fn) for d, _, fs in os.walk(cdir) for fn in fs]
@@ -250,7 +252,7 @@ class Run(object):
         self.started = self.ended = self.crash_rows = self.crash_error = None
         self.crash_before = {}
 
-    def preflight(self, full):  # Q7: every reason, joined; full=False is --list-only's checks 1-3
+    def preflight(self, full):  # every reason, joined; full=False is --list-only's checks 1-3
         reasons = []
         missing = sorted({n for b in self.batches for n in b.names
                           if not os.path.isfile(os.path.join(TESTDIR, n + ".py"))})
@@ -287,7 +289,7 @@ class Run(object):
                            % (len(bad), self.exe_dir, bad[0]))
         return reasons
 
-    def schedule(self):  # Q3: one stream per pair; a free stream takes the lowest non-conflicting pending batch
+    def schedule(self):  # one stream per pair; a free stream takes the lowest non-conflicting pending batch
         pending, running, census = list(self.batches), {}, None
         last_sample = last_census = time.time()
         try:
@@ -349,7 +351,7 @@ class Run(object):
                     b.foreign["OpenXcom " + ln.split()[1]] = None
 
     def gate(self):
-        """S24: before a batch that starts alone, wait (<= --cpu-wait-min) for a 3 s average <= 50 %."""
+        """Before a batch that starts alone, wait (<= --cpu-wait-min) for a 3 s average <= 50 %."""
         if not self.cpu.ok or self.args.cpu_wait_min <= 0:
             return self.cpu.window(1.0), 0.0
         t0 = time.time()
@@ -413,13 +415,13 @@ class Run(object):
             # a file in a lane's s<slot> folder belongs to the test on that slot; a root file keeps the time window
             then = [(b, r["test"]) for b, r in tests if r["start_epoch"] - 2 <= m <= r["end_epoch"] + 2
                     and (slot is None or r.get("slot") == slot)]
-            benign = line == H13_T1_LINE and any(t == "test_udp_rejoin" for _, t in then)
-            rows.append((p, os.path.getsize(p), m, line, then, "H13-T1 (known benign)" if benign else "-"))
+            benign = line == BENIGN_TERMINATE_LINE and any(t == "test_udp_rejoin" for _, t in then)
+            rows.append((p, os.path.getsize(p), m, line, then, "known benign (test_udp_rejoin teardown)" if benign else "-"))
         self.crash_rows = rows
         for b in self.batches:
             b.crash = sum(1 for row in rows if any(x is b for x, _ in row[4]))
 
-    def text(self, status):  # SUMMARY.md: the line order and the table columns are the contract (spec (b)3)
+    def text(self, status):  # SUMMARY.md: the line order and the table columns are the contract readers rely on
         done = [b for b in self.batches if b.rc is not None]
         nbad = sum(1 for b in done if b.rc != 0)
         verdict = "none" if status != "COMPLETE" else (
@@ -497,7 +499,7 @@ class Run(object):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--batches", required=True, help="REGRESSION-BATCHES.md (or any file with its headings and lines)")
+    ap.add_argument("--batches", required=True, help="a batches file: '## REGRESSION-<n>' headings and '- batch N' lines")
     ap.add_argument("--block", help="resolve up to this REGRESSION-<n> block (default: the first heading)")
     ap.add_argument("--pairs", default="0", help="slot base of each K=2 stream: '0' = K=2 (default), '0,2' = K=4")
     ap.add_argument("--out", help="output dir, new or empty (required unless --list-only)")
