@@ -328,6 +328,9 @@ bool ownsSoldier(Game* game, const Soldier* soldier);
 /// False when the row cannot move that way; nothing is sent then.
 bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visible,
 	unsigned int row, bool up, bool max);
+/// Sends this player's soldier order at @a base (their own soldiers, in the new
+/// order) to the host (soldier_order); the roster changes when it lands.
+void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order);
 /// Host: send @a msg as a CraftErrorState "alert" that only @a playerName's
 /// machine shows (a replica of another player ignores it).
 void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg);

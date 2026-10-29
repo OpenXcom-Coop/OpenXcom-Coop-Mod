@@ -3907,12 +3907,18 @@ bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visi
 	order.erase(order.begin() + row);
 	const size_t to = max ? (up ? 0 : order.size()) : (up ? row - 1 : row + 1);
 	order.insert(order.begin() + to, moved);
+	submitSoldierOrder(game, base, order);
+	return true;
+}
+
+void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order)
+{
+	if (!game || !base) return;
 	Json::Value ids(Json::arrayValue);
 	for (const Soldier* s : order) ids.append(s->getId());
 	Json::Value p;
 	p["order"] = ids;
 	submitLocalCmd(game, "soldier_order", baseIndex(game, base), p);
-	return true;
 }
 
 void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg)
