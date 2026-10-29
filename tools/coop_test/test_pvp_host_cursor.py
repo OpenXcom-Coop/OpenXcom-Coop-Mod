@@ -1,33 +1,34 @@
-"""in gm3 (the host plays the aliens) the host's own real-screen alien orders give back the map cursor and the
-mouse pointer, as an X-COM player's do (vanilla's player-side popState aftermath for the side this seat commands;
-orchestrator ruling R-U4-A-4, owner design-D5 / WV-D11, WV-D53; QH27-1..QH27-5 (a)).
+"""PvP host cursor: in gm3 (the host plays the aliens) the host's own real-screen alien orders give back the map cursor
+and the mouse pointer, as an X-COM player's do (vanilla's player-side popState aftermath for the side this seat
+commands).
 
-Spec: docs repo rewrite/prompts/w2h27_pvp_cursor_after_shot.md section (f). Constants: rewrite/w2h27-task0/CONSTANTS.md
-(TASK 0 boots Ka, Kc, Kf, Kg; every pin equal on two boots). Reset: ruling R-H27-A-1.
-
-Boot K (key 48698, dirs w2h27_k_host / _client): G3F.bring_up (gm3, STR_SMALL_SCOUT, map seed 1); reactions 0 for every
-live unit; a plasma pistol for the alien A (lever, both machines, client first); A on STAGE_A facing A_DIR; every bucket
-EQUAL; the partner's END TURN hands the turn to the host's aliens.
-  P  the host's own side starts with the cursor and the pointer (GUARD): P-side, P-cursor, P-common.
-  S  a real-screen snap keeps the aim; the next map click fires again: S-pre, S-shot, S-cursor, S-pointer, S-again,
-     S-common.
-  T  a real-screen throw returns to the normal cursor: T-pre, T-throw, T-cursor, T-pointer, T-common.
-  W  a real-screen walk gives the cursor back; the next map click walks: W-pre, W-walk, W-cursor, W-pointer, W-again,
-     W-common.
-  F  a walk that fails for time units shows vanilla's warning and gives the cursor back: F-pre, F-halt, F-warn,
-     F-cursor, F-pointer, F-common.
-Reset before each of S, T, W, F: ONE right click on NEXT-SOLDIER (btnPrevSoldierClick: the one input the
-hidden pointer lets through, BattlescapeState::handle), then ONE TAB and tab_select(A); `-pre` is a GUARD cell (PASS on
-red and green). Nothing touches the selection or the targeting between an order and its cursor probe; the follow-up
-clicks (S-again, W-again) are plain left clicks after HOME. Every click: HOME, then RV-U2's one-pass map_tile_click.
-Common cell: every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
-RED on the unchanged product: S-cursor, S-pointer, S-again, T-cursor, T-pointer, W-cursor, W-pointer, W-again, F-warn,
-F-cursor, F-pointer.
+Boot (key 48698, dirs pvp_host_cursor_host / _client): G3F.bring_up (gm3, STR_SMALL_SCOUT, map seed 1); reactions 0
+for every live unit; a plasma pistol for the alien A (test command, both machines, client first); A on STAGE_A facing
+A_DIR; every bucket EQUAL; the partner's END TURN hands the turn to the host's aliens. The ids and tiles were measured
+equal on two boots.
+  side_start  the host's own side starts with the cursor and the pointer (GUARD): side_start-side, side_start-cursor,
+     side_start-common.
+  snap_keeps_aim  a real-screen snap keeps the aim; the next map click fires again: snap_keeps_aim-pre,
+     snap_keeps_aim-shot, snap_keeps_aim-cursor, snap_keeps_aim-pointer, snap_keeps_aim-again, snap_keeps_aim-common.
+  throw_cursor  a real-screen throw returns to the normal cursor: throw_cursor-pre, throw_cursor-throw,
+     throw_cursor-cursor, throw_cursor-pointer, throw_cursor-common.
+  walk_cursor  a real-screen walk gives the cursor back; the next map click walks: walk_cursor-pre, walk_cursor-walk,
+     walk_cursor-cursor, walk_cursor-pointer, walk_cursor-again, walk_cursor-common.
+  no_tu_walk  a walk that fails for time units shows vanilla's warning and gives the cursor back: no_tu_walk-pre,
+     no_tu_walk-halt, no_tu_walk-warn, no_tu_walk-cursor, no_tu_walk-pointer, no_tu_walk-common.
+Reset before each of snap_keeps_aim, throw_cursor, walk_cursor, no_tu_walk: ONE right click on NEXT-SOLDIER
+(btnPrevSoldierClick: the one input the hidden pointer lets through, BattlescapeState::handle), then ONE TAB and
+tab_select(A); `-pre` is a GUARD cell (it passes with and without the fix). Nothing touches the selection or the
+targeting between an order and its cursor probe; the follow-up clicks (snap_keeps_aim-again, walk_cursor-again) are
+plain left clicks after HOME. Every click: HOME, then the one-pass map_tile_click.
+Common cell: every hash bucket EQUAL, desyncSeen false on both, no new file in this harness slot's crash folder.
+Without the fix, snap_keeps_aim-cursor, snap_keeps_aim-pointer, snap_keeps_aim-again, throw_cursor-cursor,
+throw_cursor-pointer, walk_cursor-cursor, walk_cursor-pointer, walk_cursor-again, no_tu_walk-warn, no_tu_walk-cursor
+and no_tu_walk-pointer FAIL.
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails every row
-"staging". run in the foreground to completion. ONE run is the result, no skip path; exit 0
-only when every cell passes, else 2.
+"staging". ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_host_cursor.py
 """
@@ -52,25 +53,29 @@ from test_host_combat import evs_since  # noqa: E402
 KEY = "48698"
 A_ID = 1000000                    # the host's alien (gm3 seat 0, FACTION_HOSTILE)
 PISTOL, CLIP = "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP"
-STAGE_A, A_DIR = (20, 19, 0), 4   # R-U4-A-1 open-ground stage (TASK 0 Ka, Kc, Kf, Kg)
-FLOOR_K = (24, 19, 0)             # floor target 4 tiles east of STAGE_A
-W_DEST = (20, 18, 0)              # distance-1 walk (path_probe steps 1, tuCost 4, both machines)
+STAGE_A, A_DIR = (20, 19, 0), 4   # open ground
+FLOOR_TARGET = (24, 19, 0)             # floor target 4 tiles east of STAGE_A
+WALK_DEST = (20, 18, 0)              # distance-1 walk (path_probe steps 1, tuCost 4, both machines)
 A_TU = 54                         # A's TU at the start of the host's side
 SIDE_HOSTILE = 1
 KEY_SNAP, KEY_THROW = 50, 53      # keyBattleActionItem2 / keyBattleActionItem5 (ActionMenuState.cpp :84, :134)
 MENU_ROWS = 4                     # THROW, AUTO, SNAP, AIMED
 CT_NORMAL, CT_AIM, CT_THROW = 1, 2, 5
-SEED_S1, SEED_S2, SEED_T = 1, 2, 3
-S1_KINDS = ["turn", "shot", "hit", "bt_action_end"]
-T_KINDS = ["shot", "bt_action_end"]
+SNAP_SEED, AGAIN_SEED, THROW_SEED = 1, 2, 3
+SNAP_KINDS = ["turn", "shot", "hit", "bt_action_end"]
+THROW_KINDS = ["shot", "bt_action_end"]
 TEXT_NO_TU = "Not Enough Time Units!"   # xcom1 STR_NOT_ENOUGH_TIME_UNITS (en-US)
-AGAIN_S = 5.0                     # the only fixed window: the absence of a second order on red (ends early on green)
+AGAIN_S = 5.0                     # the only fixed window: no second order without the fix (ends early with it)
 STEP_S = 30
-ROWS = (("P", ("P-side", "P-cursor", "P-common")),
-        ("S", ("S-pre", "S-shot", "S-cursor", "S-pointer", "S-again", "S-common")),
-        ("T", ("T-pre", "T-throw", "T-cursor", "T-pointer", "T-common")),
-        ("W", ("W-pre", "W-walk", "W-cursor", "W-pointer", "W-again", "W-common")),
-        ("F", ("F-pre", "F-halt", "F-warn", "F-cursor", "F-pointer", "F-common")))
+ROWS = (("side_start", ("side_start-side", "side_start-cursor", "side_start-common")),
+        ("snap_keeps_aim", ("snap_keeps_aim-pre", "snap_keeps_aim-shot", "snap_keeps_aim-cursor",
+                            "snap_keeps_aim-pointer", "snap_keeps_aim-again", "snap_keeps_aim-common")),
+        ("throw_cursor", ("throw_cursor-pre", "throw_cursor-throw", "throw_cursor-cursor", "throw_cursor-pointer",
+                          "throw_cursor-common")),
+        ("walk_cursor", ("walk_cursor-pre", "walk_cursor-walk", "walk_cursor-cursor", "walk_cursor-pointer",
+                         "walk_cursor-again", "walk_cursor-common")),
+        ("no_tu_walk", ("no_tu_walk-pre", "no_tu_walk-halt", "no_tu_walk-warn", "no_tu_walk-cursor",
+                        "no_tu_walk-pointer", "no_tu_walk-common")))
 
 
 def es(gc, key):
@@ -147,7 +152,7 @@ def seed(gc, s):
 
 def hand_menu(host, key, want_cursor, ev):
     """The host's right-hand box -> ActionMenuState (MENU_ROWS rows), `key` -> BattlescapeState, cursor `want_cursor`
-    (HC open_hand_menu_host's pattern with the actor as a parameter, F11465; no aim-cancel click: the reset did it)."""
+    (HC open_hand_menu_host's pattern with the actor as a parameter; no aim-cancel click: the reset did it)."""
     r = click_nth(host, RHAND_NTH)
     assert (r.get("baseX"), r.get("baseY")) == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
     ok, _ = wait_until(lambda: G3F.top(host) == "ActionMenuState", 5)
@@ -207,85 +212,88 @@ def again(host, client, kind, ev):
 # ===================== rows =====================
 
 
-def row_p(host, client, crash0, cells, ev):
+def row_side_start(host, client, crash0, cells, ev):
     st = [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in (host, client)]
     p = ev["host"] = probe(host)
-    cells["P-side"] = (st == [(1, 1), (1, 1)], f"(side, turn) host/partner {st} (want (1, 1) on both)")
-    cells["P-cursor"] = ((p["cursorType"], p["cursorVisible"], p["selectedId"]) == (CT_NORMAL, True, A_ID),
-                         f"host {p} at its side start (want cursorType 1, cursorVisible true, selectedId {A_ID})")
-    cells["P-common"] = G3F.common(host, client, crash0)
+    cells["side_start-side"] = (st == [(1, 1), (1, 1)], f"(side, turn) host/partner {st} (want (1, 1) on both)")
+    cells["side_start-cursor"] = ((p["cursorType"], p["cursorVisible"], p["selectedId"]) == (CT_NORMAL, True, A_ID),
+                                  f"host {p} at its side start (want cursorType 1, cursorVisible true, selectedId "
+                                  f"{A_ID})")
+    cells["side_start-common"] = G3F.common(host, client, crash0)
 
 
-def row_s(host, client, crash0, cells, ev):
-    cells["S-pre"] = reset(host, ev)
+def row_snap_keeps_aim(host, client, crash0, cells, ev):
+    cells["snap_keeps_aim-pre"] = reset(host, ev)
     ev["tu"] = set_tu_both(host, client, A_ID, A_TU)
     hand_menu(host, KEY_SNAP, CT_AIM, ev)
-    new, kinds = order(host, client, lambda: click(host, FLOOR_K, seed(host, SEED_S1)), ev)
+    new, kinds = order(host, client, lambda: click(host, FLOOR_TARGET, seed(host, SNAP_SEED)), ev)
     p = ev["afterOrder"] = probe(host)
     evidence(host, client, ev)
-    cells["S-shot"] = order_cell(new, kinds, "shoot", S1_KINDS)
-    cells.update(cursor_cells("S", p, CT_AIM))
+    cells["snap_keeps_aim-shot"] = order_cell(new, kinds, "shoot", SNAP_KINDS)
+    cells.update(cursor_cells("snap_keeps_aim", p, CT_AIM))
     set_tu_both(host, client, A_ID, A_TU)
     ev["bAgain"] = es(host, "closedContexts") or []
-    click(host, FLOOR_K, seed(host, SEED_S2))
+    click(host, FLOOR_TARGET, seed(host, AGAIN_SEED))
     ok, new2 = again(host, client, "shoot", ev)
-    cells["S-again"] = (ok, f"after one left click on {FLOOR_K} (no TAB) new host contexts {new2} within {AGAIN_S} s "
-                            f"(want exactly [('host', 'shoot', {A_ID})])")
-    cells["S-common"] = G3F.common(host, client, crash0)
+    cells["snap_keeps_aim-again"] = (ok, f"after one left click on {FLOOR_TARGET} (no TAB) new host contexts {new2} "
+                                         f"within {AGAIN_S} s (want exactly [('host', 'shoot', {A_ID})])")
+    cells["snap_keeps_aim-common"] = G3F.common(host, client, crash0)
 
 
-def row_t(host, client, crash0, cells, ev):
-    cells["T-pre"] = reset(host, ev)
+def row_throw_cursor(host, client, crash0, cells, ev):
+    cells["throw_cursor-pre"] = reset(host, ev)
     g = both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": PISTOL, "ammo": CLIP, "slot": "right",
                             "clear_hands": True}, ("weaponId", "ammoId"))
     wid = ev["pistol"] = g["weaponId"]
     ev["tu"] = set_tu_both(host, client, A_ID, A_TU)
     hand_menu(host, KEY_THROW, CT_THROW, ev)
-    new, kinds = order(host, client, lambda: click(host, FLOOR_K, seed(host, SEED_T)), ev)
+    new, kinds = order(host, client, lambda: click(host, FLOOR_TARGET, seed(host, THROW_SEED)), ev)
     p = ev["afterOrder"] = probe(host)
     evidence(host, client, ev)
     it = [items_by_id(gc).get(wid) or {} for gc in (host, client)]
     ground = [(i.get("owner"), i.get("onTile"), (i.get("tx"), i.get("ty"), i.get("tz"))) for i in it]
     ev["thrown"] = ground
-    ok, detail = order_cell(new, kinds, "throw", T_KINDS)
+    ok, detail = order_cell(new, kinds, "throw", THROW_KINDS)
     item_ok = all(o in (-1, None) and on is True for o, on, _ in ground) and ground[0][2] == ground[1][2]
-    cells["T-throw"] = (ok and item_ok, f"{detail}; pistol {wid} (owner, onTile, tile) host/partner {ground} (want "
-                                        f"no owner, on a tile, the same tile on both)")
-    cells.update(cursor_cells("T", p, CT_NORMAL))
-    cells["T-common"] = G3F.common(host, client, crash0)
+    cells["throw_cursor-throw"] = (ok and item_ok, f"{detail}; pistol {wid} (owner, onTile, tile) host/partner "
+                                                   f"{ground} (want no owner, on a tile, the same tile on both)")
+    cells.update(cursor_cells("throw_cursor", p, CT_NORMAL))
+    cells["throw_cursor-common"] = G3F.common(host, client, crash0)
 
 
-def row_w(host, client, crash0, cells, ev):
-    cells["W-pre"] = reset(host, ev)
+def row_walk_cursor(host, client, crash0, cells, ev):
+    cells["walk_cursor-pre"] = reset(host, ev)
     ev["tu"] = set_tu_both(host, client, A_ID, A_TU)
-    new, kinds = order(host, client, lambda: click(host, W_DEST), ev)
-    done = G3F.walk_done(host, client, A_ID, W_DEST, ev)
+    new, kinds = order(host, client, lambda: click(host, WALK_DEST), ev)
+    done = G3F.walk_done(host, client, A_ID, WALK_DEST, ev)
     p = ev["afterOrder"] = probe(host)
     evidence(host, client, ev)
     pa = [G3F.pos(gc, A_ID) for gc in (host, client)]
-    cells["W-walk"] = (new == [("host", "walk", A_ID)] and done and pa == [W_DEST, W_DEST],
-                       f"new host contexts {new} (want exactly [('host', 'walk', {A_ID})]); A host/partner {pa} (want "
-                       f"{W_DEST} on both; {ev.get('walkS')} s)")
-    cells.update(cursor_cells("W", p, CT_NORMAL))
+    cells["walk_cursor-walk"] = (new == [("host", "walk", A_ID)] and done and pa == [WALK_DEST, WALK_DEST],
+                                 f"new host contexts {new} (want exactly [('host', 'walk', {A_ID})]); A host/partner "
+                                 f"{pa} (want {WALK_DEST} on both; {ev.get('walkS')} s)")
+    cells.update(cursor_cells("walk_cursor", p, CT_NORMAL))
     ev["bAgain"] = es(host, "closedContexts") or []
     click(host, STAGE_A)
     ok, new2 = again(host, client, "walk", ev)
     back = G3F.walk_done(host, client, A_ID, STAGE_A, {}) if ok else False
     pa2 = [G3F.pos(gc, A_ID) for gc in (host, client)]
-    cells["W-again"] = (ok and back and pa2 == [STAGE_A, STAGE_A],
-                        f"after one left click on {STAGE_A} (no TAB) new host contexts {new2} within {AGAIN_S} s (want "
-                        f"exactly [('host', 'walk', {A_ID})]); A host/partner {pa2} (want {STAGE_A} on both)")
-    cells["W-common"] = G3F.common(host, client, crash0)
+    cells["walk_cursor-again"] = (ok and back and pa2 == [STAGE_A, STAGE_A],
+                                  f"after one left click on {STAGE_A} (no TAB) new host contexts {new2} within "
+                                  f"{AGAIN_S} s (want exactly [('host', 'walk', {A_ID})]); A host/partner {pa2} (want "
+                                  f"{STAGE_A} on both)")
+    cells["walk_cursor-common"] = G3F.common(host, client, crash0)
 
 
-def row_f(host, client, crash0, cells, ev):
+def row_no_tu_walk(host, client, crash0, cells, ev):
     pre_ok, pre = reset(host, ev)
     ev["clear"] = host.cmd({"cmd": "clear_warning"}).get("warningText")
     w0 = battle_state(host).get("warningText")
-    cells["F-pre"] = (pre_ok and w0 == "", f"{pre}; warningText {w0!r} after clear_warning (want '')")
+    cells["no_tu_walk-pre"] = (pre_ok and w0 == "", f"{pre}; warningText {w0!r} after clear_warning (want '')")
     ev["tu"] = set_tu_both(host, client, A_ID, 0)
     a_at = G3F.pos(host, A_ID)
-    f_dest = W_DEST if a_at == STAGE_A else STAGE_A   # the tile of {STAGE_A, W_DEST} A is not on (red / green differ)
+    # the tile of {STAGE_A, WALK_DEST} A is not on (it differs with and without the fix)
+    f_dest = WALK_DEST if a_at == STAGE_A else STAGE_A
     ev["from"], ev["to"] = a_at, f_dest
     new, kinds = order(host, client, lambda: click(host, f_dest), ev)
     p = ev["afterOrder"] = probe(host)
@@ -293,14 +301,15 @@ def row_f(host, client, crash0, cells, ev):
     pa = [G3F.pos(gc, A_ID) for gc in (host, client)]
     lw = es(host, "lastWalk") or {}
     ev["lastWalk"] = {k: lw.get(k) for k in ("actionId", "origin", "halted", "reason", "steps")}
-    cells["F-halt"] = (new == [("host", "walk", A_ID)] and a_at in (STAGE_A, W_DEST) and pa == [a_at, a_at]
-                       and lw.get("halted") is True and lw.get("reason") == "no_tu",
-                       f"new host contexts {new} (want exactly [('host', 'walk', {A_ID})]); A host/partner {pa} (want "
-                       f"unchanged {a_at}); host lastWalk halted {lw.get('halted')} reason {lw.get('reason')!r} "
-                       f"(want true, 'no_tu')")
-    cells["F-warn"] = (p["warningText"] == TEXT_NO_TU, f"host warningText {p['warningText']!r} (want {TEXT_NO_TU!r})")
-    cells.update(cursor_cells("F", p, CT_NORMAL))
-    cells["F-common"] = G3F.common(host, client, crash0)
+    cells["no_tu_walk-halt"] = (new == [("host", "walk", A_ID)] and a_at in (STAGE_A, WALK_DEST) and pa == [a_at, a_at]
+                                and lw.get("halted") is True and lw.get("reason") == "no_tu",
+                                f"new host contexts {new} (want exactly [('host', 'walk', {A_ID})]); A host/partner "
+                                f"{pa} (want unchanged {a_at}); host lastWalk halted {lw.get('halted')} reason "
+                                f"{lw.get('reason')!r} (want true, 'no_tu')")
+    cells["no_tu_walk-warn"] = (p["warningText"] == TEXT_NO_TU,
+                                f"host warningText {p['warningText']!r} (want {TEXT_NO_TU!r})")
+    cells.update(cursor_cells("no_tu_walk", p, CT_NORMAL))
+    cells["no_tu_walk-common"] = G3F.common(host, client, crash0)
 
 
 def run_row(row, order_, fn):
@@ -313,11 +322,11 @@ def run_row(row, order_, fn):
     return G3F.verdict(row, order_, cells, ev)
 
 
-# ===================== boot K =====================
+# ===================== boot =====================
 
 
 def stage(host, client):
-    """Reactions 0, the pistol, A on STAGE_A (never onto its own tile, S2), every bucket EQUAL, the side change."""
+    """Reactions 0, the pistol, A on STAGE_A (never onto its own tile), every bucket EQUAL, the side change."""
     G3F.reactions_zero(host, client)
     both(host, client, {"cmd": "battle_give", "unit": A_ID, "item": PISTOL, "ammo": CLIP, "slot": "right",
                         "clear_hands": True}, ("weaponId", "ammoId"))
@@ -331,21 +340,23 @@ def stage(host, client):
     session.wait_host_idle(host, client, timeout=STEP_S)
 
 
-def boot_k():
-    host = GameClient("host", None, make_user_dir("w2h27_k_host"))
-    client = GameClient("client", None, make_user_dir("w2h27_k_client"))
+def run_boot():
+    host = GameClient("host", None, make_user_dir("pvp_host_cursor_host"))
+    client = GameClient("client", None, make_user_dir("pvp_host_cursor_client"))
     try:
         try:
-            _boot, crash0 = G3F.bring_up(host, client, KEY, "K")
+            _boot, crash0 = G3F.bring_up(host, client, KEY, "boot")
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE K line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         try:
-            G3F.guarded("K staging", lambda: stage(host, client), (host, client))
+            G3F.guarded("boot staging", lambda: stage(host, client), (host, client))
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "staging (see the CAPTURE K staging line)")
+            return G3F.fail_all(ROWS, "staging (see the CAPTURE boot staging line)")
         rows = dict(ROWS)
         fails = 0
-        for name, fn in (("P", row_p), ("S", row_s), ("T", row_t), ("W", row_w), ("F", row_f)):
+        for name, fn in (("side_start", row_side_start), ("snap_keeps_aim", row_snap_keeps_aim),
+                         ("throw_cursor", row_throw_cursor), ("walk_cursor", row_walk_cursor),
+                         ("no_tu_walk", row_no_tu_walk)):
             fails += run_row(name, rows[name], lambda cells, ev, fn=fn: fn(host, client, crash0, cells, ev))
         return fails
     finally:
@@ -354,7 +365,7 @@ def boot_k():
 
 def main():
     t0 = time.time()
-    fails = boot_k()
+    fails = run_boot()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pvp_host_cursor: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
