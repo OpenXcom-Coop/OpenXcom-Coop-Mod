@@ -136,7 +136,7 @@ from test_delta_core import (probes, tile, diff_buckets, desync_record, short, b
                                 end_turn_cycle, common_fails, finish, delta_view)
 from test_delta_items import items_by_id, item_diff, tile_of, unit_view
 from test_host_combat import (cue_probes, evs_since, ev_tuples, chain_fails, chain_of, seq_of,
-                                 open_hand_menu_host, press, red_view, cue_delta)
+                                 open_hand_menu_host, press, combat_evs_view, cue_delta)
 import test_light_scope as ls
 
 # ----- common (test_host_combat.py and test_host_combat_terrain.py; TASK 0a-2) -----
@@ -352,7 +352,7 @@ def c2_wall(host, client, ctx):
     print(f"EVIDENCE C2: staged rifle={rifle} clip={clip} H->{C2_H_TILE}/{C2_H_DIR} stagedDiff={staged_diff}; "
           f"battle_fire={fire}; hostCombatContexts host {cb['host']['hostCombatContexts']}->"
           f"{ca['host']['hostCombatContexts']}; host evs since seq {seq0}={ev_tuples(hev)} client evs="
-          f"{ev_tuples(cev)} (seq, kind, actionId, h); red view={red_view(hev, cev)}; action={aid} chain="
+          f"{ev_tuples(cev)} (seq, kind, actionId, h); combat evs={combat_evs_view(hev, cev)}; action={aid} chain="
           f"{[(e['seq'], e['kind'], e['actionId']) for e in chain]}; host cue payloads="
           f"{cue_view(cues, [e['seq'] for e in chain if e['kind'] != 'bt_action_end'])}; shot impactVoxel tile="
           f"{voxel_tile(spl.get('impactVoxel'))} impact={spl.get('impact')} (want {C2_WALL}, V_NORTHWALL "

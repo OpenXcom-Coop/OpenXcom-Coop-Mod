@@ -115,7 +115,7 @@ instances.
 host_view_kept: the second player's melee and psi never move the host's view
 level (ExplosionBState's hit branch). Before each order (stun_rod_hit and
 both psi_panic_and_control legs) the host camera is staged on
-K_HOSTFAR_TERROR (view level 1). Checks per order: host
+CAM_HOST_FAR_TERROR (view level 1). Checks per order: host
 camera.suppressed.hitLevel +1 and the host view level still 1. One
 "EVIDENCE host_view_kept <order>:" line per order.
 
@@ -172,7 +172,7 @@ from test_client_shoot import (top, snap, ubrief, press, units, place, set_tu_bo
 from test_client_grenade import (admitted_fails, cancel_client_targeting, open_hand_menu, target_order, settle,
                                     host_payloads_of)
 from test_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet
-from test_host_combat import cam_snap, cam_offset, stage_camera, cam_suppressed_delta, cam_view, K_HOSTFAR_TERROR
+from test_host_combat import cam_snap, cam_offset, stage_camera, cam_suppressed_delta, cam_view, CAM_HOST_FAR_TERROR
 from test_hit_log import hl_snap, hl_view, first_line, WEAPONS_EN
 
 # ----- bring-up (the roster-pinned terror boot) -----
@@ -425,10 +425,10 @@ def host_view_fails(what, staged, cam0, cam1):
     if sup["hitLevel"] != 1:
         fails.append(f"host_view_kept {what}: host camera.suppressed.hitLevel +{sup['hitLevel']} "
                      f"(want +1: the partner's order)")
-    if cam1["host"].get("viewLevel") != K_HOSTFAR_TERROR[2]:
+    if cam1["host"].get("viewLevel") != CAM_HOST_FAR_TERROR[2]:
         fails.append(f"host_view_kept {what}: host view level {cam1['host'].get('viewLevel')} after the order "
-                     f"(want the staged {K_HOSTFAR_TERROR[2]}: the partner's melee / psi never moves the host's view "
-                     f"level)")
+                     f"(want the staged {CAM_HOST_FAR_TERROR[2]}: the partner's melee / psi never moves the host's "
+                     f"view level)")
     return fails
 
 
@@ -444,7 +444,7 @@ def stun_rod_hit(host, client, ctx):
          ("health", "stun", "status"))
     set_tu_both(host, client, C_ID, TU_MAX)
     staged = diff_buckets(host, client)
-    cam_staged = stage_camera(host, K_HOSTFAR_TERROR)   # for host_view_kept: the host at view level 1
+    cam_staged = stage_camera(host, CAM_HOST_FAR_TERROR)   # for host_view_kept: the host at view level 1
     cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
@@ -578,7 +578,7 @@ def psi_leg(host, client, key, seed, action, notes, box):
     set_seed right before the click, the bounded wait (the host infobox
     recorded and dismissed host-only). Returns (before, rec, pv, out)."""
     set_tu_both(host, client, C_ID, TU_MAX)
-    cam_staged = stage_camera(host, K_HOSTFAR_TERROR)   # for host_view_kept: the host at view level 1
+    cam_staged = stage_camera(host, CAM_HOST_FAR_TERROR)   # for host_view_kept: the host at view level 1
     cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0

@@ -28,7 +28,7 @@ Eight scenarios, ONE boot, in this order:
          option off starts no death ghost); the host's displayTwo all zero;
          the client's rngSeed unchanged. One "EVIDENCE ghost_option_off:" line.
          camera_follow, host half: the host camera is staged on
-         K_HOSTFAR_TERROR (view level 1) before the press. The shot is the
+         CAM_HOST_FAR_TERROR (view level 1) before the press. The shot is the
          partner's order on the host, so its camera does not follow it: host
          camera.suppressed.follow +1 and the host offset still the staged one.
          The client half is not asserted here (ghost_option_off switches the
@@ -169,7 +169,7 @@ from test_delta_items import items_by_id, unit_view, tile_of
 from test_host_combat import bring_up_lobby_roster_pinned, evs_since, ev_tuples
 from test_host_combat import display_two, death_of, death_counts, rng_of, DEATH_COUNT_KEYS
 from test_host_combat import (camera_of, cam_snap, cam_offset, stage_camera, cam_moves, mv, cam_suppressed_delta,
-                                 cam_view, K_HOSTFAR_TERROR)
+                                 cam_view, CAM_HOST_FAR_TERROR)
 from test_ai_origins import host_payloads
 
 # ----- bring-up (the roster-pinned terror boot) -----
@@ -717,7 +717,7 @@ def snap_kill(host, client, ctx):
     set_tu_both(host, client, C_ID, TU_MAX)
     set_firing_both(host, client, C_ID)
     staged = diff_buckets(host, client)
-    cam_staged = stage_camera(host, K_HOSTFAR_TERROR)   # camera_follow, host half: far, level 1
+    cam_staged = stage_camera(host, CAM_HOST_FAR_TERROR)   # camera_follow, host half: far, level 1
     cam0 = cam_snap(host, client)
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0

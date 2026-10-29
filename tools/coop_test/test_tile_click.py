@@ -273,8 +273,8 @@ def row_k4(host, client, crash0):
     hostiles = sorted((i, (u["x"], u["y"], u["z"])) for i, u in live(host).items() if u.get("faction") == 1)
     ev["hostiles"] = {"count": r[0][0].get("count"), "minCheb": min((min(cheb(p, TILE_H), cheb(p, T_W))
                                                                      for _, p in hostiles), default=None)}
-    cc = host.cmd({"cmd": "battle_camera_center", "x": HC.K_FAR_TERROR[0], "y": HC.K_FAR_TERROR[1],
-                   "z": HC.K_FAR_TERROR[2]})
+    cc = host.cmd({"cmd": "battle_camera_center", "x": HC.CAM_FAR_TERROR[0], "y": HC.CAM_FAR_TERROR[1],
+                   "z": HC.CAM_FAR_TERROR[2]})
     ev["center"] = {k: cc.get(k) for k in ("ok", "centerX", "centerY", "viewLevel", "error")}
     prev = ev["prev"] = session.walk_action_id(host)
     ev["cam0"] = cams(host, client)

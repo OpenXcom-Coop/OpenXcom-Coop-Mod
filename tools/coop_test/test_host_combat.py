@@ -1,19 +1,16 @@
 """test_host_combat.py: the host's own combat runs as proper
-actions with cue events, so the second player sees a clean start and end
-(spec rewrite/prompts/w2p2_delta_core.md section (f) "test_host_combat.py
-(S-C)", sections (b)11-14 and (b)16; orchestrator rulings Q2 = (a) and
-Q4 = (b), amendments A1 and A2; owner ruling D128 = (b)).
+actions with cue events, so the second player sees a clean start and end.
 
-After stage S-B the host's combat RESULT already reaches the client: the
-chain ends context-less, onChainQuiesced's empty-stack branch runs
+The host opens a host-local combat context for its own shot or stun
+(CoopArbiter::beginHostLocalCombat), the six vanilla cue hooks emit their
+cues (`shot`, `hit`, `melee`, `death`, `corpse`) with the action's id and
+`h`, and the chain's end emits the action's `bt_action_end`. Without that
+context the combat RESULT still reaches the client: the chain ends
+context-less, onChainQuiesced's empty-stack branch runs
 CoopDelta::flushSync(), and one `sync` ev carries the delta (units, items,
-the corpse with the host's id). What is missing is the ACTION: no context is
-opened for the host's shot or stun, so no cue ev (`shot`, `hit`, `melee`,
-`death`, `corpse`) is sent and no `bt_action_end` closes it. After stage S-C
-the host opens a host-local combat context (CoopArbiter::beginHostLocalCombat,
-spec (b)13), the six vanilla cue hooks emit their cues with the action's id and
-`h`, and the chain's end emits the action's `bt_action_end`. Three scenarios,
-ONE boot, in this order:
+the corpse with the host's id), but no cue ev is sent and no
+`bt_action_end` closes the action. Three scenarios, ONE boot, in this
+order:
 
   host_kill  host real-UI snap shot kills alien A. H gets a rifle + clip
       (battle_give on BOTH, ids equal), H -> KILL_H_TILE facing KILL_H_DIR (one
@@ -21,9 +18,9 @@ ONE boot, in this order:
       becomes visible), A -> KILL_A_TILE, A health 1, H TU max, H firing 120
       (all on BOTH). Host: TAB-select H, click the right-hand box
       (ActionMenuState), key 50 (SNAP), set_seed KILL_SEED, one left click on
-      A's tile. RED (commit S-C.1): the state is equal on both machines (the
-      S-B `sync`), but host hostCombatContexts +0, no shot/hit/death/corpse
-      ev in either event log, no bt_action_end for the shot. GREEN: host
+      A's tile. When broken, the state is still equal on both machines (the
+      `sync` flush), but host hostCombatContexts +0, no shot/hit/death/corpse
+      ev in either event log, no bt_action_end for the shot. Checks: host
       hostCombatContexts +1; the host event_log for that actionId is exactly
       shot -> hit -> death -> corpse -> bt_action_end, every one with `h`; the
       client event_log holds the same seqs with the same kinds and actionId;
@@ -34,115 +31,105 @@ ONE boot, in this order:
   host_stun  host stun rod knocks alien A2 unconscious. H gets a stun rod (BOTH),
       H -> STUN_H_TILE facing A2 at STUN_A2_TILE, A2 health 5, H TU max (BOTH).
       Host: TAB-select H, click the right-hand box once more first when H is
-      still in aim mode after host_kill (cursorType 2, amendment A2.3 / F503), click
-      it (ActionMenuState), set_seed SEED_STUN, key 52 (STUN). RED: as host_kill - no
-      context, no melee/death/corpse ev. GREEN: host hostCombatContexts +1;
-      the host event_log for that actionId is exactly melee -> death ->
-      corpse -> bt_action_end, every one with `h`; the client log holds the
-      same seqs and kinds; client lastCue = corpse (payload.unit A2,
-      payload.corpses = [the body item id]); A2 status UNCONSCIOUS and stun
+      still in aim mode after host_kill (cursorType 2), click
+      it (ActionMenuState), set_seed SEED_STUN, key 52 (STUN). When broken: as
+      host_kill, no context, no melee/death/corpse ev. Checks: host
+      hostCombatContexts +1; the host event_log for that actionId is exactly
+      melee -> death -> corpse -> bt_action_end, every one with `h`; the client
+      log holds the same seqs and kinds; client lastCue = corpse (payload.unit
+      A2, payload.corpses = [the body item id]); A2 status UNCONSCIOUS and stun
       equal on both; the body item (unitLink A2) equal on both; A2's weapon
       on the ground on both; the common asserts.
-  D3  (W2-P6b S-D, the NEW last scenario) a two-victim death burst. C (8) ->
-      D3_C_TILE facing D3_C_DIR, C2 (9) -> D3_C2_TILE facing D3_C2_DIR (BOTH),
+  death_burst  a two-victim death burst. C (8) ->
+      BURST_C_TILE facing BURST_C_DIR, C2 (9) -> BURST_C2_TILE facing BURST_C2_DIR (BOTH),
       then the HOST's battle_action kill_unit_real {coop_side: 1}; bounded waits
       for both DEAD on the host with no BState and the client caught up.
-      The lever runs on an empty host state stack, so C's UnitDieBState is the
-      host's front state and C2's queues behind it (TASK 0b T0b-2: host evs
-      exactly D3_EVS, the D3_DEATHS / D3_CORPSES payloads, 6 runs identical).
-      the CLIENT's test-only
-      battle_action death_apply_hold {on: true} before the lever ({on: false}
+      The kill command runs on an empty host state stack, so C's UnitDieBState is the
+      host's front state and C2's queues behind it (host evs exactly BURST_EVS,
+      the BURST_DEATHS / BURST_CORPSES payloads; 6 runs identical).
+      The CLIENT's test-only
+      battle_action death_apply_hold {on: true} before the kill command ({on: false}
       after the row) forces the race order - C's ghost has started when C2's
-      death is enqueued - in every run, and seq 21's record (seq 16 before
-      the W2-P8b S-A equip evs, F3426) must say so (headStartedAtEnqueue
-      true), so D3 never passes vacuously in the other order.
+      death is enqueued - in every run, and seq 21's record must say so
+      (headStartedAtEnqueue true), so death_burst never passes vacuously in the
+      other order.
 
-W2-P6b S-D (spec rewrite/prompts/w2p6_display_two.md section 8 and the P6b plan
-review's section 2 rows D1-D3; AMENDMENT P6b-1; AMENDMENT P6b-2 = TASK 0b's
-traced host schedule, which replaces section 8's tick model): the watching
-machine plays each animated death as the host does. host_kill_death (host_kill's kill of A) and D2
-(host_stun's stun of A2) each want ONE client record for the death ev's seq in
-event_state displayTwo.death.ring, D3 wants two (V1 = C, V2 = C2, in the host's
+Death rows: the watching machine plays each animated death as the host does.
+host_kill_death (host_kill's kill of A) and stun_collapse (host_stun's stun of
+A2) each want ONE client record for the death ev's seq in event_state
+displayTwo.death.ring, death_burst wants two (C's, then C2's, in the host's
 order), and every `death` payload carries the additive `front` (the host's
 state stack was empty at the push). Each record's schedule (Ic, tc, isOutMs,
 popMs) equals death_schedule() for its own inputs; its frames, sound and
-overKill match both machines' battle_state (D-S3) and the pins. Common to the
+overKill match both machines' battle_state and the pins. Common to the
 three rows: the client's rngSeed unchanged across the row, the host's
 displayTwo all zero, the client's completed + cut == enqueued once its death
-ghosts ended (a bounded wait). coopGhostStepper is pinned true in both
-instances' options (the W2-P5 ghost-file precedent). RED (commit S-D.1: the
-probes exist, nothing writes them): host_kill, host_stun and D3 fail only on
-displayTwo.death (no record) and the payload's missing `front`. Each row
-prints ONE "EVIDENCE D<n>:" line.
+ghosts ended (a bounded wait). coopGhostStepper is set true in both
+instances' options, as in the other ghost tests. Each row prints ONE
+"EVIDENCE <row>:" line.
 
-W2-P6b S-E (spec section 9 and the P6b review's section 2 row melee_ghost; AMENDMENTS
-P6b-1..P6b-3): host_stun's stun-rod swing plays on the watching machine as a melee
-ghost. Row melee_ghost wants ONE client combatGhost ring record of kind melee for the
-`melee` ev's seq whose frame, frames, intervalMs, ms, sound and soundEnd equal
-the rule chain impact_expect() computes from both machines' display_rules
-(ExplosionBState's hit branch; the pins in EFFECT_PINS), client
-combatGhost.enqueued.melee +1, and the S-E common asserts (client rngSeed
-unchanged, host displayTwo / combatGhost all zero, completed + cut == enqueued
-per S-E kind). The S-E helpers below are shared by the other S-E files. RED
-(commit S-E.1: the melee slot and the effect probes exist, nothing writes
-them): only host_stun fails, on melee_ghost (no melee record, enqueued.melee +0). One
-"EVIDENCE melee_ghost:" line.
+Effect row melee_ghost: host_stun's stun-rod swing plays on the watching
+machine as a melee ghost. The row wants ONE client combatGhost ring record of
+kind melee for the `melee` ev's seq whose frame, frames, intervalMs, ms, sound
+and soundEnd equal the rule chain impact_expect() computes from both machines'
+display_rules (ExplosionBState's hit branch; the pins in EFFECT_PINS), client
+combatGhost.enqueued.melee +1, and the effect rows' common asserts (client
+rngSeed unchanged, host displayTwo / combatGhost all zero, completed + cut ==
+enqueued per effect kind). The effect helpers below are shared by the other
+effect tests. One "EVIDENCE melee_ghost:" line.
 
-W2-P6a S-C row KR4 (spec rewrite/prompts/w2p6_display_two.md P6a review section 2, P6a pinned stage text (c),
-AMENDMENTS P6-5 section 4 and P6-6 section 5; owner D131): the host's own shot never moves the second player's
-camera. host_kill stages the client camera on K_FAR_TERROR (battle_camera_center, camera-only) before the host's press;
-GREEN: no client camera.moves record whose seq is in host_kill's chain, the client offset still the staged one,
-the host's camera.suppressed counters all +0. Declared green at red (commit S-C.1 writes no move and no counter). One
-"EVIDENCE KR4:" line. The camera helpers below are shared by the other S-C files.
+Camera row client_camera_kept: the host's own shot never moves the second
+player's camera. host_kill stages the client camera on CAM_FAR_TERROR
+(battle_camera_center, camera-only) before the host's press; then no client
+camera.moves record whose seq is in host_kill's chain, the client offset
+still the staged one, the host's camera.suppressed counters all +0. One
+"EVIDENCE client_camera_kept:" line. The camera helpers below are shared by
+the other camera tests.
 
-Both scenarios also check the cueCounts probe against the event logs (for
-each cue kind the scenario expects: host cueCounts delta == `kind` evs the
-host emitted since the scenario's first seq, client cueCounts delta == evs
-the client applied) - spec (b)16's "host emitted, client applied".
+host_kill and host_stun also check the cueCounts probe against the event logs
+(for each cue kind the scenario expects: host cueCounts delta == `kind` evs
+the host emitted since the scenario's first seq, client cueCounts delta == evs
+the client applied).
 
 Per-cue payloads other than the last one (shot actor H, hit unit A, death
 outcome) have no probe of their own: event_log carries seq/kind/actionId/h
 only and lastCue holds the last cue. They are covered by the state asserts
 (A DEAD / A2 UNCONSCIOUS on both) and by H's tu equal on both (the client
-maps the action's bt_action_end `final` onto the FIRST cue's actor, spec
-(b)12; a wrong mapping writes H's final onto the victim and the hash sees it).
+maps the action's bt_action_end `final` onto the FIRST cue's actor; a wrong
+mapping writes H's final onto the victim and the hash sees it).
 
-Common asserts (spec (f), after the action settles with wait_host_idle):
+Common asserts (after the action settles with wait_host_idle):
 hash_now {full:true} - ALL buckets EQUAL on both machines (never a hard-coded
 count); desyncSeen false on both; client coopClientBStatePushes unchanged and
 host 0; client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
-deltaRemoveMissing and deltaAddExisting all 0 on both. The spec's host_kill/host_stun rows
-name no lastDelta class counts: at GREEN the action's delta is split over its
+deltaRemoveMissing and deltaAddExisting all 0 on both. host_kill and host_stun
+assert no lastDelta class counts: the action's delta is split over its
 cues, so which classes the LAST non-empty one holds depends on the split; the
 item and unit equality asserts prove the item/unit halves instead.
 
-FIXTURE (deterministic, never searched here; W2-P2 TASK 0a-2 precalc,
-amendment A2). STR_TERROR_MISSION, map seed SEED_MAP 1. The roster is pinned
+FIXTURE (deterministic, never searched here; the values were computed
+beforehand). STR_TERROR_MISSION, map seed SEED_MAP 1. The roster is fixed
 too: set_seed SEED_ROSTER on the HOST immediately before its open_new_battle
-(names and stats repeat, amendment A2.2 / F501) - a local bring-up helper, not
+(names and stats repeat) - a local bring-up helper, not
 raw.bring_up_lobby unchanged - then session.drive_to_battlescape with the
-mission pin and set_seed SEED_MAP right before newbattle_ok, the baked MAP_FP
-asserted on both, session.pin_ai_neutral. Every lever pair applies to the
-CLIENT first, then the HOST, with the responses asserted equal;
-every item a lever creates is created on both machines with ids asserted
-equal. set_seed on the HOST immediately before each action.
-every lever pair ends with staging_settled() - the client has applied every ev
-the host emitted before the next lever runs on it (see the staging section).
+mission and set_seed SEED_MAP right before newbattle_ok, the baked MAP_FP
+asserted on both, session.pin_ai_neutral. Every staging command pair applies
+to the CLIENT first, then the HOST, with the responses asserted equal;
+every item a staging command creates is created on both machines with ids
+asserted equal. set_seed on the HOST immediately before each action.
+Every staging pair ends with staging_settled() - the client has applied every
+ev the host emitted before the next staging command runs on it (see the
+staging section).
 
-RED-THEN-GREEN (spec (d), Q4 = b; W2-P6b S-D: the D rows above). Commit S-C.1 (this file and the
-event_state probes hostCombatContexts / cueCounts / lastCue - storage and
-readers only, nothing writes them) is run ONCE and both scenarios must FAIL
-with their named red evidence while the state is already equal. Commit S-C.2
-(contexts, cue hooks, prime action) is run ONCE and both must PASS. Each
-scenario prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its
-green conditions are checked; main() runs every scenario even after an earlier
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
+BEFORE its checks run; main() runs every scenario even after an earlier
 one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 scenario.
 
-one run is the result. No skip path, no second boot, no
+One run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when every scenario passes, 2 otherwise
-(a bring-up failure is also 2). run in the foreground to completion.
+(a bring-up failure is also 2). Run in the foreground to completion.
 
 Run:  python tools/coop_test/test_host_combat.py
 """
@@ -164,7 +151,7 @@ from test_delta_core import (probes, diff_buckets, desync_record, short, common_
 from test_delta_core import both, tele_both, tu_both, staging_settled
 from test_delta_items import items_by_id, item_diff, tile_of, unit_view
 
-# ----- common (test_host_combat.py and test_host_combat_terrain.py; TASK 0a-2) -----
+# ----- common (test_host_combat.py and test_host_combat_terrain.py) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 H_ID = 10                        # first host-seat soldier; with SEED_ROSTER 1 = "Henryk Kaminski",
@@ -172,9 +159,9 @@ H_ID = 10                        # first host-seat soldier; with SEED_ROSTER 1 =
 RHAND_NTH = 25                   # click_widget nth of the right-hand box
 KEY_ITEM1, KEY_ITEM2, KEY_ITEM4, KEY_FUSE_0 = 49, 50, 52, 48   # PRIME/AIMED, SNAP, STUN, fuse 0
 TU_MAX = 255                     # battle_set_unit_state / battle_fire tu: clamped to the unit's max TU
-FIRST_LEVER_ITEM_ID = 96         # 96 items at start on both maps (ids 0..95)
+FIRST_STAGED_ITEM_ID = 96         # 96 items at start on both maps (ids 0..95)
 
-# ----- test_host_combat.py (S-C): host_kill + host_stun -----
+# ----- test_host_combat.py: host_kill + host_stun -----
 SEED_MAP = 1                     # first terror map seed (>= 2 capturable 1x1 aliens on every seed)
 MAP_FP = -3.451266327757785e+18  # host battle_state.mapFingerprint
 A_ID = 1000000                   # Sectoid Soldier, spawn (37,38,0) dir 2; STR_PLASMA_PISTOL id 56 (RIGHT_HAND),
@@ -190,7 +177,7 @@ KILL_SEED = 1                      # snap (key 50) + click A's tile: A DEAD, cli
                                  # corpse id 98; host spotted [] -> [1000000, 1000005]  (3/3 standalone + 3/3 one-boot)
 STUN_H_TILE, STUN_H_DIR = (24, 24, 0), 0   # H faces A2 on the tile north
 STUN_A2_TILE, STUN_A2_DIR = (24, 23, 0), 4
-STUN_A2_HEALTH = 5               # battle_set_unit_state {unit: A2, health: 5} on both (measured with H tu = max too)
+STUN_A2_HEALTH = 5               # battle_set_unit_state {unit: A2, health: 5} on both (with H tu = max too)
 SEED_STUN = 1                    # STUN (key 52): A2 UNCONSCIOUS, stun 120, health 5, H tu 58 -> 41
                                  # standalone: rod 96, body 97 (3/3); one-boot after host_kill: rod 99, body 100 (3/3)
 
@@ -198,47 +185,45 @@ A_WEAPON = 56                    # A's right-hand STR_PLASMA_PISTOL
 A2_WEAPON = 59                   # A2's right-hand STR_PLASMA_RIFLE
 FIRING_120 = 120
 
-# ----- W2-P6b S-D (section 8 + review section 2 rows D1-D3; AMENDMENTS P6b-1 and P6b-2; TASK 0b) -----
+# ----- the death rows -----
 DEATH_IS_TURN = 33               # the UnitDieBState ctor's last interval for a victim that must turn
-                                 # (DEFAULT_ANIM_SPEED / 3, UnitDieBState.cpp :100/:103; F1768)
+                                 # (DEFAULT_ANIM_SPEED / 3, UnitDieBState.cpp :100/:103)
 DEATH_IC = 100                   # DEFAULT_ANIM_SPEED: the collapse interval the pirouette's end sets (:183)
-DEATH_F = 3                      # deathFrames of SECTOID_ARMOR0 and STR_NONE_UC (T0b-3 on the S-D.1 build, both
-                                 # machines, terror seed 1 and the default map; F1768)
-SECTOID_DEATH_SOUNDS = [10]      # battle_state deathSounds of A and A2 (T0b-3, equal on both machines)
-SOLDIER_DEATH_SOUNDS = [41, 42, 43]   # every soldier of the pinned roster: C, C2, H, U (T0b-3, both machines)
+DEATH_F = 3                      # deathFrames of SECTOID_ARMOR0 and STR_NONE_UC (both machines, terror seed 1 and
+                                 # the default map)
+SECTOID_DEATH_SOUNDS = [10]      # battle_state deathSounds of A and A2 (equal on both machines)
+SOLDIER_DEATH_SOUNDS = [41, 42, 43]   # every soldier of the fixed roster: C, C2, H, U (both machines)
 NO_SOUND = -1                    # a stun's record sound: the host plays none
-OVERKILL_NONE = 0                # getOverKillDamage() after host_kill, host_stun and the D3 lever deaths
-DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (host_kill_death, D2)
+OVERKILL_NONE = 0                # getOverKillDamage() after host_kill, host_stun and the death_burst kills
+DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (host_kill_death,
+                                         # stun_collapse)
 PHASES_ALL = list(range(DEATH_F))        # [0, 1, 2]: every collapse frame drawn
-KILL_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # T0b-1 (seq 7; 12 since S-A)
+KILL_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # the death ev (seq 12)
 STUN_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False,
-              "damageType": 0}  # T0b-1 (seq 12; 17 since S-A)
+              "damageType": 0}  # the death ev (seq 17)
 DEATH_KEYS = ("unit", "outcome", "instant", "damageType")
 DEATH_SETTLE_S = 5.0             # bounded wait for the client's death ghosts to end after the chain settled
-# D3 (TASK 0b T0b-2 = F1767/F1769: 6 runs identical, 26.6 s per boot)
+# death_burst (6 runs identical, 26.6 s per boot)
 C_ID, C2_ID = 8, 9               # the client seat's soldiers
-D3_C_TILE, D3_C_DIR = (12, 26, 0), 4     # open road (H left it at host_stun)
-D3_C2_TILE, D3_C2_DIR = (12, 27, 0), 1   # open road
-# W2-P8b S-A's pre-battle equip phase moved every absolute seq +5 (F3426; W2-P8b S-H.3, chain rule A.10: the
-# D3 seqs below re-pointed to the values measured on the S-A build, 2 runs identical, F3446/F3447). Traced on
-# both machines' event_log rings and logs, the evs before turn 1 are now:
-#   seq 1 reveal  hostile base restate (SS2.W4)                                  - as before S-A (seq 1)
-#   seq 2 reveal  player, the 587 VOID tiles the blob does not carry             - as before S-A (seq 2)
-#   seq 3 reveal  player, the 655 tiles of the SS2.W5 battle-entry FOV restate   - NEW: it now runs at the equip
-#                 open, after seq 2 went out (before S-A both rode seq 2: 1242 = 587 + 655 tiles)
-#   seq 4 sync    equip {open}                                                   - NEW
-#   seq 5 sync    equip {ready} seat 0 (host)                                    - NEW
-#   seq 6 sync    equip {ready} seat 1 (client)                                  - NEW
-#   seq 7 sync    equip {end} + battle.turn 1 (the offer's snapshot is turn 0)   - NEW
-# so host_kill's staging reveal is seq 8 (was 3), host_kill runs 9..14 (was 4..9), host_stun 15..19 (was 10..14).
-D3_SEQ0 = 19                     # host lastSeqEmitted right before the lever (after host_kill and host_stun;
-                                 # 14 before S-A)
-D3_KILLED = [C_ID, C2_ID]        # the lever's answer
-D3_EVS = [(20, "death", 0), (21, "death", 0), (22, "corpse", 0), (23, "corpse", 0)]   # host = client
-D3_DEATHS = {20: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
-             21: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
-D3_CORPSES = {22: {"unit": C_ID, "corpses": [101]}, 23: {"unit": C2_ID, "corpses": [102]}}
-DIR_FACING_3 = 3                 # a collapsed unit's final direction (the corpse ev's DEAD carrier, F1767)
+BURST_C_TILE, BURST_C_DIR = (12, 26, 0), 4     # open road (H left it at host_stun)
+BURST_C2_TILE, BURST_C2_DIR = (12, 27, 0), 1   # open road
+# The evs before turn 1, traced on both machines' event_log rings and logs (2 runs identical):
+#   seq 1 reveal  hostile base restate
+#   seq 2 reveal  player, the 587 VOID tiles the blob does not carry
+#   seq 3 reveal  player, the 655 tiles of the battle-entry FOV restate (it runs at the equip open, after seq 2
+#                 went out)
+#   seq 4 sync    equip {open}
+#   seq 5 sync    equip {ready} seat 0 (host)
+#   seq 6 sync    equip {ready} seat 1 (client)
+#   seq 7 sync    equip {end} + battle.turn 1 (the offer's snapshot is turn 0)
+# so host_kill's staging reveal is seq 8, host_kill runs 9..14, host_stun 15..19.
+BURST_SEQ0 = 19                  # host lastSeqEmitted right before the kill command (after host_kill and host_stun)
+BURST_KILLED = [C_ID, C2_ID]     # kill_unit_real's answer
+BURST_EVS = [(20, "death", 0), (21, "death", 0), (22, "corpse", 0), (23, "corpse", 0)]   # host = client
+BURST_DEATHS = {20: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
+                21: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
+BURST_CORPSES = {22: {"unit": C_ID, "corpses": [101]}, 23: {"unit": C2_ID, "corpses": [102]}}
+DIR_FACING_3 = 3                 # a collapsed unit's final direction (the corpse ev's DEAD carrier)
 
 PORT = "48625"
 FACTION_PLAYER = 0
@@ -247,7 +232,7 @@ COOP_SEAT_0 = 0
 STATUS_DEAD = 6                  # src/Mod/Unit.h enum UnitStatus
 STATUS_UNCONSCIOUS = 7
 CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targeting after a shot
-# spec (b)11: the 16 frozen cue kinds; `sync` is the context-less flush, not a combat cue.
+# the 16 cue kinds; `sync` is the context-less flush, not a combat cue.
 CUE_KINDS = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse", "prime", "sync", "fall",
              "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
 COMBAT_CUES = tuple(k for k in CUE_KINDS if k != "sync")
@@ -257,15 +242,15 @@ LOG_TAIL = 256                   # CoopEventLog::kCapacity
 
 
 # ===================== staging =====================
-# A host lever can make the host EMIT in its own frame: an alien teleport dirties that alien's hostile FOV key, and
-# CoopReveal::flushQuiescent (updateCoopTask, right after TestServer::pump) ships a standalone `reveal` ev whose `h`
-# hashes the host's state at that emit. Before W2-U8 the next pair's client lever could run before the client applied
-# that ev (W2f verifier at K=2: host_kill's client battle_set_unit_state at .435, reveal seq 8 applied at .436, DESYNC
-# unitsStats seq 8 kind=reveal; host_stun and D3 failed as a cascade). So every pair ends with staging_settled(): the
-# client has applied every ev the host emitted (session.wait_host_idle) before the next lever runs on it. Its first host
-# read runs in a later TestServer::pump than the lever, after that frame's flush, so it cannot pass before the emit.
-# that wait now lives in test_delta_core.both itself (tele_both and tu_both go through
-# it), so this file imports the shared helpers and staging_settled from there instead of wrapping them.
+# A host staging command can make the host EMIT in its own frame: an alien teleport dirties that alien's hostile FOV
+# key, and CoopReveal::flushQuiescent (updateCoopTask, right after TestServer::pump) ships a standalone `reveal` ev
+# whose `h` hashes the host's state at that emit. Without a wait, the next pair's client command can run before the
+# client applied that ev (host_kill's client battle_set_unit_state at .435, reveal seq 8 applied at .436, DESYNC
+# unitsStats seq 8 kind=reveal, and the later scenarios fail with it). So every pair ends with staging_settled(): the
+# client has applied every ev the host emitted (session.wait_host_idle) before the next command runs on it. Its first
+# host read runs in a later TestServer::pump than the command, after that frame's flush, so it cannot pass before the
+# emit. That wait lives in test_delta_core.both itself (tele_both and tu_both go through it), so this file imports
+# the shared helpers and staging_settled from there.
 
 
 # ===================== small probes =====================
@@ -280,7 +265,7 @@ def units(gc):
 
 
 def cue_probes(gc):
-    """The S-C event_state probes: hostCombatContexts, cueCounts, lastCue."""
+    """The host-combat event_state probes: hostCombatContexts, cueCounts, lastCue."""
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
     return {"hostCombatContexts": es.get("hostCombatContexts"), "cueCounts": es.get("cueCounts") or {},
@@ -321,7 +306,7 @@ def open_hand_menu_host(host):
     """TAB-select H on the host, then click the right-hand box so
     ActionMenuState opens: ONE extra click first when H is still in aim mode
     (cursorType 2) after an earlier shot - that click only cancels the
-    targeting (BattlescapeState's hand-click handler, amendment A2.3 / F503).
+    targeting (BattlescapeState's hand-click handler).
     Returns [cursorType before the clicks] or, with the extra click,
     [before, after the extra click] (evidence only)."""
     assert tab_select(host, H_ID), (f"TAB never selected H on the host (selectedId "
@@ -359,7 +344,7 @@ def chain_of(host_evs, first_kind):
 
 
 def chain_fails(host_evs, client_evs, first_kind, want_kinds, seq0):
-    """Spec (f) GREEN: the host log for the action = exactly `want_kinds`, all
+    """The action's checks: the host log for the action = exactly `want_kinds`, all
     with `h`, and the client log holds the same seqs with the same kinds and
     actionId. Returns (actionId, chain, fails)."""
     fails = []
@@ -395,7 +380,7 @@ def seq_of(chain, kind):
 
 
 def cue_count_fails(name, before, after, evs, kinds, seq0):
-    """spec (b)16: cueCounts = host emitted / client applied. For each kind the
+    """cueCounts = host emitted / client applied. For each kind the
     scenario expects, the delta equals this machine's own `kind` evs since seq0."""
     fails = []
     for k in kinds:
@@ -425,8 +410,8 @@ def context_fails(cb, ca):
     return []
 
 
-def red_view(host_evs, client_evs):
-    """The spec's red evidence in one dict: cue and bt_action_end evs per log."""
+def combat_evs_view(host_evs, client_evs):
+    """The combat cue, bt_action_end and sync evs of each log in one dict (evidence)."""
     return {"hostCues": [(e["seq"], e["kind"], e["actionId"]) for e in host_evs if e["kind"] in COMBAT_CUES],
             "clientCues": [(e["seq"], e["kind"], e["actionId"]) for e in client_evs if e["kind"] in COMBAT_CUES],
             "hostActionEnds": [(e["seq"], e["actionId"]) for e in host_evs if e["kind"] == "bt_action_end"],
@@ -492,17 +477,17 @@ def rng_of(gc):
 
 
 def death_snap(host, client):
-    """The row's S-D starting point: both machines' displayTwo and the client's rngSeed."""
+    """A death row's starting point: both machines' displayTwo and the client's rngSeed."""
     return {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client)}
 
 
 def death_schedule(front, octants, is_ms, frames, respawn):
-    """AMENDMENT P6b-2 (TASK 0b, F1764/F1765; replaces section 8 D-e's tick model): the host's traced death
-    schedule in ms from the victim's first think. A `front` death (the host's state stack was empty at the push)
-    turns its first octant at +0, a queued head at +Is; later octants every Is; the last octant -> startFalling
-    (tc) takes 2 x Ic - Is; isOut = tc + F x Ic (a respawn victim consumes every frame in tc's own tick, so
-    isOut = tc); pop = isOut + 2 x Ic. Ic = DEATH_IC after a pirouette (UnitDieBState :183); a victim already
-    facing 3 (no pirouette, recorded untested) keeps the inherited Is and falls at its first think."""
+    """The host's traced death schedule in ms from the victim's first think. A `front` death (the host's state
+    stack was empty at the push) turns its first octant at +0, a queued head at +Is; later octants every Is; the
+    last octant -> startFalling (tc) takes 2 x Ic - Is; isOut = tc + F x Ic (a respawn victim consumes every frame
+    in tc's own tick, so isOut = tc); pop = isOut + 2 x Ic. Ic = DEATH_IC after a pirouette (UnitDieBState :183);
+    a victim already facing 3 (no pirouette; no row covers it) keeps the inherited Is and falls at its first
+    think."""
     if octants > 0:
         ic = DEATH_IC
         tc = (0 if front else is_ms) + (octants - 1) * is_ms + 2 * ic - is_ms
@@ -569,15 +554,14 @@ def wait_death_ghosts_ended(client, notes, timeout=DEATH_SETTLE_S):
 
 
 def death_row(tag, host, client, snap0, wants=(), extra=None):
-    """Section 2 rows D1-D5 after the row's chain settled. `wants` = the expected client death records in the
-    host's queue order, each {seq, actionId, unit, payload (the pinned subset), front (None = only equal to the
+    """A death row after the row's chain settled. `wants` = the expected client death records in the host's
+    queue order, each {seq, actionId, unit, payload (the pinned subset), front (None = only equal to the
     payload's), fromDir, octants, respawn, Is, sounds, startedAfterSeq, overKill, endedBy, and optionally
-    unitDyingSet, unitDyingCleared, dirsShown, phasesShown, headStartedAtEnqueue (S-D.3, D3 only), payloadFront
-    (False: the payload's `front` is checked through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns
-    fails.
-    Common (section 2 "All rows"): the client's rngSeed unchanged across the row, the host's displayTwo all zero,
-    the client's completed + cut == enqueued; D-S3: frames, sound lists and overKill equal on both machines and
-    equal the pins."""
+    unitDyingSet, unitDyingCleared, dirsShown, phasesShown, headStartedAtEnqueue, payloadFront (False: the
+    payload's `front` is checked through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns fails.
+    Common to every death row: the client's rngSeed unchanged across the row, the host's displayTwo all zero,
+    the client's completed + cut == enqueued; frames, sound lists and overKill equal on both machines and equal
+    the pins."""
     dt1 = {"host": display_two(host), "client": display_two(client)}
     rng1 = rng_of(client)
     uh, uc = units(host), units(client)
@@ -597,7 +581,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
         "rngClient": {"before": snap0["rng"], "after": rng1},
         "want": wants, "extra": extra}, sort_keys=True, default=str), flush=True)
     fails = []
-    # the additive `front` on each death payload (ST1 a) and the pinned payload subset
+    # the additive `front` on each death payload and the pinned payload subset
     for w in wants:
         p = pl.get(w["seq"]) if w["seq"] is not None else None
         if p is None:
@@ -607,7 +591,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
         if sub != w["payload"]:
             fails.append(f"{tag}: host death payload seq {w['seq']} {sub} (want {w['payload']})")
         if not w.get("payloadFront", True):
-            continue   # D5: `front` is read through its record only (record front == payload front)
+            continue   # payloadFront False: `front` is read through its record only (record front == payload front)
         if "front" not in p or not isinstance(p.get("front"), bool):
             want_f = "a bool" if w["front"] is None else str(w["front"]).lower()
             fails.append(f"{tag}: host death payload seq {w['seq']} has no `front` (want {want_f}; payload {p})")
@@ -667,42 +651,39 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
                     fails.append(f"{tag}: record seq {w['seq']} sound {snd} (want one of {w['sounds']})")
             elif snd != NO_SOUND:
                 fails.append(f"{tag}: record seq {w['seq']} sound {snd} (want {NO_SOUND}: a stun plays none)")
-    # D-S3: the watcher's inputs equal the host's and the pins
+    # the watcher's inputs equal the host's and the pins
     for w in wants:
         lh, lc = lists[w["unit"]]["host"], lists[w["unit"]]["client"]
         if lh["deathSounds"] != w["sounds"] or lc["deathSounds"] != w["sounds"]:
             fails.append(f"{tag}: deathSounds of {w['unit']} host={lh['deathSounds']} client={lc['deathSounds']} "
-                         f"(want {w['sounds']} on both: D-S3)")
+                         f"(want {w['sounds']} on both)")
         if lh["deathFrames"] != DEATH_F or lc["deathFrames"] != DEATH_F:
             fails.append(f"{tag}: deathFrames of {w['unit']} host={lh['deathFrames']} client={lc['deathFrames']} "
-                         f"(want {DEATH_F} on both: D-S3)")
+                         f"(want {DEATH_F} on both)")
         if lh["overKill"] != w["overKill"] or lc["overKill"] != w["overKill"]:
             fails.append(f"{tag}: overKill of {w['unit']} host={lh['overKill']} client={lc['overKill']} "
-                         f"(want {w['overKill']} on both: D-S3, ST4)")
+                         f"(want {w['overKill']} on both)")
     # common: the host never ghosts, the client's sim RNG untouched
     hc_ = hd.get("counts") or {}
     if (not hd or any((hc_.get(k) or 0) != 0 for k in DEATH_COUNT_KEYS) or (hd.get("queued") or 0) != 0
             or hd.get("ring")):
         fails.append(f"{tag}: host displayTwo {dt1['host']} (want the death counts all 0, queued 0, no record)")
     if snap0["rng"] is None or rng1 != snap0["rng"]:
-        fails.append(f"{tag}: client rngSeed {snap0['rng']} -> {rng1} (want unchanged: V4)")
+        fails.append(f"{tag}: client rngSeed {snap0['rng']} -> {rng1} (want unchanged)")
     return fails
 
 
 # ===================== the effect records =====================
-# Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows, as ruled by
-# AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (melee_ghost on host_stun), test_client_melee_psi (melee_ghost on
-# stun_rod_hit, psi_ghost on psi_panic_and_control, the mind_probe_use rngSeed guard), test_psi (psi_ghost),
-# test_client_items (medikit_sounds), test_client_grenade (prime_sounds) and test_turn_cues (panic_sounds,
-# fall_ghost). "All rows" (review section 2): the client's rngSeed unchanged
-# across the row (V4), the
-# host's displayTwo and combatGhost all zero (the host plays vanilla's own), and completed + cut == enqueued per S-E
-# record kind on the client. No wall-clock duration is asserted: every schedule field equals the rule chain
-# computed here from display_rules (E-S1 = STOP).
+# Shared by test_host_combat (melee_ghost on host_stun), test_client_melee_psi (melee_ghost on stun_rod_hit, psi_ghost
+# on psi_panic_and_control, the mind_probe_use rngSeed guard), test_psi (psi_ghost), test_client_items
+# (medikit_sounds), test_client_grenade (prime_sounds) and test_turn_cues (panic_sounds, fall_ghost). Common to every
+# effect row: the client's rngSeed unchanged across the row, the host's displayTwo and combatGhost all zero (the host
+# plays vanilla's own), and completed + cut == enqueued per effect record kind on the client. No wall-clock duration
+# is asserted: every schedule field equals the rule chain computed here from display_rules.
 
-HIT_FRAMES = 4                   # Explosion::HIT_FRAMES (display_rules constants on the S-E.1 build, both machines)
+HIT_FRAMES = 4                   # Explosion::HIT_FRAMES (display_rules constants, both machines)
 HALF_ANIM_MS = 50                # BattlescapeState::DEFAULT_ANIM_SPEED / 2 (ExplosionBState.cpp :277)
-# display_rules on the S-E.1 build (main menu, bare and with Coop_Spray_Test: identical; both machines per row):
+# display_rules (main menu, bare and with Coop_Spray_Test: identical; both machines per row):
 # the fields the melee / psi / medikit / prime chains read.
 EFFECT_PINS = {
     "STR_STUN_ROD": {"meleeAnimation": 0, "meleeAnimationFrames": -1, "explosionSpeed": 0,
@@ -729,7 +710,7 @@ def combat_ghost(gc):
 
 
 def effect_snap(host, client):
-    """An S-E row's starting point: both machines' displayTwo and combatGhost, and the client's rngSeed."""
+    """An effect row's starting point: both machines' displayTwo and combatGhost, and the client's rngSeed."""
     return {"dt": {"host": display_two(host), "client": display_two(client)},
             "cg": {"host": combat_ghost(host), "client": combat_ghost(client)}, "rng": rng_of(client)}
 
@@ -781,7 +762,7 @@ def opt_value(old, new):
 
 
 def impact_expect(rules, kind, payload):
-    """Section 9 E-b (ExplosionBState.cpp :277-:365 and :438-:444, the hit branch, success true): the melee / psi
+    """ExplosionBState.cpp :277-:365 and :438-:444 (the hit branch, success true): the melee / psi
     record's rule chain from the payload's weaponType / itemType. melee: the weapon's melee animation / frames /
     sound, each optValue'd by the damage item's when itemType != weaponType; soundEnd = the melee hit sound (the
     damage item's when set) iff power > 0. psi: the weapon's melee animation / frames, then its psi ones; sound =
@@ -820,7 +801,7 @@ def impact_expect(rules, kind, payload):
 
 
 def effect_common_fails(tag, host, client, snap0, dt1=None, cg1=None):
-    """Section 2 "All rows" for S-E: the client's rngSeed unchanged across the row (V4); the host's displayTwo (death
+    """Common to every effect row: the client's rngSeed unchanged across the row; the host's displayTwo (death
     and effects) and combatGhost all zero (the host plays vanilla's own display); on the client completed + cut ==
     enqueued for combatGhost melee / psi and displayTwo.effects.fall."""
     fails = []
@@ -828,7 +809,7 @@ def effect_common_fails(tag, host, client, snap0, dt1=None, cg1=None):
     cg1 = cg1 or {"host": combat_ghost(host), "client": combat_ghost(client)}
     rng1 = rng_of(client)
     if snap0["rng"] is None or rng1 != snap0["rng"]:
-        fails.append(f"{tag}: client rngSeed {snap0['rng']} -> {rng1} (want unchanged: V4)")
+        fails.append(f"{tag}: client rngSeed {snap0['rng']} -> {rng1} (want unchanged)")
     hd, he = death_of(dt1["host"]), effects_of(dt1["host"])
     hdc = hd.get("counts") or {}
     hz = (all((hdc.get(k) or 0) == 0 for k in DEATH_COUNT_KEYS) and not (hd.get("queued") or 0) and not hd.get("ring")
@@ -861,12 +842,11 @@ def effect_common_fails(tag, host, client, snap0, dt1=None, cg1=None):
 
 
 def impact_row(tag, host, client, snap0, cues, weapon):
-    """Rows melee_ghost (melee) / psi_ghost (psi) (review section 2; section 9 E-b): `cues` = [(seq, kind)] of the
-    row's host melee / psi cues (payloads from the host's `[coop-cue]` lines). Each wants ONE client combatGhost ring
-    record of that seq
+    """Rows melee_ghost (melee) / psi_ghost (psi): `cues` = [(seq, kind)] of the row's host melee / psi cues
+    (payloads from the host's `[coop-cue]` lines). Each wants ONE client combatGhost ring record of that seq
     and kind, unresolved / noMap false, with the rule chain's frame, frames, intervalMs, ms and sound (melee: and
-    soundEnd; psi: `voxel` == the payload's voxel, Q11 - the payload gains it at S-E.2), and the payload's
-    weaponType == `weapon`, success true; client combatGhost.enqueued.<kind> +1 per cue; the S-E common asserts.
+    soundEnd; psi: `voxel` == the payload's voxel), and the payload's weaponType == `weapon`, success true; client
+    combatGhost.enqueued.<kind> +1 per cue; the effect rows' common asserts.
     Prints ONE "EVIDENCE <tag>:" line, returns fails."""
     dt1 = {"host": display_two(host), "client": display_two(client)}
     cg1 = {"host": combat_ghost(host), "client": combat_ghost(client)}
@@ -894,7 +874,7 @@ def impact_row(tag, host, client, snap0, cues, weapon):
             fails.append(f"{tag}: host {k} payload seq {s} weaponType={p.get('weaponType')} success={p.get('success')} "
                          f"(want {weapon}, true)")
         if k == "psi" and not isinstance(p.get("voxel"), dict):
-            fails.append(f"{tag}: host psi payload seq {s} has no `voxel` (want the additive voxel, Q11; payload {p})")
+            fails.append(f"{tag}: host psi payload seq {s} has no `voxel` (want the additive voxel; payload {p})")
         if len(recs[s]) != 1:
             fails.append(f"{tag}: client combatGhost ring has {len(recs[s])} record(s) for the {k} seq {s} (want "
                          f"exactly one of kind {k}; ring (seq, kind) {[(r.get('seq'), r.get('kind')) for r in ring]})")
@@ -904,7 +884,7 @@ def impact_row(tag, host, client, snap0, cues, weapon):
         want = {"kind": k, "unresolved": False, "noMap": False, "frame": e["frame"], "frames": e["frames"],
                 "intervalMs": e["intervalMs"], "ms": e["ms"]}
         if got != want:
-            fails.append(f"{tag}: client {k} record seq {s} {got} (want {want}: the rule chain, E-S1)")
+            fails.append(f"{tag}: client {k} record seq {s} {got} (want {want}: the rule chain)")
         if not pick_ok(r.get("sound"), e["sounds"]):
             fails.append(f"{tag}: client {k} record seq {s} sound {r.get('sound')} (want {pick_want(e['sounds'])})")
         if k == "melee" and not pick_ok(r.get("soundEnd"), e["soundEnds"]):
@@ -923,11 +903,11 @@ def impact_row(tag, host, client, snap0, cues, weapon):
 
 
 def sound_row(tag, host, client, snap0, kind, wants, extra=None):
-    """Rows medikit_sounds, prime_sounds, panic_sounds (panic) (review section 2; section 9 E-c/E-d/E-e): the client's
-    displayTwo.effects.<kind>.count +len(wants); per want ONE client record - matched by `match` (its seq) when the
-    want has one, else the row's i-th new record in order (the prime aftermath has no seq) - whose `fields` equal
-    the want's and whose sound is picked from `sounds` (-1 for an empty list, F1782); the host's count 0 (it plays
-    vanilla's own); the S-E common asserts. Prints ONE "EVIDENCE <tag>:" line, returns fails."""
+    """Rows medikit_sounds, prime_sounds, panic_sounds (panic): the client's displayTwo.effects.<kind>.count
+    +len(wants); per want ONE client record - matched by `match` (its seq) when the want has one, else the row's
+    i-th new record in order (the prime aftermath has no seq) - whose `fields` equal the want's and whose sound is
+    picked from `sounds` (-1 for an empty list); the host's count 0 (it plays vanilla's own); the effect rows'
+    common asserts. Prints ONE "EVIDENCE <tag>:" line, returns fails."""
     dt1 = {"host": display_two(host), "client": display_two(client)}
     c0 = (effects_of(snap0["dt"]["client"]).get(kind) or {}).get("count")
     ce = effects_of(dt1["client"]).get(kind) or {}
@@ -965,30 +945,29 @@ def sound_row(tag, host, client, snap0, kind, wants, extra=None):
     return fails
 
 
-# ===================== the camera probe (rows KR1-KR6, KR1h) =====================
-# Spec rewrite/prompts/w2p6_display_two.md, P6a pinned stage text (c) as corrected by AMENDMENTS P6-5 section 4 and
-# P6-6 section 5. event_state `camera` (commit S-C.1, both machines): {offset {x, y, z} (the
-# live Map's Camera::getMapOffset, z = the view level), viewLevel, follow, moves [the CLIENT's camera-move records
-# {seq, reason, unit, visible, onScreen, before, after}, the last 32], suppressed {follow, explosion, hitLevel,
-# walkLevel, panic} (the HOST's guard counters)}. S-C.1 writes only offset / viewLevel / follow; S-C.2 writes `moves`
-# (the client policy K1-K9) and `suppressed` (the host guards). A move record's `before` / `after` are camera offsets
-# in `offset`'s own {x, y, z} shape (KR2 / KR3 compare them with a probe's `offset` and with each other). Shared by
-# the other S-C files.
+# ===================== the camera probe =====================
+# event_state `camera` (both machines): {offset {x, y, z} (the live Map's Camera::getMapOffset, z = the view level),
+# viewLevel, follow, moves [the CLIENT's camera-move records {seq, reason, unit, visible, onScreen, before, after},
+# the last 32], suppressed {follow, explosion, hitLevel, walkLevel, panic} (the HOST's guard counters)}. `moves` holds
+# the client camera policy's moves and `suppressed` counts what the host guards held back. A move record's `before` /
+# `after` are camera offsets in `offset`'s own {x, y, z} shape (the camera rows compare them with a probe's `offset`
+# and with each other). Shared by the other camera tests.
 CAM_SUPPRESSED = ("follow", "explosion", "hitLevel", "walkLevel", "panic")
-# T0a-4 (on the S-C.1 build): the terror map's (SEED_MAP 1, 50 x 50 x 4) staging tiles - the client's camera far from
-# every action of host_kill (KR4), the host's camera far from C16 / stun_rod_hit / psi_panic_and_control at view level 1
-# (KR3, host_view_kept). Both > 1 screen (320 x 200 base pixels) from (12,23)-(12,26) and (24,23)-(24,24).
-K_FAR_TERROR = (45, 2, 0)
-K_HOSTFAR_TERROR = (45, 45, 1)
+# The terror map's (SEED_MAP 1, 50 x 50 x 4) camera staging tiles: the client's camera far from every action of
+# host_kill (client_camera_kept), the host's camera far from the client's shot, melee and psi at view level 1
+# (test_client_shoot, test_client_melee_psi's host_view_kept, test_follow_camera). Both > 1 screen (320 x 200 base
+# pixels) from (12,23)-(12,26) and (24,23)-(24,24).
+CAM_FAR_TERROR = (45, 2, 0)
+CAM_HOST_FAR_TERROR = (45, 45, 1)
 
 
 def camera_of(gc):
-    """This machine's event_state.camera (asserts the S-C.1 shape)."""
+    """This machine's event_state.camera (asserts the probe's shape)."""
     es = event_state(gc)
     c = es.get("camera")
     assert es.get("ok") and isinstance(c, dict) and isinstance(c.get("moves"), list) \
         and isinstance(c.get("suppressed"), dict) and all(k in c for k in ("offset", "viewLevel", "follow")), (
-            f"{gc.name} event_state.camera = {c!r} (want the S-C.1 camera probe)")
+            f"{gc.name} event_state.camera = {c!r} (want the camera probe)")
     return c
 
 
@@ -1034,27 +1013,26 @@ def cam_view(c, lo=None):
                       for m in cam_moves(c, lo)], "suppressed": c.get("suppressed")}
 
 
-def kr4_fails(chain, staged, cam0, cam1):
-    """W2-P6a S-C row KR4 (P6a review section 2; owner D131): the host's own shot moves nothing on the client - no
-    client move record whose seq is in host_kill's chain, the client offset still the staged one, the host's guard
-    counters +0. Declared green at red (S-C.1 writes no move and no counter)."""
+def client_camera_kept_fails(chain, staged, cam0, cam1):
+    """Row client_camera_kept: the host's own shot moves nothing on the client - no client move record whose seq is
+    in host_kill's chain, the client offset still the staged one, the host's guard counters +0."""
     seqs = [e["seq"] for e in chain]
     inchain = [m for m in cam_moves(cam1["client"]) if m.get("seq") in seqs]
     sup = cam_suppressed_delta(cam0["host"], cam1["host"])
-    print(f"EVIDENCE KR4: chain seqs={seqs}; client staged={cam_offset(staged)} before={cam_view(cam0['client'])} "
-          f"after={cam_view(cam1['client'])}; host before={cam_view(cam0['host'])} after={cam_view(cam1['host'])}; "
-          f"host suppressed delta={sup}", flush=True)
+    print(f"EVIDENCE client_camera_kept: chain seqs={seqs}; client staged={cam_offset(staged)} "
+          f"before={cam_view(cam0['client'])} after={cam_view(cam1['client'])}; host before={cam_view(cam0['host'])} "
+          f"after={cam_view(cam1['host'])}; host suppressed delta={sup}", flush=True)
     fails = []
     if not seqs:
-        fails.append("KR4: host_kill has no chain (want its seqs to check the client's camera against)")
+        fails.append("client_camera_kept: host_kill has no chain (want its seqs to check the client's camera against)")
     if inchain:
-        fails.append(f"KR4: client camera.moves records in host_kill's chain {[mv(m) for m in inchain]} "
-                     f"(want none: the partner's action never moves your camera, D131)")
+        fails.append(f"client_camera_kept: client camera.moves records in host_kill's chain "
+                     f"{[mv(m) for m in inchain]} (want none: the partner's action never moves your camera)")
     if cam_offset(cam1["client"]) != cam_offset(staged):
-        fails.append(f"KR4: client camera offset {cam_offset(cam1['client'])} after host_kill (want the staged "
-                     f"{cam_offset(staged)} unchanged)")
+        fails.append(f"client_camera_kept: client camera offset {cam_offset(cam1['client'])} after host_kill (want "
+                     f"the staged {cam_offset(staged)} unchanged)")
     if any(sup.values()):
-        fails.append(f"KR4: host camera.suppressed delta {sup} (want all +0: the host's own action)")
+        fails.append(f"client_camera_kept: host camera.suppressed delta {sup} (want all +0: the host's own action)")
     return fails
 
 
@@ -1080,11 +1058,11 @@ def row_host_kill(host, client, ctx):
     ih0, ic0 = items_by_id(host), items_by_id(client)
     w0 = {"host": ih0.get(A_WEAPON), "client": ic0.get(A_WEAPON)}
     spotted0 = battle_state(host).get("spotted")
-    kr4_staged = stage_camera(client, K_FAR_TERROR)   # W2-P6a S-C row KR4: the client camera far from host_kill
+    camera_staged = stage_camera(client, CAM_FAR_TERROR)   # client_camera_kept: the client camera far from host_kill
     cam0 = cam_snap(host, client)
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
-    snap_d = death_snap(host, client)   # W2-P6b S-D row host_kill_death
+    snap_d = death_snap(host, client)   # for host_kill_death
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cursor0 = None
     try:
@@ -1107,7 +1085,7 @@ def row_host_kill(host, client, ctx):
     except Exception as e:
         notes.append(f"wait_host_idle after the shot: {short(e)}")
     wait_death_ghosts_ended(client, notes)
-    cam1 = cam_snap(host, client)   # W2-P6a S-C row KR4
+    cam1 = cam_snap(host, client)   # for client_camera_kept
     uh, uc = units(host), units(client)
     ih, ic = items_by_id(host), items_by_id(client)
     ph, pc = probes(host), probes(client)
@@ -1129,7 +1107,7 @@ def row_host_kill(host, client, ctx):
           f"{battle_state(host).get('spotted')}; hostCombatContexts host {cb['host']['hostCombatContexts']}->"
           f"{ca['host']['hostCombatContexts']} client {cb['client']['hostCombatContexts']}->"
           f"{ca['client']['hostCombatContexts']}; host evs since seq {seq0}={ev_tuples(hev)} "
-          f"client evs={ev_tuples(cev)} (seq, kind, actionId, h); red view={red_view(hev, cev)}; "
+          f"client evs={ev_tuples(cev)} (seq, kind, actionId, h); combat evs={combat_evs_view(hev, cev)}; "
           f"action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; cueCounts delta host="
           f"{cue_delta(cb['host']['cueCounts'], ca['host']['cueCounts'])} client="
           f"{cue_delta(cb['client']['cueCounts'], ca['client']['cueCounts'])}; lastCue host="
@@ -1145,20 +1123,20 @@ def row_host_kill(host, client, ctx):
           f"{ph['lastDelta']} client lastDelta={pc['lastDelta']}; host {delta_view(before['host'])}->"
           f"{delta_view(ph)}; client {delta_view(before['client'])}->{delta_view(pc)}; notes={notes}",
           flush=True)
-    # W2-P6b S-D row host_kill_death (review section 2; AMENDMENT P6b-2's schedule): A's animated death on the client
+    # row host_kill_death: A's animated death on the client
     death_fails = death_row("host_kill_death", host, client, snap_d, [
         {"seq": seq_of(chain, "death"), "actionId": aid, "unit": A_ID, "payload": KILL_DEATH, "front": False,
          "fromDir": KILL_A_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
          "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
          "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
-    kr4 = kr4_fails(chain, kr4_staged, cam0, cam1)   # W2-P6a S-C row KR4 (declared green at red)
+    camera_fails = client_camera_kept_fails(chain, camera_staged, cam0, cam1)   # row client_camera_kept
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
     for name, it in w0.items():
         if not it or it.get("owner") != A_ID:
             fails.append(f"{name} weapon {A_WEAPON} before the shot {it} (want held by A)")
-    # the action (spec (f) host_kill GREEN)
+    # the action
     fails += context_fails(cb, ca)
     fails += cfails
     corpse_ids = [i["id"] for i in corpses["host"]]
@@ -1205,7 +1183,7 @@ def row_host_kill(host, client, ctx):
     if clip1["host"] is None or clip1["host"] != clip1["client"]:
         fails.append(f"clip {clip} qty host={clip1['host']} client={clip1['client']} (want equal)")
     fails += death_fails
-    fails += kr4
+    fails += camera_fails
     fails += common_fails(host, client, before, {}, "host_kill")
     finish(fails)
 
@@ -1226,8 +1204,8 @@ def row_host_stun(host, client, ctx):
     w0 = {"host": ih0.get(A2_WEAPON), "client": ic0.get(A2_WEAPON)}
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
-    snap_d = death_snap(host, client)   # W2-P6b S-D row D2
-    snap_e = effect_snap(host, client)  # W2-P6b S-E row melee_ghost
+    snap_d = death_snap(host, client)   # for stun_collapse
+    snap_e = effect_snap(host, client)  # for melee_ghost
     seq0 = before["host"]["lastSeqEmitted"] or 0
     cursor0 = None
     try:
@@ -1259,8 +1237,8 @@ def row_host_stun(host, client, ctx):
           f"stagedDiff={staged_diff} cursorType(before[, after the aim-cancel click])={cursor0}; hostCombatContexts host "
           f"{cb['host']['hostCombatContexts']}->{ca['host']['hostCombatContexts']} client "
           f"{cb['client']['hostCombatContexts']}->{ca['client']['hostCombatContexts']}; host evs since seq "
-          f"{seq0}={ev_tuples(hev)} client evs={ev_tuples(cev)} (seq, kind, actionId, h); red view="
-          f"{red_view(hev, cev)}; action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; cueCounts delta "
+          f"{seq0}={ev_tuples(hev)} client evs={ev_tuples(cev)} (seq, kind, actionId, h); combat evs="
+          f"{combat_evs_view(hev, cev)}; action={aid} chain={[(e['seq'], e['kind']) for e in chain]}; cueCounts delta "
           f"host={cue_delta(cb['host']['cueCounts'], ca['host']['cueCounts'])} client="
           f"{cue_delta(cb['client']['cueCounts'], ca['client']['cueCounts'])}; lastCue host="
           f"{ca['host']['lastCue']} client={ca['client']['lastCue']}; A2 before host={unit_brief(uh0.get(A2_ID))} "
@@ -1274,22 +1252,21 @@ def row_host_stun(host, client, ctx):
           f"{pc['syncEvsApplied']}; host lastDelta={ph['lastDelta']} client lastDelta={pc['lastDelta']}; "
           f"host {delta_view(before['host'])}->{delta_view(ph)}; client {delta_view(before['client'])}->"
           f"{delta_view(pc)}; notes={notes}", flush=True)
-    # W2-P6b S-D row D2 (review section 2): A2's animated stun collapse on the client, no sound (N6)
-    d2 = death_row("D2", host, client, snap_d, [
+    # row stun_collapse: A2's animated stun collapse on the client, no sound
+    collapse_fails = death_row("stun_collapse", host, client, snap_d, [
         {"seq": seq_of(chain, "death"), "actionId": aid, "unit": A2_ID, "payload": STUN_DEATH, "front": False,
          "fromDir": STUN_A2_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN, "sounds": SECTOID_DEATH_SOUNDS,
          "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out", "unitDyingSet": False,
          "dirsShown": DIRS_4_TO_3, "phasesShown": PHASES_ALL}])
-    # W2-P6b S-E row melee_ghost (review section 2; section 9 E-b): the host's stun-rod swing as a melee ghost on
-    # the client
-    e1 = impact_row("melee_ghost", host, client, snap_e, [(seq_of(chain, "melee"), "melee")], "STR_STUN_ROD")
+    # row melee_ghost: the host's stun-rod swing as a melee ghost on the client
+    melee_fails = impact_row("melee_ghost", host, client, snap_e, [(seq_of(chain, "melee"), "melee")], "STR_STUN_ROD")
     fails = list(notes)
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
     for name, it in w0.items():
         if not it or it.get("owner") != A2_ID:
             fails.append(f"{name} weapon {A2_WEAPON} before the stun {it} (want held by A2)")
-    # the action (spec (f) host_stun GREEN)
+    # the action
     fails += context_fails(cb, ca)
     fails += cfails
     body_ids = [i["id"] for i in bodies["host"]]
@@ -1318,8 +1295,8 @@ def row_host_stun(host, client, ctx):
     if tile_of(w1["host"]) != tile_of(w1["client"]):
         fails.append(f"weapon {A2_WEAPON} tile host={tile_of(w1['host'])} client={tile_of(w1['client'])} "
                      f"(want the same)")
-    fails += d2
-    fails += e1
+    fails += collapse_fails
+    fails += melee_fails
     fails += common_fails(host, client, before, {}, "host_stun")
     finish(fails)
 
@@ -1332,24 +1309,23 @@ def host_both_dead_idle(host, uids):
             and not bs.get("isBusy")) or None
 
 
-def d3_burst(host, client, ctx):
-    """W2-P6b S-D row D3 (review section 2, OR1 (a); AMENDMENT P6b-2 / T0b-2 = F1767): the kill-lever burst of
-    seat 1. The host's evs are exactly D3_EVS (actionId 0: the lever opens no context); C's death is the host's
-    front state (payload front true), C2's queues behind it (front false) and starts at C's pop with the
-    interval C's pirouette left (Is 100). Client: V1 = C {startedAfterSeq 0, Is 33, 7 octants}, V2 = C2
-    {startedAfterSeq = V1's seq, Is 100, 2 octants}; both set the Map's dying flag (player victims), V1's release
-    clears it (V2's then finds it cleared); both end "out" at their own corpse ev.
-    the client's death_apply_hold lever is on from before the kill
-    lever to the end of the row, so V1 has started when V2 is enqueued in every run (the race order);
-    V2's record headStartedAtEnqueue must be true."""
+def row_death_burst(host, client, ctx):
+    """Row death_burst: kill_unit_real's burst of seat 1. The host's evs are exactly BURST_EVS (actionId 0: the
+    test command opens no context); C's death is the host's front state (payload front true), C2's queues behind
+    it (front false) and starts at C's pop with the interval C's pirouette left (Is 100). Client: C's record
+    {startedAfterSeq 0, Is 33, 7 octants}, C2's {startedAfterSeq = C's seq, Is 100, 2 octants}; both set the Map's
+    dying flag (player victims), C's release clears it (C2's then finds it cleared); both end "out" at their own
+    corpse ev. The client's death_apply_hold test hook is on from before the kill command to the end of the row,
+    so C's ghost has started when C2's death is enqueued in every run (the race order); C2's record
+    headStartedAtEnqueue must be true."""
     notes = []
     uh0 = units(host)
-    own = [uid for uid, t in ((C_ID, D3_C_TILE), (C2_ID, D3_C2_TILE))
+    own = [uid for uid, t in ((C_ID, BURST_C_TILE), (C2_ID, BURST_C2_TILE))
            if ((uh0.get(uid) or {}).get("x"), (uh0.get(uid) or {}).get("y"), (uh0.get(uid) or {}).get("z")) == t]
     tele = {}
-    if not own:   # S2: a unit is never teleported onto its own tile
-        tele["C"] = tele_both(host, client, C_ID, D3_C_TILE, D3_C_DIR)
-        tele["C2"] = tele_both(host, client, C2_ID, D3_C2_TILE, D3_C2_DIR)
+    if not own:   # a unit is never teleported onto its own tile
+        tele["C"] = tele_both(host, client, C_ID, BURST_C_TILE, BURST_C_DIR)
+        tele["C2"] = tele_both(host, client, C2_ID, BURST_C2_TILE, BURST_C2_DIR)
     staged_diff = diff_buckets(host, client)
     staged = {n: {uid: unit_brief(u.get(uid)) for uid in (C_ID, C2_ID)}
               for n, u in (("host", units(host)), ("client", units(client)))}
@@ -1357,7 +1333,7 @@ def d3_burst(host, client, ctx):
     snap_d = death_snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     tops0 = (top(host), top(client))
-    # S-D.3: the client's test-only hold, on before the kill lever
+    # the client's test-only hold, on before the kill command
     hold_on = client.cmd({"cmd": "battle_action", "action": "death_apply_hold", "on": True})
     k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": 1})
     try:
@@ -1367,7 +1343,7 @@ def d3_burst(host, client, ctx):
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"wait_host_idle after the lever: {short(e)}")
+        notes.append(f"wait_host_idle after the kill: {short(e)}")
     wait_death_ghosts_ended(client, notes)
     uh, uc = units(host), units(client)
     hev, cev = evs_since(host, seq0), evs_since(client, seq0)
@@ -1375,9 +1351,9 @@ def d3_burst(host, client, ctx):
     end_diff = diff_buckets(host, client)
     ph, pc = probes(host), probes(client)
     dsc = desync_record(client, pc["desyncSeen"])
-    chain_ev = {"staged": {"C": (C_ID, D3_C_TILE, D3_C_DIR), "C2": (C2_ID, D3_C2_TILE, D3_C2_DIR), "tele": tele,
-                           "ownTile": own, "stagedDiff": staged_diff, "units": staged},
-                "topsBefore": tops0, "holdOn": hold_on, "lever": k, "seq0": seq0,
+    chain_ev = {"staged": {"C": (C_ID, BURST_C_TILE, BURST_C_DIR), "C2": (C2_ID, BURST_C2_TILE, BURST_C2_DIR),
+                           "tele": tele, "ownTile": own, "stagedDiff": staged_diff, "units": staged},
+                "topsBefore": tops0, "holdOn": hold_on, "kill": k, "seq0": seq0,
                 "hostEvs": [(e["seq"], e["kind"], e["actionId"]) for e in hev],
                 "clientEvs": [(e["seq"], e["kind"], e["actionId"]) for e in cev],
                 "cuePayloads": {str(s): p for s, p in pl.items()},
@@ -1385,19 +1361,19 @@ def d3_burst(host, client, ctx):
                           "client": {uid: unit_brief(uc.get(uid)) for uid in (C_ID, C2_ID)}},
                 "topsAfter": (top(host), top(client)), "diff": end_diff, "desync": dsc,
                 "hostDesyncSeen": ph["desyncSeen"], "notes": list(notes)}
-    s1, s2 = (D3_EVS[0][0], D3_EVS[1][0])
+    s1, s2 = (BURST_EVS[0][0], BURST_EVS[1][0])
     try:
-        d3 = death_row("D3", host, client, snap_d, extra=chain_ev, wants=[
-            {"seq": s1, "actionId": 0, "unit": C_ID, "payload": {k_: D3_DEATHS[s1][k_] for k_ in DEATH_KEYS},
-             "front": True, "fromDir": D3_C_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN,
+        burst_fails = death_row("death_burst", host, client, snap_d, extra=chain_ev, wants=[
+            {"seq": s1, "actionId": 0, "unit": C_ID, "payload": {k_: BURST_DEATHS[s1][k_] for k_ in DEATH_KEYS},
+             "front": True, "fromDir": BURST_C_DIR, "octants": 7, "respawn": False, "Is": DEATH_IS_TURN,
              "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out",
              "unitDyingSet": True, "unitDyingCleared": True},
-            {"seq": s2, "actionId": 0, "unit": C2_ID, "payload": {k_: D3_DEATHS[s2][k_] for k_ in DEATH_KEYS},
-             "front": False, "fromDir": D3_C2_DIR, "octants": 2, "respawn": False, "Is": DEATH_IC,
+            {"seq": s2, "actionId": 0, "unit": C2_ID, "payload": {k_: BURST_DEATHS[s2][k_] for k_ in DEATH_KEYS},
+             "front": False, "fromDir": BURST_C2_DIR, "octants": 2, "respawn": False, "Is": DEATH_IC,
              "sounds": SOLDIER_DEATH_SOUNDS, "startedAfterSeq": s1, "overKill": OVERKILL_NONE, "endedBy": "out",
              "unitDyingSet": True, "unitDyingCleared": False, "headStartedAtEnqueue": True}])
     finally:
-        # S-D.3: the client's hold off after the row
+        # the client's hold off after the row
         hold_off = client.cmd({"cmd": "battle_action", "action": "death_apply_hold", "on": False})
     fails = list(notes)
     if hold_on.get("ok") is not True or hold_on.get("on") is not True:
@@ -1405,18 +1381,18 @@ def d3_burst(host, client, ctx):
     if hold_off.get("ok") is not True or hold_off.get("on") is not False:
         fails.append(f"client death_apply_hold {{on: false}} answered {hold_off} (want ok, on false)")
     if own:
-        fails.append(f"units {own} already stand on their D3 tile (S2: never teleported onto their own tile)")
+        fails.append(f"units {own} already stand on their death_burst tile (never teleported onto their own tile)")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    if seq0 != D3_SEQ0:
-        fails.append(f"host lastSeqEmitted before the lever {seq0} (want {D3_SEQ0}: T0b-2)")
-    if not k.get("ok") or k.get("killed") != D3_KILLED:
-        fails.append(f"kill_unit_real {{coop_side: 1}} answered {k} (want ok, killed {D3_KILLED})")
+    if seq0 != BURST_SEQ0:
+        fails.append(f"host lastSeqEmitted before the kill command {seq0} (want {BURST_SEQ0})")
+    if not k.get("ok") or k.get("killed") != BURST_KILLED:
+        fails.append(f"kill_unit_real {{coop_side: 1}} answered {k} (want ok, killed {BURST_KILLED})")
     hv = [(e["seq"], e["kind"], e["actionId"]) for e in hev]
     cv = [(e["seq"], e["kind"], e["actionId"]) for e in cev]
-    if hv != D3_EVS or cv != D3_EVS:
-        fails.append(f"evs since seq {seq0} host={hv} client={cv} (want exactly {D3_EVS} on both)")
-    for s, want in D3_CORPSES.items():
+    if hv != BURST_EVS or cv != BURST_EVS:
+        fails.append(f"evs since seq {seq0} host={hv} client={cv} (want exactly {BURST_EVS} on both)")
+    for s, want in BURST_CORPSES.items():
         got = {k_: (pl.get(s) or {}).get(k_) for k_ in want}
         if got != want:
             fails.append(f"host corpse payload seq {s} {got} (want {want})")
@@ -1426,19 +1402,19 @@ def d3_burst(host, client, ctx):
             if (v.get("status"), v.get("onTile"), v.get("direction")) != (STATUS_DEAD, False, DIR_FACING_3):
                 fails.append(f"{name} unit {uid} {unit_brief(v)} (want status DEAD ({STATUS_DEAD}), onTile false, "
                              f"direction {DIR_FACING_3})")
-    fails += d3
-    fails += common_fails(host, client, before, {}, "D3")
+    fails += burst_fails
+    fails += common_fails(host, client, before, {}, "death_burst")
     finish(fails)
 
 
-SCENARIOS = (("host_kill", row_host_kill), ("host_stun", row_host_stun), ("D3", d3_burst))
+SCENARIOS = (("host_kill", row_host_kill), ("host_stun", row_host_stun), ("death_burst", row_death_burst))
 
 
 # ===================== bring-up =====================
 
 
 def bring_up_lobby_roster_pinned(host, client, port):
-    """raw.bring_up_lobby with ONE added call (amendment A2.2): set_seed
+    """raw.bring_up_lobby with ONE added call: set_seed
     SEED_ROSTER on the HOST immediately before its open_new_battle, so the
     roster (names and stats) the NEW BATTLE screen generates repeats."""
     host.spawn(); host.connect()
@@ -1463,7 +1439,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p2-sc")
+    pinned = pin_ai_neutral(host, client, tag="host_combat")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     h_ids = sorted(u["id"] for u in hs["units"] if u.get("coop") == COOP_SEAT_0
                    and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
@@ -1477,12 +1453,12 @@ def boot(host, client):
         es = event_state(gc)
         assert (isinstance(es.get("hostCombatContexts"), int) and isinstance(es.get("cueCounts"), dict)
                 and "lastCue" in es), (
-            f"{gc.name} event_state lacks the S-C probes: hostCombatContexts={es.get('hostCombatContexts')!r} "
+            f"{gc.name} event_state lacks the host-combat probes: hostCombatContexts={es.get('hostCombatContexts')!r} "
             f"cueCounts={es.get('cueCounts')!r} lastCue present={'lastCue' in es}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
     ph = probes(host)
-    print(f"[w2p2-sc] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} H={H_ID} "
+    print(f"[host_combat] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} H={H_ID} "
           f"({(ub.get(H_ID) or {}).get('name')}) pinned={len(pinned)} host deltaArmed={ph['deltaArmed']} "
           f"deltaSeeds={ph['deltaSeeds']} probes host={cue_probes(host)} client={cue_probes(client)}",
           flush=True)
@@ -1491,9 +1467,9 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    # coopGhostStepper pinned true in both instances (the D rows need the client's death ghosts)
-    host = GameClient("host", 49846, make_user_dir("w2p2_host_combat_host", options={"coopGhostStepper": True}))
-    client = GameClient("client", 49847, make_user_dir("w2p2_host_combat_client",
+    # coopGhostStepper set true in both instances (the death rows need the client's death ghosts)
+    host = GameClient("host", 49846, make_user_dir("host_combat_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49847, make_user_dir("host_combat_client",
                                                        options={"coopGhostStepper": True}))
     results = {}
     try:
@@ -1516,7 +1492,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p2-sc] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[host_combat] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_host_combat: {len(passed)}/{len(SCENARIOS)} passed "

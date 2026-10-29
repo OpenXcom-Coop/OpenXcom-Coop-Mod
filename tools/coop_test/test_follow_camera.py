@@ -277,7 +277,7 @@ def walker_cell(moves, steps, uid):
 def row_client_follows_host_walk(host, client, crash0):
     ev = {"place": CSH.place(host, client, H_ID, HOST_WALK_START, HOST_WALK_DIR),
           "tu": CSH.set_tu_both(host, client, H_ID, TU_MAX)}
-    staged = HC.stage_camera(client, HC.K_FAR_TERROR)
+    staged = HC.stage_camera(client, HC.CAM_FAR_TERROR)
     cam0 = HC.cam_snap(host, client)
     ctx0, seq0 = es(host, "closedContexts"), es(host, "lastSeqEmitted") or 0
     ev["tab"] = SPC.tab_select(host, H_ID)
@@ -318,10 +318,10 @@ def row_client_follows_host_walk(host, client, crash0):
 
 
 def partner_walk(host, client, dest, ev):
-    """The client's walk of C to `dest` (session.send_walk) with the host's camera staged far (K_HOSTFAR_TERROR,
+    """The client's walk of C to `dest` (session.send_walk) with the host's camera staged far (CAM_HOST_FAR_TERROR,
     level 1).
     Returns (staged, cam0, cam1, the new host contexts); `ev` gains the walk_step seqs and the camera views."""
-    staged = HC.stage_camera(host, HC.K_HOSTFAR_TERROR)
+    staged = HC.stage_camera(host, HC.CAM_HOST_FAR_TERROR)
     cam0 = HC.cam_snap(host, client)
     ctx0, seq0 = es(host, "closedContexts"), es(host, "lastSeqEmitted") or 0
     ev["resp"] = session.send_walk(client, C_ID, dest)
@@ -394,7 +394,7 @@ def row_client_follows_host_shot(host, client, crash0):
     rifle, clip = CSH.give_both(host, client, H_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
     ev = {"rifle": rifle, "clip": clip, "H": CSH.place(host, client, H_ID, HOST_WALK_DEST, HOST_WALK_DIR),
           "tu": CSH.set_tu_both(host, client, H_ID, TU_MAX)}
-    staged = HC.stage_camera(client, HC.K_FAR_TERROR)
+    staged = HC.stage_camera(client, HC.CAM_FAR_TERROR)
     cam0 = HC.cam_snap(host, client)
     ctx0, seq0 = es(host, "closedContexts"), es(host, "lastSeqEmitted") or 0
     ev["cursor"] = HC.open_hand_menu_host(host)
@@ -450,7 +450,7 @@ def row_host_follows_client_shot(host, client, crash0):
     rifle, clip = CSH.give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
     ev = {"rifle": rifle, "clip": clip, "C": CSH.place(host, client, C_ID, CLIENT_SHOT_TILE, CLIENT_SHOT_DIR),
           "tu": CSH.set_tu_both(host, client, C_ID, TU_MAX), "notes": []}
-    staged = HC.stage_camera(host, HC.K_HOSTFAR_TERROR)
+    staged = HC.stage_camera(host, HC.CAM_HOST_FAR_TERROR)
     cam0 = HC.cam_snap(host, client)
     ctx0, seq0 = es(host, "closedContexts"), es(host, "lastSeqEmitted") or 0
     host.ok({"cmd": "set_seed", "seed": CLIENT_SHOT_SEED})
