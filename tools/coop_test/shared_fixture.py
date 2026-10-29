@@ -30,8 +30,8 @@ ORDER - the base index is the protocol's routing key (PRD-J03), so an ordering
 difference is itself a desync.
 
 each soldier's gear too - armor, equipment layout,
-personal layout and its armor; craft loads are not compared until W2-H20b
-stage B.
+personal layout and its armor; craft loads (the items on a craft) are not
+compared.
 
 Note this is deliberately WIDER than the PRD-J04/J10/GAP-4 world checksum. The
 checksum sums funds + base / tech / item / soldier / transfer / production
@@ -89,7 +89,7 @@ def world_dump(gc):
     Sourced from geo_state (world + per-base economy) + get_soldiers (roster with
     ownerPlayerId). Bases stay in INDEX order on purpose - the index is the SHARED
     command routing key, so a reordering must fail the compare. Each soldier's gear
-    comes from soldier_layouts (per base, by name; W2-G1).
+    comes from soldier_layouts (per base, by name).
     """
     g = gc.ok({"cmd": "geo_state"})
     roster = gc.ok({"cmd": "get_soldiers"})["bases"]
@@ -102,7 +102,7 @@ def world_dump(gc):
     for i, b in enumerate(g["bases"]):
         soldiers = roster[i]["soldiers"] if i < len(roster) else []
         # each soldier's gear - armor (get_soldiers), equipment layout, personal layout and
-        # its armor (soldier_layouts, items in stored order). Craft items join with W2-H20b stage B.
+        # its armor (soldier_layouts, items in stored order). Craft items are not compared.
         armor = {s["id"]: s.get("armor") for s in soldiers}
         gear = gc.ok({"cmd": "soldier_layouts", "base": b["name"]})["soldiers"]
         bases.append({
@@ -221,11 +221,10 @@ class SharedSession:
         self.host_port, self.client_port, self.coop_port = ports
         self.transport = transport
         # Both machines get the SAME mods, or their rulesets diverge.
-        # `host_options` (SPEC 18, additive): boot-time options.cfg overrides
-        # for the HOST instance only (e.g. {"battleXcomSpeed": 200} - the
-        # SPEC 16 F342 lever, paces the LOCAL machine, host only). Every
-        # existing caller is unaffected: default None, nothing changes.
-        # `client_options` (W2-P7 S-C-D2, AMENDMENT P7-7 PR-35, additive): the CLIENT twin of host_options.
+        # `host_options`: boot-time options.cfg overrides
+        # for the HOST instance only (e.g. {"battleXcomSpeed": 200}, which
+        # paces the LOCAL machine only). Default None, nothing changes.
+        # `client_options`: the CLIENT twin of host_options.
         self.host_dir = make_user_dir(f"{tag}_host", mods=mods, options=host_options)
         self.client_dir = make_user_dir(f"{tag}_client", mods=mods, options=client_options)
         self.host = GameClient("host", self.host_port, self.host_dir)
@@ -276,9 +275,9 @@ def bring_up(tag, ports, wait_ready=True,
     transport - "tcp" (default) or "udp". UDP runs the real direct-LAN
                 connectionUDP transport on 127.0.0.1 (host binds coop_port, client
                 binds coop_port+1); opt in only for a repro that needs it.
-    host_options - (SPEC 18, additive) boot-time options.cfg overrides for the
-                HOST instance only; see SharedSession.__init__. Default None,
-                every existing caller unaffected.
+    host_options / client_options - boot-time options.cfg overrides for the
+                HOST / CLIENT instance only; see SharedSession.__init__. Default
+                None, nothing changes.
 
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
