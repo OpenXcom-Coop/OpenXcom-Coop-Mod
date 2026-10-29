@@ -450,6 +450,9 @@ void SoldiersState::initList(size_t scrl)
 					// soldiers outside of the base are not eligible
 					continue;
 				}
+				// One-world campaigns: only the local player's soldiers, as the
+				// soldier info view lists them.
+				if (!SharedEcon::ownsSoldier(_game, soldier)) continue;
 				if (soldier->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(soldier);
@@ -458,6 +461,7 @@ void SoldiersState::initList(size_t scrl)
 			}
 			for (auto* deadMan : *_game->getSavedGame()->getDeadSoldiers())
 			{
+				if (!SharedEcon::ownsSoldier(_game, deadMan)) continue;
 				if (deadMan->isEligibleForTransformation(transformationRule))
 				{
 					_filteredListOfSoldiers.push_back(deadMan);
