@@ -12,15 +12,15 @@ serialize, so on reload Craft::load could not re-resolve the destination and
 silently dropped it - the out-craft reverted to aimless PATROLLING, abandoning
 its mission. The fix persists the target's cross-instance coop id on the craft
 (and keeps the coop id stable across the host's own save/reload), lays down an
-interim waypoint at the saved position, and re-links the craft to the LIVE coop
+temporary waypoint at the saved position, and re-links the craft to the LIVE coop
 mirror once it re-syncs - so the craft keeps chasing the REAL, position-synced
 target and engages it on arrival.
 
 Two scenarios, each asserting the craft (a) never despawns and (b) re-links to
 the live coop target after resume; plus a mode-specific proof:
 
-  landing : SKYRANGER -> crashed coop UFO. Arrival pops the W2-H9 refusal (owner
-            D199; craft sent home) - proving the craft reached the real TARGET,
+  landing : SKYRANGER -> crashed coop UFO. Arrival pops the host-craft-only
+            refusal (craft sent home) - proving the craft reached the real TARGET,
             not just its saved position (which would pop CraftPatrolState).
   tracking: INTERCEPTOR -> flying coop UFO. Moving the host UFO makes the client
             mirror (and thus the re-linked craft's destination) follow it -
@@ -131,25 +131,28 @@ def assert_relinked_to_ufo(tag, host, client, cid, fail, timeout=25):
 def drive_to_landing_prompt(tag, host, client, cid, fail, timeout=45):
     """Prove the re-linked craft reaches the REAL (stationary) target: park it
     on the coop crash site and advance time WITHOUT geo_run.
-    success = the client's top is CraftErrorState with the H9 text and the craft's
+    success = the client's top is CraftErrorState with the refusal text and the craft's
     destKind is 'base'; a ConfirmLandingState is a FAIL. Failure = CraftPatrolState
     ('arrived at position'), which is what a stale-waypoint fallback produces
     when the craft flies to a dead coordinate instead of the live target."""
     tag2 = f"{tag} [arrival]"
     keep = ("GeoscapeState", "CraftErrorState")
-    h9 = "In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to take part."
+    refusal_text = ("In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to "
+                    "take part.")
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
         st = client.cmd({"cmd": "get_state"})["states"]
         if any("ConfirmLandingState" in s for s in st):
-            print(f"  [FAIL] {tag2}: arrival popped ConfirmLandingState - W2-H9 refusal expected")
+            print(f"  [FAIL] {tag2}: arrival popped ConfirmLandingState - the host-craft-only refusal expected")
             fail.append(tag2)
             return
         if st and "CraftErrorState" in st[-1]:
             c = find_own_craft(client, cid)
-            ok = h9 in [w.get("text") for w in client.cmd({"cmd": "list_widgets"})["widgets"]] and c and c["destKind"] == "base"
-            print(f"  [{'PASS' if ok else 'FAIL'}] {tag2}: arrival popped CraftErrorState (W2-H9 refusal: {bool(ok)}, craft={c})")
+            ok = (refusal_text in [w.get("text") for w in client.cmd({"cmd": "list_widgets"})["widgets"]] and c
+                  and c["destKind"] == "base")
+            print(f"  [{'PASS' if ok else 'FAIL'}] {tag2}: arrival popped CraftErrorState (host-craft-only refusal: "
+                  f"{bool(ok)}, craft={c})")
             if not ok:
                 fail.append(tag2)
             return
@@ -216,7 +219,7 @@ def assert_live_tracking(tag, host, client, cid, coop_id, fail, timeout=25):
 def run_scenario(label, ports, ufo_state, ufo_speed, craft_pref, mode,
                  save_name, fail):
     """mode 'landing'  -> SKYRANGER to a crashed coop UFO; assert arrival pops
-                          the W2-H9 refusal (CraftErrorState, craft sent home).
+                          the host-craft-only refusal (CraftErrorState, craft sent home).
        mode 'tracking' -> INTERCEPTOR to a flying coop UFO; assert the re-linked
                           craft live-tracks the target (client mirror follows the
                           host UFO when it moves)."""
