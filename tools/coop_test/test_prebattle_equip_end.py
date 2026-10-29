@@ -160,8 +160,8 @@ from session import battle_state, event_state
 from test_delta_core import short, hashes
 from test_host_combat import bring_up_lobby_roster_pinned
 from test_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, H_IDS, PILE, COOP_SEAT_0, FACTION_PLAYER,
-                                     EQ1_WAIT_S, ENTRY_WAIT_S, DRAIN_WAIT_S, stack, top, has, es, equip, turn,
-                                     inv_view, view_brief, screen_up, ground_ids, pile_ids, wait_until, evidence,
+                                     CLIENT_BRIEFING_WAIT_S, ENTRY_WAIT_S, DRAIN_WAIT_S, stack, top, has, es, equip,
+                                     turn, inv_view, view_brief, screen_up, ground_ids, pile_ids, wait_until, evidence,
                                      finish, drained, tail_fails, ok_press, SDLK_RETURN, CLICK_WAIT_S, BARRIER_WAIT_S)
 from test_delta_items import items_by_id
 from test_battle_end import (H_BUCKETS, DEBRIEF_WIDGETS, DEBRIEF_FIELDS, CLIENT_LEAVE_S, HOST_HOLD_S, verdicts,
@@ -374,7 +374,7 @@ def spine_e1(host, client, ctx):
     """Boot E1's spine: the client's briefing (<= 30 s); the host in phase Active; the client's close_briefing ->
     its pre-battle screen; the staging."""
     rec = {}
-    g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    g0, d0 = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
     g1, d1 = wait_until(lambda: es(host).get("phase") == "Active", ACTIVE_WAIT_S, 0.1)
     c = client.cmd({"cmd": "close_briefing"}) if g0 else {"error": "no client BriefingState"}
     g2, d2 = wait_until(lambda: screen_up(client), ENTRY_WAIT_S)
@@ -394,7 +394,7 @@ def spine_e2(host, client, ctx):
     held (the host stays in phase Handshake); the client's close_briefing -> its pre-battle screen; the staging."""
     tag = ctx.get("tag", "E2")
     rec = {"arm": ctx.get("arm")}
-    g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    g0, d0 = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
     rec["hold1"] = hold(client)
     c = client.cmd({"cmd": "close_briefing"}) if g0 else {"error": "no client BriefingState"}
     g2, d2 = wait_until(lambda: screen_up(client), ENTRY_WAIT_S)
@@ -811,7 +811,7 @@ def spine_f(host, client, ctx):
     """Boots F1/F2's spine: both briefings (the client's <= 30 s, D210 b), the host in phase Active (the client's
     battle_ready arrived), turn 0 on both; the host's screen probes recorded as the row's baseline. Closes nothing."""
     tag = ctx.get("tag")
-    g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    g0, d0 = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
     g1, d1 = wait_until(lambda: es(host).get("phase") == "Active", ACTIVE_WAIT_S, 0.1)
     ctx["base"] = screen_probes(host)
     rec = {"clientBriefingWithin": d0 if g0 else None, "hostActiveWithin": d1 if g1 else None,

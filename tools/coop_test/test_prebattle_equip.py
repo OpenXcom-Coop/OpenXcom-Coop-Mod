@@ -194,7 +194,7 @@ NAME_SYNC_S = 3.0
 SDLK_RETURN = 13                    # the "one real key" that closes the client's Turn-1 screen (EQ8)
 
 # ----- waits -----
-EQ1_WAIT_S = 30.0                  # EQ1 cell: "wait <= 30 s for the client's BriefingState"
+CLIENT_BRIEFING_WAIT_S = 30.0      # EQ1 cell: "wait <= 30 s for the client's BriefingState"
 CLIENT_BATTLE_WAIT_S = 90.0        # the spine: the client's battle after the host's OK (drive_to_battlescape's 90 s)
 ENTRY_WAIT_S = 5.0                 # the client's equip screen after its briefing closes
 CLICK_WAIT_S = 2.0
@@ -497,7 +497,7 @@ def staged_fails(ctx, what):
 
 
 def eq1_both_briefings(host, client, ctx):
-    got, dt = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    got, dt = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
     hb, cb = battle_state(host), battle_state(client)
     ev = {"clientBriefingWithin": dt if got else None, "clientStack": stack(client), "hostStack": stack(host),
           "hostPhase": es(host).get("phase"), "clientPhase": es(client).get("phase"),
@@ -507,7 +507,7 @@ def eq1_both_briefings(host, client, ctx):
     evidence("EQ1", ev)
     fails = []
     if not got:
-        fails.append(f"EQ1: no client BriefingState within {EQ1_WAIT_S} s while the host's is up (client stack "
+        fails.append(f"EQ1: no client BriefingState within {CLIENT_BRIEFING_WAIT_S} s while the host's is up (client stack "
                      f"{ev['clientStack']}, client inBattle {cb.get('inBattle')}, host phase {ev['hostPhase']}; FIX: "
                      f"no offer before the host's OK)")
         finish(fails)

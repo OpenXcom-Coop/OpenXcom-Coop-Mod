@@ -135,7 +135,7 @@ from test_delta_items import items_by_id
 from test_host_combat import bring_up_lobby_roster_pinned
 from test_client_items import strip_both
 from test_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, C1, C2, H_IDS, PILE, COOP_SEAT_0, FACTION_PLAYER,
-                                     BELT, RIGHT_HAND, LEFT_HAND, RIFLE_T, CLIP_T, GRENADE_T, EQ1_WAIT_S,
+                                     BELT, RIGHT_HAND, LEFT_HAND, RIFLE_T, CLIP_T, GRENADE_T, CLIENT_BRIEFING_WAIT_S,
                                      ENTRY_WAIT_S, ANSWER_WAIT_S, LAND_WAIT_S, DRAIN_WAIT_S, stack, has, es,
                                      equip, turn, in_battle, inv_view, view_brief, ground_ids, pile_ids, wait_until,
                                      evidence, finish, click, goto_unit, drained, pre_screen_fails, ammo_of, GROUND,
@@ -297,7 +297,7 @@ def tail_fails(host, client, what):
 
 def spine_both_briefings(host, client, ctx):
     """Both machines hold the battle with their briefings up (D210 b; S-A built it)."""
-    got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client), EQ1_WAIT_S, 0.1)
+    got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client), CLIENT_BRIEFING_WAIT_S, 0.1)
     rec = {"clientBriefingWithin": dt if got else None, "hostStack": stack(host), "clientStack": stack(client),
            "turn": [turn(host), turn(client)], "mapFingerprint": battle_state(client).get("mapFingerprint")}
     print(f"SPINE both briefings: {json.dumps(rec, sort_keys=True, default=str)}", flush=True)

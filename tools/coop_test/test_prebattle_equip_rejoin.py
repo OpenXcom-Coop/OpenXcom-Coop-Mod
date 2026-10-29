@@ -141,8 +141,8 @@ from test_host_combat import bring_up_lobby_roster_pinned
 from test_client_items import strip_both
 from test_turn_mode import set_mode, TRADITIONAL
 from test_prebattle_equip import (SEED_MAP, MAP_FP, C_IDS, H_IDS, PILE, COOP_SEAT_0, FACTION_PLAYER, BELT,
-                                     EQ1_WAIT_S, ANSWER_WAIT_S, CLICK_WAIT_S, stack, top, has, es, equip, turn,
-                                     in_battle, inv_view, view_brief, item_view, wait_until, evidence, finish,
+                                     CLIENT_BRIEFING_WAIT_S, ANSWER_WAIT_S, CLICK_WAIT_S, stack, top, has, es, equip,
+                                     turn, in_battle, inv_view, view_brief, item_view, wait_until, evidence, finish,
                                      click, pick_ground, next_press, tail_fails,
                                      C1, GROUND, RIGHT_HAND, RIFLE_T, CLIP_T, GRENADE_T, ENTRY_WAIT_S, LAND_WAIT_S,
                                      screen_up, goto_unit, pre_screen_fails, first_of_type, weapon_view, on_pile,
@@ -229,7 +229,7 @@ def eq1b_host_equips_in_handshake(host, client, ctx):
     fails = []
     try:
         # (1) the client holds the battle during the host's briefing, battle_ready stashed
-        got, dt = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+        got, dt = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
         ev["clientBriefingWithin"] = dt if got else None
         ev["hold1"] = hold(client)
         ev["phase1"] = {"host": es(host).get("phase"), "client": es(client).get("phase"),
@@ -751,7 +751,7 @@ def spine_r1(host, client, ctx):
     client's close_briefing -> its pre-battle screen; the host's equip-open announce applied on the client; the
     queues drained."""
     rec = {}
-    g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    g0, d0 = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
     rec["clientBriefingWithin"] = d0 if g0 else None
     r = host.cmd({"cmd": "close_briefing"})
     g1, d1 = wait_until(lambda: screen_up(host), ENTRY_WAIT_S)
@@ -773,7 +773,7 @@ def spine_r2(host, client, ctx):
     """Boot R2's spine: the client's briefing (<= 30 s); the client's close_briefing -> its pre-battle screen while
     the host still reads its briefing; the host in phase Active (the client's battle_ready arrived)."""
     rec = {}
-    g0, d0 = wait_until(lambda: has(client, "BriefingState"), EQ1_WAIT_S, 0.1)
+    g0, d0 = wait_until(lambda: has(client, "BriefingState"), CLIENT_BRIEFING_WAIT_S, 0.1)
     rec["clientBriefingWithin"] = d0 if g0 else None
     c = client.cmd({"cmd": "close_briefing"})
     g1, d1 = wait_until(lambda: screen_up(client), ENTRY_WAIT_S)

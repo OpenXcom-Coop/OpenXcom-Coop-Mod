@@ -44,7 +44,8 @@ from session import battle_state
 from test_prebattle_equip import (
     SEED_MAP, MAP_FP, C_IDS, H_IDS, PILE, COOP_SEAT_0, FACTION_PLAYER, BELT, RIGHT_HAND, LEFT_HAND, BACK_PACK, GROUND,
     GROUND_COLS, RIFLE_T, CLIP_T, GRENADE_T, NAME_CLICK, UNFOCUS_CLICK, RENAME_LETTER, KEY_SETTLE_S, CLICK_WAIT_S,
-    LAND_WAIT_S, TURN_WAIT_S, DRAIN_WAIT_S, ENTRY_WAIT_S, EQ1_WAIT_S, ANSWER_WAIT_S, SDLK_RETURN, click, inv_view,
+    LAND_WAIT_S, TURN_WAIT_S, DRAIN_WAIT_S, ENTRY_WAIT_S, CLIENT_BRIEFING_WAIT_S, ANSWER_WAIT_S, SDLK_RETURN,
+    click, inv_view,
     next_press, goto_unit, wait_until, evidence, stack, top, has, es, equip, turn, in_battle, drained, ammo_of, cell_of,
     pile_ids, strip_both, both, diff_buckets, items_by_id, bring_up_lobby_roster_pinned, short)
 
@@ -217,7 +218,8 @@ def boot(host, client):
     print(f"[eq1] boot ok: MAP_FP={MAP_FP!r} seated={seated_uids} H={h_ids}", flush=True)
 
 def s1_stage(host, client, ctx):
-    got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client) and in_battle(host), EQ1_WAIT_S, 0.1)
+    got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client) and in_battle(host),
+                         CLIENT_BRIEFING_WAIT_S, 0.1)
     rec = {"bothBriefingsWithin": dt if got else None, "stacks": [stack(host), stack(client)]}
     ctx["s1"] = rec
     if not got:
