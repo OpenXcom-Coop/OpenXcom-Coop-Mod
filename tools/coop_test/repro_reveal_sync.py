@@ -605,7 +605,7 @@ def run_e2e(host, client, actor, soldier_ids):
           f"{rs_e['hostile']['floor']}/{rs_e['hostile']['westwall']}/"
           f"{rs_e['hostile']['northwall']} on both machines, {len(h_e)}/{BUCKETS} EQUAL")
 
-    print(f"PASS test_reveal_sync_e2e: ALL scenarios (pre-action {BUCKETS}/{BUCKETS}, "
+    print(f"PASS run_e2e: ALL scenarios (pre-action {BUCKETS}/{BUCKETS}, "
           f"{MIXED_ACTIONS} mixed actions across both seats, flush idempotence, "
           "player and hostile base restates) passed in one session")
 
