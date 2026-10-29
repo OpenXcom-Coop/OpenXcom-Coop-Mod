@@ -1,21 +1,26 @@
-"""W2-H76 stage S-A (spec rewrite/prompts/w2h76_dogfight_ufo_uaf.md (f); TASK 0 rewrite/w2h76-task0/sa/CONSTANTS.md; ruling R-BH4-1; capture
-lbh4-cap F21435-F21443; F21582): in a SEPARATE co-op campaign the host can intercept the partner's UFO mirror. Co-op code deletes that mirror when
-the partner drops (deleteAllCoopBases) or when the partner's snapshot no longer lists it (the mirror sweep) without ending the dogfight that chases
-it, so the next handleDogfights() reads and writes the freed UFO. The fix ends and deletes every dogfight on the mirror first, as vanilla does.
-Probes: dogfight_ufo_check (read-only pointer compares, safe after a delete) and its danglingSeen counter (dogfights handleDogfights() met whose
-UFO had left the saved game). dogfight_state dereferences every dogfight's UFO: it is read ONLY before a row's delete (lever or kill).
-Owner = client, fighter = host in every row. Every player press is a real click; levers stage the UFO, the clock, the globe centre, base placement,
-the owner-side loss (set_ufo_damage) and the drop (kill). Each boot is fresh and shut down before the next; key "49449".
-  Boot SW (dirs w2h76_sw_*): row SW - the sweep deletes a mirror a minimized dogfight chases (C2-min, no drop). Cells SW-seen FIX, SW-end,
-  SW-craft, SW-input, SW-common.
-  Boot DM (dirs w2h76_dm_*, rejoin w2h76_dm_client2): row DM - the partner drops while a minimized dogfight chases its mirror (C1-min). Cells
-  DM-dfs FIX, DM-dangling FIX, DM-craft FIX, DM-home, DM-seen FIX, DM-after, DM-input, DM-common.
-  Boot DO (dirs w2h76_do_*, rejoin w2h76_do_client2): row DO - as DM with the dogfight window open (C1). Cells DO-dfs FIX, DO-dangling FIX,
-  DO-craft FIX, DO-home, DO-seen FIX, DO-after, DO-input, DO-common.
-Red (commit R1): exit 2, RED exactly on SW-seen, DM-dfs, DM-dangling, DM-craft, DM-seen, DO-dfs, DO-dangling, DO-craft, DO-seen (9 of 21). A guard
-miss: ONE CAPTURE line and the row's remaining cells FAIL "guard"; a host crash after the row's delete: they FAIL "crash" (the UAF itself). ONE
-EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2.
-one foreground run per invocation.
+"""test_dogfight_mirror_delete.py: in a SEPARATE co-op campaign the host can intercept the partner's UFO mirror. Co-op
+code deletes that mirror when the partner drops (deleteAllCoopBases) or when the partner's snapshot no longer lists it
+(the mirror sweep). A dogfight left chasing it would make the next handleDogfights() read and write the freed UFO, so
+the game ends and deletes every dogfight on the mirror first, as vanilla does.
+Probes: dogfight_ufo_check (read-only pointer compares, safe after a delete) and its danglingSeen counter (dogfights
+handleDogfights() met whose UFO had left the saved game). dogfight_state dereferences every dogfight's UFO: it is read
+ONLY before a row's delete (set_ufo_damage or kill).
+Owner = client, fighter = host in every row. Every player press is a real click; test commands stage the UFO, the
+clock, the globe centre, base placement, the owner-side loss (set_ufo_damage) and the drop (kill). Each boot is fresh
+and shut down before the next; key "49449".
+  sweep (dirs dogfight_mirror_sweep_*): the sweep deletes a mirror a minimized dogfight chases (no drop). Cells
+  sweep-seen FIX, sweep-end, sweep-craft, sweep-input, sweep-common.
+  drop_minimized (dirs dogfight_mirror_drop_minimized_*, rejoin dogfight_mirror_drop_minimized_client2): the partner
+  drops while a minimized dogfight chases its mirror. Cells drop_minimized-dogfights FIX, drop_minimized-dangling FIX,
+  drop_minimized-craft FIX, drop_minimized-home, drop_minimized-seen FIX, drop_minimized-after, drop_minimized-input,
+  drop_minimized-common.
+  drop_open (dirs dogfight_mirror_drop_open_*, rejoin dogfight_mirror_drop_open_client2): as drop_minimized with the
+  dogfight window open. Cells as drop_minimized's, named drop_open-*.
+A build that deletes the mirror without ending its dogfight exits 2 and fails exactly sweep-seen and the -dogfights,
+-dangling, -craft and -seen cells of both drop rows (9 of 21). A guard miss: ONE CAPTURE line and the row's remaining
+cells FAIL "guard"; a host crash after the row's delete: they FAIL "crash" (the use after free itself). ONE EVIDENCE
+line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every
+cell passes, else 2. One foreground run per invocation.
 Run: python tools/coop_test/test_dogfight_mirror_delete.py
 """
 import json, math, os, sys, time  # noqa: E401
@@ -28,7 +33,7 @@ KEY = "49449"
 RC_SET = (0, 3221226505, 1, 3221225477)
 MIRROR_S, OPEN_S, MIN_S, GONE_S, W62_S, ACK_S, W62R_S, RESUME_S = 30, 90, 5, 30, 20, 120, 20, 10
 SETTLE_SW, SETTLE_DROP, MIN_HOLD, UNDER62_HOLD = 2.0, 3.0, 1.0, 1.0
-MIN_CLICK = (86, 58)  # the only window's (80, 52) + 6 (DogfightState::calculateWindowPosition, one interception); CONSTANTS.md
+MIN_CLICK = (86, 58)  # the only window's (80, 52) + 6 (DogfightState::calculateWindowPosition, one interception)
 CLIENT_OFFSETS = ((0.25, 0), (-0.25, 0), (0, 0.2), (0, -0.2), (0.2, 0.15), (-0.2, 0.15), (0.2, -0.15), (-0.2, -0.15), (0.3, 0), (-0.3, 0))
 UFO = {"type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID", "trajectory": "P0",
        "state": "flying", "speed": 1}
@@ -88,7 +93,7 @@ AFF = {}
 
 
 def note_click(gc, r):
-    """the base -> window affine from two click_widget replies (capture lbh4.py)"""
+    """the base -> window affine from two click_widget replies"""
     if r.get("ok") and "baseX" in r:
         pts = AFF.setdefault(gc.name + "_pts", [])
         pts.append((r["baseX"], r["baseY"], r["winX"], r["winY"]))
@@ -161,8 +166,8 @@ def icpt(gc, cid):
 
 
 def bring_up(row):
-    """SEPARATE campaign (session.new_campaign's flow, copied from the capture) with the client's base placed near the host's -> H, C"""
-    tag = "w2h76_" + row.rid.lower()
+    """SEPARATE campaign (session.new_campaign's flow) with the client's base placed near the host's -> H, C"""
+    tag = "dogfight_mirror_" + row.rid.lower()
     row.host = GameClient("host", None, make_user_dir(tag + "_host"))
     row.client = GameClient("client", None, make_user_dir(tag + "_client"))
     host, client = row.host, row.client
@@ -209,7 +214,8 @@ def bring_up(row):
 
 
 def pick_ufo_point(gc, H, C, want_water=None):
-    """the capture's ring around H (r 0.13 / 0.16 / 0.11 / 0.19 x 16), 0.1 <= dist(C) <= 0.4; SW water, DM / DO any"""
+    """a ring around H (r 0.13 / 0.16 / 0.11 / 0.19 x 16), 0.1 <= dist(C) <= 0.4; water for sweep, any for the drop
+    rows"""
     for r in (0.13, 0.16, 0.11, 0.19):
         for k in range(16):
             p = (H[0] + r * math.cos(2 * math.pi * k / 16) / max(0.3, math.cos(H[1])), H[1] + r * math.sin(2 * math.pi * k / 16))
@@ -293,7 +299,7 @@ def stage(row, H, C, want_water, minimize):
     if not (c.get("count") == 1 and c.get("pending") == 0 and c.get("dangling") == 0 and c.get("danglingPending") == 0
             and c.get("minimized") == (1 if minimize else 0)):
         raise Guard("guard:pre: chk %s" % c)
-    ev["S0"] = c.get("danglingSeen")
+    ev["seen0"] = c.get("danglingSeen")
     return ou, cid, c.get("danglingSeen")
 
 
@@ -361,36 +367,38 @@ class Row:
         return failed
 
 
-def row_sw(row):
-    """SW - the sweep deletes a mirror a minimized dogfight chases (C2-min, no drop)"""
+def row_sweep(row):
+    """sweep - the sweep deletes a mirror a minimized dogfight chases (no drop)"""
     H, C = bring_up(row)
     host, client, ev = row.host, row.client, row.ev
     ou, cid, s0 = stage(row, H, C, True, True)
     r = client.cmd({"cmd": "set_ufo_damage", "ufo_id": ou["id"], "damage": 1000000})  # staging: the owner loses its UFO
     row.deleted = True
-    ev["lever"] = {k: r.get(k) for k in ("ok", "status", "damage", "damageMax", "error")}
+    ev["set_damage"] = {k: r.get(k) for k in ("ok", "status", "damage", "damageMax", "error")}
     if not (r.get("ok") and r.get("status") == 3):
-        raise Guard("guard:lever: %s" % r)
+        raise Guard("guard:set_damage: %s" % r)
     ev["gone s"] = wait("the host's mirror gone", lambda: not any(u.get("coop") and u.get("coopId") == ou["coopId"] for u in ufos(host)),
                         GONE_S, 0.1)
     time.sleep(SETTLE_SW)
     c, k = chk(host), icpt(host, cid)
     ev["chk"], ev["icpt"] = c, k
     seen = (c.get("danglingSeen") or 0) - (s0 or 0)
-    row.cell("SW-seen", seen == 0, "FIX: danglingSeen - S0 = %d (S0 %s, now %s); want 0" % (seen, s0, c.get("danglingSeen")))
-    row.cell("SW-end", c.get("count") == 0 and c.get("pending") == 0 and c.get("dangling") == 0 and c.get("danglingPending") == 0,
+    row.cell("sweep-seen", seen == 0, "FIX: danglingSeen - seen0 = %d (seen0 %s, now %s); want 0"
+             % (seen, s0, c.get("danglingSeen")))
+    row.cell("sweep-end", c.get("count") == 0 and c.get("pending") == 0 and c.get("dangling") == 0
+             and c.get("danglingPending") == 0,
              "chk %s; want count 0, pending 0, dangling 0, danglingPending 0" % c)
-    row.cell("SW-craft", k is not None and k.get("destKind") == "base" and k.get("inDogfight") is False,
+    row.cell("sweep-craft", k is not None and k.get("destKind") == "base" and k.get("inDogfight") is False,
              "CID %s: %s; want destKind base, inDogfight false" % (cid, k))
     ev["stack before input"] = stack(host)
     press(host, "INTERCEPT", "InterceptState")
     press(host, "CANCEL", "GeoscapeState")
-    row.cell("SW-input", True, "host INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real clicks)")
-    row.common("SW-common", client)
+    row.cell("sweep-input", True, "host INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real clicks)")
+    row.common("sweep-common", client)
 
 
 def row_drop(row, minimize):
-    """DM / DO - the partner drops while a minimized (DM) / open (DO) dogfight chases its mirror (C1-min / C1)"""
+    """drop_minimized / drop_open - the partner drops while a minimized / open dogfight chases its mirror"""
     H, C = bring_up(row)
     host, client, ev, p = row.host, row.client, row.ev, row.rid
     ou, cid, s0 = stage(row, H, C, None, minimize)
@@ -404,14 +412,15 @@ def row_drop(row, minimize):
     ev["under 62"] = {"chk": c, "icpt": k, "coop ufos": len(left)}
     if left:
         raise Guard("guard: no coop UFO on the host under the 62: %s" % left)
-    row.cell(p + "-dfs", c.get("count") == 0 and c.get("pending") == 0, "FIX: under the 62 chk count %s, pending %s; want 0, 0"
+    row.cell(p + "-dogfights", c.get("count") == 0 and c.get("pending") == 0,
+             "FIX: under the 62 chk count %s, pending %s; want 0, 0"
              % (c.get("count"), c.get("pending")))
     row.cell(p + "-dangling", c.get("dangling") == 0 and c.get("danglingPending") == 0,
              "FIX: under the 62 chk dangling %s, danglingPending %s; want 0, 0" % (c.get("dangling"), c.get("danglingPending")))
     row.cell(p + "-craft", k is not None and k.get("inDogfight") is False, "FIX: under the 62 CID %s: %s; want inDogfight false" % (cid, k))
     row.cell(p + "-home", k is not None and k.get("destKind") == "base", "under the 62 CID %s destKind %s; want base"
              % (cid, (k or {}).get("destKind")))
-    row.client2 = GameClient("client", None, make_user_dir("w2h76_%s_client2" % p.lower()))
+    row.client2 = GameClient("client", None, make_user_dir("dogfight_mirror_%s_client2" % p.lower()))
     row.client2.spawn(); row.client2.connect()
     row.client2.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
     ev["ack s"] = wait("host resumeAck", lambda: q(host, {"cmd": "get_coop"}).get("resumeAck"), ACK_S, 0.25)
@@ -429,7 +438,7 @@ def row_drop(row, minimize):
     c = chk(host)
     ev["after RESUME"] = c
     seen = (c.get("danglingSeen") or 0) - (s0 or 0)
-    row.cell(p + "-seen", seen == 0, "FIX: after RESUME + %.0f s danglingSeen - S0 = %d (S0 %s, now %s); want 0"
+    row.cell(p + "-seen", seen == 0, "FIX: after RESUME + %.0f s danglingSeen - seen0 = %d (seen0 %s, now %s); want 0"
              % (SETTLE_DROP, seen, s0, c.get("danglingSeen")))
     row.cell(p + "-after", c.get("count") == 0 and c.get("pending") == 0 and c.get("dangling") == 0,
              "after RESUME chk %s; want count 0, pending 0, dangling 0" % c)
@@ -442,9 +451,15 @@ def row_drop(row, minimize):
 def main():
     t0 = time.time()
     print("CPU start: %s" % cpu(), flush=True)
-    plan = (("SW", ["SW-seen", "SW-end", "SW-craft", "SW-input", "SW-common"], lambda r: row_sw(r)),
-            ("DM", ["DM-dfs", "DM-dangling", "DM-craft", "DM-home", "DM-seen", "DM-after", "DM-input", "DM-common"], lambda r: row_drop(r, True)),
-            ("DO", ["DO-dfs", "DO-dangling", "DO-craft", "DO-home", "DO-seen", "DO-after", "DO-input", "DO-common"], lambda r: row_drop(r, False)))
+    plan = (("sweep", ["sweep-seen", "sweep-end", "sweep-craft", "sweep-input", "sweep-common"],
+             lambda r: row_sweep(r)),
+            ("drop_minimized",
+             ["drop_minimized-dogfights", "drop_minimized-dangling", "drop_minimized-craft", "drop_minimized-home",
+              "drop_minimized-seen", "drop_minimized-after", "drop_minimized-input", "drop_minimized-common"],
+             lambda r: row_drop(r, True)),
+            ("drop_open",
+             ["drop_open-dogfights", "drop_open-dangling", "drop_open-craft", "drop_open-home", "drop_open-seen",
+              "drop_open-after", "drop_open-input", "drop_open-common"], lambda r: row_drop(r, False)))
     fails, shut_fails, total, walls = [], [], 0, {}
     for rid, cells, fn in plan:
         row = Row(rid, cells)
