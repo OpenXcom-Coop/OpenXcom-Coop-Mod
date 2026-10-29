@@ -1,26 +1,30 @@
-"""W2-H73 DDP - tools/coop_test/test_drop_during_visit_paths.py: the other paths of a partner drop while the HOST views the partner's base.
+"""test_drop_during_visit_paths.py: the other paths of a partner drop while the HOST views the partner's base.
 
-In a SEPARATE co-op campaign a host visiting the partner's base (CoopState 55: its own world parked as "basehost", the partner's world live)
-gets the drop's wait window 62 over the view today. R-TR9-2 fix (m): the host's drop reloads "basehost" as the base screen's GEOSCAPE does,
-then opens the 62 over its own geoscape. This file covers the -3 arm, a screen open inside the base, the control and a named ironman campaign.
-Spec docs rewrite/prompts/w2h73_drop_during_visit.md (f) (QH73-1 .. QH73-5 (a), R-H73-1); pins docs rewrite/w2h73-task0/sa/CONSTANTS.md;
-lead L-TR9-2, capture rewrite/ltr9-2-cap.
-Row T (H5, E3; boot w2h73_t_*): VISIT, read I, B, the host's TEST-ONLY force_server_error, READ D at the first host top 62.
-  T-pre (GUARD: read I inside the view; the lever ok; SERVER +1), T-stack (RED: [GeoscapeState, CoopState] 62), T-world (RED: the own base
-  with FUNDS, no view base), T-inside (RED: insideCoopBase false at READ D and 1 s later; ruling R-H73-2), T-common (GUARD).
-Row S (a screen open inside the base; boot w2h73_s_*): VISIT, the host's real SOLDIERS click, SoldiersState on top (W_UI), B, kill, READ D.
-  S-pre (GUARD), S-stack (RED), S-world (RED: exactly the own base, FUNDS, S0), S-common (GUARD).
-Row G (C1-ctl, the control; boot w2h73_g_*): no visit; B; kill; READ D; SAVE & QUIT -> list -> NAME_G -> SAVE GAME; the file.
-  G-stack, G-world, G-log (UNWIND 0, OPEN 0), G-file, G-common (all GUARD).
-Row I (ironman, T0-I reached it; boot w2h73_i_*): W2-H53 boot G's SEPARATE ironman start (every host list answered NAME_I), FUNDS, VISIT by
-  the globe_point route (the spec's replacement for the picker in ironman: CAP's quick save renames the world `_quick_.asav`, CONSTANTS.md),
-  B, kill, the 62, SAVE & QUIT; a ListSaveState is answered by list_save_confirm NAME_I2 (the red's way out).
-  I-pre (GUARD), I-nolist (RED: no ListSaveState, MainMenuState), I-file (RED: NAME_I.sav rewritten with the host's base and S0, no
-  NAME_I2.sav), I-common (GUARD).
-Red today: T-stack, T-world, T-inside, S-stack, S-world, I-nolist, I-file FAIL; every other cell PASS. Green (E1-E4): all PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
-row (later cells "not reached"); a boot miss fails the row's first cell with ONE CAPTURE line. Real presses only; staging: set_funds FUNDS;
-the TEST-ONLY lever force_server_error (row T). Helpers copied (never imported) from the capture's cap.py and test_ironman_save_paths.py.
+In a SEPARATE co-op campaign a host visiting the partner's base (CoopState 55: its own world parked as "basehost", the
+partner's world live) must not get the drop's wait window 62 over the view: the host's drop reloads "basehost" as the
+base screen's GEOSCAPE does, then opens the 62 over its own geoscape. test_drop_during_visit covers the plain drop;
+this file covers the -3 arm, a screen open inside the base, the control and a named ironman campaign.
+Row server_error (boot drop_paths_server_error_*): VISIT, the inside read, the baseline, the host's TEST-ONLY
+  force_server_error, the drop read at the first host top 62. server_error-pre (GUARD: the inside read is inside the
+  view; the test hook ok; SERVER +1), server_error-stack (FIX: [GeoscapeState, CoopState] 62), server_error-world
+  (FIX: the own base with FUNDS, no view base), server_error-inside (FIX: insideCoopBase false at the drop read and
+  1 s later), server_error-common (GUARD).
+Row screen_open (a screen open inside the base; boot drop_paths_screen_open_*): VISIT, the host's real SOLDIERS click,
+  SoldiersState on top (W_UI), the baseline, kill, the drop read. screen_open-pre (GUARD), screen_open-stack (FIX),
+  screen_open-world (FIX: exactly the own base, FUNDS, S0), screen_open-common (GUARD).
+Row no_visit (the control; boot drop_paths_no_visit_*): no visit; the baseline; kill; the drop read; SAVE & QUIT ->
+  list -> the save name -> SAVE GAME; the file. no_visit-stack, no_visit-world, no_visit-log (UNWIND 0, OPEN 0),
+  no_visit-file, no_visit-common (all GUARD).
+Row ironman_save (boot drop_paths_ironman_save_*): test_ironman_save_paths' SEPARATE ironman start (every host list
+  answered with the ironman save name), FUNDS, VISIT by the globe_point route (the picker's quick save would rename the
+  ironman world `_quick_.asav`), the baseline, kill, the 62, SAVE & QUIT; a ListSaveState is answered by
+  list_save_confirm with the fallback name (the way out on a build that opens the list). ironman_save-pre (GUARD),
+  ironman_save-nolist (FIX: no ListSaveState, MainMenuState), ironman_save-file (FIX: the ironman save rewritten with
+  the host's base and S0, no fallback save), ironman_save-common (GUARD).
+A build that keeps the view live under the 62 fails every FIX cell; every GUARD cell passes either way.
+One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a
+precondition miss ends its row (later cells "not reached"); a boot miss fails the row's first cell with ONE CAPTURE
+line. Real presses only; staging: set_funds FUNDS; the TEST-ONLY hook force_server_error (row server_error).
 ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_drop_during_visit_paths.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
@@ -36,8 +40,8 @@ from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 KEY = "49266"
 HOST_POS = (0.90, -0.60)                       # rad; the host base on land, the client's marker clickable
 FUNDS_C = (4111111, 4222222, 4333333)          # FUNDS: the first that differs from the host's and the client's boot funds
-NAMES = {"G": "h73g", "I": "h73iron", "I2": "h73i2"}
-QUICK, PROBE = "_quick_.asav", "w2h73_probe.sav"
+NAMES = {"no_visit": "novisit", "ironman_save": "ironvisit", "ironman_fallback": "ironfallback"}
+QUICK, PROBE = "_quick_.asav", "drop_visit_probe.sav"
 WAIT_LIST, STABLE_S, BOOT_S, IRON_S, QUIET_S = 1.0, 2.0, 60.0, 150.0, 8.0
 W_62, W_UI, W_VISIT, W_SAVE = 10.0, 10.0, 60.0, 60.0
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
@@ -48,15 +52,18 @@ NEEDLES = {"UNWIND": "[coop] the partner dropped while the host views its base",
            "LGPUSH": "[coop-ui] push class OpenXcom::LoadGameState",
            "LISTPUSH": "[coop-ui] push class OpenXcom::ListSaveState",
            "SERVER": "[coop-test] force_server_error: onConnect -3 (main thread)"}
-CELLS = {"T": ["T-pre", "T-stack", "T-world", "T-inside", "T-common"], "S": ["S-pre", "S-stack", "S-world", "S-common"],
-         "G": ["G-stack", "G-world", "G-log", "G-file", "G-common"], "I": ["I-pre", "I-nolist", "I-file", "I-common"]}
+CELLS = {"server_error": ["server_error-pre", "server_error-stack", "server_error-world", "server_error-inside",
+                          "server_error-common"],
+         "screen_open": ["screen_open-pre", "screen_open-stack", "screen_open-world", "screen_open-common"],
+         "no_visit": ["no_visit-stack", "no_visit-world", "no_visit-log", "no_visit-file", "no_visit-common"],
+         "ironman_save": ["ironman_save-pre", "ironman_save-nolist", "ironman_save-file", "ironman_save-common"]}
 T0 = time.time()
 RESULTS = []
 
 class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
-# ----- probes (copied from docs rewrite/ltr9-2-cap/cap.py) -----
+# ----- probes -----
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def pick(r, keys): return {k: r.get(k) for k in keys}
@@ -87,7 +94,7 @@ def files(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = [os.path.getsize(p), os.stat(p).st_mtime_ns]
-        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def cpu():
@@ -127,7 +134,7 @@ def read_save(path):
     out["world"] = _world(w) if w else None
     return out
 
-# ----- real presses, the globe picker (cap.py) and the globe_point route (test_partner_visit_rollback :98-:121) -----
+# ----- real presses, the globe picker and the globe_point route (as in test_partner_visit_rollback) -----
 def real_click(gc, text, timeout=15.0):
     t0, ws = time.time(), []
     while time.time() - t0 < timeout:
@@ -153,7 +160,8 @@ def read_globe(path):
         d = next((d for d in yaml.load_all(fh, Loader=loader) if isinstance(d, dict) and "bases" in d), {})
     return {k: d.get(k) for k in ("globeLon", "globeLat", "globeZoom")}
 def picker(x):
-    """cap.py picker: a quick save + a named probe save (the host's globe view), the window scale from a destination screen's CANCEL"""
+    """a quick save + a named probe save (the host's globe view), the window scale from a destination screen's
+    CANCEL"""
     h = x.host
     qpath, spath = (os.path.join(h.user_dir, "xcom1", f) for f in (QUICK, PROBE))
     tq = time.time()
@@ -193,7 +201,8 @@ def visit(x):
     sc = x.pk["scale"]
     visit_clicks(x, [(int((px + dx) * sc["x"] + 1), int((py + dy) * sc["y"] + 1)) for dx, dy in CLICKS])
 def globe_visit(x):
-    """row I: the window mapping from the host's real INTERCEPT + CANCEL clicks, globe_point on CB, real clicks (no save written)"""
+    """the ironman_save row: the window mapping from the host's real INTERCEPT + CANCEL clicks, globe_point on CB,
+    real clicks (no save written)"""
     h, rr = x.host, []
     for m in ("INTERCEPT", "CANCEL"):
         r = q(h, {"cmd": "click_widget", "match": m})
@@ -224,8 +233,9 @@ def settle(x, limit=BOOT_S):
         time.sleep(0.25)
     raise Stop("both tops GeoscapeState not stable %.0f s within %.0f s: %s" % (STABLE_S, limit, last))
 def ironman_start(x):
-    """W2-H53 boot G (test_ironman_save_paths.py start / drive, copied): NewGameState IRONMAN toggle, co-op lobby, START; bases placed,
-    every host ListSaveState answered NAME_I, a client 123 dismissed, BEGIN on the host's 60 / 62; both GeoscapeState quiet QUIET_S"""
+    """the SEPARATE ironman start of test_ironman_save_paths.py: NewGameState IRONMAN toggle, co-op lobby, START;
+    bases placed, every host ListSaveState answered with the ironman save name, a client 123 dismissed, BEGIN on the
+    host's 60 / 62; both GeoscapeState quiet QUIET_S"""
     h, c = x.host, x.client
     h.ok({"cmd": "open_new_game", "mode": "coop"})
     h.wait_for("difficulty", lambda: has(h, "NewGameState"))
@@ -256,7 +266,7 @@ def ironman_start(x):
                 last = time.time()
             elif t == "ListSaveState" and who == "host" and len(lists) < 4:
                 wait(lambda: all(w.get("hidden") is False for w in q(h, {"cmd": "list_widgets"}).get("widgets", []) if w.get("interactive")), 5, 0.1)
-                lists.append(q(h, {"cmd": "list_save_confirm", "name": NAMES["I"]}).get("ok"))
+                lists.append(q(h, {"cmd": "list_save_confirm", "name": NAMES["ironman_save"]}).get("ok"))
                 last = time.time()
             elif t == "CoopState" and who == "client" and dlg(c).get("code") == 123 and dlg(c).get("backVisible") is True:
                 q(c, {"cmd": "coop_dialog_back"})
@@ -269,7 +279,8 @@ def ironman_start(x):
         time.sleep(0.1)
     raise Stop("ironman start not over in %.0f s: host %s client %s" % (IRON_S, stack(h), stack(c)))
 def boot(x, tag, ironman=False):
-    """fresh pair, a new SEPARATE campaign (host base at HOST_POS), slow clocks, settle; FUNDS staged; S0, CB; the picker (not row I)"""
+    """fresh pair, a new SEPARATE campaign (host base at HOST_POS), slow clocks, settle; FUNDS staged; S0, CB; the
+    picker (not the ironman_save row)"""
     spawn_pair(x, tag)
     session.HOST_LON, session.HOST_LAT = HOST_POS
     if ironman:
@@ -288,23 +299,25 @@ def boot(x, tag, ironman=False):
     x.ev.update(HB=x.HB, CB=x.CB, S0=x.S0)
     if not ironman:
         picker(x)
-def read_i(x, r):
-    """read I: host top BasescapeState, insideCoopBase, every live base coopBase, one named CB, funds != FUNDS -> (ok, detail)"""
-    w = r.ev["readI"] = world(x.host)
+def read_inside(x, r):
+    """the inside read: host top BasescapeState, insideCoopBase, every live base coopBase, one named CB,
+    funds != FUNDS -> (ok, detail)"""
+    w = r.ev["insideRead"] = world(x.host)
     ok = (w["stack"][-1:] == ["BasescapeState"] and w["coop"].get("insideCoopBase") is True and w["bases"]
           and all(b[1] for b in w["bases"]) and [b[0] for b in w["bases"]] == [x.CB] and w["funds"] != x.FUNDS)
-    return ok, "read I: stack %s, inside %s, bases %s, funds %s (want BasescapeState, true, [[%s, true, *]], != %s)" % (
-        w["stack"], w["coop"].get("insideCoopBase"), w["bases"], w["funds"], x.CB, x.FUNDS)
+    return ok, ("inside read: stack %s, inside %s, bases %s, funds %s (want BasescapeState, true, [[%s, true, *]], "
+                "!= %s)" % (w["stack"], w["coop"].get("insideCoopBase"), w["bases"], w["funds"], x.CB, x.FUNDS))
 def baseline(x):
     x.n_h, x.crB, x.filesB = len(log(x.host)), crashes(), files(x.host)
 def drop_62(x, how="kill"):
-    """client.kill() or the host's force_server_error; poll the host every 0.02 s; READ D at its first top CoopState 62"""
+    """client.kill() or the host's force_server_error; poll the host every 0.02 s; the drop read at its first top
+    CoopState 62"""
     h = x.host
     if how == "kill":
         x.client.kill()
-        x.ev["lever"] = None
+        x.ev["hook"] = None
     else:
-        x.ev["lever"] = pick(q(h, {"cmd": "force_server_error"}), ("ok", "error"))
+        x.ev["hook"] = pick(q(h, {"cmd": "force_server_error"}), ("ok", "error"))
     t0, trace, last = time.time(), [], None
     while time.time() - t0 < W_62:
         st = stack(h)
@@ -345,7 +358,7 @@ def save_quit(x, name):
         time.sleep(0.3)
         real_click(h, "SAVE GAME", 5)
     else:
-        x.slot = "SWAP list_save_confirm (the injected row click opened no edit)"
+        x.slot = "fallback list_save_confirm (the injected row click opened no edit)"
         q(h, {"cmd": "list_save_confirm", "name": name})
     p = os.path.join(h.user_dir, "xcom1", name + ".sav")
     v, x.mm_s = wait(lambda: not alive(h) or ("MainMenuState" in stack(h) and os.path.exists(p)), W_SAVE, 0.02)
@@ -408,83 +421,89 @@ class Row:
 def stack_cell(r, name, D, extra=True, more=""):
     d = D["dlg"] or {}
     r.cell(name, D["stack"] == ["GeoscapeState", "CoopState"] and d.get("code") == 62 and extra,
-           "READ D host stack %s, top code %s at %.3f s%s (want [GeoscapeState, CoopState], 62)" % (D["stack"], d.get("code"), D["t62"], more))
+           "drop read host stack %s, top code %s at %.3f s%s (want [GeoscapeState, CoopState], 62)"
+           % (D["stack"], d.get("code"), D["t62"], more))
 
 def common(r, name, x, killed, extra=(), ok0=True):
-    """the -common cells: every game the row did not kill alive until its shutdown; no new crash file since B"""
+    """the -common cells: every game the row did not kill alive until its shutdown; no new crash file since the
+    baseline"""
     rc = r.ev["rc"] = [shut(x.client) if not killed else "killed", shut(x.host)]
     nc = sorted(crashes() - x.crB)
     r.cell(name, ok0 and all(v in RC_OK for v in rc if v != "killed") and not nc,
            "%sexit codes (client, host) %s; new crash files %s (want %s, none)" % ("".join(e + "; " for e in extra), rc, nc, list(RC_OK)))
 
-def body_t(r, x):
-    ok, why = read_i(x, r)
+def body_server_error(r, x):
+    ok, why = read_inside(x, r)
     if not ok:
-        r.cell("T-pre", False, why)
-        raise Stop("read I")
+        r.cell("server_error-pre", False, why)
+        raise Stop("inside read")
     baseline(x)
-    D = r.ev["readD"] = drop_62(x, "server")
-    lv = x.ev["lever"]
-    r.cell("T-pre", lv.get("ok") is True and D["needles"]["SERVER"] == 1, "%s; lever %s, SERVER %d (want ok, 1)" % (why, lv, D["needles"]["SERVER"]))
-    stack_cell(r, "T-stack", D)
+    D = r.ev["dropRead"] = drop_62(x, "server")
+    hook_reply = x.ev["hook"]
+    r.cell("server_error-pre", hook_reply.get("ok") is True and D["needles"]["SERVER"] == 1,
+           "%s; hook %s, SERVER %d (want ok, 1)" % (why, hook_reply, D["needles"]["SERVER"]))
+    stack_cell(r, "server_error-stack", D)
     own = [b for b in D["bases"] if not b[1] and not b[2] and b[0] == x.HB]
     view = [b for b in D["bases"] if b[1] and not b[2]]
-    r.cell("T-world", own and not view and D["funds"] == x.FUNDS,
-           "READ D bases %s, funds %s (want own [%s, false, false], no [*, true, false], %s)" % (D["bases"], D["funds"], x.HB, x.FUNDS))
+    r.cell("server_error-world", own and not view and D["funds"] == x.FUNDS,
+           "drop read bases %s, funds %s (want own [%s, false, false], no [*, true, false], %s)"
+           % (D["bases"], D["funds"], x.HB, x.FUNDS))
     time.sleep(1.0)
     i1 = r.ev["inside1s"] = [coop(x.host).get("insideCoopBase"), stack(x.host)]
-    r.cell("T-inside", D["coop"].get("insideCoopBase") is False and i1[0] is False,
-           "insideCoopBase at READ D %s, 1 s later %s over %s (want false, false: the host's own geoscape, R-H73-2)" % (
+    r.cell("server_error-inside", D["coop"].get("insideCoopBase") is False and i1[0] is False,
+           "insideCoopBase at the drop read %s, 1 s later %s over %s (want false, false: the host's own geoscape)" % (
                D["coop"].get("insideCoopBase"), i1[0], i1[1]))
     al = alive(x.host) and alive(x.client)
-    common(r, "T-common", x, False, ["both alive %s" % al], al)
+    common(r, "server_error-common", x, False, ["both alive %s" % al], al)
 
-def body_s(r, x):
-    r.ev["readI"] = world(x.host)
+def body_screen_open(r, x):
+    r.ev["insideRead"] = world(x.host)
     sr = real_click(x.host, "SOLDIERS", W_UI)
     v, s = wait(lambda: top(x.host) == "SoldiersState", W_UI, 0.02)
     st = stack(x.host)
-    r.cell("S-pre", bool(sr.get("ok")) and st == ["GeoscapeState", "BasescapeState", "SoldiersState"],
+    r.cell("screen_open-pre", bool(sr.get("ok")) and st == ["GeoscapeState", "BasescapeState", "SoldiersState"],
            "SOLDIERS click %s, host stack %s in %s s (want [GeoscapeState, BasescapeState, SoldiersState] within %.0f s)" % (sr.get("ok"), st, s, W_UI))
     if not v:
-        raise Stop("S-pre")
+        raise Stop("screen_open-pre")
     baseline(x)
-    D = r.ev["readD"] = drop_62(x)
-    stack_cell(r, "S-stack", D)
+    D = r.ev["dropRead"] = drop_62(x)
+    stack_cell(r, "screen_open-stack", D)
     ok, why = own_only(x, D)
-    r.cell("S-world", ok, "READ D: " + why)
-    common(r, "S-common", x, True, ["host alive %s" % alive(x.host)], alive(x.host))
+    r.cell("screen_open-world", ok, "drop read: " + why)
+    common(r, "screen_open-common", x, True, ["host alive %s" % alive(x.host)], alive(x.host))
 
-def body_g(r, x):
+def body_no_visit(r, x):
     baseline(x)
-    D = r.ev["readD"] = drop_62(x)
+    D = r.ev["dropRead"] = drop_62(x)
     sq = (D["dlg"] or {}).get("saveQuitVisible")
-    stack_cell(r, "G-stack", D, sq is True, ", SAVE & QUIT shown %s" % sq)
+    stack_cell(r, "no_visit-stack", D, sq is True, ", SAVE & QUIT shown %s" % sq)
     ok, why = own_only(x, D)
-    r.cell("G-world", ok, "READ D: " + why)
+    r.cell("no_visit-world", ok, "drop read: " + why)
     n = D["needles"]
-    r.cell("G-log", n["UNWIND"] == 0 and n["OPEN"] == 0, "host log since B: UNWIND %d, OPEN %d (want 0, 0)" % (n["UNWIND"], n["OPEN"]))
-    name = NAMES["G"]
+    r.cell("no_visit-log", n["UNWIND"] == 0 and n["OPEN"] == 0,
+           "host log since the baseline: UNWIND %d, OPEN %d (want 0, 0)" % (n["UNWIND"], n["OPEN"]))
+    name = NAMES["no_visit"]
     while os.path.exists(os.path.join(x.host.user_dir, "xcom1", name + ".sav")):
         name += "x"
     p = save_quit(x, name)
     r.ev.update(slot=x.slot, mainMenu=[x.mm, x.mm_s])
     fw = (read_save(p)["world"] or {}) if p else {}
-    r.cell("G-file", fw.get("bases") == [[x.HB, x.S0]] and fw.get("funds") == x.FUNDS,
+    r.cell("no_visit-file", fw.get("bases") == [[x.HB, x.S0]] and fw.get("funds") == x.FUNDS,
            "%s.sav world bases %s, funds %s (want [[%s, %s]], %s)" % (name, fw.get("bases"), fw.get("funds"), x.HB, x.S0, x.FUNDS))
-    common(r, "G-common", x, True, ["MainMenuState %s in %s s" % (x.mm, x.mm_s)], x.mm)
+    common(r, "no_visit-common", x, True, ["MainMenuState %s in %s s" % (x.mm, x.mm_s)], x.mm)
 
-def body_i(r, x):
+def body_ironman_save(r, x):
     h = x.host
-    sp = os.path.join(h.user_dir, "xcom1", NAMES["I"] + ".sav")
+    sp = os.path.join(h.user_dir, "xcom1", NAMES["ironman_save"] + ".sav")
     hd = (read_save(sp)["header"] or {}) if os.path.exists(sp) else {}
-    ok, why = read_i(x, r)
-    r.cell("I-pre", ok and hd.get("name") == NAMES["I"] and hd.get("ironman") is True,
-           "start file %s name %s ironman %s (want %s, true); %s" % (os.path.basename(sp), hd.get("name"), hd.get("ironman"), NAMES["I"], why))
-    if not r.done["I-pre"]:
-        raise Stop("I-pre")
+    ok, why = read_inside(x, r)
+    r.cell("ironman_save-pre", ok and hd.get("name") == NAMES["ironman_save"] and hd.get("ironman") is True,
+           "start file %s name %s ironman %s (want %s, true); %s"
+           % (os.path.basename(sp), hd.get("name"), hd.get("ironman"), NAMES["ironman_save"], why))
+    if not r.done["ironman_save-pre"]:
+        raise Stop("ironman_save-pre")
     baseline(x)
-    D = r.ev["readD"] = drop_62(x)
+    D = r.ev["dropRead"] = drop_62(x)
     if not wait(lambda: dlg(h).get("code") == 62 and dlg(h).get("saveQuitVisible"), W_62, 0.02)[0]:
         raise Stop("no SAVE & QUIT on the host's 62 (%s)" % D["stack"])
     n0, seen, lists, t0 = len(log(h)), [], [], time.time()
@@ -495,7 +514,7 @@ def body_i(r, x):
             seen.append([round(time.time() - t0, 2), st])
         if st[-1:] == ["ListSaveState"] and not lists:
             wait(lambda: all(w.get("hidden") is False for w in q(h, {"cmd": "list_widgets"}).get("widgets", []) if w.get("interactive")), 5, 0.1)
-            lists.append(q(h, {"cmd": "list_save_confirm", "name": NAMES["I2"]}).get("ok"))
+            lists.append(q(h, {"cmd": "list_save_confirm", "name": NAMES["ironman_fallback"]}).get("ok"))
         if "MainMenuState" in st:
             break
         time.sleep(0.02)
@@ -503,24 +522,28 @@ def body_i(r, x):
     time.sleep(1.0)
     n = needles(h, n0)
     r.ev.update(seen=seen, lists=lists, mainMenu=[mm, round(time.time() - t0, 2)])
-    r.cell("I-nolist", n["LISTPUSH"] == 0 and mm, "LISTPUSH since the SAVE & QUIT click %d, stacks %s, MainMenuState %s (want 0, true within %.0f s)"
+    r.cell("ironman_save-nolist", n["LISTPUSH"] == 0 and mm, "LISTPUSH since the SAVE & QUIT click %d, stacks %s, "
+           "MainMenuState %s (want 0, true within %.0f s)"
            % (n["LISTPUSH"], seen[:3], mm, W_SAVE))
-    fb, fa = x.filesB.get(NAMES["I"] + ".sav"), files(h).get(NAMES["I"] + ".sav")
+    fb, fa = x.filesB.get(NAMES["ironman_save"] + ".sav"), files(h).get(NAMES["ironman_save"] + ".sav")
     fw = (read_save(sp)["world"] or {}) if fa else {}
-    i2 = os.path.exists(os.path.join(h.user_dir, "xcom1", NAMES["I2"] + ".sav"))
-    r.cell("I-file", fa is not None and fb != fa and [x.HB, x.S0] in fw.get("bases", []) and not i2,
-           "%s.sav moved %s, bases %s; %s.sav exists %s (want true, [%s, %s], false)" % (NAMES["I"], fb != fa, fw.get("bases"), NAMES["I2"], i2, x.HB, x.S0))
-    common(r, "I-common", x, True, ["host alive %s" % alive(h)], alive(h))
+    i2 = os.path.exists(os.path.join(h.user_dir, "xcom1", NAMES["ironman_fallback"] + ".sav"))
+    r.cell("ironman_save-file", fa is not None and fb != fa and [x.HB, x.S0] in fw.get("bases", []) and not i2,
+           "%s.sav moved %s, bases %s; %s.sav exists %s (want true, [%s, %s], false)"
+           % (NAMES["ironman_save"], fb != fa, fw.get("bases"), NAMES["ironman_fallback"], i2, x.HB, x.S0))
+    common(r, "ironman_save-common", x, True, ["host alive %s" % alive(h)], alive(h))
 
 def main():
     c0 = cpu()
-    print("==== W2-H73 DDP (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    Row("T").run(body_t, "w2h73_t", visit_fn=visit)
-    Row("S").run(body_s, "w2h73_s", visit_fn=visit)
-    Row("G").run(body_g, "w2h73_g")
-    Row("I").run(body_i, "w2h73_i", ironman=True, visit_fn=globe_visit)
+    print("==== test_drop_during_visit_paths (slot %s, key %s, exe %s) CPU %s ===="
+          % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    Row("server_error").run(body_server_error, "drop_paths_server_error", visit_fn=visit)
+    Row("screen_open").run(body_screen_open, "drop_paths_screen_open", visit_fn=visit)
+    Row("no_visit").run(body_no_visit, "drop_paths_no_visit")
+    Row("ironman_save").run(body_ironman_save, "drop_paths_ironman_save", ironman=True, visit_fn=globe_visit)
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H73 DDP: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
+    print("\n==== test_drop_during_visit_paths: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ===="
+          % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
           flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
