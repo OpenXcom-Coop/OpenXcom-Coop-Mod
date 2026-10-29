@@ -1,6 +1,6 @@
-"""FX-1: the HOST INPUT FREEZE.
+"""The HOST INPUT FREEZE.
 
-AI-neutral: boot P pins every non-player unit neutral (pin_ai_neutral).
+AI-neutral: the parallel boot pins every non-player unit neutral (pin_ai_neutral).
 
 WHY THIS EXISTS. While the coop battle phase is `Handshake` every coop input
 gate that reads `isCoopBattle()` (`== phase Active`) is PERMISSIVE, so without
@@ -10,27 +10,27 @@ is still loading its own copy of the world.
 `CoopBattleUi::freezeBattleInputUntilActive()`, hooked at the top of
 `BattlescapeState::handle`, closes that window.
 
-THE ESCAPE HATCH (REV E.1 S-4, the reason this file is not a one-line proof).
+THE ESCAPE HATCH (the reason this file is not a one-line proof).
 An UNCONDITIONAL early return in `BattlescapeState::handle` would ALSO block
 `State::handle()` below it - the ONLY dispatch path to `_btnHelp` (Options)
 and `_btnAbort` - trapping a waiting host with no way to open Options, save,
-or abandon. The fix carries a PRE-DECIDED, narrow exemption: the
+or abandon. The fix carries a narrow exemption: the
 `Options::keyBattleOptions` KEY (not a widget), gated on `!_save->isPreview()`
 exactly like vanilla's own `_btnHelp` binding. This file proves BOTH halves:
 the freeze actually freezes map input, AND the escape hatch actually opens
 Options without itself counting as (or breaking) the freeze. No other file
 proves the hatch.
 
-FIXTURE. Since W2-P8b a FRESH co-op
+FIXTURE. A FRESH co-op
 start never gives the host an input-taking BattlescapeState in phase
 Handshake: the host reads its briefing, then its pre-battle equip
 InventoryState stays on top for the whole Handshake,
 so the freeze is unreachable from a fresh start. The one live window is the
-SPEC 16 rejoin RESUME handshake, which `test_messages` row QR2r builds; this
-file copies QR2r's staging (test_messages.qr2r_drive, steps boot..7):
-test_rejoin_end_turn's parallel boot P (test_death_side's default map)
+rejoin RESUME handshake, which test_messages' rejoin-hold row builds; this
+file copies that staging (steps boot..7):
+test_rejoin_end_turn's parallel boot (test_death_side's default map)
 on this file's lobby PORT, one END TURN cycle, the client leaves, a
-fresh process (client2) arms the test-only lever hold_battle_ready {on: true}
+fresh process (client2) arms the test-only hook hold_battle_ready {on: true}
 and rejoins, the host presses RESUME. The host's rejoin
 battle_offer reopened phase Handshake (`offerRejoinBattle`); client2's
 battle_ready is stashed, so the host sits on BattlescapeState in phase
@@ -39,23 +39,20 @@ not a race. Every construction step is bounded; a miss is a setup failure
 (test_rejoin_end_turn.miss: one CAPTURE line of every machine, then raise).
 Before the client leaves, select_mover makes the actor a host soldier that can
 walk onto a neighbour tile in one step (the Active control's precondition;
-boot P's first selection, soldier 10 at (14,20,1), is boxed in by its squad
-and the craft hull, F21725), and the move-click tile is the first neighbour
+the parallel boot's first selection, soldier 10 at (14,20,1), is boxed in by its
+squad and the craft hull), and the move-click tile is the first neighbour
 that passes the read-only path_probe.
 
-Every cell of the fresh-start version is kept; the staging of two cells moved
-(W2-U9b report, docs rewrite/w2-resume-f087ac93/reports/w2-u9b.md):
-  cell 1 "Handshake with nothing completed by the peer": was "phase Handshake
-    after newbattle_ok, client still on LobbyMenu"; now "phase Handshake after
-    RESUME, client2's battle_ready stashed (held), never sent".
-  cell 2 "host on BattlescapeState, phase STILL Handshake": was "close the
-    NextTurnState the briefing OK pushed (close_nextturn), then top
-    BattlescapeState + Handshake"; now RESUME pops the reconnect dialog
-    straight onto BattlescapeState (no NextTurnState on the host's stack),
-    then top BattlescapeState + Handshake.
-  the post-PauseState re-check: was "run only if the round trip had not
-    completed meanwhile" (a NOTE branch otherwise); with the hold the window
-    cannot close, so the re-check always runs and the phase is asserted.
+The checks:
+  handshake_open "Handshake with nothing completed by the peer": phase
+    Handshake after RESUME, client2's battle_ready stashed (held), never sent.
+  host_on_battlescape "host on BattlescapeState, phase STILL Handshake": RESUME
+    pops the reconnect dialog straight onto BattlescapeState (no NextTurnState
+    on the host's stack).
+  then the frozen ground click, the exact waiting banner, the Options-key
+    hatch, the post-PauseState re-check (with the hold the window cannot close,
+    so the re-check always runs and the phase is asserted), and once Active the
+    same ground click moves the actor.
 
 Run:  python tools/coop_test/test_host_input_freeze.py
       (its own shell invocation - one harness run at a time, machine-wide.)
@@ -116,7 +113,7 @@ def unit_by_id(bs, uid):
 
 
 def hold(gc, **kw):
-    """test_messages.hold (QR2r): the test-only client lever hold_battle_ready. {on: true}
+    """As test_messages.hold: the test-only client hook hold_battle_ready. {on: true}
     arms it (the handshake stashes battle_ready), {on: false} disarms it and sends the stash; without `on` it only
     reports."""
     req = {"cmd": "hold_battle_ready"}
@@ -125,8 +122,8 @@ def hold(gc, **kw):
     return {k: r.get(k) for k in ("ok", "error", "armed", "held", "sent")}
 
 
-# Direction -> (dx, dy) step table, 0=North clockwise - the same table every
-# other rewrite repro in this directory uses (repro_atom_turn.py's own copy).
+# Direction -> (dx, dy) step table, 0=North clockwise - the same table the
+# other repros in this directory use (repro_atom_turn.py's own copy).
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
 DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
 
@@ -137,7 +134,7 @@ def center_on_selection(gc):
 
 
 def find_move_click(gc, actor):
-    """W1-P6's self-verifying `map_tile_click_pos` recipe (repro_atom_turn.py's
+    """The self-verifying `map_tile_click_pos` recipe (repro_atom_turn.py's
     `tile_click` precedent): resolve a REAL screen (winX, winY) for one of the
     actor's 8 neighbour tiles, so "the SAME ground click" used for the frozen
     check can ALSO be relied on to actually move the unit once unfrozen -
@@ -159,7 +156,7 @@ def find_move_click(gc, actor):
 
 
 def can_step_to(gc, uid, tile):
-    """The move-click tile's precondition (W2-U9b, S54): unit `uid` reaches `tile` in ONE step (the read-only
+    """The move-click tile's precondition: unit `uid` reaches `tile` in ONE step (the read-only
     path_probe: vanilla Pathfinding::calculate with the plain walk click's move type; an occupied tile, a missing
     floor or a wall makes it unreachable)."""
     tx, ty, tz = tile
@@ -169,9 +166,9 @@ def can_step_to(gc, uid, tile):
 
 def select_mover(host):
     """Staging, before the client leaves (phase Active): the host's selected unit is the actor of every cell, and
-    the Active control needs it to walk onto a neighbour. PIN-RULE (S54): keep the host's selection when one of its 8
-    neighbours passes can_step_to; else select the lowest-id live host-seat (coop 0) soldier that has one (the
-    nearest value meeting the precondition) with the test lever battle_action select. Returns (old id, actor id,
+    the Active control needs it to walk onto a neighbour. Keep the host's selection when one of its 8 neighbours
+    passes can_step_to; else select the lowest-id live host-seat (coop 0) soldier that has one (the nearest value
+    meeting the precondition) with the test command battle_action select. Returns (old id, actor id,
     tile) or None when no host soldier has a one-step neighbour (a setup failure)."""
     bs = battle_state(host)
     sel = bs.get("selectedId")
@@ -202,9 +199,9 @@ def resolve_click_pixel(gc, tile):
 
 
 def open_rejoin_window(host, client, m, options):
-    """QR2r's staging (test_messages.qr2r_drive, boot R steps boot..7) on this file's PORT. Each step bounded; a
+    """test_messages' rejoin-hold staging (steps boot..7) on this file's PORT. Each step bounded; a
     miss is a setup failure (rej.miss: one CAPTURE line of every machine in `m`). Returns client2 (appended to `m`)."""
-    rej.step("boot R (test_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT, False), m)
+    rej.step("boot (test_rejoin_end_turn's parallel boot)", lambda: rej.boot(host, client, PORT, False), m)
     pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
     end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause
     post = {"host": rej.snap(host), "client": rej.snap(client)}
@@ -223,9 +220,9 @@ def open_rejoin_window(host, client, m, options):
     rej.check("the host's selection is the mover", [] if sel == mover[1] else [
         f"selectedId {sel} after select_mover {mover}"], m)
     print(f"fixture: mover {mover} (old selection, actor, first one-step neighbour)"
-          + ("" if mover[0] == mover[1] else " - SWAP (S54): the old selection had no one-step neighbour"))
+          + ("" if mover[0] == mover[1] else " - swapped: the old selection had no one-step neighbour"))
     rej.step("1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
-    c2 = GameClient("rejoin", None, make_user_dir("rw_freeze_rejoin", options=options))
+    c2 = GameClient("rejoin", None, make_user_dir("freeze_rejoin", options=options))
     m.append(c2)
     rej.step("3 client2 spawn and connect", lambda: (c2.spawn(), c2.connect()), m)
     arm = hold(c2, on=True)
@@ -262,7 +259,7 @@ def open_rejoin_window(host, client, m, options):
 
 # ------------------------------------------------------------------- main ---
 def main():
-    # F109 hermetic camera: each instance boots with a dummy SDL mouse parked at
+    # Hermetic camera: each instance boots with a dummy SDL mouse parked at
     # (0,0) - the top-left corner - which under battleEdgeScroll=SCROLL_AUTO arms a
     # continuous edge-scroll the moment the battlescape is interactive again (e.g.
     # returning from the Pause hatch). That scroll shifts the camera _mapOffset
@@ -272,13 +269,13 @@ def main():
     # movement, NOT automatic edge scrolling, so pin a hermetic camera
     # (battleEdgeScroll=0 / SCROLL_NONE) on every instance (client2 included).
     options = {"battleEdgeScroll": 0}
-    host = GameClient("host", HOST_PORT, make_user_dir("rw_freeze_host", options=options))
-    client = GameClient("client", CLIENT_PORT, make_user_dir("rw_freeze_client", options=options))
+    host = GameClient("host", HOST_PORT, make_user_dir("freeze_host", options=options))
+    client = GameClient("client", CLIENT_PORT, make_user_dir("freeze_client", options=options))
     m = [host, client]
     try:
         c2 = open_rejoin_window(host, client, m, options)
 
-        # === cell 1: the handshake is open and the peer has completed nothing =
+        # === handshake_open: the handshake is open and the peer has completed nothing
         # The host's rejoin battle_offer reopened phase Handshake; client2's
         # battle_ready is stashed by hold_battle_ready, so nothing completes the
         # handshake until this file releases it.
@@ -289,7 +286,7 @@ def main():
             print(f"NOTE: client2 stash wait: {e}")
         bs0 = battle_state(host)
         h0 = hold(c2)
-        print(f"EVIDENCE cell 1: host phase {bs0.get('phase')!r} top {top_state(host)!r}; client2 hold {h0} "
+        print(f"EVIDENCE handshake_open: host phase {bs0.get('phase')!r} top {top_state(host)!r}; client2 hold {h0} "
               f"phase {battle_state(c2).get('phase')!r} top {top_state(c2)!r}")
         assert bs0.get("phase") == "Handshake", (
             f"host phase should be Handshake after RESUME (the rejoin battle_offer reopened it and client2's "
@@ -299,8 +296,8 @@ def main():
         print("PASS: the rejoin handshake is open (phase=Handshake) with client2's battle_ready held - "
               "nothing completes it until this file releases the hold")
 
-        # === cell 2: the host is on BattlescapeState, phase STILL Handshake ====
-        # REV E.1 (IR3-3): Game::run() dispatches input only to the TOP state, so
+        # === host_on_battlescape: the host is on BattlescapeState, phase STILL Handshake
+        # Game::run() dispatches input only to the TOP state, so
         # the freeze is observable only with BattlescapeState on top. RESUME pops
         # the reconnect dialog straight onto it - no NextTurnState is pushed.
         st1 = states(host)
@@ -309,7 +306,7 @@ def main():
         bs1 = battle_state(host)
         assert bs1.get("phase") == "Handshake", (
             f"host phase should STILL be Handshake on BattlescapeState (client2's battle_ready is held): {bs1}")
-        print("PASS (REV E.1 IR3-3): host on BattlescapeState (no NextTurnState), phase STILL Handshake - the "
+        print("PASS: host on BattlescapeState (no NextTurnState), phase STILL Handshake - the "
               "freeze window is open and observable")
 
         # === the ordering seat's unit, for the before/after position+TU check ===
@@ -379,7 +376,7 @@ def main():
               f"coopWalkIntentsSent=0, "
               f"coopHostInputFrozenRefusals={r_after_click} (> 0, {r_pre_click} before the click)")
 
-        # === the deployed banner text, EXACT (WV-D17: never non-emptiness) ===
+        # === the deployed banner text, EXACT (never just non-empty) ===
         assert bs2.get("coopWaitText") == TEXT_WAITING_FOR_JOIN, (
             f"battle_state.coopWaitText should be the deployed STR_COOP_WAITING_FOR_JOIN "
             f"text exactly: {bs2.get('coopWaitText')!r}")
@@ -398,7 +395,7 @@ def main():
             f"coopHostInputFrozenRefusals moved from {r0} to {r1} when the host "
             "pressed the Options key while frozen - the hatch's `&&` short-circuit "
             "is wrong: the exemption must not itself count as (or trigger) a refusal")
-        print(f"PASS (REV E.1 S-4): the Options-key hatch opened PauseState from a "
+        print(f"PASS: the Options-key hatch opened PauseState from a "
               f"FROZEN battlescape without moving coopHostInputFrozenRefusals "
               f"({r0} -> {r1})")
 
@@ -416,7 +413,7 @@ def main():
                       lambda: top_state(host) == "BattlescapeState", timeout=10)
 
         # The window survives the PauseState round trip (client2's battle_ready
-        # is still held): prove the freeze is STILL ARMED (spec's own "one more
+        # is still held): prove the freeze is STILL ARMED ("one more
         # ground click still moves nothing and the counter rises again" - the
         # non-vacuity control for THIS half: a freeze that silently lifted during
         # PauseState would also have let this click through).
@@ -546,7 +543,7 @@ def main():
               f"no longer refuses (coopHostInputFrozenRefusals stayed at {r5}) AND "
               f"actually moves the unit: before={before3} after={after3}")
 
-        print("ALL FX-1 HOST-INPUT-FREEZE CHECKS PASSED")
+        print("ALL HOST-INPUT-FREEZE CHECKS PASSED")
     finally:
         for gc in m:
             try:
