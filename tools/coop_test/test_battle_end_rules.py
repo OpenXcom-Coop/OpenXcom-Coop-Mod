@@ -847,7 +847,7 @@ def boot_e6(host, client, port):
     r = host.ok({"cmd": "lobby_set_team", "row": gm2_row_for(host, raw.CLIENT_PLAYER), "team": "Alien"})
     assert r.get("gamemode") == GAMEMODE_PVP, (
         f"lobby_set_team Alien answered gamemode {r.get('gamemode')} (want {GAMEMODE_PVP})")
-    time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative PHASE 0)
+    time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative's boot phase)
     drive_to_gm2_battlescape(host, client)
     hs, cs = battle_state(host), battle_state(client)
     assert hs.get("coopGamemode") == GAMEMODE_PVP and cs.get("coopGamemode") == GAMEMODE_PVP, (

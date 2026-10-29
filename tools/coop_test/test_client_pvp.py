@@ -487,7 +487,7 @@ def boot(host, client):
     r = host.ok({"cmd": "lobby_set_team", "row": gm2_row_for(host, raw.CLIENT_PLAYER), "team": "Alien"})
     assert r.get("gamemode") == GAMEMODE_PVP, (
         f"lobby_set_team Alien answered gamemode {r.get('gamemode')} (want {GAMEMODE_PVP})")
-    time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative PHASE 0)
+    time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative's boot phase)
     drive_to_gm2_battlescape(host, client)
     hs, cs = battle_state(host), battle_state(client)
     # F487 (PR-Q9): the client's entry notice, read before anything is pressed; printed only

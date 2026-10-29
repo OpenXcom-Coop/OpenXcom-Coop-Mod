@@ -87,7 +87,7 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
                      "team": "Alien"})
         assert r.get("gamemode") == BER.GAMEMODE_PVP, (
             f"lobby_set_team Alien answered gamemode {r.get('gamemode')} (want {BER.GAMEMODE_PVP})")
-        time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative PHASE 0)
+        time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative's boot phase)
         BER.drive_to_gm2_battlescape(host, client)
         hs, cs = BER.battle_state(host), BER.battle_state(client)
         assert hs.get("coopGamemode") == BER.GAMEMODE_PVP and cs.get("coopGamemode") == BER.GAMEMODE_PVP, (

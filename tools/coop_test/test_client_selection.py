@@ -440,7 +440,7 @@ def boot_gm2(host, client):
     host.wait_for("start offered", lambda: raw.lobby(host).get("buttonVisible") or None)
     r = host.ok({"cmd": "lobby_set_team", "row": gm2_row_for(host, raw.CLIENT_PLAYER), "team": "Alien"})
     assert r.get("gamemode") == 2, f"lobby_set_team Alien answered gamemode {r.get('gamemode')} (want 2)"
-    time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative PHASE 0)
+    time.sleep(1)   # the change_team broadcast settles on the client (repro_pvp_side_relative's boot phase)
     drive_to_gm2_battlescape(host, client)
     hs, cs = battle_state(host), battle_state(client)
     assert hs.get("coopGamemode") == 2 and cs.get("coopGamemode") == 2, (
