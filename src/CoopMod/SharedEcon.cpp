@@ -366,6 +366,28 @@ Craft* findCraft(Base* base, int id, const std::string& type)
 	return nullptr;
 }
 
+// A replica takes a craft id the host minted. Keep this machine's per-type
+// counter past it, so the replica's counter matches the host's after the apply.
+void adoptCraftId(SavedGame* save, const std::string& type, int id)
+{
+	std::map<std::string, int> ids = save->getAllIds();
+	if (ids[type] <= id)
+	{
+		ids[type] = id + 1;
+		save->setAllIds(ids);
+	}
+}
+
+// True when @a base already holds the craft (type, id), docked or in transit.
+bool baseHasCraft(Base* base, int id, const std::string& type)
+{
+	if (findCraft(base, id, type)) return true;
+	for (auto* t : *base->getTransfers())
+		if (t && t->getCraft() && t->getCraft()->getId() == id
+			&& t->getCraft()->getRules()->getType() == type) return true;
+	return false;
+}
+
 // Find a soldier at @a base by its vanilla unique id (Soldier::getId(), stable
 // across the shared world lineage - the same identity sack/sell match on).
 Soldier* findSoldier(Base* base, int id)
@@ -549,19 +571,38 @@ void buyApply(Game* game, Json::Value& payload, Base* base, int seat)
 			RuleCraft* r = mod->getCraft(rule, false);
 			if (!r) break;
 			if (r->getMonthlyBuyLimit() > 0) limitLog[r->getType()] += qty;
+			// The host mints each craft id and writes it into the payload; the
+			// replica takes it from there. Counter lock-step alone is not enough:
+			// the host also mints craft ids the replica never sees (an hourly
+			// production unit, an event's reward craft).
+			const bool mint = host && !it.isMember("craftIds");
+			Json::Value minted(Json::arrayValue);
 			for (int c = 0; c < qty; ++c)
 			{
 				Transfer* t = new Transfer(r->getTransferTime());
 				t->setOwnerPlayerName(transferOwner);
-				// getId() advances the per-type counter identically on host and
-				// replica (same start + same shared_apply on both), so no id needs
-				// to travel in the packet and the counters stay in lock-step.
-				Craft* craft = new Craft(r, base, save->getId(r->getType()));
+				int craftId = 0;
+				if (mint)
+				{
+					craftId = save->getId(r->getType());
+					minted.append(craftId);
+				}
+				else if (it.isMember("craftIds") && c < (int)it["craftIds"].size())
+				{
+					craftId = it["craftIds"][c].asInt();
+					adoptCraftId(save, r->getType(), craftId);
+				}
+				else
+				{
+					craftId = save->getId(r->getType()); // older host: no ids sent
+				}
+				Craft* craft = new Craft(r, base, craftId);
 				craft->initFixedWeapons(mod);
 				craft->setStatus("STR_REFUELLING");
 				t->setCraft(craft);
 				base->getTransfers()->push_back(t);
 			}
+			if (mint) it["craftIds"] = minted; // travels in shared_apply to the replicas
 			break;
 		}
 		case TRANSFER_SOLDIER:
@@ -3024,15 +3065,33 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 			base->getStorageItems()->addItem(it.first, it.second * units);
 	if (const RuleCraft* craftRule = rule->getProducedCraft())
 	{
-		for (int c = 0; c < units; ++c)
+		const std::string& craftType = craftRule->getType();
+		auto build = [&](int craftId)
 		{
-			// getId(craftType) advances the per-type counter identically to the
-			// host (all craft creation rides shared_apply), so ids stay in lockstep.
-			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base,
-			                         save->getId(craftRule->getType()));
+			Craft* craft = new Craft(const_cast<RuleCraft*>(craftRule), base, craftId);
 			craft->initFixedWeapons(mod);
 			craft->checkup();
 			base->getCrafts()->push_back(craft);
+		};
+		const Json::Value& craftIds = payload["craftIds"];
+		if (craftIds.isArray())
+		{
+			// The host's ids, never this machine's counter. A craft the replica
+			// already holds (it arrived in a world stream after the host built
+			// it) is not built twice.
+			for (const auto& jid : craftIds)
+			{
+				const int craftId = jid.asInt();
+				adoptCraftId(save, craftType, craftId);
+				if (!baseHasCraft(base, craftId, craftType))
+					build(craftId);
+			}
+		}
+		else
+		{
+			// Older host: no ids travel, mint in counter lock-step as before.
+			for (int c = 0; c < units; ++c)
+				build(save->getId(craftType));
 		}
 	}
 
@@ -3859,7 +3918,8 @@ void hostFacilityDone(Game* game, int baseId, int x, int y, const std::string& f
 }
 
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
-                        int units, int progress, bool sell)
+                        int units, int progress, bool sell,
+                        const std::vector<int>& craftIds)
 {
 	if (!sharedHost(game)) return;
 	Json::Value p;
@@ -3869,6 +3929,17 @@ void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
 	// GAP-6b: carry the host Production's SELL flag so the replica materializes
 	// exactly what the host did (sold -> funds only, nothing to stores).
 	p["sell"] = sell;
+	// The crafts the host built, by id. Without them the replica minted ids from
+	// its own counter, which falls behind whenever the host builds a unit and a
+	// purchase lands before the batch finishes.
+	if (game->getMod())
+		if (const RuleManufacture* rule = game->getMod()->getManufacture(manufacture, false))
+			if (rule->getProducedCraft())
+			{
+				Json::Value ids(Json::arrayValue);
+				for (int id : craftIds) ids.append(id);
+				p["craftIds"] = ids;
+			}
 	submitLocalCmd(game, "prod_done", baseId, p);
 }
 

@@ -131,6 +131,10 @@ public:
 /// Give every live soldier in Separate's unified world a globally unique id.
 /// Returns the number of legacy/player-local collisions that were upgraded.
 int normalizeSoldierIds(Game* game);
+/// Give every live craft in Separate's unified world an id that is unique per
+/// craft type, and raise the type counters past them. Host (or solo load) only;
+/// a replica adopts the host's ids. Returns the number of crafts renumbered.
+int normalizeCraftIds(Game* game);
 /// Resolve persistent vehicle player names to the current runtime seats.
 /// This must run after loading/rejoining and before a tactical deployment.
 void synchronizeVehicleOwners(Game* game);

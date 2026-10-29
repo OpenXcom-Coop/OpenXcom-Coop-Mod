@@ -248,6 +248,89 @@ int normalizeSoldierIds(Game* game)
 	return changed;
 }
 
+int normalizeCraftIds(Game* game)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	if (!save || !save->isSeparateCoopCampaign() || save->getSavedBattle())
+	{
+		return 0;
+	}
+	// The host owns every id. A replica adopts the host's already-unique world
+	// and must never renumber a craft on its own.
+	if (game->getCoopMod() && game->getCoopMod()->isCampaignReplica())
+	{
+		return 0;
+	}
+
+	// Vanilla gives every craft an id that is unique per craft type across the
+	// whole world, and saves name a craft by that (type, id) pair: craft and UFO
+	// destinations, escorts, interception orders, harness levers. Each player's
+	// starting base was built in its own new-game world with its own id counters,
+	// so the merged world held SKYRANGER-1 at two bases. The first base in world
+	// order keeps its ids; a later duplicate takes the next free id of its type.
+	// In-memory references (soldier seats, destinations) are pointers and follow
+	// the craft. A craft in transit is a live craft too.
+	auto livingCrafts = [](Base* base)
+	{
+		std::vector<Craft*> crafts(base->getCrafts()->begin(), base->getCrafts()->end());
+		for (Transfer* transfer : *base->getTransfers())
+			if (transfer && transfer->getCraft())
+				crafts.push_back(transfer->getCraft());
+		return crafts;
+	};
+
+	std::map<std::string, int> highest;
+	for (Base* base : *save->getBases())
+	{
+		if (!base) continue;
+		for (Craft* craft : livingCrafts(base))
+			if (craft)
+			{
+				int& top = highest[craft->getRules()->getType()];
+				top = std::max(top, craft->getId());
+			}
+	}
+
+	// Raise each type's counter past every live id first, so a renumbered craft
+	// and every later purchase or production get a fresh id.
+	std::map<std::string, int> ids = save->getAllIds();
+	bool raised = false;
+	for (const auto& top : highest)
+	{
+		if (ids[top.first] <= top.second)
+		{
+			ids[top.first] = top.second + 1;
+			raised = true;
+		}
+	}
+	if (raised)
+	{
+		save->setAllIds(ids);
+	}
+
+	std::set<std::pair<std::string, int>> used;
+	int changed = 0;
+	for (Base* base : *save->getBases())
+	{
+		if (!base) continue;
+		for (Craft* craft : livingCrafts(base))
+		{
+			if (!craft) continue;
+			const std::string& type = craft->getRules()->getType();
+			const int oldId = craft->getId();
+			if (used.insert(std::make_pair(type, oldId)).second) continue;
+
+			const int newId = save->getId(type);
+			craft->setId(newId);
+			used.insert(std::make_pair(type, newId));
+			++changed;
+			Log(LOG_INFO) << "Separate Campaign: duplicate craft id " << type << "-" << oldId
+				<< " at " << base->getName() << " -> " << type << "-" << newId;
+		}
+	}
+	return changed;
+}
+
 int playerMaintenance(Game* game, const std::string& playerName)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;

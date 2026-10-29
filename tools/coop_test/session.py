@@ -299,11 +299,12 @@ def resume_campaign(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
-    # Some modded resume flows leave the connection/profile acknowledgement
-    # above the lobby. Until it is closed LobbyMenu does not think, so neither
-    # machine receives a populated roster even though TCP is connected.
-    if _has_state(client, "Profile"):
-        client.ok({"cmd": "profile_ok"})
+    # Both machines show the "joined" popup over the resume lobby. Until it is
+    # closed LobbyMenu does not think, so that machine's roster stays empty even
+    # though TCP is connected. Close it on each machine, as a player would.
+    for machine in (host, client):
+        if _has_state(machine, "Profile"):
+            machine.ok({"cmd": "profile_ok"})
 
     for machine, who in ((host, "host"), (client, "client")):
         machine.wait_for(

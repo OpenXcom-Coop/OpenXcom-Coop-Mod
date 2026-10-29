@@ -3545,12 +3545,14 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			// _uniqueId (ctor) is internal; the display id / craft targeting
 			// use Target::getId(), which real UFOs get on detection. Assign it
 			// so geo_state reports distinct ids and craft_force can target this
-			// exact UFO instead of colliding on id 0.
-			u->setId(sg->getId("STR_UFO"));
+			// exact UFO instead of colliding on id 0. detected=false keeps a
+			// real undetected UFO instead: display id 0, not on radar.
+			const bool detected = req.get("detected", true).asBool();
+			if (detected) u->setId(sg->getId("STR_UFO"));
 			u->setLongitude(req.get("lon", 0.0).asDouble());
 			u->setLatitude(req.get("lat", 0.0).asDouble());
 			u->setAltitude("STR_HIGH_UC");
-			u->setDetected(true);
+			u->setDetected(detected);
 			std::string state = req.get("state", "flying").asString();
 			if (state == "crashed")
 			{
@@ -3577,6 +3579,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			}
 			sg->getUfos()->push_back(u);
 			resp["ufo_id"] = u->getId();
+			resp["unique_id"] = u->getUniqueId();
 			resp["ok"] = true;
 		}
 	}
@@ -6767,8 +6770,10 @@ std::string TestServer::execute(const std::string& line)
 				{
 					Json::Value ju;
 					ju["id"] = u->getId();
+					ju["uniqueId"] = u->getUniqueId();
 					ju["coopId"] = u->getCoopUfoId();
 					ju["type"] = u->getRules()->getType();
+					ju["altitude"] = u->getAltitude();
 					ju["detected"] = u->getDetected();
 					ju["status"] = (int)u->getStatus();
 					ju["lon"] = u->getLongitude();

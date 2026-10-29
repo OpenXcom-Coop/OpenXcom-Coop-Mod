@@ -54,7 +54,13 @@ public:
 	void save(YAML::YamlNodeWriter writer) const;
 	void load(const YAML::YamlNodeReader& reader);
 	const std::map<std::string, int> &getRandomProductionInfo() const { return _randomProductionInfo; }
+	/// coop: ids of the crafts this production built in this session, in order.
+	/// The host sends them with the finished production so a replica builds the
+	/// same crafts instead of minting its own ids. Not saved: a resumed replica
+	/// already holds every craft built before the save.
+	const std::vector<int> &getCoopBuiltCraftIds() const { return _coopBuiltCraftIds; }
 private:
+	std::vector<int> _coopBuiltCraftIds;
 	const RuleManufacture * _rules;
 	int _amount;
 	bool _infinite;

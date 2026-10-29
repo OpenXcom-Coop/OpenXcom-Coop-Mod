@@ -10960,14 +10960,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 			}
 
-			// ufos: create-or-update the matching real UFO (by real id). Track the
-			// live id set so despawned UFOs can be hidden afterwards.
+			// ufos: create-or-update the matching real UFO. The host's unique id is
+			// the key: the display id is 0 until detection, so several undetected
+			// UFOs share it, and it changes when the host detects one. A packet
+			// from an older host has no unique id and keys by display id as before.
+			// Track the live key set so despawned UFOs can be hidden afterwards.
 			std::unordered_set<int> liveUfoIds;
+			bool liveByUniqueId = false;
 			for (Json::ArrayIndex i = 0; i < obj["ufos"].size(); i++)
 			{
 				const Json::Value& ju = obj["ufos"][i];
 				int ufoId = ju["id"].asInt();
-				liveUfoIds.insert(ufoId);
+				const bool byUniqueId = ju.isMember("uniqueId");
+				const int ufoKey = byUniqueId ? ju["uniqueId"].asInt() : ufoId;
+				liveByUniqueId = liveByUniqueId || byUniqueId;
+				liveUfoIds.insert(ufoKey);
 				int missionId = ju["mission_id"].asInt();
 
 				// find/create the owning AlienMission (needed for Ufo::getMission()).
@@ -10988,30 +10995,39 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				Ufo* ufo = nullptr;
 				for (auto* u : *sg->getUfos())
-					if (u->getId() == ufoId) { ufo = u; break; }
+					if ((byUniqueId ? u->getUniqueId() : u->getId()) == ufoKey) { ufo = u; break; }
 				if (!ufo)
 				{
 					RuleUfo* ufoRule = _game->getMod()->getUfo(ju["ufo_rule"].asString(), false);
 					if (!ufoRule) continue;
 					const UfoTrajectory& traj = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
-					ufo = new Ufo(ufoRule, ufoId);
+					// The ctor arg is the UNIQUE id; the DISPLAY id is set below.
+					ufo = new Ufo(ufoRule, ufoKey);
 					ufo->setMissionInfo(mission, &traj);
-					// PRD-J08 fix: the ctor arg is the UNIQUE id; the DISPLAY id
-					// (Target::getId(), which every subsequent snapshot and the
-					// dogfight lane match by) must be set explicitly - without it
-					// the replica re-created an unmatchable id-0 UFO every tick.
-					ufo->setId(ufoId);
 					sg->getUfos()->push_back(ufo);
 				}
+				// PRD-J08: the DISPLAY id (Target::getId(), which the dogfight lane
+				// and craft orders match by) follows the host: it changes from 0
+				// when the host detects the UFO.
+				ufo->setId(ufoId);
+				// The replica never mints a coop id: the Ufo ctor rolled a random one.
+				if (ju.isMember("coopId")) ufo->_coop_ufo_id = ju["coopId"].asInt();
 				ufo->setLongitude(ju["lon"].asDouble());
 				ufo->setLatitude(ju["lat"].asDouble());
 				// PRD-J08: adopt hull damage BEFORE status - setDamage derives
-				// CRASHED/DESTROYED from thresholds, setStatus then re-asserts
-				// the authoritative value.
+				// CRASHED/DESTROYED from thresholds, the host's status then
+				// re-asserts the authoritative value.
 				if (ju.isMember("damage")) ufo->setDamage(ju["damage"].asInt(), _game->getMod());
-				ufo->setStatus(intToUfostatus(ju["status"].asInt()));
 				ufo->setDetected(ju["detected"].asBool());
-				ufo->setAltitude(ju["altitude"].asString());
+				// Altitude without Ufo::setAltitude's status derivation (any
+				// altitude but STR_GROUND would turn a crashed UFO, or a destroyed
+				// one still at flight altitude, back to FLYING on the replica).
+				ufo->setAltitudeCoop(ju["altitude"].asString());
+				// Exact status: intToUfostatus maps 3 to IGNORE_ME, and the host's
+				// DESTROYED UFO is 3 on this wire.
+				const int status = ju["status"].asInt();
+				ufo->setStatusCoop(status >= (int)Ufo::FLYING && status <= (int)Ufo::IGNORE_ME
+					? (Ufo::UfoStatus)status : Ufo::IGNORE_ME);
 				ufo->setSpeed(ju["speed"].asInt());
 				// PRD-J08: crash/land marker identity travels by value.
 				if (ju.isMember("crashId") && ju["crashId"].asInt() != 0)
@@ -11024,7 +11040,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// replica has no dogfights/followers to unwind; full cleanup is J10).
 			for (auto* u : *sg->getUfos())
 			{
-				if (liveUfoIds.find(u->getId()) == liveUfoIds.end())
+				if (liveUfoIds.find(liveByUniqueId ? u->getUniqueId() : u->getId()) == liveUfoIds.end())
 				{
 					u->setDetected(false);
 					u->setStatus(Ufo::DESTROYED);
@@ -12708,7 +12724,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getCoopMod()->inventory_battle_window = false;
 			}
 
-			_game->pushState(new CoopState(COOP_DLG_WORLD_DOWNLOAD));
+			// Ask for the world now, as main does. The join popup goes on top in
+			// the same frame, so the download dialog's init() would only send the
+			// request after the player closed that popup.
+			CoopState* download = new CoopState(COOP_DLG_WORLD_DOWNLOAD);
+			_game->pushState(download);
+			download->requestCampaignWorld();
 
 			_game->pushState(new Profile);
 		}
@@ -14264,6 +14285,9 @@ void connectionTCP::refreshSeparateBaseOwnership()
 		if (!save->getSavedBattle())
 		{
 			SeparateEcon::normalizeSoldierIds(_game);
+			// Each player's starting base came from its own new-game world, so
+			// craft ids repeat per base until the host renumbers them.
+			SeparateEcon::normalizeCraftIds(_game);
 		}
 		// Vehicle ownership is persisted by player name. Resolve that stable name
 		// to this connection's current seats after the lobby roster is available.
@@ -16985,7 +17009,15 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// the peer is expected back in the SAME battle, and the game mode
 		// (PVE/PVP/PVE2) decides which units each machine commands. Zeroing it
 		// here would hand a rejoining player the wrong side of its own battle.
-		if (!coopBattleLive(_game))
+		// A campaign host keeps its world through a peer drop too, and the game
+		// mode is part of that world: PvP is stored as a Separate campaign, so a
+		// zero here made the host apply single-world Separate rules (and save
+		// mode 0) while it waited. The main menu and every save load reset it.
+		SavedGame* keptWorld = _game ? _game->getSavedGame() : nullptr;
+		const bool hostKeepsCampaign = session.role == CoopRole::Host
+			&& keptWorld && keptWorld->isCoopSave()
+			&& keptWorld->getMonthsPassed() != -1;
+		if (!coopBattleLive(_game) && !hostKeepsCampaign)
 		{
 			connectionTCP::_coopGamemode = 0;
 		}
