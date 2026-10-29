@@ -1,5 +1,5 @@
 facilities:
-  - type: STR_H16E_MIND_SHIELD
+  - type: STR_TOGGLETEST_MIND_SHIELD
     size: 1
     spriteShape: 2
     spriteFacility: 30

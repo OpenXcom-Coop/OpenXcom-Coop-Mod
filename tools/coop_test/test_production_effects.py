@@ -27,7 +27,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ProdFx_Test")
 BOOT_A = ("w2h16ga", (49388, 49389, 47368))     # SHARED; lobby 47368
 BOOT_B = ("w2h16gb", (49390, 49391, 47370))     # SEPARATE; lobby 47370
-ROCKETS, SOLDIER, SCIENTIST, DELIVERY, RANDOM, CRAFT, FALLBACK = ("STR_H16G_" + n for n in (
+ROCKETS, SOLDIER, SCIENTIST, DELIVERY, RANDOM, CRAFT, FALLBACK = ("STR_PRODFX_" + n for n in (
     "ROCKETS", "SOLDIER", "SCIENTIST", "DELIVERY", "RANDOM", "CRAFT", "FALLBACK"))
 SR, LR, INT = "STR_SMALL_ROCKET", "STR_LARGE_ROCKET", "STR_INTERCEPTOR"
 IDS = ("STR_SOLDIER", INT)       # change 2: only the counters a production moves (host UFO generation moves others)

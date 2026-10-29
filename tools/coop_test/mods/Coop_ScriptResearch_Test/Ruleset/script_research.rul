@@ -1,7 +1,7 @@
-# Test-only mod for OF2 (owner D263 (a), D258 (b); spec rewrite/prompts/of2_mod_script_player_reads.md,
-# AMENDMENT OF2-1 section 6, QOF2-11 (a)). Data only. Each script writes ONE BattleUnit tag:
+# Test-only mod for mod scripts that read the player's research.
+# Data only. Each script writes ONE BattleUnit tag:
 #   tag = 1 + isResearched(STR_PLASMA_PISTOL), read through battle_game.getGeoscapeGame
-# so 0 = the hook never ran, 1 = not researched, 2 = researched. In the OF2 fixture the
+# so 0 = the hook never ran, 1 = not researched, 2 = researched. In the test fixture the
 # second player researched STR_PLASMA_PISTOL and the host did not. No script changes
 # damage, TU or flow.
 #   newTurnUnit            -> unit     COOP_SR_TURN
@@ -13,7 +13,7 @@
 #   damageSpecialUnitAmmo  -> attacker COOP_SR_ASPEC  (only when the attacker exists)
 #   skill STR_COOP_TEST_SR_SKILL on every STR_SOLDIER: skillUseUnit -> actor COOP_SR_SKILL
 #   returnFromMissionUnit  -> soldier  COOP_SR_RET (a GeoscapeSoldier tag, the same number) and
-#                             recovery_time = 100 x it (OF2 S-C, owner D266 (c), D268 (b); AMENDMENT OF2-4)
+#                             recovery_time = 100 x it
 # All var declarations precede the first operation (OXCE y-script rule). The hitUnit parser has no
 # empty return: its scripts return power part side unchanged.
 extended:

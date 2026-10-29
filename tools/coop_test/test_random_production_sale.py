@@ -20,7 +20,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_RandomSale_Test")
 BOOT_A = ("w2h16ha", (49411, 49412, 47380))     # SHARED; lobby 47380
 BOOT_B = ("w2h16hb", (49413, 49414, 47382))     # SEPARATE; lobby 47382
-ITEM, SR, LR = "STR_H16H_RANDOM", "STR_SMALL_ROCKET", "STR_LARGE_ROCKET"
+ITEM, SR, LR = "STR_SALETEST_RANDOM", "STR_SMALL_ROCKET", "STR_LARGE_ROCKET"
 CAPTION = "Summary"                             # TASK 0 T0-3 (en-US tr("STR_RANDOM_PRODUCTION_SUMMARY"))
 P_S, P_L = 480, 720                             # the window's price of one small / large rocket
 S0_S, ROLL_S, ROLL_I, OPEN_S, WIN_S, WIN_I, POST_S, UI_S = 20.0, 30.0, 0.1, 3.0, 3.0, 0.25, 4.0, 5.0

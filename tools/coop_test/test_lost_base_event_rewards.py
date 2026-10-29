@@ -53,8 +53,8 @@ import yaml  # noqa: E402
 KEY = "49708"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 1c74eb67f)
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_GeoEvent_Test")
 B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # the second base (CAP B2; land, accepted on both machines in TASK 0)
-T_INSTANT, T_TRANSFER = "STR_H15_TRG_INSTANT", "STR_H15_TRG_TRANSFER"
-E_INSTANT, E_TRANSFER = "STR_H15_EV_INSTANT", "STR_H15_EV_TRANSFER"
+T_INSTANT, T_TRANSFER = "STR_GEOEV_TRG_INSTANT", "STR_GEOEV_TRG_TRANSFER"
+E_INSTANT, E_TRANSFER = "STR_GEOEV_EV_INSTANT", "STR_GEOEV_EV_TRANSFER"
 ITEMS = ["STR_PISTOL", "STR_RIFLE", "STR_HEAVY_CANNON", "STR_AUTO_CANNON", "STR_ROCKET_LAUNCHER", "STR_GRENADE",
          "STR_SMOKE_GRENADE", "STR_PISTOL_CLIP", "STR_RIFLE_CLIP", "STR_HC_AP_AMMO"]
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",

@@ -2,7 +2,7 @@
 event (coopShared) whose reward is one random research topic teaches BOTH players the host's pick and opens the same article;
 today each machine rolls its own (GE :453) and the sync skips a paired copy (GE :514). Spec docs
 rewrite/prompts/w2h77_event_research_pick.md (f); TASK 0 rewrite/w2h77-task0/sa/CONSTANTS.md. Mod Coop_Event_Pick_Test (spec
-Appendix C): topics STR_H77_P01..Z16; certain events EV_P, EV_Z (month 0), EV_W (every month from 1). One SEPARATE boot (key
+Appendix C): topics STR_PICK_P01..Z16; certain events EV_P, EV_Z (month 0), EV_W (every month from 1). One SEPARATE boot (key
 "49470"), EnableResearchSync on both, boot guard researchMode {shared false, sync true} on both, EV_Z's countdown pinned to
 EVZ_PIN on both right after the bring-up (W2-U9d, R-I63-1: its boot roll is unseeded). Every fire seeds both machines
 (SEEDS: host, client) right before the host's set_event_countdown; the client's copy fires on the host's packet (G:held). Picks
@@ -33,8 +33,8 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Event_Pick_Test")
 KEY = "49470"
-EV_P, EV_W, EV_Z = "STR_H77_EV_P", "STR_H77_EV_W", "STR_H77_EV_Z"
-P, W, Z = (["STR_H77_%s%02d" % (k, i) for i in range(1, 17)] for k in "PWZ")
+EV_P, EV_W, EV_Z = "STR_PICK_EV_P", "STR_PICK_EV_W", "STR_PICK_EV_Z"
+P, W, Z = (["STR_PICK_%s%02d" % (k, i) for i in range(1, 17)] for k in "PWZ")
 SEEDS = {"EP-1": (11, 12), "EP-2": (21, 22), "EP-3": (31, 32)}   # host, client
 COUNTDOWN, SKIP_MIN, PAIRED_S, HELD_MIN, RESEED = 60, 180, 10.0, 240, 2
 # EV_Z's countdown is rolled at the boot (timer 1440 + random(20000), before any
@@ -224,7 +224,7 @@ def fire(r, x, ev, topics, seeds, tag):
     new = {gc.name: [t for t in known(gc, topics) if t not in before[gc.name]] for gc in (h, c)}
     own, state = own_roll(seeds[1], unknown)
     p = {"host": (new["host"] or [None])[0], "client": new["client"], "own": own, "RC": {n: seen[n].count("RC") for n in seen},
-         "arts": {n: [s for s in seen[n] if s.startswith("article:STR_H77_")] for n in seen}}
+         "arts": {n: [s for s in seen[n] if s.startswith("article:STR_PICK_")] for n in seen}}
     e.update(seen=seen, before=before, new=new, clientOwnRoll=own, windowRng=win, clientOneDraw=win.get("client") == state,
              after={gc.name: geo_events(gc) for gc in (h, c)})
     guard(r, x, "hostWindow" + g, "EV" in seen["host"], f"host seen {seen['host']}")

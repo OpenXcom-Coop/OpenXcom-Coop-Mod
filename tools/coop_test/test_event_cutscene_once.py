@@ -3,8 +3,8 @@ machines play at their own OK (a geoscape event window, the monthly game-over re
 machine; an ending is still relayed (R-H17b-1) and SEPARATE keeps the relay. Spec docs rewrite/prompts/
 w2h17d_event_cutscene_once.md (f); TASK 0 rewrite/w2h17d-task0/CONSTANTS.md. Mod Coop_Event_Cutscene_Test: three
 empty cutscenes (a "play" = one `cutscene definition empty: <id>` engine-log line after the row's S0 mark, read 1.0 s
-after the row's last OK), events STR_H17D_EV_A -> STR_H17D_A and STR_H17D_EV_B -> STR_H17D_B spawned by topics
-STR_H17D_T_A / STR_H17D_T_B, and defeatScore 100000 + gameOver.loseRating STR_H17D_MR (a month-1 game over whose
+after the row's last OK), events STR_EVCUT_EV_A -> STR_EVCUT_A and STR_EVCUT_EV_B -> STR_EVCUT_B spawned by topics
+STR_EVCUT_T_A / STR_EVCUT_T_B, and defeatScore 100000 + gameOver.loseRating STR_EVCUT_MR (a month-1 game over whose
 video has no loseGame). Probes (read-only): research_probe (allowCutscene), geo_event_probe (eventStates,
 event.texts.title), get_state, ending_state, geo_state; levers research_start, set_research_cost, set_geo_day,
 dismiss_popup. Row frame: trigger = host research_start per topic, listed on the host (and the replica in SHARED)
@@ -42,9 +42,9 @@ BOOT_C = ("w2h17dc", (49396, 49397, 47376))      # SEPARATE, research sync off
 # that case is the hotfix unit W2-H75 (the relay double play), not this file.
 SYNC_OFF = {"EnableResearchSync": False}
 BOOT_D = ("w2h17dd", (49398, 49399, 47378))      # SHARED
-T_A, T_B = "STR_H17D_T_A", "STR_H17D_T_B"
-EV_A, EV_B = "STR_H17D_EV_A", "STR_H17D_EV_B"
-CUT, CUT_MR = {EV_A: "STR_H17D_A", EV_B: "STR_H17D_B"}, "STR_H17D_MR"
+T_A, T_B = "STR_EVCUT_T_A", "STR_EVCUT_T_B"
+EV_A, EV_B = "STR_EVCUT_EV_A", "STR_EVCUT_EV_B"
+CUT, CUT_MR = {EV_A: "STR_EVCUT_A", EV_B: "STR_EVCUT_B"}, "STR_EVCUT_MR"
 EV, MRS, KEEP = "GeoscapeEventState", "MonthlyReportState", ("CutsceneState", "StatisticsState")
 PLAY = "cutscene definition empty: "
 SKIP_MIN, POLL_I, LISTED_S, WINDOWS_S, SECOND_S, DAY_S = 60 * 24 * 2, 0.2, 5.0, 5.0, 3.0, 10.0

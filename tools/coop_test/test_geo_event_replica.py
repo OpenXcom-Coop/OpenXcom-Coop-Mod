@@ -1,7 +1,7 @@
 """test_geo_event_replica.py (SHARED): a geoscape event's reward is applied once, by the host, and the
 second player sees the same window in its own language (F3261; D226 a; Q1 a / Q2 b, AMENDMENT A1, R-H15-1/2). Spec docs
 rewrite/prompts/w2h15_event_replica.md (e)-(f); docs rewrite/w2h15-task0/CONSTANTS.md. Mod Coop_GeoEvent_Test.
-Trigger: host research_start STR_H15_TRG_* (cost 1, 2 scientists), skip_ingame_time(3 days, speed 5, interest
+Trigger: host research_start STR_GEOEV_TRG_* (cost 1, 2 scientists), skip_ingame_time(3 days, speed 5, interest
 GeoscapeEventState, real_timeout 150) -> the host's window at 00:30; both polled every 0.1 s for 3 s. Frame (f): S0,
 fundsSeen, same window (equal picks + own render), clean (settle + 60 min + 4 s: requests == S0's, checksum equal).
 Boot A (host de): H15-1, -2, -4, -5 (+ H15-8 on its windows), -6, -7; Boot B (no instant delivery): H15-3.
@@ -25,13 +25,13 @@ MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Geo
 BOOT_A = ("w2h15a", (49270, 49271, 47270), {"language": "de"})      # F5657; ports = labels
 BOOT_B = ("w2h15b", (49272, 49273, 47272), {"oxceGeoscapeEventsInstantDelivery": False})
 EV = "GeoscapeEventState"
-RES = ["STR_H15_RES_A", "STR_H15_RES_B", "STR_H15_RES_C"]
-TRG = {k: "STR_H15_TRG_" + k for k in ("FUNDS", "TRANSFER", "INVERT", "REGION", "RESEARCH", "INSTANT")}
+RES = ["STR_GEOEV_RES_A", "STR_GEOEV_RES_B", "STR_GEOEV_RES_C"]
+TRG = {k: "STR_GEOEV_TRG_" + k for k in ("FUNDS", "TRANSFER", "INVERT", "REGION", "RESEARCH", "INSTANT")}
 NAMES = RES + sorted(TRG.values())
 ITEMS = ["STR_GRENADE", "STR_PISTOL", "STR_PISTOL_CLIP"]
 TR_EN = {"STR_GRENADE": "Grenade", "STR_PISTOL": "Pistol"}          # the replica's tr() (xcom1 en-US)
-REGION_T, REGION_M = "H15 region event: {}", "Points went to {}."   # the mod's en-US.yml (the replica)
-REGION_T_DE = "H15 Regionsereignis: {}"                             # the mod's de.yml (the Boot A host)
+REGION_T, REGION_M = "Test region event: {}", "Points went to {}."   # the mod's en-US.yml (the replica)
+REGION_T_DE = "Test-Regionsereignis: {}"                             # the mod's de.yml (the Boot A host)
 BIG, SMALL = 1000000, 1000                                          # the events' funds
 EVENT_IDS = ("STR_SOLDIER", "STR_SKYRANGER", "STR_INTERCEPTOR")    # eventLogic's getId: genSoldier, the spawned craft
 POLL_S, POLL_I, BETWEEN_S = 3.0, 0.1, 30
@@ -182,7 +182,7 @@ def common(r, x, key, reward, rule, s0=None):
 
 def row_h15_1(r, x):
     h, c, s0 = x.host, x.client, start(r, x)
-    r.ev["alert"] = h.cmd({"cmd": "shared_alert", "cls": EV, "msg": "STR_H15_EV_FUNDS"})
+    r.ev["alert"] = h.cmd({"cmd": "shared_alert", "cls": EV, "msg": "STR_GEOEV_EV_FUNDS"})
     samples, win = poll(x)
     f0, evmax = s0["host"]["funds"], [max(s["hEv"] for s in samples), max(s["cEv"] for s in samples)]
     r.ev["fundsSeen"] = seen(samples, f0)
@@ -191,7 +191,7 @@ def row_h15_1(r, x):
            f"the replica ran the event's logic: {r.ev['fundsSeen']}")
     ce = win.get("c") or {}
     r.cell("replicaWindow", evmax[1] == 1 and picks({"event": ce}).get("region") == "" and
-           picks({"event": ce}).get("rows") == [] and (ce.get("texts") or {}).get("title") == "STR_H15_EV_FUNDS",
+           picks({"event": ce}).get("rows") == [] and (ce.get("texts") or {}).get("title") == "STR_GEOEV_EV_FUNDS",
            f"replica window {ce}, eventStates max {evmax[1]}")
     r.cell("hostNoWindow", evmax[0] == 0, f"host eventStates max {evmax[0]}")
     if stack(c)[-1:] == [EV]:
@@ -199,12 +199,12 @@ def row_h15_1(r, x):
     clean(r, x, s0)
 
 def row_h15_2(r, x):
-    s0, _hp, _cp = common(r, x, "FUNDS", BIG, "STR_H15_EV_FUNDS")
+    s0, _hp, _cp = common(r, x, "FUNDS", BIG, "STR_GEOEV_EV_FUNDS")
     world_diff(r, x)
     clean(r, x, s0)
 
 def row_h15_3(r, x):
-    s0, hp, cp = common(r, x, "TRANSFER", SMALL, "STR_H15_EV_TRANSFER")
+    s0, hp, cp = common(r, x, "TRANSFER", SMALL, "STR_GEOEV_EV_TRANSFER")
     ht, ct = hp["hq"]["transfers"], cp["hq"]["transfers"]
     r.ev["transfers"] = {"host": ht, "replica": ct}
     key = lambda t: json.dumps(t, sort_keys=True)  # noqa: E731 - the order is not asserted
@@ -223,7 +223,7 @@ def row_h15_4(r, x):
     sk1 = sk0 - min(sk0, 7 - (st0 - st1))   # invert: stores first, then crafts (GE :360-389)
     want = [["STR_GRENADE", -((st0 - st1) + (sk0 - sk1))]]
     r.ev["grenadesS0"] = {"stores": st0, sky: sk0, "want": [st1, sk1], "rows": want}
-    s0, hp, cp = common(r, x, "INVERT", SMALL, "STR_H15_EV_INVERT", s0)
+    s0, hp, cp = common(r, x, "INVERT", SMALL, "STR_GEOEV_EV_INVERT", s0)
     got = [[p["stores"][x.hq]["STR_GRENADE"], p["craftItems"][sky]["STR_GRENADE"]] for p in (hp, cp)]
     r.ev["grenades"] = got
     r.cell("grenades", got == [[st1, sk1], [st1, sk1]], f"[stores, {sky}] host/replica {got} (want {[st1, sk1]})")
@@ -233,7 +233,7 @@ def row_h15_4(r, x):
     clean(r, x, s0)
 
 def row_h15_5(r, x):
-    s0, hp, cp = common(r, x, "REGION", SMALL, "STR_H15_EV_REGION")
+    s0, hp, cp = common(r, x, "REGION", SMALL, "STR_GEOEV_EV_REGION")
     x.h158 = (hp, cp)        # H15-8 reads these, taken on the open windows before this row's clean
     pk = picks(hp)
     r.cell("picksSet", bool(pk.get("region")) and isinstance(pk.get("city"), int) and pk["city"] >= 0,
@@ -260,7 +260,7 @@ def row_h15_8(r, x):
     r.cell("titlesDiffer", ct.get("title") != ht.get("title"), f"{ct.get('title')!r} == {ht.get('title')!r}")
 
 def row_h15_6(r, x):
-    s0, hp, cp = common(r, x, "RESEARCH", SMALL, "STR_H15_EV_RESEARCH")
+    s0, hp, cp = common(r, x, "RESEARCH", SMALL, "STR_GEOEV_EV_RESEARCH")
     hr, cr = ({n: p["research"][n] for n in RES} for p in (hp, cp))
     cr2 = [chk(x.host).get("chkResearch"), chk(x.client).get("chkResearch")]
     names = [n for n in (picks(hp).get("research"), picks(hp).get("bonus")) if n]
@@ -283,7 +283,7 @@ def row_h15_6(r, x):
     clean(r, x, s0)
 
 def row_h15_7(r, x):
-    s0, hp, cp = common(r, x, "INSTANT", SMALL, "STR_H15_EV_INSTANT")
+    s0, hp, cp = common(r, x, "INSTANT", SMALL, "STR_GEOEV_EV_INSTANT")
     c0 = s0["host"]["probe"]["hq"]["crafts"]
     new = [k for k in hp["hq"]["crafts"] if k not in c0]
     r.ev["crafts"] = {"S0": c0, "host": hp["hq"]["crafts"], "replica": cp["hq"]["crafts"], "hostNew": new}

@@ -1,4 +1,4 @@
-# Test-only mod for W2-P7 S-D1 (rewrite/prompts/w2p7_battle_end.md, row E4; TASK 0 T0-4).
+# Test-only mod for the battle end on a turn limit.
 # Data only. One new deployment, selected on the NEW BATTLE screen by the harness's
 # newbattle_mission command: the stock STR_SMALL_SCOUT deployment (the NEW BATTLE
 # default, bin/standard/xcom1/alienDeployments.rul) copied under a new type, plus

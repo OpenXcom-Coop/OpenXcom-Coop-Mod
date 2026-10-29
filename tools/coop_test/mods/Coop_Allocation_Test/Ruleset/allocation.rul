@@ -1,5 +1,5 @@
 facilities:
-  - type: STR_H16B_TRAINING
+  - type: STR_ALLOCTEST_TRAINING
     size: 1
     spriteShape: 1
     spriteFacility: 31

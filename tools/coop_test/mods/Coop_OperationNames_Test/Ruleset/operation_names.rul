@@ -1,11 +1,11 @@
-# Test-only mod for W1-P2 (WAVE1-RUNBOOK.md SS2.W1 / WV-D28 / WV-D42).
+# Test-only mod for the battle_offer mission identity (operation names).
 #
 # operationNamesFirst/Last feed BriefingState's "random operation names" block
 # (BriefingState.cpp:171-187) and CoopHandshake::mintMissionLabels()'s exact
 # replica of it. They are RAW strings, concatenated, never tr()'d - the vanilla
 # UI wraps the result in STR_OPERATION_UC ("OPERATION> {0}").
 #
-# 24 x 24 = 576 combinations: if the SS2.W1 re-mint suppression regressed, the
+# 24 x 24 = 576 combinations: if the operation-name re-mint suppression regressed, the
 # host's BriefingState would re-roll and land on a different name than the one
 # the offer already shipped to the client with p = 575/576. (The deterministic
 # half of that regression is the "operation-name re-mint SUPPRESSED" log line

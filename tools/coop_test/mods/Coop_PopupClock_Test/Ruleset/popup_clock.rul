@@ -1,6 +1,6 @@
-# W2-H92 (D304 (a)): the client's forced popup is the only popup of a row. xcom1's two month-0 alien missions
+# Test fixture: the client's forced popup is the only popup of a row. xcom1's two month-0 alien missions
 # (bin/standard/xcom1/missionScripts.rul gameStart startDelay 120, recurringTerror 150) are held for a year, so no UFO
-# spawns (the type names must match xcom1's exactly: another name ADDS a script). STR_H92_IDLE is an alien mission with
+# spawns (the type names must match xcom1's exactly: another name ADDS a script). STR_POPUPCLOCK_IDLE is an alien mission with
 # no waves: a spawn_ufo UFO on it spawns nothing more (AlienMission::think returns at once, _nextWave >= 0 waves).
 missionScripts:
   - type: gameStart
@@ -8,5 +8,5 @@ missionScripts:
   - type: recurringTerror
     startDelay: 525600
 alienMissions:
-  - type: STR_H92_IDLE
+  - type: STR_POPUPCLOCK_IDLE
     points: 0

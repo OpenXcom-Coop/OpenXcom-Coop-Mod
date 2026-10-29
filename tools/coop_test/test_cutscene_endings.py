@@ -34,8 +34,8 @@ BOOT_A = ("w2h17ba", (49360, 49361, 47350))      # SHARED; lobby 47350
 BOOT_B = ("w2h17bb", (49362, 49363, 47352))      # SHARED
 BOOT_C = ("w2h17bc", (49364, 49365, 47354))      # SHARED
 BOOT_D = ("w2h17bd", (49366, 49367, 47356))      # SEPARATE
-T_WIN, T_FREE, T_LOSE = "STR_H17B_T_WIN", "STR_H17B_T_FREE", "STR_H17B_T_LOSE"
-T_EVSTORY, T_EVWIN = "STR_H17B_T_EVSTORY", "STR_H17B_T_EVWIN"
+T_WIN, T_FREE, T_LOSE = "STR_CUTSCENETEST_T_WIN", "STR_CUTSCENETEST_T_FREE", "STR_CUTSCENETEST_T_LOSE"
+T_EVSTORY, T_EVWIN = "STR_CUTSCENETEST_T_EVSTORY", "STR_CUTSCENETEST_T_EVWIN"
 TOPICS = [T_WIN, T_FREE, T_LOSE, T_EVSTORY, T_EVWIN]
 EV, KEEP = "GeoscapeEventState", ("CutsceneState", "StatisticsState")
 KEEP_B = KEEP + ("SlideshowState",)             # R-H17b-T0-1: the host's time5Seconds lose check plays stock loseGame
@@ -232,13 +232,13 @@ def ending_row(r, x, on, topic, shared, keep, want, cut, stock=False):
     return p, s0, rk
 
 def row_h17b_2(r, x):
-    p, _s0, rk = ending_row(r, x, x.host, T_WIN, True, KEEP, 1, "STR_H17B_WIN")
+    p, _s0, rk = ending_row(r, x, x.host, T_WIN, True, KEEP, 1, "STR_CUTSCENETEST_WIN")
     r.cell("replicaEnds", any(s[rk]["ending"] == 1 and s[rk]["statistics"] and s[rk]["campaignEnded"] for s in p),
            "the second player's campaign did not end with the host's research ending (F7207): replica ending "
            f"{r.ev['poll']['c.ending']}, statistics {r.ev['poll']['c.statistics']}")
 
 def row_h17b_3(r, x):
-    p, _s0, rk = ending_row(r, x, x.host, T_FREE, True, KEEP_B, 2, "STR_H17B_LOSE", stock=True)
+    p, _s0, rk = ending_row(r, x, x.host, T_FREE, True, KEEP_B, 2, "STR_CUTSCENETEST_LOSE", stock=True)
     lose = (r.ev["end"]["host"]["research_probe"].get("researched") or {}).get(T_LOSE)
     guard(r, x, "hostResearchedLose", lose is True, f"host researched {T_LOSE}: {lose}")
     r.cell("replicaEnds", any(s[rk]["ending"] == 2 and s[rk]["statistics"] for s in p),
@@ -269,7 +269,7 @@ def row_h17b_4(r, x):
 
 def row_h17b_5(r, x):
     """SEPARATE: the client's own research ending ends the host's campaign too; the host keeps its months."""
-    p, s0, rk = ending_row(r, x, x.client, T_WIN, False, KEEP, 1, "STR_H17B_WIN")
+    p, s0, rk = ending_row(r, x, x.client, T_WIN, False, KEEP, 1, "STR_CUTSCENETEST_WIN")
     m0 = s0["host"]["research_probe"]["monthsPassed"]
     r.cell("hostEnds", any(s["h"]["ending"] == 1 and s["h"]["statistics"] for s in p),
            f"the partner's campaign did not end (V1, D239 a): host ending {r.ev['poll']['h.ending']}, "

@@ -4,9 +4,9 @@ players learn (main #197's receiver) - plays its video once for each player, at 
 An ending still relays (the first OK ends both campaigns, R-H17b-1); a private SEPARATE event keeps its relay (W2-H17d
 Q1 (a)). Spec docs rewrite/prompts/w2h75_event_relay_once.md (f); TASK 0 rewrite/w2h75-task0/sa/CONSTANTS.md.
 Mod Coop_Event_Relay_Test (spec (e) M2): four empty cutscenes (a "play" = one `cutscene definition empty: <id>` engine-log
-line after the row's S0 mark, read 1.0 s after the row's last OK, R-H17d-T0-1); STR_H75_EV_C certain in month 0 (paired
-on both machines); STR_H75_T_A -> STR_H75_EV_A; STR_H75_T_M (a terror site's despawn topic) -> STR_H75_EV_M;
-STR_H75_T_WIN -> STR_H75_EV_WIN, whose cutscene wins the game. Both boots SEPARATE, EnableResearchSync on both machines,
+line after the row's S0 mark, read 1.0 s after the row's last OK, R-H17d-T0-1); STR_RELAY_EV_C certain in month 0 (paired
+on both machines); STR_RELAY_T_A -> STR_RELAY_EV_A; STR_RELAY_T_M (a terror site's despawn topic) -> STR_RELAY_EV_M;
+STR_RELAY_T_WIN -> STR_RELAY_EV_WIN, whose cutscene wins the game. Both boots SEPARATE, EnableResearchSync on both machines,
 boot guard event_state.researchMode {shared false, sync true} on both. OK = dismiss_popup with the keep list
 (CutsceneState, StatisticsState) after reading the top. F = the machine whose window shows first, O = the other.
 Boot S (key "49433"): ER-2, ER-1, ER-3. Boot E (key "49434"): ER-4. 13 cells:
@@ -34,10 +34,10 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Event_Relay_Test")
 KEY_S, KEY_E = "49433", "49434"
-T_A, EV_A, CUT_A = "STR_H75_T_A", "STR_H75_EV_A", "STR_H75_A"
-EV_C, CUT_C = "STR_H75_EV_C", "STR_H75_C"
-T_M, EV_M, CUT_M = "STR_H75_T_M", "STR_H75_EV_M", "STR_H75_M"
-T_W, EV_W, CUT_W = "STR_H75_T_WIN", "STR_H75_EV_WIN", "STR_H75_WIN"
+T_A, EV_A, CUT_A = "STR_RELAY_T_A", "STR_RELAY_EV_A", "STR_RELAY_A"
+EV_C, CUT_C = "STR_RELAY_EV_C", "STR_RELAY_C"
+T_M, EV_M, CUT_M = "STR_RELAY_T_M", "STR_RELAY_EV_M", "STR_RELAY_M"
+T_W, EV_W, CUT_W = "STR_RELAY_T_WIN", "STR_RELAY_EV_WIN", "STR_RELAY_WIN"
 EV, KEEP = "GeoscapeEventState", ("CutsceneState", "StatisticsState")
 PLAY = "cutscene definition empty: "
 FLUSH_S, POLL_I, LISTED_S, WINDOWS_S, PAIRED_S = 1.0, 0.2, 5.0, 5.0, 10.0   # every state within 0.1 s

@@ -1,19 +1,19 @@
-# W2-H17 (F3262) test fixture (spec rewrite/prompts/w2h17_research_side_effects.md (f)). No language file (raw keys).
-# STR_H17_A completing while STR_H17_B runs: getOneFree B (FREE_FROM diary entry), B's running project is removed and
-# its item refunded (3j), 2 x STR_PISTOL delivered (3k), STR_H17_COUNTER raised (3m).
+# Test fixture for test_research_side_effects.py. No language file (raw keys).
+# STR_RESFX_A completing while STR_RESFX_B runs: getOneFree B (FREE_FROM diary entry), B's running project is removed and
+# its item refunded, 2 x STR_PISTOL delivered, STR_RESFX_COUNTER raised.
 items:
-  - type: STR_H17_B
+  - type: STR_RESFX_B
     size: 0.1
     costSell: 1000
 research:
-  - name: STR_H17_A
+  - name: STR_RESFX_A
     cost: 1
     points: 5
-    getOneFree: [STR_H17_B]
+    getOneFree: [STR_RESFX_B]
     spawnedItem: STR_PISTOL
     spawnedItemCount: 2
-    increaseCounter: [STR_H17_COUNTER]
-  - name: STR_H17_B
+    increaseCounter: [STR_RESFX_COUNTER]
+  - name: STR_RESFX_B
     cost: 50
     points: 5
     needItem: true

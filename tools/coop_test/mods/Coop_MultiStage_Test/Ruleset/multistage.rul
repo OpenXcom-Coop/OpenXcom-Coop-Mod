@@ -1,5 +1,5 @@
-# Test-only mod for MG-A S-A2 (rewrite/prompts/mga_multistage_handoff.md Q5 (a), row MS3;
-# AMENDMENT MG-A-1 section 5). Data only. Two new deployments; the harness selects stage 1 on
+# Test-only mod for the multi-stage mission handoff.
+# Data only. Two new deployments; the harness selects stage 1 on
 # the NEW BATTLE screen with its newbattle_mission command:
 #   STR_COOP_MULTISTAGE_TEST     the stock STR_MARS_CYDONIA_LANDING (bin/standard/xcom1/
 #                                alienDeployments.rul) with one alien, nextStage the _P2 copy,

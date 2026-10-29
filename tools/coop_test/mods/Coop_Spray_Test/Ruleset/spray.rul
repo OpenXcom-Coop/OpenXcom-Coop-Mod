@@ -1,25 +1,25 @@
-# Test-only mod for W2-P4 (rewrite/prompts/w2p4_client_combat_intents.md, C18, C23a, C23b2,
-# C23b3, C23s1-C23s3).
+# Test-only mod for the client combat intents (spray autoshot, UNPRIME, one-click and
+# one-charge medikits, soldier skills).
 # Data only. Each entry is the smallest change that makes one client combat path
 # reachable with stock xcom1 data:
 #   1. STR_RIFLE gains sprayWaypoints: 2 - the OXCE spray autoshot
 #      (Ctrl+Shift+click on the AUTO aim, BattlescapeGame::primaryAction), which no
 #      stock item enables. With battleConfirmFireMode off, the second waypoint click
-#      fires; the 3 auto shots are spread over the two waypoints (C18).
+#      fires; the 3 auto shots are spread over the two waypoints.
 #   2. STR_GRENADE gains unprimeActionName: ActionMenuState adds the UNPRIME row
 #      only when that name is set and the unprime cost is > 0 (costUnprime defaults
-#      to 25 %); stock grenades set no name, so they have no UNPRIME row (C23a).
+#      to 25 %); stock grenades set no name, so they have no UNPRIME row.
 #   3. STR_MEDI_KIT_ONE_CLICK: the stock medi-kit's data plus medikitType: 1 (heal),
-#      so ActionMenuState heals at once instead of opening MedikitState (C23b2).
+#      so ActionMenuState heals at once instead of opening MedikitState.
 #      recover: false keeps it out of NEW BATTLE's generated base/craft stores
 #      (NewBattleState adds only recoverable items), so starting loadouts, item ids
 #      and the map are unchanged; tests hand it out with battle_give.
-#   4. STR_MEDI_KIT_ONE_CHARGE (amendment C3-Q13, C23b3): the stock medi-kit's
+#   4. STR_MEDI_KIT_ONE_CHARGE: the stock medi-kit's
 #      data with ONE heal charge (painKiller 0, stimulant 0) and isConsumable:
 #      true, no medikitType - the full MedikitState screen. After its one heal
 #      every charge is 0, so vanilla's TileEngine::medikitRemoveIfEmpty removes
 #      it. recover: false, as in 3, so NEW BATTLE's loadouts stay unchanged.
-#   5. Soldier skills (amendment C3 D147, C23s1/C23s2/C23s3): three skills on
+#   5. Soldier skills: three skills on
 #      every STR_SOLDIER, so the SKILLS button shows and SkillMenuState lists
 #      them in this order (keys 49, 50, 51). Each costs 10 % of the unit's
 #      base TU (costUse, percent). Their skillUseUnit scripts decide:

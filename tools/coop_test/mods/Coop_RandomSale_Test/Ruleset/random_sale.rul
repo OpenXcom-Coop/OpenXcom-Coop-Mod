@@ -1,12 +1,12 @@
 manufacture:
-  - name: STR_H16H_RANDOM
+  - name: STR_SALETEST_RANDOM
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 10
     producedItems: {}
     randomProducedItems: [[1, {STR_SMALL_ROCKET: 3, STR_LARGE_ROCKET: 1}]]
-# cap-ufohold (R-MGR2-1): hold xcom1's two month-0 alien missions (bin/standard/xcom1/missionScripts.rul gameStart
+# Hold xcom1's two month-0 alien missions (bin/standard/xcom1/missionScripts.rul gameStart
 # startDelay 120, recurringTerror 150) for 30 days, so no UFO spawns in this file and no detection popup stops a
 # row's clock. The type names must match xcom1's exactly: another name ADDS a script instead of overriding one.
 missionScripts:

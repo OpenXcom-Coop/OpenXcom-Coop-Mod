@@ -1,6 +1,6 @@
 name: "Coop popup clock test"
 version: 1.0
-description: "Test-only fixture for W2-H92 (D304 (a)). Data only. Holds xcom1's two month-0 alien missions for a year, so
-  no UFO spawns, and adds STR_H92_IDLE, an alien mission with no waves, for the test's landed UFO. Both machines must load it."
+description: "Test-only fixture (popup clock). Data only. Holds xcom1's two month-0 alien missions for a year, so
+  no UFO spawns, and adds STR_POPUPCLOCK_IDLE, an alien mission with no waves, for the test's landed UFO. Both machines must load it."
 author: coop harness
 master: xcom1

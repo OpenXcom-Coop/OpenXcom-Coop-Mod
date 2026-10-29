@@ -1,5 +1,5 @@
 facilities:
-  - type: STR_H18_TRAINING
+  - type: STR_TRAINTEST_TRAINING
     size: 1
     spriteShape: 1
     spriteFacility: 31

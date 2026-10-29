@@ -21,7 +21,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Allocation_Test")
 BOOT_A, BOOT_B = ("w2h16ba", (49320, 49321, 47300)), ("w2h16bb", (49322, 49323), "47302")
-FAC, FAC_IDX, KEY_Z, KEY_X = "STR_H16B_TRAINING", 9, 122, 120     # TASK 0 F6668; Options.cpp :528-534
+FAC, FAC_IDX, KEY_Z, KEY_X = "STR_ALLOCTEST_TRAINING", 9, 122, 120     # TASK 0 F6668; Options.cpp :528-534
 POLL_S, POLL_I, GEO, POP, H, C = 3.0, 0.25, "GeoscapeState", "CoopState", "host", "client"
 SCREEN = {"martial": "AllocateTrainingState", "psi": "AllocatePsiTrainingState",
           "craft_armor": "CraftArmorState", "craft_soldiers": "CraftSoldiersState"}

@@ -2,13 +2,13 @@
 a popup on the CLIENT stops the host's geoscape clock within one step, in SHARED and SEPARATE (F20500 / R-BH-1: geoscape time runs
 only while both players are on the geoscape). Unchanged and not asserted here: dogfights keep time running, the host's own popups,
 H23-VL1's client catch-up, the 1000 ms grace as the lost-heartbeat fallback, the speed buttons and the ally speed markers.
-Mod Coop_PopupClock_Test on both machines: no alien mission in the first month, and STR_H92_IDLE (no waves) for P's landed UFO, so
+Mod Coop_PopupClock_Test on both machines: no alien mission in the first month, and STR_POPUPCLOCK_IDLE (no waves) for P's landed UFO, so
 the forced client popup is a row's only popup. Probe geo_clock (TEST-ONLY, read-only): one machine's clock to the second + its top.
 One fresh boot pair per campaign mode; each is ONE scenario at the fastest speed (both machines idx 5, one step = one game
 day = 1440 min): a control stretch with no popup, then one client-only popup held HOLD_S (> the host's 1000 ms grace), then closed.
   S = SHARED: the host's shared_alert UfoLostState (SharedEcon::hostAlert; the host's own copy pops nothing) -> the client's
       alertApply popup (an apply-time popup).
-  P = SEPARATE: a landed detected UFO on the host's base (spawn_ufo, STR_H92_IDLE), its mirror detected on the client, then the
+  P = SEPARATE: a landed detected UFO on the host's base (spawn_ufo, STR_POPUPCLOCK_IDLE), its mirror detected on the client, then the
       host's ufo_alert (the ctor broadcasts ufo_popup; the host shows nothing) -> the client's think-time UfoDetectedState (GS :1797).
 Rows / cells (every sample reads the host first, then the client: a sampled lead is never larger than the true one):
   X-P0 control (S, P): with no popup on either machine for P0_S, each machine's fast time runs at P0_LO..P0_HI game minutes per wall
@@ -51,7 +51,7 @@ WARM_S, P0_S, HOLD_S, PUSH_S, AFTER_S = 0.3, 1.0, 1.5, 5.0, 5.0
 # client, whose clock the host's heartbeat assigns, 16105.0 .. 17540.7; the other three 17168.3 .. 17588.8); band = min x 0.93 ..
 # max x 1.07, rounded out to 100. A per-step wait for the other machine would halve the rate (one step per two timer fires).
 P0_LO, P0_HI, P0_MIN_STEPS = 15000.0, 18900.0, 6
-UFO = dict(type="STR_SMALL_SCOUT", mission="STR_H92_IDLE", region="STR_NORTH_AMERICA", race="STR_SECTOID", trajectory="P0",
+UFO = dict(type="STR_SMALL_SCOUT", mission="STR_POPUPCLOCK_IDLE", region="STR_NORTH_AMERICA", race="STR_SECTOID", trajectory="P0",
            state="landed", hours=24 * 365)
 EPOCH = datetime.datetime(1999, 1, 1)
 OPTS = {"autosave": False}                        # no day-10 / day-20 geoscape autosave window inside a row

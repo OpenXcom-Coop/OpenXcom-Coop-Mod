@@ -1,52 +1,52 @@
 manufacture:
-  - name: STR_H16G_ROCKETS
+  - name: STR_PRODFX_ROCKETS
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 10
     producedItems: {STR_SMALL_ROCKET: 1}
-  - name: STR_H16G_SOLDIER
+  - name: STR_PRODFX_SOLDIER
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 10
     producedItems: {}
     spawnedPersonType: STR_SOLDIER
-  - name: STR_H16G_SCIENTIST
+  - name: STR_PRODFX_SCIENTIST
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 10
     producedItems: {}
     spawnedPersonType: STR_SCIENTIST
-  - name: STR_H16G_DELIVERY
+  - name: STR_PRODFX_DELIVERY
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 10
     producedItems: {STR_SMALL_ROCKET: 2}
     transferTimes: [12]
-  - name: STR_H16G_RANDOM
+  - name: STR_PRODFX_RANDOM
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 10
     producedItems: {}
     randomProducedItems: [[1, {STR_SMALL_ROCKET: 1}], [1, {STR_LARGE_ROCKET: 1}]]
-  - name: STR_H16G_CRAFT
+  - name: STR_PRODFX_CRAFT
     category: STR_CRAFT
     space: 1
     cost: 1000
     time: 10
     producedItems: {STR_INTERCEPTOR: 1}
     transferTimes: [0, 0, 24]
-  - name: STR_H16G_FALLBACK
+  - name: STR_PRODFX_FALLBACK
     category: STR_AMMUNITION
     space: 1
     cost: 1000
     time: 1000
     producedItems: {STR_SMALL_ROCKET: 1}
-# W2-U9e (R-MGR2-1): hold xcom1's two month-0 alien missions (bin/standard/xcom1/missionScripts.rul gameStart
+# Hold xcom1's two month-0 alien missions (bin/standard/xcom1/missionScripts.rul gameStart
 # startDelay 120, recurringTerror 150) for 30 days, so no UFO spawns in this file and no detection popup stops a
 # row's clock. The type names must match xcom1's exactly: another name ADDS a script instead of overriding one.
 missionScripts:

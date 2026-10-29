@@ -1,6 +1,6 @@
 name: "Coop pellet (shotgun) clip probe"
 version: 1.0
-description: "Test-only fixture for W2-P5 (display ghosts, H4). Data only. Adds a
+description: "Test-only fixture (display ghosts). Data only. Adds a
   NEW, non-recoverable pistol clip STR_COOP_PELLET_CLIP (the stock STR_PISTOL_CLIP
   plus shotgunPellets: 4) to STR_PISTOL's compatible ammo, so one pistol snap fires
   four pellets - stock xcom1 has no shotgun ammo, so the pellet `hit` cue path is

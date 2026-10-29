@@ -1,4 +1,4 @@
-# Test-only mod for W2-P5 (rewrite/prompts/w2p5_display_ghosts.md, H4; TASK 0 T0-5).
+# Test-only mod for the display ghosts (shotgun pellets).
 # Data only. Stock xcom1 has no ammo with shotgunPellets (items.rul: 0 matches), so
 # ProjectileFlyBState's pellet loop (one `hit` cue per extra pellet that lands,
 # coopCuePellet) is unreachable without it:

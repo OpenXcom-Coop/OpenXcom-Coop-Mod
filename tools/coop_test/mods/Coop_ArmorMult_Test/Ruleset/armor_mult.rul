@@ -1,3 +1,3 @@
-# Test-only mod for R5-U8b (rewrite/prompts/w2h35c_r5u8b_captures.md, row B4). Mod::loadFile reads armorMultipliersAbs
+# Test-only mod (armor multipliers). Mod::loadFile reads armorMultipliersAbs
 # (one value per difficulty); BattleUnit::adjustStats adds it to an original-HOSTILE unit's maximum armor.
 armorMultipliersAbs: [20, 20, 20, 20, 20]

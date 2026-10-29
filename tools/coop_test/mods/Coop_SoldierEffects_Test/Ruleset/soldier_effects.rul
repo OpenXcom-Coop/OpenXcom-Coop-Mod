@@ -1,5 +1,5 @@
 facilities:
-  - type: STR_H18B_SICKBAY
+  - type: STR_EFFECTTEST_SICKBAY
     size: 1
     spriteShape: 1
     spriteFacility: 31

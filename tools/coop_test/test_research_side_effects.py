@@ -1,7 +1,7 @@
 """test_research_side_effects.py (SHARED): a finished research project leaves the same world on both machines
 (corpse, diary, obsolete project + refund, delivered items, counters; F3262, D226 a). Spec rewrite/prompts/
 w2h17_research_side_effects.md (e)-(f) + RULINGS C1-C3, F5728; docs rewrite/w2h17-task0/CONSTANTS.md. Trigger 1 interrogates
-STR_SECTOID_SOLDIER; trigger 2 completes STR_H17_A while STR_H17_B runs. Per trigger: S0, skip (2 days, speed 5, interest
+STR_SECTOID_SOLDIER; trigger 2 completes STR_RESFX_A while STR_RESFX_B runs. Per trigger: S0, skip (2 days, speed 5, interest
 ResearchCompleteState), hit window (both windows open, both read every ~0.5 s for 3 s, C3), clean (settle + 60 min + 4 s).
 C2: no client dismissal while its resync is pending (10 s; timeout = FAIL + dump). RED (commit 1): H17-1..5 fail on their
 named cells, H17-6 passes (guard row); "G:" cells are guards (CAPTURE on a miss). GREEN: all pass. Exit 0 only if all pass.
@@ -22,7 +22,7 @@ MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Res
 BOOT = ("w2h17a", (49294, 49295, 47284), {"retainCorpses": True})   # labels + lobby key
 HQ, RC, GEO = "HostBase", "ResearchCompleteState", "GeoscapeState"
 LIVE, CORPSE, LOOKUP = "STR_SECTOID_SOLDIER", "STR_SECTOID_CORPSE", "STR_SECTOID"
-A, B, PISTOL, COUNTER = "STR_H17_A", "STR_H17_B", "STR_PISTOL", "STR_H17_COUNTER"
+A, B, PISTOL, COUNTER = "STR_RESFX_A", "STR_RESFX_B", "STR_PISTOL", "STR_RESFX_COUNTER"
 NAMES, ITEMS = [LIVE, LOOKUP, A, B], [LIVE, CORPSE, B, PISTOL]
 WINDOW_S, CADENCE_S = 3.0, 0.5      # C3: ~0.5 s per both-machine sample
 CLEAN_S = 4.0                       # > the 3000 ms mismatch debounce and H15 F5709's 3.27 s worst case

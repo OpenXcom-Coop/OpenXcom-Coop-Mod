@@ -1,6 +1,6 @@
 name: "Coop event research pick probe"
 version: 1.0
-description: "Test-only fixture for W2-H77 (R-LH75-3-1). Data only. Three certain events whose reward is one of 16
+description: "Test-only fixture (event research picks). Data only. Three certain events whose reward is one of 16
   research topics (EV_P and EV_Z in month 0, EV_W from month 1). Both machines in a co-op pair must load it."
 author: coop harness
 

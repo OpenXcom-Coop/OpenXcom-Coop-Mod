@@ -1,5 +1,5 @@
 """W2-H18 (F3259, D226 a; spec rewrite/prompts/w2h18_psi_training_replica.md (e)-(f); TASK 0 w2h18-task0/CONSTANTS.md):
-soldier training on the SHARED replica follows the host. Mod Coop_SoldierFx_Test: STR_H18_TRAINING (psiLabs 10, gym 10,
+soldier training on the SHARED replica follows the host. Mod Coop_SoldierFx_Test: STR_TRAINTEST_TRAINING (psiLabs 10, gym 10,
 healthRecoveryPerDay 3) at (0, 3), index 9. Boot A (SHARED): Phase M (option off) stages ids 1-8 psi at 0, ids 1-2
 training, id 3 rtwh, id 4 healthMissing 30, rolls the month (4 host day rolls, F6205) -> H18-1..4; Phase D flips
 anytimePsiTraining on, id 5 psi at 0, id 6 psi at 100 (finishes on the first roll) -> H18-5, H18-6. Boot B
@@ -23,7 +23,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierFx_Test")
 BOOT_A = ("w2h18a", (49314, 49315, 47294))
 BOOT_B = ("w2h18b", (49316, 49317), "47296")
-FAC, FAC_IDX = "STR_H18_TRAINING", 9
+FAC, FAC_IDX = "STR_TRAINTEST_TRAINING", 9
 IDS = list(range(1, 9))
 PHYS = ("tu", "stamina", "health", "firing", "throwing", "strength", "melee")    # Soldier::trainPhys
 OPTS = ["anytimePsiTraining", "allowPsiStrengthImprovement", "psiStrengthEval"]

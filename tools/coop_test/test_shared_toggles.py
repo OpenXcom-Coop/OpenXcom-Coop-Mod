@@ -24,7 +24,7 @@ MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Tog
 OPT = "oxceRememberDisabledCraftWeapons"
 BOOT_A = ("w2h16ea", (49335, 49336, 47314))      # SHARED; lobby 47314
 BOOT_B = ("w2h16eb", (49337, 49338, 47316))      # SEPARATE; lobby 47316
-FAC, INT, AV = "STR_H16E_MIND_SHIELD", "STR_INTERCEPTOR", "STR_AVENGER"
+FAC, INT, AV = "STR_TOGGLETEST_MIND_SHIELD", "STR_INTERCEPTOR", "STR_AVENGER"
 CELLS = {"A": (0, 3), "B": (4, 2)}               # beside the radar and the living quarters (TASK 0 (i): indices 9 / 10)
 WEAPONS = {"I1.0": (INT, 1, 0), "I1.1": (INT, 1, 1), "I2.0": (INT, 2, 0), "I2.1": (INT, 2, 1)}
 SCALE, BAND, GRID = 2, 0, 32                     # window = int(base * 2 + 0); BaseView::GRID_SIZE

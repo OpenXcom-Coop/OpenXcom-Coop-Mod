@@ -22,7 +22,7 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Transform_Test")
 BOOT_A = ("w2h16ca", (49340, 49341, 47330))     # SHARED; lobby 47330
 BOOT_B = ("w2h16cb", (49342, 49343, 47332))     # SEPARATE; lobby 47332
-BOOST, CLONE, RETIRE, RAISE = "STR_H16C_BOOST", "STR_H16C_CLONE", "STR_H16C_RETIRE", "STR_H16C_RAISE"
+BOOST, CLONE, RETIRE, RAISE = "STR_TRANSFORMTEST_BOOST", "STR_TRANSFORMTEST_CLONE", "STR_TRANSFORMTEST_RETIRE", "STR_TRANSFORMTEST_RAISE"
 RULES = [BOOST, CLONE, RETIRE, RAISE]
 ROCKET = "STR_SMALL_ROCKET"
 OPTION = {"OVERVIEW": 3, BOOST: 4, CLONE: 5, RETIRE: 6, RAISE: 7}   # action-box rows; row 2 INVENTORY is never clicked
