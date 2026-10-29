@@ -1,44 +1,48 @@
 """test_coop_hidden_move.py: in a classic co-op battle the second player's machine (the client) shows
 vanilla's HIDDEN MOVEMENT screen during the alien turn, lifted while an alien its side sees acts; the host's screen is
-unchanged (R-R5U1-1; QU2-14 (a); spec rewrite/prompts/r5u2_pvp_presentation.md AMENDMENT U2-1 U2-1.7.4, which
-replaces (f)'s old S-E file; TASK 0 pins: docs rewrite/r5u2-task0/se/CONSTANTS.md, boots Ea / Eb unchanged, Ec / Ed the
-UE1 probe).
+unchanged.
 
-Before R5-U2 S-E the client keeps its own soldier selected through the alien side, so vanilla's term (selected unit
-visible) always draws the map there. hiddenMovementShown TRUE = the map is drawn, FALSE = the HIDDEN MOVEMENT
-screen.
+The client keeps its own soldier selected through the alien side, so vanilla's term (the selected unit is visible)
+would always draw the map there. Off its own side the client reads the acting unit from its open action instead
+(connectionTCP.cpp coopHiddenMovementActorTerm). hiddenMovementShown TRUE = the map is drawn, FALSE = the HIDDEN
+MOVEMENT screen.
 
-ONE classic co-op boot (lobby key 48869, user dirs r5u2_e1_host / r5u2_e1_client): test_client_alien_sight's bring-up
-(its boot copied with the key as a parameter, F10917) and its staging (walk_to_start, first_path_walk,
-second_path_walk, A to A_START, V = soldier 9 to V_TILE
-facing 6; its asserts are the pins). The sampler is W2-H35's (battle_state host then client every 0.25 s inside
+ONE classic co-op boot (lobby key 48869, user dirs coop_hidden_move_host / coop_hidden_move_client):
+test_client_alien_sight's bring-up (its boot copied here with the lobby key as a parameter) and its staging
+(walk_to_start, first_path_walk, second_path_walk, A to A_START, V = soldier 9 to V_TILE facing 6; its asserts check
+the fixture values). The sampler is test_client_alien_sight's (battle_state host then client every 0.25 s inside
 alien_cycle).
 A "side-1 sample" of a machine is a sample whose side on that machine is 1 (the alien side).
 
 Rows, in order (every row runs after a failure):
-  CH2  it sees an alien its side sees walk: alien_cycle(SEED_WALK_IN, HOLD) (A walks IN_PATH into V's view),
+  seen_walk  it sees an alien its side sees walk: alien_cycle(SEED_WALK_IN, HOLD) (A walks IN_PATH into V's view),
        close_client_screen.
-       CH2-walk (the walk is IN_PATH; >= 3 client side-1 samples with client-A on an IN_PATH tile; precondition),
-       CH2-during (>= 1 of those samples has client hms True; guard).
-  CH3  it does not see an unseen alien walk: client_turn(V, V_TURN_SEE) (staging: V's final facing V_TURN_SEE on both),
-       alien_cycle(SEED_WALK_OUT, HOLD) (A walks OUT_PATH out of every view), close_client_screen.
-       CH3-walk (the walk is OUT_PATH; no shot / hit / death / spot ev; >= 3 client side-1 samples; precondition),
-       CH3-hidden (every client side-1 sample has hms False).
-  CH1  off its own side with no alien acting it sees the screen: A base TU 0 on both,
+       seen_walk-walk (the walk is IN_PATH; >= 3 client side-1 samples with client-A on an IN_PATH tile; precondition),
+       seen_walk-during (>= 1 of those samples has client hms True; guard).
+  unseen_walk  it does not see an unseen alien walk: client_turn(V, V_TURN_SEE) (staging: V's final facing
+       V_TURN_SEE on both), alien_cycle(SEED_WALK_OUT, HOLD) (A walks OUT_PATH out of every view),
+       close_client_screen.
+       unseen_walk-walk (the walk is OUT_PATH; no shot / hit / death / spot ev; >= 3 client side-1 samples;
+       precondition),
+       unseen_walk-hidden (every client side-1 sample has hms False).
+  idle_alien_turn  off its own side with no alien acting it sees the screen: A base TU 0 on both,
        alien_cycle(SEED_SIDE_CHANGE, 0.5, held_read).
-       CH1-held (heldRead: side 1 on both, the host's top NextTurnState, caught True; no A chain ev; precondition),
-       CH1-screen (the heldRead client hms False and every client side-1 sample False).
-  CH4  the host is unchanged (guard), from CH2's and CH3's records. CH4-host (>= 1 host side-1 sample True with host-A
-       on an IN_PATH tile in CH2; every host side-1 sample with host-A on OUT_PATH[1:] False in CH3, F13343).
-  Every row: <row>-common (hash_now full: every bucket EQUAL; event_state.desyncSeen false on both; 0 new crash files).
+       idle_alien_turn-held (heldRead: side 1 on both, the host's top NextTurnState, caught True; no A chain ev;
+       precondition),
+       idle_alien_turn-screen (the heldRead client hms False and every client side-1 sample False).
+  host_screen  the host is unchanged (guard), from seen_walk's and unseen_walk's records. host_screen-unchanged
+       (>= 1 host side-1 sample True with host-A on an IN_PATH tile in seen_walk; every host side-1 sample with
+       host-A on OUT_PATH[1:] False in unseen_walk: a sample taken mid-step on OUT_PATH[0] may still read True).
+  Every row: <row>-common (hash_now full: every bucket EQUAL; event_state.desyncSeen false on both; 0 new crash
+  files).
 
-RED at the red commit E1 (unchanged build): CH1-screen, CH3-hidden FAIL; every other cell PASS. GREEN (E2, UE1): every
-cell PASS. The window after a seen walk's end is EVIDENCE only.
+A client that keeps vanilla's term fails idle_alien_turn-screen and unseen_walk-hidden; every other cell passes.
+The window after a seen walk's end is EVIDENCE only.
 
 Each row prints one "EVIDENCE <row>:" line, one PASS / FAIL line per cell and "ROW <row>: PASS|FAIL". A bring-up failure
 prints ONE "CAPTURE boot:" line and fails every row "boot"; a staging failure fails the rows that need it "staging".
-one run is the result; no skip, no second boot, no other fixture; exit 0 only when every cell passes,
-else 2. run in the foreground to completion.
+One run is the result: no skip, no second boot, no other fixture. Exit 0 only when every cell passes, else 2. Run it
+in the foreground to completion.
 
 Run:  python tools/coop_test/test_coop_hidden_move.py
 """
@@ -59,13 +63,13 @@ from test_client_alien_sight import (A_ID, A_TU, A_START, IN_PATH, OUT_PATH, V_I
                                      SEED_WALK_OUT, SEED_SIDE_CHANGE, HOLD,
                                         COMBAT_KINDS, CHAIN_KINDS, ua, snap)
 
-KEY = "48869"          # this file's lobby key (R5-U2 spec (E))
+KEY = "48869"          # this file's lobby key
 MIN_SAMPLES = 3
 
-ROWS = (("CH2", ("CH2-walk", "CH2-during", "CH2-common")),
-        ("CH3", ("CH3-walk", "CH3-hidden", "CH3-common")),
-        ("CH1", ("CH1-held", "CH1-screen", "CH1-common")),
-        ("CH4", ("CH4-host", "CH4-common")))
+ROWS = (("seen_walk", ("seen_walk-walk", "seen_walk-during", "seen_walk-common")),
+        ("unseen_walk", ("unseen_walk-walk", "unseen_walk-hidden", "unseen_walk-common")),
+        ("idle_alien_turn", ("idle_alien_turn-held", "idle_alien_turn-screen", "idle_alien_turn-common")),
+        ("host_screen", ("host_screen-unchanged", "host_screen-common")))
 RESULTS = {}
 RECS = {}
 CRASH0 = set()
@@ -99,7 +103,7 @@ def crash_files():
 
 def common(host, client, row):
     try:
-        assert_hash_clean(host, client, full=True, what=f"r5u2e {row}")
+        assert_hash_clean(host, client, full=True, what=f"hidden_move {row}")
         h = "EQUAL"
     except AssertionError as e:
         h = str(e)[:600]
@@ -131,92 +135,94 @@ def cycle_evidence(name, rec):
 # ===================== rows =====================
 
 
-def row_ch2(host, client):
+def row_seen_walk(host, client):
     rec = AS.alien_cycle(host, client, SEED_WALK_IN, HOLD)
-    RECS["CH2"] = rec
-    cycle_evidence("CH2", rec)
+    RECS["seen_walk"] = rec
+    cycle_evidence("seen_walk", rec)
     on = [r for r in side1(rec, "c") if ua(r["c"]).get("pos") in IN_PATH]
-    cell("CH2-walk", rec["path"] == IN_PATH and len(on) >= MIN_SAMPLES,
+    cell("seen_walk-walk", rec["path"] == IN_PATH and len(on) >= MIN_SAMPLES,
          f"walk {rec['path']} (want IN_PATH); client side-1 samples with A on an IN_PATH tile {len(on)} "
          f"(>= {MIN_SAMPLES})")
     hms = [r["c"]["hms"] for r in on]
-    cell("CH2-during", any(v is True for v in hms),
+    cell("seen_walk-during", any(v is True for v in hms),
          f"client hms in those samples {hms} (want >= 1 True: the map drawn while a seen alien walks)")
     n, s = AS.close_client_screen(host, client)
-    ev(f"CH2-close: closed {n}; {AS.fmt(s)}")
-    common(host, client, "CH2")
+    ev(f"seen_walk-close: closed {n}; {AS.fmt(s)}")
+    common(host, client, "seen_walk")
 
 
-def row_ch3(host, client):
+def row_unseen_walk(host, client):
     r, s = AS.client_turn(host, client, V_ID, V_TURN_SEE)
     dirs = (ua(s["h"], V_ID).get("dir"), ua(s["c"], V_ID).get("dir"))
-    ev(f"CH3 staging: V turn intent {r}; V dir h/c {dirs}; {AS.fmt(s)}")
+    ev(f"unseen_walk staging: V turn intent {r}; V dir h/c {dirs}; {AS.fmt(s)}")
     if dirs != (V_TURN_SEE, V_TURN_SEE):
-        for c in ("CH3-walk", "CH3-hidden"):
+        for c in ("unseen_walk-walk", "unseen_walk-hidden"):
             cell(c, False, f"staging: V dir h/c {dirs} (want {V_TURN_SEE} on both)")
-        common(host, client, "CH3")
+        common(host, client, "unseen_walk")
         return
     rec = AS.alien_cycle(host, client, SEED_WALK_OUT, HOLD)
-    RECS["CH3"] = rec
-    cycle_evidence("CH3", rec)
+    RECS["unseen_walk"] = rec
+    cycle_evidence("unseen_walk", rec)
     combat = [(q, k) for q, k in rec["hev"] if k in COMBAT_KINDS]
     cs = side1(rec, "c")
-    cell("CH3-walk", rec["path"] == OUT_PATH and not combat and len(cs) >= MIN_SAMPLES,
+    cell("unseen_walk-walk", rec["path"] == OUT_PATH and not combat and len(cs) >= MIN_SAMPLES,
          f"walk {rec['path']} (want OUT_PATH); combat evs {combat}; client side-1 samples {len(cs)} (>= {MIN_SAMPLES})")
     hms = [r["c"]["hms"] for r in cs]
-    cell("CH3-hidden", bool(hms) and all(v is False for v in hms),
+    cell("unseen_walk-hidden", bool(hms) and all(v is False for v in hms),
          f"client hms in its side-1 samples {hms} (want all False: the HIDDEN MOVEMENT screen through an unseen walk)")
     n, s = AS.close_client_screen(host, client)
-    ev(f"CH3-close: closed {n}; {AS.fmt(s)}")
-    common(host, client, "CH3")
+    ev(f"unseen_walk-close: closed {n}; {AS.fmt(s)}")
+    common(host, client, "unseen_walk")
 
 
-def row_ch1(host, client):
+def row_idle_alien_turn(host, client):
     AS.both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": 0},
             ("tu",))
     rec = AS.alien_cycle(host, client, SEED_SIDE_CHANGE, 0.5, held_read=True)
-    RECS["CH1"] = rec
-    cycle_evidence("CH1", rec)
+    RECS["idle_alien_turn"] = rec
+    cycle_evidence("idle_alien_turn", rec)
     ds = rec["heldRead"]
-    ev(f"CH1 heldRead: caught {rec.get('caught')}; host top {rec.get('heldReadTop')}; hms h/c {ds['h']['hms']}/"
-       f"{ds['c']['hms']}; {AS.fmt(ds)}")
+    ev(f"idle_alien_turn heldRead: caught {rec.get('caught')}; host top {rec.get('heldReadTop')}; "
+       f"hms h/c {ds['h']['hms']}/{ds['c']['hms']}; {AS.fmt(ds)}")
     a_evs = [(q, k) for q, k in rec["hev"] if k in CHAIN_KINDS]
     held = (ds["h"]["side"] == 1 and ds["c"]["side"] == 1 and "NextTurnState" in (rec.get("heldReadTop") or "")
             and rec.get("caught") is True)
-    cell("CH1-held", held and not a_evs,
+    cell("idle_alien_turn-held", held and not a_evs,
          f"side h/c {ds['h']['side']}/{ds['c']['side']}, host top {rec.get('heldReadTop')}, caught {rec.get('caught')} "
          f"(want 1/1, NextTurnState, True); A chain evs {a_evs} (want none)")
     hms = [r["c"]["hms"] for r in side1(rec, "c")]
-    cell("CH1-screen", ds["c"]["hms"] is False and all(v is False for v in hms),
+    cell("idle_alien_turn-screen", ds["c"]["hms"] is False and all(v is False for v in hms),
          f"heldRead client hms {ds['c']['hms']}, client side-1 samples {hms} (want False and all False: the screen "
          f"while no alien acts)")
     AS.settle_on_battlescape(client)
     AS.settle_on_battlescape(host)
     session.wait_seq_barrier(host, client, timeout=30)
-    ev(f"CH1-after: {AS.fmt(snap(host, client))}")
-    common(host, client, "CH1")
+    ev(f"idle_alien_turn-after: {AS.fmt(snap(host, client))}")
+    common(host, client, "idle_alien_turn")
 
 
-def row_ch4(host, client):
-    r2, r3 = RECS.get("CH2"), RECS.get("CH3")
+def row_host_screen(host, client):
+    r2, r3 = RECS.get("seen_walk"), RECS.get("unseen_walk")
     h2 = [r["h"]["hms"] for r in side1(r2, "h") if ua(r["h"]).get("pos") in IN_PATH] if r2 else None
     h3 = [r["h"]["hms"] for r in side1(r3, "h") if ua(r["h"]).get("pos") in OUT_PATH[1:]] if r3 else None
-    ev(f"CH4: host side-1 hms with host-A on IN_PATH (CH2) {h2}; on OUT_PATH[1:] (CH3) {h3}")
+    ev(f"host_screen: host side-1 hms with host-A on IN_PATH (seen_walk) {h2}; on OUT_PATH[1:] (unseen_walk) {h3}")
     ok2 = h2 is not None and any(v is True for v in h2)
     ok3 = h3 is not None and all(v is False for v in h3)
-    cell("CH4-host", ok2 and ok3,
-         f"CH2 {h2} (want >= 1 True; None = no CH2 record); CH3 {h3} (want all False; None = no CH3 record)")
-    common(host, client, "CH4")
+    cell("host_screen-unchanged", ok2 and ok3,
+         f"seen_walk {h2} (want >= 1 True; None = no seen_walk record); unseen_walk {h3} (want all False; "
+         f"None = no unseen_walk record)")
+    common(host, client, "host_screen")
 
 
-ROW_FNS = {"CH2": row_ch2, "CH3": row_ch3, "CH1": row_ch1, "CH4": row_ch4}
+ROW_FNS = {"seen_walk": row_seen_walk, "unseen_walk": row_unseen_walk, "idle_alien_turn": row_idle_alien_turn,
+           "host_screen": row_host_screen}
 
 
 # ===================== bring-up =====================
 
 
 def boot(host, client, key):
-    """test_client_alien_sight.boot with the lobby key as a parameter (F10917: AS.KEY is that file's)."""
+    """test_client_alien_sight.boot with the lobby key as a parameter (AS.KEY is test_client_alien_sight's own key)."""
     host.spawn(); host.connect()
     client.spawn(); client.connect()
     host.ok({"cmd": "set_seed", "seed": AS.SEED_ROSTER})
@@ -235,7 +241,7 @@ def boot(host, client, key):
     assert hs.get("mapFingerprint") == AS.MAP_FP and cs.get("mapFingerprint") == AS.MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} (baked {AS.MAP_FP!r})")
     assert seated.get("soldierIds") == AS.SEATED, f"seated {seated.get('soldierIds')} (baked {AS.SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="r5u2e")
+    pinned = pin_ai_neutral(host, client, tag="hidden_move")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (baked [{A_ID}])"
     uh, uc = session.units_by_id(hs), session.units_by_id(cs)
     types = ((uh.get(A_ID) or {}).get("type"), (uc.get(A_ID) or {}).get("type"))
@@ -245,7 +251,7 @@ def boot(host, client, key):
             AS.both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": uid, "stat": "reactions",
                                    "value": 0}, ("tu",))
     session.wait_host_idle(host, client, timeout=30)
-    assert_hash_clean(host, client, full=True, what="r5u2e bring-up")
+    assert_hash_clean(host, client, full=True, what="hidden_move bring-up")
     AS.both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": A_TU},
             ("tu",))
 
@@ -253,8 +259,8 @@ def boot(host, client, key):
 def main():
     global CRASH0
     t0 = time.time()
-    host = GameClient("host", 49852, make_user_dir("r5u2_e1_host"))
-    client = GameClient("client", 49853, make_user_dir("r5u2_e1_client"))
+    host = GameClient("host", 49852, make_user_dir("coop_hidden_move_host"))
+    client = GameClient("client", 49853, make_user_dir("coop_hidden_move_client"))
     blocked = None
     try:
         try:
@@ -290,7 +296,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[r5u2e] shutdown {gc.name}: {short(e, 200)}", flush=True)
+                print(f"[hidden_move] shutdown {gc.name}: {short(e, 200)}", flush=True)
     names = [c for _, cells in ROWS for c in cells]
     failed = [c for c in names if not RESULTS.get(c)]
     print(f"\ntest_coop_hidden_move: {len(names) - len(failed)}/{len(names)} cells passed (fail={failed}) in "
