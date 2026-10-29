@@ -128,6 +128,8 @@
 #include "../Mod/AlienDeployment.h"
 #include "../Savegame/GeoscapeEvent.h"
 #include "../Menu/ErrorMessageState.h"
+#include "../Savegame/Vehicle.h"
+#include "../Battlescape/CannotReequipState.h"
 
 #include "connectionTCP.h"
 #include "CoopState.h"
@@ -2245,23 +2247,13 @@ bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int 
 	return true;
 }
 
-void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
+// Moves (non-vehicle) @a item between @a base's stores and @a craft until the
+// craft holds @a target, within what the stores hold and the craft's capacity.
+static void setCraftItemCount(Craft* craft, Base* base, const RuleItem* item, int target)
 {
-	if (!base) return;
-	Craft* craft = resolveOrderCraft(game, payload, base);
-	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
-	if (!craft || !item) return;
-	if (item->getVehicleUnit())
-	{
-		if (game->getSavedGame()->isSeparateCoopCampaign())
-			SeparateEcon::applyVehicleEquip(game, payload, base, seat);
-		return;
-	}
-
 	ItemContainer* craftItems = craft->getItems();
 	ItemContainer* store = base->getStorageItems();
 	int current = craftItems->getItem(item);
-	int target = payload.get("count", 0).asInt();
 	if (target < 0) target = 0;
 
 	// Clamp UP by base availability (never move more than the base holds) and by
@@ -2287,6 +2279,187 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 	int delta = target - current;
 	if (delta > 0)      { craftItems->addItem(item, delta);   store->removeItem(item, delta); }
 	else if (delta < 0) { craftItems->removeItem(item, -delta); store->addItem(item, -delta); }
+}
+
+void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
+	if (!craft || !item) return;
+	if (item->getVehicleUnit())
+	{
+		if (game->getSavedGame()->isSeparateCoopCampaign())
+			SeparateEcon::applyVehicleEquip(game, payload, base, seat);
+		return;
+	}
+	setCraftItemCount(craft, base, item, payload.get("count", 0).asInt());
+}
+
+// SHARED vehicles on the craft equipment screen: CraftEquipmentState's own
+// vehicle moves (a vehicle and its ammo leave the stores together and come back
+// together; a vehicle needs craft room and a full clip load), on the shared world.
+static void setSharedVehicleCount(Craft* craft, Base* base, const RuleItem* item, int target)
+{
+	ItemContainer* store = base->getStorageItems();
+	const int current = craft->getVehicleCount(item->getType());
+	const RuleItem* ammo = item->getVehicleClipAmmo();
+	const int ammoPerVehicle = item->getVehicleClipsLoaded();
+	if (target < current)
+	{
+		const int change = current - target;
+		store->addItem(item, change);
+		if (ammo) store->addItem(ammo, ammoPerVehicle * change);
+		Collections::deleteIf(*craft->getVehicles(), change,
+			[&](Vehicle* v) { return v->getRules() == item; });
+	}
+	else if (target > current)
+	{
+		const int size = item->getVehicleUnit()->getArmor()->getTotalSize();
+		int change = std::min(target - current, store->getItem(item));
+		change = std::min(change, craft->validateAddingVehicles(size));
+		if (ammo && ammoPerVehicle > 0)
+			change = std::min(change, store->getItem(ammo) / ammoPerVehicle);
+		for (int i = 0; i < change; ++i)
+		{
+			if (ammo) store->removeItem(ammo, ammoPerVehicle);
+			store->removeItem(item);
+			craft->getVehicles()->push_back(new Vehicle(item, item->getVehicleClipSize(), size));
+			craft->resetCustomDeployment();
+		}
+	}
+}
+
+// craft_loadout payload: { craftId, craftType, onlyAdd, listed:[itemType...],
+// template:{itemType: qty} }, baseId = the craft's home-base index. A craft
+// equipment template load (CraftEquipmentState::loadGlobalLoadout): listed are
+// the item types the screen shows, template the slot's contents. Unless onlyAdd,
+// every listed item first goes back to the stores; then each listed item takes
+// its template quantity on top, within the stores and the craft's capacity
+// (the screen's moves with the alternate management off, as vanilla's load
+// does). The host turns that into steps (absolute counts, in order) and the
+// "cannot re-equip" shortfall; every machine runs the same steps, and the
+// player who loaded sees the shortfall. Separate: a player's own vehicles
+// only, with the craft screen's owner priority, and only the base owner may
+// load a template (RU8).
+bool craftLoadoutValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                          int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
+	if (!payload["listed"].isArray() || !payload["template"].isObject())
+		{ failReason = "bad craft loadout"; return false; }
+	if (game->getSavedGame()->isSeparateCoopCampaign()
+		&& !base->isOwnedByPlayer(connectionTCP::seatName(seat)))
+		{ failReason = "Only the base owner can change craft equipment"; return false; }
+	return true;
+}
+
+void craftLoadoutApply(Game* game, Json::Value& payload, Base* base, int seat)
+{
+	if (!base || !game->getSavedGame()) return;
+	Craft* craft = resolveOrderCraft(game, payload, base);
+	if (!craft) return;
+	const bool separate = game->getSavedGame()->isSeparateCoopCampaign();
+	auto countOf = [&](const RuleItem* item)
+	{
+		if (!item->getVehicleUnit()) return craft->getItems()->getItem(item);
+		return separate
+			? SeparateEcon::vehicleSelectionCount(game, craft, item->getType(), seat)
+			: craft->getVehicleCount(item->getType());
+	};
+	const bool onlyAdd = payload.get("onlyAdd", false).asBool();
+	const Json::Value& tmpl = payload["template"];
+	std::map<std::string, int> before;
+	if (isHost())
+	{
+		for (const auto& name : tmpl.getMemberNames())
+			if (const RuleItem* item = game->getMod()->getItem(name, false))
+				before[name] = countOf(item);
+		Json::Value steps(Json::arrayValue);
+		std::vector<std::pair<std::string, int>> adds;
+		for (const auto& entry : payload["listed"])
+		{
+			const std::string type = entry.asString();
+			const RuleItem* item = game->getMod()->getItem(type, false);
+			if (!item) continue;
+			const int now = countOf(item);
+			if (!onlyAdd && now > 0)
+			{
+				Json::Value step;
+				step["item"] = type;
+				step["count"] = 0;
+				steps.append(step);
+			}
+			const int qty = tmpl.get(type, 0).asInt();
+			if (qty > 0) adds.push_back({ type, (onlyAdd ? now : 0) + qty });
+		}
+		for (const auto& add : adds)
+		{
+			Json::Value step;
+			step["item"] = add.first;
+			step["count"] = add.second;
+			steps.append(step);
+		}
+		payload["steps"] = steps;
+	}
+	for (auto& step : payload["steps"])
+	{
+		const RuleItem* item = game->getMod()->getItem(step.get("item", "").asString(), false);
+		if (!item) continue;
+		if (!item->getVehicleUnit())
+			setCraftItemCount(craft, base, item, step.get("count", 0).asInt());
+		else if (separate)
+		{
+			// applyVehicleEquip names the craft itself; on the host it writes the
+			// resolved count and owners into the step for the replicas.
+			step["craftId"] = craft->getId();
+			step["craftType"] = craft->getRules()->getType();
+			SeparateEcon::applyVehicleEquip(game, step, base, seat);
+		}
+		else
+			setSharedVehicleCount(craft, base, item, step.get("count", 0).asInt());
+	}
+	if (isHost())
+	{
+		Json::Value missing(Json::arrayValue);
+		for (const auto& name : tmpl.getMemberNames())
+		{
+			const RuleItem* item = game->getMod()->getItem(name, false);
+			if (!item) continue;
+			const int got = countOf(item) - (onlyAdd ? before[name] : 0);
+			const int short_ = tmpl[name].asInt() - got;
+			if (short_ > 0)
+			{
+				Json::Value m;
+				m["item"] = name;
+				m["qty"] = short_;
+				missing.append(m);
+			}
+		}
+		payload["missing"] = missing;
+	}
+	// The player who loaded the template sees what was missing (vanilla's report).
+	if (seat == connectionTCP::localSeat() && payload["missing"].isArray()
+		&& !payload["missing"].empty())
+	{
+		const std::string craftName = craft->getName(game->getLanguage());
+		std::vector<ReequipStat> stats;
+		for (const auto& m : payload["missing"])
+		{
+			const RuleItem* item = game->getMod()->getItem(m.get("item", "").asString(), false);
+			if (!item) continue;
+			ReequipStat stat = { item->getType(), m.get("qty", 0).asInt(), craftName, item->getListOrder() };
+			stats.push_back(stat);
+		}
+		std::sort(stats.begin(), stats.end(), [](const ReequipStat& a, const ReequipStat& b)
+			{
+				return a.listOrder < b.listOrder;
+			});
+		if (!stats.empty())
+			game->pushState(new CannotReequipState(stats, base));
+	}
 }
 
 // ---- PRD-J09 GAP-5b: shared-world base-screen store mutators ------------------
@@ -3560,6 +3733,8 @@ void init()
 	registerCmd("craft_assign",   &craftAssignValidate, &craftAssignApply);
 	// PRD-J09 GAP-5: shared-world craft equipment loadout (base-screen equip).
 	registerCmd("craft_equip",    &craftEquipValidate,  &craftEquipApply);
+	// A craft equipment template load (the whole loadout as one command).
+	registerCmd("craft_loadout",  &craftLoadoutValidate, &craftLoadoutApply);
 	// PRD-J09 GAP-5b: the sibling base-screen store mutators (arm/rearm a craft
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
@@ -4096,6 +4271,25 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 	p["item"] = itemType;
 	p["count"] = desiredOnCraft;
 	submitLocalCmd(game, "craft_equip", craftBaseIndex(game, craft), p);
+}
+
+void submitCraftLoadout(Game* game, Craft* craft, const std::vector<std::string>& listed,
+                        const ItemContainer& tmpl, bool onlyAdd)
+{
+	if (!game || !craft) return;
+	Json::Value p;
+	p["craftId"] = craft->getId();
+	p["craftType"] = craft->getRules()->getType();
+	p["onlyAdd"] = onlyAdd;
+	Json::Value types(Json::arrayValue);
+	for (const auto& type : listed) types.append(type);
+	p["listed"] = types;
+	Json::Value contents(Json::objectValue);
+	for (const auto& entry : *tmpl.getContents())
+		if (entry.first && entry.second > 0)
+			contents[entry.first->getType()] = entry.second;
+	p["template"] = contents;
+	submitLocalCmd(game, "craft_loadout", craftBaseIndex(game, craft), p);
 }
 
 void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& weaponType)

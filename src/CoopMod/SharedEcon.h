@@ -39,6 +39,7 @@ class Soldier;
 class AlienBase;
 class BattleItem;
 class EquipmentLayoutItem;
+class ItemContainer;
 class SavedBattleGame;
 class RuleResearch;
 
@@ -325,6 +326,14 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// nothing locally (host validates/clamps + broadcasts, replica applies). Items
 /// only - vehicles are deferred (caller must not route a vehicle item).
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
+
+/// One-world campaigns (SHARED and Separate): load a craft equipment template on
+/// @a craft. @a listed = the item types the craft equipment screen shows (the
+/// load considers only those), @a tmpl = the template's contents, @a onlyAdd =
+/// add on top instead of replacing. Submits craft_loadout; mutates nothing
+/// locally (the host moves the items and reports what was missing).
+void submitCraftLoadout(Game* game, Craft* craft, const std::vector<std::string>& listed,
+                        const ItemContainer& tmpl, bool onlyAdd);
 
 /// PRD-J09 GAP-5b: mount @a weaponType (empty = dismount) in weapon @a slot of
 /// @a craft in the shared world (SHARED only - caller gates). The launcher + loaded
