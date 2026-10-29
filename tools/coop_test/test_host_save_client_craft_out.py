@@ -16,6 +16,12 @@ interim waypoint at the saved position, and re-links the craft to the LIVE coop
 mirror once it re-syncs - so the craft keeps chasing the REAL, position-synced
 target and engages it on arrival.
 
+Separate is now one host-owned world: the client's craft, the UFO and the
+craft's target link all live in the host save, and there is no client blob
+or coop mirror UFO. The player-visible bar is unchanged, so the test drives the
+client's craft on both machines (the host simulates, the client mirrors) and
+keeps every assertion below.
+
 Two scenarios, each asserting the craft (a) never despawns and (b) re-links to
 the live coop target after resume; plus a mode-specific proof:
 
@@ -53,32 +59,51 @@ def keep_awake():
             0x80000000 | 0x00000001 | 0x00000002)
 
 
+# Separate is one host-owned world: the client's craft lives at the client's
+# base in that world, the host simulates its flight and the client mirrors it.
+# Craft ids are per base type, so a craft is named by its base and type too.
+CLIENT_BASE = "ClientBase"
+
+
 def own_crafts(gc):
-    """Every craft this instance OWNS (coop=false), flattened across bases."""
+    """Every craft at the client's own base, as this instance sees it."""
     r = gc.cmd({"cmd": "geo_state"})
     if not r.get("ok"):
         return []
-    return [c for b in r["bases"] for c in b.get("crafts", []) if not c["coop"]]
+    return [c for b in r["bases"] if b.get("name") == CLIENT_BASE
+            for c in b.get("crafts", [])]
 
 
-def find_own_craft(gc, craft_id):
+def find_own_craft(gc, craft_key_):
     for c in own_crafts(gc):
-        if c["id"] == craft_id:
+        if craft_key(c) == craft_key_:
             return c
     return None
 
 
-def coop_ufo(client):
-    """The (single) coop mirror UFO on the client, or None."""
-    for u in client.cmd({"cmd": "geo_state"}).get("ufos", []):
-        if u.get("coop"):
-            return u
-    return None
+def coop_ufo(gc):
+    """The (single) spawned UFO as this instance sees it, or None. In the one
+    world the client sees the host's UFO itself, not a coop mirror."""
+    ufos = gc.cmd({"cmd": "geo_state"}).get("ufos", [])
+    return ufos[0] if ufos else None
 
 
 def craft_key(c):
     """Stable cross-reload identity for an own craft: (type, id)."""
     return (c["type"], c["id"])
+
+
+def force_craft(host, client, key, **fields):
+    """Set the client's craft on BOTH machines: the host simulates the flight
+    and the replica mirrors it (same lane as separate_campaign_fixture)."""
+    for gc in (client, host):
+        req = {"cmd": "craft_force", "base": CLIENT_BASE, "craft_type": key[0],
+               "craft_id": key[1]}
+        req.update(fields)
+        if "dest" in req and req["dest"] == "ufo":
+            u = coop_ufo(gc)
+            req["dest"] = f"ufo:{u['id']}" if u else "none"
+        gc.ok(req)
 
 
 def geo_tick(host, client, speed=3):
@@ -153,10 +178,10 @@ def drive_to_landing_prompt(tag, host, client, cid, fail, timeout=45):
             top = gc.cmd({"cmd": "get_state"})["states"][-1]
             if not any(k in top for k in keep):
                 gc.cmd({"cmd": "dismiss_popup"})
-        u = coop_ufo(client)
+        u = coop_ufo(host)
         if u:  # chase the live target position (a crash site does not move)
-            client.cmd({"cmd": "craft_force", "craft_id": cid, "lon": u["lon"],
-                        "lat": u["lat"], "fuel": 999999, "lowFuel": False})
+            force_craft(host, client, cid, lon=u["lon"], lat=u["lat"],
+                        fuel=999999, lowFuel=False)
         c = find_own_craft(client, cid)
         last = (c and c["status"], c and c["destKind"], st[-1] if st else None)
         for gc in (host, client):
@@ -225,38 +250,52 @@ def run_scenario(label, ports, ufo_state, ufo_speed, craft_pref, mode,
         assert crafts0, "client should own a starting craft"
         craft = next((c for c in crafts0 if craft_pref in c["type"]), crafts0[0])
         key = craft_key(craft)
-        cid = craft["id"]
+        cid = key  # crafts are named by (type, id) at the client's base
         bx, by = craft["lon"], craft["lat"]
         print(f"  client craft {key} -> OUT")
 
-        # HOST spawns a shared/coop UFO (mirrors onto the client, stripped from
-        # the client blob - the issue #28 trigger).
+        # HOST spawns the UFO. Two-world Separate mirrored it onto the client and
+        # stripped it from the client blob (the issue #28 trigger); the one world
+        # holds the UFO and the craft's target link in the host save itself.
         host.ok({"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT",
                  "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
                  "race": "STR_SECTOID", "trajectory": "P0", "state": ufo_state,
                  "lon": bx + 1.4, "lat": by - 0.25, "speed": ufo_speed, "hours": 240})
-        cufo = client.wait_for("coop UFO mirror on client",
+        cufo = client.wait_for("UFO replicated to the client",
                                lambda: coop_ufo(client), timeout=30)
-        cufo_id = cufo["id"]
-        print(f"  coop UFO mirror id={cufo_id} coopId={cufo.get('coopId')}")
+        print(f"  UFO on client id={cufo['id']} coopId={cufo.get('coopId')}")
 
-        # A landing needs units aboard; tracking/interception does not.
+        # A landing needs something aboard (an empty transport may skip the
+        # prompt); tracking/interception does not. The owner loads it through
+        # its own command lane, as separate_campaign_fixture.fly_to_new_site does.
         if mode == "landing":
-            client.cmd({"cmd": "craft_dispatch", "site_id": -1, "soldiers": 2})
-        client.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
-                   "lon": bx + 0.20, "lat": by + 0.10, "dest": f"ufo:{cufo_id}",
-                   "fuel": 999999, "lowFuel": False})
-        cur = find_own_craft(client, cid)
-        assert cur and cur["status"] == "STR_OUT" and cur["destKind"] == "ufo", \
-            f"failed to force craft OUT to coop UFO: {cur}"
-        print(f"  OUT to coop UFO: {cur['displayStatus']!r}")
+            client.ok({"cmd": "craft_equip", "base": CLIENT_BASE, "craft_id": key[1],
+                       "item": "STR_RIFLE", "count": 1})
+            host.wait_for(
+                "craft equipment reaches the host",
+                lambda: (lambda r: r if next(c for c in r["crafts"] if c["id"] == key[1]
+                                             and c.get("type", key[0]) == key[0])
+                         ["items"].get("STR_RIFLE", 0) >= 1 else None)(
+                    host.ok({"cmd": "base_report", "base": CLIENT_BASE})),
+                timeout=30, interval=0.3)
+        force_craft(host, client, key, status="STR_OUT",
+                    lon=bx + 0.20, lat=by + 0.10, dest="ufo",
+                    fuel=999999, lowFuel=False)
+        cur = client.wait_for(
+            "client craft OUT to the UFO",
+            lambda: (lambda c: c if c and c["status"] == "STR_OUT" and c["destKind"] == "ufo"
+                     else None)(find_own_craft(client, cid)),
+            timeout=30, interval=0.3)
+        hcur = find_own_craft(host, cid)
+        assert hcur and hcur["status"] == "STR_OUT" and hcur["destKind"] == "ufo", \
+            f"failed to force the client's craft OUT to the UFO in the host world: {hcur}"
+        print(f"  OUT to UFO: {cur['displayStatus']!r}")
 
         # --- HOST SAVE (deferred host-authoritative funnel) ---
         host.ok({"cmd": "save_game_ui", "type": "quick"})
         host.wait_for("host quicksave on disk",
                       lambda: os.path.exists(os.path.join(host_dir, "xcom1", "_quick_.asav")) or None,
                       timeout=90)
-        time.sleep(2.0)  # let the client-blob round trip + embed settle
         host.ok({"cmd": "save_game", "file": save_name})
 
         # LIVE: craft still owned + still OUT to the coop UFO.
@@ -279,8 +318,9 @@ def run_scenario(label, ports, ufo_state, ufo_speed, craft_pref, mode,
         if mode == "landing":
             drive_to_landing_prompt(f"{label} RESUME", host, client, cid, fail)
         else:  # tracking
-            cur_ufo = coop_ufo(client)
-            coop_id = cur_ufo["coopId"] if cur_ufo else cufo.get("coopId")
+            # move_ufo runs on the host, so it takes the host's UFO coop id.
+            cur_ufo = coop_ufo(host)
+            coop_id = cur_ufo["coopId"] if cur_ufo else None
             assert_live_tracking(f"{label} RESUME", host, client, cid, coop_id, fail)
     finally:
         host.shutdown(); client.shutdown()
