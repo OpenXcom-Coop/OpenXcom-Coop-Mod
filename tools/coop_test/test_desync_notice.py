@@ -547,7 +547,8 @@ def boot():
         gt = tuple(session.units_by_id(hs).get(G, {}).get(k) for k in "xyz")
         b0 = [(r.get("authority") or {}).get("battleId") for r in (hs, cs)]
         assert s0[:2] == [H, H2] and s1[:1] == [G] and gt == G_TILE and b0[0] and b0[0] == b0[1], (
-            "SETUP-FAILURE: pins seat0 %s seat1 %s G at %s B0 %s (CONSTANTS H %d, H2 %d, G %d at %s)" % (s0, s1, gt, b0, H, H2, G, G_TILE))
+            "SETUP-FAILURE: pins seat0 %s seat1 %s G at %s B0 %s (want H %d, H2 %d, G %d at %s)"
+            % (s0, s1, gt, b0, H, H2, G, G_TILE))
         print("[test_desync_notice] boot ok: MAP_FP %r, pinned %s, B0 %s, turn %s, seats %s / %s"
               % (MAP_FP, pinned, b0, hs.get("turn"), s0, s1), flush=True)
     except Exception as e:
