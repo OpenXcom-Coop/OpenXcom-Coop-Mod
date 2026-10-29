@@ -1,40 +1,35 @@
-"""SPEC 19 S1 - campaign co-op battle entry: SEPARATE guest battle.
+"""Campaign co-op battle entry: SEPARATE guest battle.
 
 A SEPARATE campaign co-op battle flown from the host's Skyranger with a guest
-seated by the CLIENT (session.bring_up_separate_guest_battle - the archived
-r1a_v2.bring_up_fixed recipe, R1(b)'s own measured fixture) must, at the tip:
+seated by the CLIENT (session.bring_up_separate_guest_battle) must:
 
   * deploy the host's 3 own soldiers at seat 0 and the client's guest "Guest
     Zzz" at seat 1, on BOTH machines - the guest identified BY NAME, since
-    Branch B mints its battle copy a FRESH soldierId (M2 Branch B:
-    `loadWorld(111)`'s materialisation shape, `setId(lastId + 1)`);
+    the host mints its battle copy a FRESH soldierId
+    (`loadWorld(111)`'s materialisation shape, `setId(lastId + 1)`);
   * let the CLIENT command its own guest through the real intent path
     (admitted), refuse it on a host soldier (not_your_unit), and refuse the
     HOST's click-select on the guest's own tile;
   * leave the battle cleanly via the host-authoritative abort:
     the HOST reaches the geoscape (AbortMissionState -> finishBattle) with NO
-    crash and NO desyncSeen on EITHER machine - expect_both=True (re-pointed by
-    W2-P7 S-C-B1, AMENDMENT P7-6 section 4.2, chain rule A.10): the SEPARATE
-    second player now returns to its OWN geoscape at the end too, so BOTH
+    crash and NO desyncSeen on EITHER machine - expect_both=True: the SEPARATE
+    second player returns to its OWN geoscape at the end too, so BOTH
     machines reach the geoscape;
-  * satisfy F366's post-battle roster consumers: the host's merged COPY of the
-    guest (coopBase == -1) is gone; the client's own durable "Guest Zzz"
-    survives.
+  * satisfy the post-battle roster consumers (post_battle_roster): the host's
+    merged COPY of the guest (coopBase == -1) is gone; the client's own
+    durable "Guest Zzz" survives.
 
-Vacuity guard (Branch B): BEFORE coop_mission_start is ever pressed, the
+Vacuity guard: BEFORE coop_mission_start is ever pressed, the
 client's `event_state.guestContrib.sent` must already be >= 1 and the host's
 per-seat stored count for seat 1 must already be >= 1 - proof the
 `battle_roster_contrib` census actually reached the host, not just an absence
 any unrelated bring-up failure would also produce.
 
-IN-WAVE NOW: what SPEC 19 left as r4
-T2 is implemented. (2) the CLIENT's own clean return to its geoscape after a
-SEPARATE host abort (was F387: the host's finishBattle returned only the host;
-the client was left in the battle) is now asserted HERE via expect_both=True.
-(1) the guest's post-battle RECORD (stats/rank/wounds/missions/kills/diary/death)
+The guest's post-battle RECORD (stats/rank/wounds/missions/kills/diary/death)
 returning to the CLIENT's own world is asserted by test_battle_end_separate.py
-(row guest_returns_alive), not here - S1 asserts the client's clean return and that the host's
-roster satisfies F366.
+(row guest_returns_alive), not here: this test asserts the client's clean
+return to its own geoscape after a SEPARATE host abort (expect_both=True) and
+the host's post-battle roster (post_battle_roster).
 
 Run:  python tools/coop_test/test_coop_separate_guest_battle.py
 Exit 0 = pass; 2 = failure.
@@ -58,7 +53,7 @@ def _vacuity_guard(host, client):
     gcontrib = es_c.get("guestContrib") or {}
     sent = gcontrib.get("sent")
     assert isinstance(sent, int) and sent >= 1, (
-        f"VACUITY (Branch B): client event_state.guestContrib.sent={sent!r} "
+        f"VACUITY: client event_state.guestContrib.sent={sent!r} "
         f"BEFORE coop_mission_start - the guest roster contribution never "
         f"travelled: {es_c}")
 
@@ -67,7 +62,7 @@ def _vacuity_guard(host, client):
     soldiers = hcontrib.get("soldiers") or []
     seat1_stored = soldiers[1] if len(soldiers) > 1 else 0
     assert seat1_stored >= 1, (
-        f"VACUITY (Branch B): host's stored guestContrib count for seat 1 = "
+        f"VACUITY: host's stored guestContrib count for seat 1 = "
         f"{seat1_stored} BEFORE coop_mission_start - full guestContrib: {hcontrib}")
     print(f"PASS vacuity guard (before coop_mission_start): client "
           f"guestContrib.sent={sent}, host seat-1 stored={seat1_stored}")
@@ -127,27 +122,27 @@ def main():
         expected_seats = {sid: 0 for sid in host_squad}
         expected_seats[guest_battle_id] = 1
         session.assert_control_split(host, client, expected_seats,
-                               what="S1 separate guest battle")
+                               what="separate guest battle")
         session.assert_seat_commands(host, client, guest_battle_id, host_squad[0],
-                             what="S1 separate guest battle")
-        session.assert_battle_exit(host, client, what="S1 separate guest battle",
+                             what="separate guest battle")
+        session.assert_battle_exit(host, client, what="separate guest battle",
                               expect_both=True)
 
         # ---- post-battle roster consumers ------------------------------
         assert not _guest_present(host), (
-            "F366: the host's get_soldiers STILL lists a 'Guest' soldier after "
-            "the battle - the merged copy (Branch B, coopBase==-1) was not "
+            "post_battle_roster: the host's get_soldiers STILL lists a 'Guest' soldier after "
+            "the battle - the merged copy (coopBase==-1) was not "
             "deleted post-battle")
         assert _guest_present(client), (
-            "F366: the client's own base no longer lists 'Guest Zzz' - the "
+            "post_battle_roster: the client's own base no longer lists 'Guest Zzz' - the "
             "client's durable guest soldier was lost")
-        print("PASS F366: the host's merged guest copy is gone; the client's own "
+        print("PASS post_battle_roster: the host's merged guest copy is gone; the client's own "
               "durable guest 'Guest Zzz' survives")
 
         session.assert_client_zero_disk(client_dir)
         print("PASS zero-disk: client user dir clean")
 
-        print("ALL SPEC 19 (W1-P20) S1 SEPARATE GUEST BATTLE TESTS PASSED")
+        print("ALL SEPARATE GUEST BATTLE TESTS PASSED")
     finally:
         host.shutdown()
         client.shutdown()
