@@ -1,60 +1,60 @@
-"""W1-P7 (WAVE1-RUNBOOK.md ruling D7 = WV-D13, parameters WV-D24, string SS2.W8):
-ORDER FEEDBACK - "the player always knows what the network did with the click".
+"""test_feedback.py: ORDER FEEDBACK - "the player always knows what the network
+did with the click".
 
-Five things this file proves, all with EXACT banner text (never non-emptiness -
-that is the wave-1 rule, and a raw STR_ key on screen means the WV-D17 robocopy
-of bin/common into bin/x64/Release/common was skipped):
+Every check asserts EXACT banner text, never non-emptiness: a raw STR_ key on
+screen means the copy of bin/common into bin/x64/Release/common was skipped.
 
-  PHASE 1  the four stages of a click: SENT -> ADMITTED, and SENT -> DENIED.
-           `STR_COOP_ORDER_SENT` is the in-flight indicator W1-P7 mints; before
-           this packet the window between the click and the host's answer showed
-           nothing at all.
-  PHASE 2  the AUTO-CLEAR rule for terminal denies (WV-D13 item 1). Before this
-           packet the ONLY thing that ever cleared one was the player's own next
-           successful action, so a refusal sat on the map strip indefinitely.
-  PHASE 3  the SEAT-ATTRIBUTED wait banner (WV-D13 item 4, the donor driver at
-           `cbff7951d:BattlescapeState.cpp:5292-5370`): a busy deny raised by the
-           HOST's own action names the host - "Please wait for HostPlayer's
-           action to finish" - and clears by itself when the retry lands. The
-           donor's suppression rule is checked too: when the blocker is the
-           CLIENT'S OWN action it must NOT name a peer (that case lives in
-           test_retry_cancel.py, which asserts the generic busy row).
-  PHASE 4  the INTENT TIMEOUT, the NON-NEGOTIABLE half of
-           D7. 10 s by default, behind a REAL user option
-           (`Options::coopIntentTimeoutSeconds`, an Options.inc.h declaration +
-           an Options.cpp OptionInfo registration per WR-25). On fire it shows
-           STR_COOP_ACTION_TIMEOUT and RELEASES the IR-2 one-slot lock - today a
-           lost intent locks the unit forever. Then the exact late-message rule:
-           a late bt_ack/bt_deny for that iseq is PERMANENTLY IGNORED, while a
-           late bt_action_end STILL APPLIES.
-  PHASE 5  W1-P13b's END TURN readiness tally (SS2.W3, SPEC 10 / REV E.50):
-           a CLIENT press during the PLAYER side now ARMS this machine's own
-           seat instead of refusing - SS2.W8's retired local refusal
-           ("Only the host can end the turn") is no longer reachable here.
-           The side does not advance on one seat's arm alone, and the
-           `_txtCoopEndTurn` surface (WV-D13 item 4) goes from HIDDEN at t=0
-           to the exact rendered tally text once armed.
+  test_sent_denied_and_autoclear
+    order_sent, order_admitted, order_denied: the four stages of a click,
+           SENT -> ADMITTED and SENT -> DENIED. `STR_COOP_ORDER_SENT` is the
+           in-flight indicator: it fills the window between the click and the
+           host's answer.
+    deny_auto_clear: the AUTO-CLEAR rule for terminal denies. Without it the
+           ONLY thing that clears one is the player's own next successful
+           action, so a refusal would sit on the map strip indefinitely.
+  test_seat_attributed_wait
+    host_named_wait: the SEAT-ATTRIBUTED wait banner. A busy deny raised by
+           the HOST's own action names the host - "Please wait for
+           HostPlayer's action to finish" - and clears by itself when the
+           retry lands. When the blocker is the CLIENT'S OWN action the banner
+           must NOT name a peer (that case lives in test_retry_cancel.py,
+           which asserts the generic busy row).
+  test_intent_timeout
+    timeout_option, intent_timeout, late_action_end_applies: the INTENT
+           TIMEOUT. 10 s by default, behind a REAL user option
+           (`Options::coopIntentTimeoutSeconds`, an Options.inc.h declaration
+           + an Options.cpp OptionInfo registration). On fire it shows
+           STR_COOP_ACTION_TIMEOUT and RELEASES the one-slot in-flight lock -
+           without it a lost intent would lock the unit forever. Then the
+           exact late-message rule: a late bt_ack/bt_deny for that iseq is
+           PERMANENTLY IGNORED, while a late bt_action_end STILL APPLIES.
+  test_end_turn_refusal
+    client_end_turn_arm: the END TURN readiness tally. A CLIENT press during
+           the PLAYER side ARMS this machine's own seat; the local refusal
+           ("Only the host can end the turn") is not reachable here. The side
+           does not advance on one seat's arm alone, and the
+           `_txtCoopEndTurn` surface goes from HIDDEN at t=0 to the exact
+           rendered tally text once armed.
 
-THE LEVER. WV-D24 cannot be tested without a genuinely unanswered intent, so
-this packet adds `defer_intents {ms,count}` - the
-HOST holds the next N bt_intent messages for {ms} before dispatching them
-normally. That gives BOTH halves of the ruling in one mechanism: the client
-really times out, and the host's answer really arrives late. It carries a
-TEST-ONLY STOPGAP removal note at every code site.
+THE TEST HOOK. The timeout cannot be tested without a genuinely unanswered
+intent, so the test command `defer_intents {ms,count}` makes the HOST hold the
+next N bt_intent messages for {ms} before dispatching them normally. That
+gives BOTH halves of the late-message rule in one mechanism: the client really
+times out, and the host's answer really arrives late. Every code site of the
+hook carries a TEST-ONLY STOPGAP removal note.
 
-REACHABILITY (WR-3, and this wave's standing anti-vacuity discipline). PHASE 5
-presses END TURN on the CLIENT during the PLAYER side, which is the ONLY state
-that reaches the handler at all: `btnEndTurnClick`'s whole body sits inside
-`if (allowButtons())` and `allowButtons()` requires
-`_save->getSide() == FACTION_PLAYER`. An off-turn press never arrives, so
-"pressed END TURN off-turn and nothing happened" would be a vacuous assertion.
-The side is asserted before the press, and the proof of delivery is POSITIVE -
-the exact new string appears, and only `CoopBattleUi::showEndTurnHostOnly()` can
-produce it.
+REACHABILITY. client_end_turn_arm presses END TURN on the CLIENT during the
+PLAYER side, which is the ONLY state that reaches the handler at all:
+`btnEndTurnClick`'s whole body sits inside `if (allowButtons())` and
+`allowButtons()` requires `_save->getSide() == FACTION_PLAYER`. An off-turn
+press never arrives, so "pressed END TURN off-turn and nothing happened" would
+be a vacuous assertion. The side is asserted before the press, and the proof
+of delivery is POSITIVE - the exact tally text appears on both machines.
 
-FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe - a
-live 2-player skirmish through the harness lobby flow, REVIEW4 IR-4 selection
-rule, bounded re-roll, two client-owned soldiers via `newbattle_seat_soldier`.
+FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe - a live
+2-player skirmish through the harness lobby flow, two client-owned soldiers
+seated via `newbattle_seat_soldier`, the first staged on open ground
+(session.stage_open_ground_actor) and checked by qualifying_actor().
 
 Run:  python tools/coop_test/test_feedback.py
 """
@@ -91,19 +91,19 @@ HOST_PLAYER = "HostPlayer"
 CLIENT_PLAYER = "ClientPlayer"
 
 # CoopBattleUi.h kCoopBannerDwellMs. Kept in sync by hand (there is no probe for
-# a compile-time constant); a change there fails PHASE 2 loudly, which is the
-# right failure - the dwell is a user-visible contract.
+# a compile-time constant); a change there fails deny_auto_clear loudly, which is
+# the right failure - the dwell is a user-visible contract.
 BANNER_DWELL_MS = 6000
 
-DEFER_MS = 9000      # defer_intents window for the timeout phases
+DEFER_MS = 9000      # defer_intents window for the timeout checks
 SHORT_TIMEOUT_S = 3  # coopIntentTimeoutSeconds while testing the timeout
 LONG_TIMEOUT_S = 120  # ...and while testing anything that must NOT time out
 
-# W2-P4 S-F (V8, F429, C1 PR-Q6): PHASE 3's blocker is the HOST's own autoshot -
-# ONE battle_fire {mode: auto} at the host's slowest fire dial (SPEC 17's
-# CoopSpeed::fireSpeedFor reads the SHOOTER's seat dial). On this fixture it
-# lasts 2.69-2.70 s and the client's kneel is busy-denied ~0.6 s into it
-# (S-F.1, 3 boots). BLOCKER_SEED goes to the host right before the order.
+# host_named_wait's blocker is the HOST's own autoshot - ONE battle_fire
+# {mode: auto} at the host's slowest fire dial (CoopSpeed::fireSpeedFor reads
+# the SHOOTER's seat dial). On this fixture it lasts 2.69-2.70 s and the
+# client's kneel is busy-denied ~0.6 s into it (measured over 3 boots).
+# BLOCKER_SEED goes to the host right before the order.
 BLOCKER_FIRE_DIAL = 1
 BLOCKER_SEED = 1
 BLOCKER_WEAPON = "STR_RIFLE"
@@ -146,7 +146,7 @@ def pending_of(gc):
     return gc.cmd({"cmd": "battle_state"}).get("coopPendingIntent")
 
 
-# ----- fixture bring-up (inline copy, repro_atom_kneel.py precedent) -----
+# ----- fixture bring-up (an inline copy, as in repro_atom_kneel.py) -----
 
 def skirmish_host(host, port, player=HOST_PLAYER):
     host.ok({"cmd": "open_new_battle"})
@@ -217,12 +217,13 @@ def has_door_within(gc, x, y, z, radius=2):
 
 
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py: (a) nothing
-    spotted yet (an alien in LOS aborts a BA_NONE rotation,
-    UnitTurnBState.cpp:114-118), (b) no door within 2 tiles.
+    """The SELECTION RULE of repro_atom_turn.py: (a) nothing spotted yet (an
+    alien in LOS aborts a BA_NONE rotation, UnitTurnBState.cpp:114-118),
+    (b) no door within 2 tiles, (c) no non-player unit inside view distance
+    (session.actor_is_contact_free).
 
-    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
-    within view distance, and the lever does not recompute sight, so the
+    Rule (a) is not checked here: the staging helper leaves nothing within
+    view distance, and its teleport command does not recompute sight, so the
     visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
@@ -240,8 +241,8 @@ def qualifying_actor(host, soldier_id):
 def bring_up_qualifying_battle(tag):
     """Returns (host, client, actor_unit_dict, soldier_ids)."""
     port = str(48336 + 1)
-    host_dir = make_user_dir(f"rw_fb_{tag}_host_1")
-    client_dir = make_user_dir(f"rw_fb_{tag}_client_1")
+    host_dir = make_user_dir(f"feedback_{tag}_host_1")
+    client_dir = make_user_dir(f"feedback_{tag}_client_1")
     host = GameClient("host", 49180 + 1 * 2, host_dir)
     client = GameClient("client", 49181 + 1 * 2, client_dir)
     seated = {}
@@ -267,9 +268,9 @@ def bring_up_qualifying_battle(tag):
 # ----- shared helpers -----
 
 def settle_emits(host, client, timeout=40):
-    """Host has nothing left to emit and the client has caught up. Load-bearing
-    before any lastSeqEmitted baseline: SS2.4a's quiescent reveal flush can emit
-    a standalone `ev reveal` a tick or two after an action settles."""
+    """Host has nothing left to emit and the client has caught up. Needed
+    before any lastSeqEmitted baseline: the host's quiescent reveal flush can
+    emit a standalone `ev reveal` a tick or two after an action settles."""
     def quiet():
         cs = event_state(client)  # client, then the host's reveal_state, then its event_state
         rs = host.cmd({"cmd": "reveal_state"})
@@ -301,7 +302,7 @@ def wait_banner(gc, want, what, timeout=25):
         raise AssertionError(
             f"{what}: banner is {got.get('v')!r}, expected EXACTLY {want!r}. A raw "
             "STR_ key here means bin/x64/Release/common/Language/*.yml is stale "
-            "relative to bin/common/ (the WV-D17 robocopy was skipped).")
+            "relative to bin/common/ (the robocopy of bin/common was skipped).")
     return got["v"]
 
 
@@ -311,7 +312,7 @@ def center_on_selection(gc):
 
 
 def tile_click(gc, tx, ty, tz, button="right"):
-    """W1-P6's `map_tile_click_pos` recipe (test_input_gating.py): the probe
+    """The `map_tile_click_pos` recipe of test_input_gating.py: the probe
     resolves mapClick's selector-position read, inject_input's WINDOW pixels and
     the icons-panel swallow, and re-verifies the round trip - so a click that
     misses fails LOUDLY instead of making an assertion vacuous."""
@@ -325,8 +326,8 @@ def tile_click(gc, tx, ty, tz, button="right"):
 
 
 def both_ok(host, client, req, keys):
-    """A two-machine lever pair, CLIENT first; the named response fields
-    must agree on both machines."""
+    """One test command sent to both machines, CLIENT first; the named
+    response fields must agree on both machines."""
     rc = client.ok(dict(req))
     rh = host.ok(dict(req))
     vc, vh = tuple(rc.get(k) for k in keys), tuple(rh.get(k) for k in keys)
@@ -341,7 +342,7 @@ def tile_parts(gc, t):
 
 
 def lane_target(host, unit, occupied):
-    """The blocker's aim point, by a fixed rule (no search, T0a F1117): for each
+    """The blocker's aim point, by a fixed rule (no search): for each
     cardinal direction from the unit, the run of tiles k = 1..LANE_MAX that exist,
     have a floor, carry no wall/object/door part and no unit; the longest run wins
     (ties N, E, S, W) and its end tile is the target. On this fixture the host's
@@ -374,7 +375,7 @@ def lane_target(host, unit, occupied):
 
 
 def start_host_autoshot_blocker(host, client):
-    """W2-P4 S-F (V8, F429, C1 PR-Q6): the HOST's OWN autoshot - ONE
+    """The HOST's OWN autoshot - ONE
     `battle_fire {mode: auto}` by the host's selected seat-0 unit at the lane-end
     floor tile, at the host's slowest fire dial. The host's action context stays
     open for the whole autoshot, so onIntent() answers deny("busy") for the whole
@@ -382,8 +383,8 @@ def start_host_autoshot_blocker(host, client):
     attribution testable at all.
 
     A host-local action is required here: a CLIENT intent would make the busy
-    owner the CLIENT's own seat - the case the donor driver deliberately
-    SUPPRESSES (R2-P7's busy test file blocks on exactly that case).
+    owner the CLIENT's own seat - the case whose seat name the banner
+    deliberately SUPPRESSES (test_retry_cancel.py blocks on exactly that case).
 
     Returns the blocker record {aid, unit, target, census} once the client has
     applied the blocker's first `shot` ev, with its context provably OPEN."""
@@ -433,8 +434,7 @@ def start_host_autoshot_blocker(host, client):
     client.wait_for(f"the blocker's first shot ev (seq {shot.get('seq')}) applied on the client",
                     lambda: first_shot(client), timeout=20)
 
-    # THE BLOCKER PROOF (W2-P4 S-F, chain rule A.10: re-pointed from the old
-    # "exactly +1 seq", which an autoshot's many cue evs cannot give). The
+    # THE BLOCKER PROOF (not a seq count: an autoshot emits many cue evs). The
     # HOST's own action owns the slot, and the host has not closed its context.
     es = event_state(host)
     assert es.get("busyOwnerSeat") == COOP_SEAT_0, (
@@ -450,7 +450,7 @@ def start_host_autoshot_blocker(host, client):
 
 
 # ===========================================================================
-# PHASE 1 + 2: sent -> admitted, sent -> denied, and the terminal auto-clear
+# sent -> admitted, sent -> denied, and the terminal auto-clear
 # ===========================================================================
 
 def test_sent_denied_and_autoclear():
@@ -460,16 +460,16 @@ def test_sent_denied_and_autoclear():
                        if u.get("soldierId") == soldier_ids[1])["id"]
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0")
 
-        # ----- the dormant END-TURN surface (WV-D13 item 4) -----
+        # ----- the dormant END TURN surface -----
         for gc, who in ((host, "host"), (client, "client")):
             surf = end_turn_surface_of(gc)
             assert surf == "", (
-                f"{who}: the re-added _txtCoopEndTurn surface should exist and be "
-                f"HIDDEN in W1-P7 (its readiness tally is W1-P13's), got {surf!r}")
+                f"{who}: the _txtCoopEndTurn surface should exist and be "
+                f"HIDDEN before any END TURN arm, got {surf!r}")
         print("PASS dormant surface: _txtCoopEndTurn exists and is hidden on both "
-              "machines (W1-P13 drives it)")
+              "machines (the END TURN readiness tally shows it)")
 
-        # ----- PHASE 1a: SENT -----
+        # ----- order_sent -----
         set_timeout_option(client, LONG_TIMEOUT_S)  # nothing may time out here
         settle_emits(host, client)
         host.ok({"cmd": "defer_intents", "ms": 2500, "count": 1})
@@ -480,14 +480,14 @@ def test_sent_denied_and_autoclear():
                           "actor": actor_b, "kneel": want_kneeled})
         iseq_sent = sent["iseq"]
 
-        wait_banner(client, STR_ORDER_SENT, "PHASE 1a: order sent", timeout=10)
+        wait_banner(client, STR_ORDER_SENT, "order_sent", timeout=10)
         infl = event_state(client).get("inFlight")
         assert infl and infl.get("iseq") == iseq_sent and infl.get("actorId") == actor_b, (
             f"in-flight slot does not hold the sent intent: {infl}")
-        print(f"PASS PHASE 1a (SENT): banner {STR_ORDER_SENT!r} while iseq {iseq_sent} "
+        print(f"PASS order_sent: banner {STR_ORDER_SENT!r} while iseq {iseq_sent} "
               f"is in flight (deferred by the host for 2.5 s)")
 
-        # ----- PHASE 1b: ADMITTED -----
+        # ----- order_admitted -----
         def landed():
             cs = client.cmd({"cmd": "battle_state"})
             u = units_by_id(cs).get(actor_b)
@@ -500,18 +500,19 @@ def test_sent_denied_and_autoclear():
         host_b = units_by_id(host.cmd({"cmd": "battle_state"}))[actor_b]
         assert host_b["kneeled"] == want_kneeled, f"host never ran the kneel: {host_b}"
         assert event_state(client).get("inFlight") is None, "in-flight slot not released"
-        print("PASS PHASE 1b (ADMITTED): the order landed on both machines and the "
+        print("PASS order_admitted: the order landed on both machines and the "
               "in-flight banner cleared itself")
         assert_hash_clean(host, client, buckets=["unitsStats"], what="after the admitted order")
 
-        # ----- PHASE 1c: DENIED (terminal) -----
-        # A deliberately WRONG tuBasis: SS2.3's validator recomputes the cost and
-        # answers cost_changed on strict inequality either way. A terminal answer
-        # about the plan itself - exactly the class WV-D13 item 1 is about.
+        # ----- order_denied (terminal) -----
+        # A deliberately WRONG tuBasis: the host's validator recomputes the cost
+        # and answers cost_changed on strict inequality either way. A terminal
+        # answer about the plan itself - exactly the class the auto-clear rule is
+        # about.
         b_now = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         deny_iseq = client.ok({"cmd": "battle_intent", "kind": "kneel", "actor": actor_b,
                                "kneel": not b_now["kneeled"], "tuBasisOverride": 999})["iseq"]
-        wait_banner(client, STR_COST_CHANGED, "PHASE 1c: terminal deny", timeout=15)
+        wait_banner(client, STR_COST_CHANGED, "order_denied: terminal deny", timeout=15)
         ld = event_state(client).get("lastDeny")
         assert ld and ld.get("iseq") == deny_iseq and ld.get("reason") == "cost_changed", (
             f"event_state.lastDeny bookkeeping is wrong after the deny: {ld}")
@@ -519,14 +520,14 @@ def test_sent_denied_and_autoclear():
             "a terminal deny must release the in-flight slot")
         after = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         assert after["kneeled"] == b_now["kneeled"], "a denied kneel changed state anyway"
-        print(f"PASS PHASE 1c (DENIED): banner {STR_COST_CHANGED!r}, lastDeny={ld}, "
+        print(f"PASS order_denied: banner {STR_COST_CHANGED!r}, lastDeny={ld}, "
               "nothing executed")
 
-        # ----- PHASE 2: the AUTO-CLEAR rule (WV-D13 item 1) -----
+        # ----- deny_auto_clear: the AUTO-CLEAR rule -----
         # NOT vacuous: the banner was just asserted PRESENT with exact text, and
         # from here the test sends NOTHING - no intent, no click, no cancel. The
-        # only thing that can empty it is the dwell rule this packet adds. The
-        # pre-W1-P7 build would leave it up forever.
+        # only thing that can empty it is the dwell rule; without it the banner
+        # would stay up forever.
         t0 = time.time()
         client.wait_for("terminal banner auto-clears with no further input",
                         lambda: (banner_of(client) == "") or None,
@@ -538,20 +539,20 @@ def test_sent_denied_and_autoclear():
         assert event_state(client).get("lastDeny") == ld, (
             "the auto-clear disturbed event_state.lastDeny - the banner is "
             "presentation, the bookkeeping must survive it")
-        print(f"PASS PHASE 2 (AUTO-CLEAR): the terminal deny cleared itself after "
+        print(f"PASS deny_auto_clear: the terminal deny cleared itself after "
               f"~{elapsed_ms:.0f} ms with no further input, and lastDeny is intact")
 
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the sent/denied/auto-clear phases")
         assert all(post_h.values()), f"empty bucket in {post_h}"
-        print(f"PASS: {len(post_h)} buckets EQUAL after PHASE 1+2")
+        print(f"PASS: {len(post_h)} buckets EQUAL after the sent, denied and auto-clear checks")
     finally:
         host.shutdown()
         client.shutdown()
 
 
 # ===========================================================================
-# PHASE 3: the seat-attributed wait banner (the donor driver)
+# the seat-attributed wait banner
 # ===========================================================================
 
 def test_seat_attributed_wait():
@@ -577,7 +578,7 @@ def test_seat_attributed_wait():
 
         # ATTRIBUTION, asserted as data before it is asserted as text: the client
         # must believe seat 0 owns the slot. (Its own seat is 1; if it thought the
-        # blocker were its own action the donor rule says show the generic row.)
+        # blocker were its own action the banner would show the generic row.)
         owner = event_state(client).get("busyOwnerSeat")
         assert owner == COOP_SEAT_0, (
             f"client attributes the busy window to seat {owner}, expected 0 (the "
@@ -589,12 +590,12 @@ def test_seat_attributed_wait():
             f"the wait banner is {got!r}, expected EXACTLY {want_text!r}. If it is "
             f"{STR_BUSY!r} the seat could not be NAMED (seatName() empty and the "
             "2-player getCurrentClientName() bridge did not resolve); a raw STR_ key "
-            "means the WV-D17 robocopy was skipped.")
+            "means the robocopy of bin/common was skipped.")
         assert pending_of(client) is not None, "the busy-denied intent was not HELD"
-        print(f"PASS PHASE 3 (WAIT): a busy deny raised by the HOST's own action shows "
+        print(f"PASS host_named_wait: a busy deny raised by the HOST's own action shows "
               f"{got!r} - seat-attributed, not generic")
 
-        # ...and it CLEARS BY ITSELF when the auto-retry lands (owner smoke S4).
+        # ...and it CLEARS BY ITSELF when the auto-retry lands.
         def resolved():
             cs = client.cmd({"cmd": "battle_state"})
             u = units_by_id(cs).get(actor_b)
@@ -606,8 +607,8 @@ def test_seat_attributed_wait():
                         resolved, timeout=60)
         client.wait_for("wait banner clears by itself once the retry lands",
                         lambda: (banner_of(client) == "") or None, timeout=20)
-        # W2-P4 S-F (chain rule A.10): the old "base+2" seq floor becomes the
-        # host's closedContexts gaining the blocker's actionId.
+        # The blocker has ended: the host's closedContexts holds the blocker's
+        # actionId.
         rec = next((c for c in (event_state(host).get("closedContexts") or [])
                     if c.get("actionId") == blocker["aid"]), None)
         assert rec is not None and (rec.get("origin"), rec.get("kind"), rec.get("actorId")) \
@@ -619,19 +620,19 @@ def test_seat_attributed_wait():
             assert now == blocker["census"], (
                 f"{who}: the blocker's target tile {blocker['target']} changed "
                 f"{blocker['census']} -> {now} - its floor must survive the autoshot")
-        print("PASS PHASE 3 (CLEARS BY ITSELF): the waiting message went away when the "
+        print("PASS host_named_wait (CLEARS BY ITSELF): the waiting message went away when the "
               "auto-retried order was admitted, with no further client command")
 
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the seat-attributed wait cycle")
-        print(f"PASS: {len(post_h)} buckets EQUAL after PHASE 3")
+        print(f"PASS: {len(post_h)} buckets EQUAL after host_named_wait")
     finally:
         host.shutdown()
         client.shutdown()
 
 
 # ===========================================================================
-# PHASE 4: the intent timeout + the late-message rule
+# the intent timeout + the late-message rule
 # ===========================================================================
 
 def test_intent_timeout():
@@ -640,19 +641,19 @@ def test_intent_timeout():
         actor_b = next(u for u in client.cmd({"cmd": "battle_state"})["units"]
                        if u.get("soldierId") == soldier_ids[1])["id"]
 
-        # ----- 4a: the option is REAL (WR-25) -----
+        # ----- timeout_option: the option is REAL -----
         default = client.ok({"cmd": "set_option", "name": "coopIntentTimeoutSeconds"})
         assert default.get("value") == 10, (
             f"coopIntentTimeoutSeconds default is {default.get('value')}, expected "
-            "WV-D24's ruled 10 s (Options.cpp OptionInfo registration)")
+            "the default 10 s (Options.cpp OptionInfo registration)")
         for want in (SHORT_TIMEOUT_S, 30, SHORT_TIMEOUT_S):
             set_timeout_option(client, want)
             rb = client.ok({"cmd": "set_option", "name": "coopIntentTimeoutSeconds"})
             assert rb.get("value") == want, f"option did not stay {want}: {rb}"
-        print(f"PASS PHASE 4a: coopIntentTimeoutSeconds defaults to 10 (WV-D24) and "
+        print(f"PASS timeout_option: coopIntentTimeoutSeconds defaults to 10 and "
               f"round-trips through set_option - a real OptionInfo, not a static")
 
-        # ----- 4b: TIMEOUT fires, releases the lock, and a late DENY is ignored -----
+        # ----- intent_timeout: TIMEOUT fires, releases the lock, and a late DENY is ignored -----
         settle_emits(host, client)
         deny_before = event_state(client).get("lastDeny")
         late_before = event_state(client).get("lateAnswersIgnored", 0)
@@ -665,7 +666,7 @@ def test_intent_timeout():
                                "kneel": not b_now["kneeled"],
                                "tuBasisOverride": 999})["iseq"]
         t_sent = time.time()
-        wait_banner(client, STR_TIMEOUT, "PHASE 4b: intent timeout",
+        wait_banner(client, STR_TIMEOUT, "intent_timeout",
                     timeout=SHORT_TIMEOUT_S + 15)
         fired_after = time.time() - t_sent
         assert fired_after >= SHORT_TIMEOUT_S * 0.6, (
@@ -677,13 +678,14 @@ def test_intent_timeout():
         assert es.get("lastTimedOutIseq") == lost_iseq, (
             f"lastTimedOutIseq={es.get('lastTimedOutIseq')}, expected {lost_iseq}")
         assert es.get("inFlight") is None, (
-            "the IR-2 one-slot lock was NOT released by the timeout - this is the bug "
-            "WV-D24 exists to fix (a lost intent locking the unit forever)")
-        print(f"PASS PHASE 4b (TIMEOUT): iseq {lost_iseq} timed out after "
+            "the one-slot in-flight lock was NOT released by the timeout - a lost "
+            "intent would lock the unit forever")
+        print(f"PASS intent_timeout: iseq {lost_iseq} timed out after "
               f"{fired_after:.1f} s, banner {STR_TIMEOUT!r}, in-flight slot released")
 
         # ...and the UNIT IS COMMANDABLE AGAIN: a fresh intent for the SAME actor
-        # ships. Before this packet sendClientIntent() dropped it locally forever.
+        # ships. Without the release, sendClientIntent() would drop it locally
+        # forever.
         b2 = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         again = client.ok({"cmd": "battle_intent", "kind": "kneel", "actor": actor_b,
                            "kneel": not b2["kneeled"]})
@@ -692,7 +694,7 @@ def test_intent_timeout():
         client.wait_for("the fresh order lands",
                         lambda: (units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]["kneeled"]
                                  != b2["kneeled"]) or None, timeout=30)
-        print(f"PASS PHASE 4b (COMMANDABLE AGAIN): unit {actor_b} accepted a new order "
+        print(f"PASS intent_timeout (COMMANDABLE AGAIN): unit {actor_b} accepted a new order "
               f"(iseq {again['iseq']}) after the timeout")
 
         # ...and the LATE DENY, when the host finally answers, changes NOTHING.
@@ -706,14 +708,14 @@ def test_intent_timeout():
             f"{late_before + 1} - exactly one late answer should have been dropped")
         assert es.get("lastDeny") == deny_before, (
             f"a LATE deny updated event_state.lastDeny ({es.get('lastDeny')} vs "
-            f"{deny_before}) - WV-D24 says it is PERMANENTLY IGNORED")
+            f"{deny_before}) - a late deny must be PERMANENTLY IGNORED")
         assert banner_of(client) != STR_COST_CHANGED, (
             "the late deny raised its banner anyway")
-        print("PASS PHASE 4b (LATE DENY IGNORED): the host's late bt_deny was DELIVERED "
+        print("PASS intent_timeout (LATE DENY IGNORED): the host's late bt_deny was DELIVERED "
               "(lateAnswersIgnored 0 -> 1) and changed nothing - not lastDeny, not the "
               "banner, not the input lock")
 
-        # ----- 4c: a late bt_action_end STILL APPLIES -----
+        # ----- late_action_end_applies: a late bt_action_end STILL APPLIES -----
         settle_emits(host, client)
         host.ok({"cmd": "defer_intents", "ms": DEFER_MS, "count": 1})
         b3 = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
@@ -721,7 +723,7 @@ def test_intent_timeout():
         late_before2 = event_state(client).get("lateAnswersIgnored", 0)
         iseq3 = client.ok({"cmd": "battle_intent", "kind": "kneel",
                            "actor": actor_b, "kneel": want3})["iseq"]
-        wait_banner(client, STR_TIMEOUT, "PHASE 4c: timeout on a VALID intent",
+        wait_banner(client, STR_TIMEOUT, "late_action_end_applies: timeout on a VALID intent",
                     timeout=SHORT_TIMEOUT_S + 15)
         assert event_state(client).get("lastTimedOutIseq") == iseq3
 
@@ -738,20 +740,20 @@ def test_intent_timeout():
         assert es.get("lateAnswersIgnored") == late_before2 + 1, (
             f"expected exactly one ignored late bt_ack, got "
             f"{es.get('lateAnswersIgnored')} vs {late_before2}")
-        print(f"PASS PHASE 4c (LATE ACTION_END APPLIES): iseq {iseq3} timed out, its late "
+        print(f"PASS late_action_end_applies: iseq {iseq3} timed out, its late "
               "bt_ack was ignored, and the host's bt_action_end STILL applied - unit "
               f"{actor_b} kneeled={want3} on BOTH machines (host truth carries state)")
 
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the timeout phases")
-        print(f"PASS: {len(post_h)} buckets EQUAL after PHASE 4")
+        print(f"PASS: {len(post_h)} buckets EQUAL after the timeout checks")
     finally:
         host.shutdown()
         client.shutdown()
 
 
 # ===========================================================================
-# PHASE 5: SS2.W8's END TURN local refusal
+# the client's END TURN arm
 # ===========================================================================
 
 def test_end_turn_refusal():
@@ -759,25 +761,24 @@ def test_end_turn_refusal():
     try:
         settle_emits(host, client)
 
-        # REACHABILITY (WR-3 / SS2.W8): btnEndTurnClick's body sits inside
+        # REACHABILITY: btnEndTurnClick's body sits inside
         # `if (allowButtons())`, which requires _save->getSide() == FACTION_PLAYER.
         # Pressing off-turn never reaches the handler, so asserting anything about
         # an off-turn press would be VACUOUS. Assert the precondition first.
         cs = client.cmd({"cmd": "battle_state"})
         assert cs.get("side") == FACTION_PLAYER, (
             f"client side is {cs.get('side')}, not FACTION_PLAYER - the END TURN "
-            "handler is not reachable and this assertion would be vacuous (WR-3)")
+            "handler is not reachable and this assertion would be vacuous")
         assert event_state(client).get("hostSim") is not True, \
-            "this machine must be the CLIENT for SS2.W8's refusal to be reachable"
+            "this machine must be the CLIENT: the END TURN press under test is the client's"
         turn_before = cs.get("turn")
 
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
-        # W1-P13b (REV E.50 E50.1/E50.2): the client's arm is now a genuine
-        # wire round trip (bt_end_turn_ready -> host -> bt_end_turn_tally ->
-        # both machines), unlike SS2.W8's old LOCAL-only refusal - wait for
-        # both machines to paint the tally before asserting on it (a bounded
-        # wait_for on a surface, not an attempt loop, E50.4/SS.A.8).
+        # The client's arm is a wire round trip (bt_end_turn_ready -> host ->
+        # bt_end_turn_tally -> both machines): wait for both machines to paint
+        # the tally before asserting on it (a bounded wait_for on a surface, not
+        # an attempt loop).
         def both_show_tally():
             return True if (end_turn_surface_of(host) == "END TURN 1/2"
                              and end_turn_surface_of(client) == "END TURN 1/2") else None
@@ -785,43 +786,37 @@ def test_end_turn_refusal():
                         both_show_tally, timeout=15)
 
         after = client.cmd({"cmd": "battle_state"})
-        # KEPT, RE-POINTED: the turn_before/after no-advance
-        # compare now proves the side did not advance on ONE seat's arm
-        # (this fixture has TWO live seats - F166).
+        # The turn_before/after no-advance compare proves the side did not
+        # advance on ONE seat's arm (this fixture has TWO live seats).
         assert after.get("turn") == turn_before and after.get("side") == FACTION_PLAYER, (
             f"the side did not advance on ONE seat's arm: "
             f"{turn_before}/{FACTION_PLAYER} -> {after.get('turn')}/{after.get('side')}")
 
-        # KEPT (SPEC 10 (f) / :730): the arm is LOCAL readiness bookkeeping -
-        # no wire deny reason was added (SS2.2 unchanged), so nothing about it
-        # may show up in the deny bookkeeping.
+        # The arm has no wire deny reason, so nothing about it may show up in
+        # the deny bookkeeping.
         ld = event_state(client).get("lastDeny")
         assert not ld or ld.get("reason") != "turn_over" or ld.get("iseq"), (
-            f"the client's END TURN arm produced a WIRE deny: {ld} - SS2.W8 forbids "
-            "growing the SS2.2 enum for it")
+            f"the client's END TURN arm produced a WIRE deny: {ld} - the deny "
+            "reason list has no entry for it")
 
-        # KEPT (SPEC 10 (f) / :734).
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the client's END TURN arm")
-        print(f"PASS PHASE 5: {len(post_h)} buckets EQUAL after the client's arm")
+        print(f"PASS client_end_turn_arm: {len(post_h)} buckets EQUAL after the client's arm")
 
-        # RE-POINTED, not removed: the surface
-        # became REACHABLE once W1-P13b landed, so it is asserted at its exact
-        # rendered value (WR-3's LIFETIME rule) instead of the old dormant ""
-        # this leg used to check at the end of a real battle.
+        # Once armed, the surface is asserted at its exact rendered value.
         for gc, who in ((host, "host"), (client, "client")):
             assert end_turn_surface_of(gc) == "END TURN 1/2", (
-                f"{who}: _txtCoopEndTurn did not show the W1-P13b tally after "
+                f"{who}: _txtCoopEndTurn did not show the readiness tally after "
                 f"the client's arm, got {end_turn_surface_of(gc)!r}")
-        # ADDED: the button-inversion probe -
-        # THIS machine's own armed bit, a different observable from the text
-        # (count across seats vs this machine's own bit).
+        # The button-inversion probe: THIS machine's own armed bit, a different
+        # observable from the text (count across seats vs this machine's own
+        # bit).
         assert client.cmd({"cmd": "battle_state"}).get("coopEndTurnArmed") is True, (
             "client's own END TURN button did not invert after arming")
         assert host.cmd({"cmd": "battle_state"}).get("coopEndTurnArmed") is False, (
             "host's END TURN button inverted on the client's arm alone")
-        print("PASS PHASE 5: _txtCoopEndTurn reads 'END TURN 1/2' on both machines; "
-              "client armed=True / host armed=False (W1-P13b)")
+        print("PASS client_end_turn_arm: _txtCoopEndTurn reads 'END TURN 1/2' on both machines; "
+              "client armed=True / host armed=False")
     finally:
         host.shutdown()
         client.shutdown()
@@ -832,7 +827,7 @@ def main():
     test_seat_attributed_wait()
     test_intent_timeout()
     test_end_turn_refusal()
-    print("ALL W1-P7 ORDER-FEEDBACK TESTS PASSED")
+    print("ALL ORDER-FEEDBACK TESTS PASSED")
 
 
 if __name__ == "__main__":

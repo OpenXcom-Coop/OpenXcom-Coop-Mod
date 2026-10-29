@@ -54,7 +54,7 @@ W1-P7 EXTENSIONS (WAVE1-RUNBOOK.md ruling D7 = WV-D13; its own acceptance says
     row is therefore the CORRECT text here, and `event_state.busyOwnerSeat` is
     asserted to be this machine's own seat so that is a proven rule rather than
     a coincidence. The peer-attributed case (a HOST-local blocker naming the
-    host) lives in test_feedback.py PHASE 3.
+    host) lives in test_feedback.py's host_named_wait check.
 
 FIXTURE: same recipe/precedent as repro_atom_kneel.py (R3-P2) / repro_atom_turn
 .py (R3-P1) - a live 2-player skirmish through the harness lobby flow with the
@@ -622,7 +622,7 @@ def test_busy_live_fire():
         else:
             print("NOTE test_busy_live_fire: the busy deny beat the banner read - the "
                   "in-flight indicator is proven deterministically in "
-                  "test_feedback.py PHASE 1a, which defers the host's answer")
+                  "test_feedback.py's order_sent check, which defers the host's answer")
 
         def denied_busy():
             ld = event_state(client).get("lastDeny")
