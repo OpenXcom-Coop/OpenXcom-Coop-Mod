@@ -15,13 +15,20 @@ takes the ids the host sends; it never mints its own.
           manufactures two crafts at its base and the host buys one between the
           two units. The host builds unit 1 in an hourly step the replica never
           sees, so a replica that counts ids itself falls one id behind.
+  PERUNIT each finished unit of a two-craft batch reaches the replica when the
+          host builds it, not only when the whole batch finishes.
+  SHIPPED a craft and an item produced with a transfer time go into a transfer
+          on the replica, as on the host, instead of straight into the base.
   UFOS    the replica's UFOs carry the host's identity: unique id, display id,
           coop id, status and altitude. Two undetected UFOs (display id 0) stay
           two UFOs on the replica, and a crashed UFO stays crashed.
+  DESPAWN a UFO the host removes leaves the replica's list too (no status-3
+          leftover until a restream).
 
 A throwaway mod (generated into the isolated user dirs, same on both machines)
-adds a research-free manufacture that builds an interceptor. Rows run in order
-and every failure is reported before the exit code.
+adds research-free manufactures that build an interceptor, and an interceptor
+and a rifle that ship with a transfer time. Rows run in order and every failure
+is reported before the exit code.
 
 Run:  py -3 tools/coop_test/test_separate_world_ids.py
 """
@@ -41,7 +48,13 @@ MOD_NAME = "Coop_WorldIds_Test"
 BUILD = "STR_COOP_WORLDIDS_INTERCEPTOR"
 BUILD_TIME = 5
 CRAFT = "STR_INTERCEPTOR"
+TRANSFER_ITEM = 0
 TRANSFER_CRAFT = 1
+# A production whose output ships: the host puts each unit in a transfer.
+BUILD_SHIPPED = "STR_COOP_WORLDIDS_INTERCEPTOR_SHIPPED"
+RIFLE_SHIPPED = "STR_COOP_WORLDIDS_RIFLE_SHIPPED"
+RIFLE = "STR_RIFLE"
+SHIP_HOURS = 48
 
 METADATA = """\
 name: "Coop world ids test"
@@ -61,6 +74,22 @@ manufacture:
     cost: 1000
     producedItems:
       {CRAFT}: 1
+  - name: {BUILD_SHIPPED}
+    category: STR_CRAFT
+    space: 1
+    time: {BUILD_TIME}
+    cost: 1000
+    transferTimes: [{SHIP_HOURS}, 1, {SHIP_HOURS}]
+    producedItems:
+      {CRAFT}: 1
+  - name: {RIFLE_SHIPPED}
+    category: STR_WEAPON
+    space: 1
+    time: {BUILD_TIME}
+    cost: 100
+    transferTimes: [{SHIP_HOURS}, 1, {SHIP_HOURS}]
+    producedItems:
+      {RIFLE}: 1
 """
 
 FAILURES = []
@@ -159,6 +188,30 @@ def sell_crafts(seller, observers, base, count):
                     timeout=30, interval=0.3)
 
 
+def production(gc, base, item):
+    b = next(b for b in fixture.geo(gc)["bases"] if b["name"] == base)
+    return next((p for p in b.get("productions", []) if p["item"] == item), None)
+
+
+def base_output(gc, base):
+    """What production puts at a base: docked crafts, stores and transfers in
+    (type, rule, qty; a frozen replica never counts hours down)."""
+    b = next(b for b in fixture.geo(gc)["bases"] if b["name"] == base)
+    return (sorted((c["type"], c["id"]) for c in b["crafts"]),
+            {k: v for k, v in b["items"].items() if v},
+            sorted((t["type"], t["rule"], t["qty"]) for t in b["transfers"]))
+
+
+def repairs(gc):
+    """World repairs this replica asked for since the last reset: a change that
+    reached it only through a checksum restream did not travel as a result."""
+    return gc.ok({"cmd": "shared_resync_stats"})["requests"]
+
+
+def ufo_keys(gc):
+    return {u["uniqueId"]: u["status"] for u in fixture.geo(gc)["ufos"]}
+
+
 def ufo_identity(gc):
     return sorted((u["uniqueId"], u["id"], u["coopId"], u["type"], u["status"],
                    u["altitude"], u["detected"])
@@ -245,6 +298,81 @@ def main():
                     f"replica crafts differ from the host's: host={crafts(host)} client={crafts(client)}"
             row("LATER purchase and production keep the host's craft ids on the replica", later)
 
+            # PERUNIT ------------------------------------------------------
+            def perunit():
+                sell_crafts(client, (host, client), "ClientBase", 2)
+                client.ok({"cmd": "shared_reset_resync_stats"})
+                started = client.ok({"cmd": "manufacture_start", "base": "ClientBase",
+                                     "item": BUILD, "engineers": 5, "qty": 2})
+                assert started.get("sent"), started
+                host.wait_for("client production reaches the host",
+                              lambda: production(host, "ClientBase", BUILD) or None,
+                              timeout=30, interval=0.3)
+                host.ok({"cmd": "set_production_progress", "base": "ClientBase",
+                         "item": BUILD, "timeSpent": BUILD_TIME - 1})
+                built = run_clock(host, client,
+                                  lambda: (production(host, "ClientBase", BUILD) or {})
+                                  .get("produced", 0) >= 1, 60)
+                stop_clock(host, client)
+                assert built, f"unit 1 was not built: {production(host, 'ClientBase', BUILD)}"
+                assert production(host, "ClientBase", BUILD), "premise: the batch is still running"
+                deadline = time.time() + 15
+                while time.time() < deadline and \
+                        base_output(client, "ClientBase") != base_output(host, "ClientBase"):
+                    time.sleep(0.5)
+                h, c = base_output(host, "ClientBase"), base_output(client, "ClientBase")
+                assert h == c and repairs(client) == 0, (
+                    f"after unit 1 the replica's base differs from the host's, or matched only "
+                    f"through a world repair ({repairs(client)}):\n host={h}\n client={c}")
+                host.ok({"cmd": "set_production_progress", "base": "ClientBase",
+                         "item": BUILD, "timeSpent": 2 * BUILD_TIME - 1})
+                done = run_clock(host, client,
+                                 lambda: production(host, "ClientBase", BUILD) is None
+                                 and production(client, "ClientBase", BUILD) is None, 60)
+                stop_clock(host, client)
+                geo.drain_popups(host)
+                geo.drain_popups(client)
+                assert done, "batch did not finish on both machines"
+                assert crafts(host) == crafts(client) and repairs(client) == 0, \
+                    (f"replica crafts differ from the host's, or matched only through a world "
+                     f"repair ({repairs(client)}): host={crafts(host)} client={crafts(client)}")
+            row("PERUNIT each finished unit of a craft batch reaches the replica", perunit)
+
+            # SHIPPED ------------------------------------------------------
+            def shipped():
+                # Free every interceptor hangar (an earlier red row may leave one).
+                sell_crafts(client, (host, client), "ClientBase",
+                            len([1 for t, i in base_crafts(client, "ClientBase") if t == CRAFT]))
+                client.ok({"cmd": "shared_reset_resync_stats"})
+                for item in (BUILD_SHIPPED, RIFLE_SHIPPED):
+                    started = client.ok({"cmd": "manufacture_start", "base": "ClientBase",
+                                         "item": item, "engineers": 2, "qty": 1})
+                    assert started.get("sent"), (item, started)
+                    host.wait_for(f"{item} reaches the host",
+                                  lambda item=item: production(host, "ClientBase", item) or None,
+                                  timeout=30, interval=0.3)
+                    host.ok({"cmd": "set_production_progress", "base": "ClientBase",
+                             "item": item, "timeSpent": BUILD_TIME - 1})
+                done = run_clock(host, client,
+                                 lambda: production(host, "ClientBase", BUILD_SHIPPED) is None
+                                 and production(host, "ClientBase", RIFLE_SHIPPED) is None, 60)
+                stop_clock(host, client)
+                geo.drain_popups(host)
+                geo.drain_popups(client)
+                assert done, "the shipped productions did not finish on the host"
+                h = base_output(host, "ClientBase")
+                assert (TRANSFER_CRAFT, CRAFT, 1) in h[2] and (TRANSFER_ITEM, RIFLE, 1) in h[2], \
+                    f"premise: the host ships the outputs: {h}"
+                deadline = time.time() + 15
+                while time.time() < deadline and base_output(client, "ClientBase") != h:
+                    time.sleep(0.5)
+                    h = base_output(host, "ClientBase")
+                c = base_output(client, "ClientBase")
+                assert h == c and repairs(client) == 0, (
+                    f"the replica did not ship the outputs like the host, or matched only "
+                    f"through a world repair ({repairs(client)}):\n host={h}\n client={c}")
+            row("SHIPPED a production with a transfer time ships on the replica too", shipped)
+
             # UFOS ---------------------------------------------------------
             def ufos():
                 hb = next(b for b in fixture.geo(host)["bases"] if b["name"] == "HostBase")
@@ -273,6 +401,31 @@ def main():
                      f" client={ufo_identity(client)}")
                 print(f"  ufos: {ufo_identity(host)}")
             row("UFOS replica UFOs carry the host's ids, coop id and status", ufos)
+
+            # DESPAWN ------------------------------------------------------
+            def despawn():
+                hb = next(b for b in fixture.geo(host)["bases"] if b["name"] == "HostBase")
+                s = host.ok({"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT",
+                             "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
+                             "race": "STR_SECTOID", "trajectory": "P0", "hours": 240,
+                             "state": "crashed", "speed": 0,
+                             "lon": hb["lon"] + 2.0, "lat": hb["lat"] - 0.5})
+                uid = s["unique_id"]
+                wait_both(host, client, "the spawned UFO is listed", lambda gc: uid in ufo_keys(gc))
+                host.ok({"cmd": "set_ufo_damage", "ufo_id": s["ufo_id"], "damage": 1000000})
+                gone = run_clock(host, client, lambda: uid not in ufo_keys(host), 60)
+                stop_clock(host, client)
+                assert gone, f"premise: the host never removed the UFO: {ufo_keys(host).get(uid)}"
+                deadline = time.time() + 15
+                while time.time() < deadline and uid in ufo_keys(client):
+                    time.sleep(0.5)
+                assert uid not in ufo_keys(client), \
+                    (f"the replica still lists the host's removed UFO {uid} "
+                     f"(status {ufo_keys(client).get(uid)})")
+                assert ufo_identity(host) == ufo_identity(client), \
+                    (f"replica UFO identity differs:\n host={ufo_identity(host)}\n"
+                     f" client={ufo_identity(client)}")
+            row("DESPAWN a UFO the host removes leaves the replica's list too", despawn)
         finally:
             js.shutdown()
     finally:

@@ -55,7 +55,8 @@ Session 2 (private research):
      holds the host's counter, the host's follow-up event (its countdown, not one
      the replica rolled) and the medi-kit.
   E9 STR_COOP_EV_REWARD gives the owner's base a medi-kit, a Skyranger and a
-     soldier; the replica's copy of that base equals the host's.
+     soldier; the replica's copy of that base equals the host's, and once the
+     soldier arrives it belongs to the event's owner on both machines.
 
 Every firing row also checks that the client's view of the pending events (names
 and owners) equals the host's, and reports the client's world-checksum repairs:
@@ -319,6 +320,7 @@ def rewards(host, client, owner):
     (hangar) and a soldier (on the way in). The replica's base is the host's."""
     r0 = requests(client)
     b0 = owner_base(host, owner)
+    s0 = set(soldier_owners(host, owner))
     spawn_on_host(host, "STR_COOP_EV_REWARD", owner)
     advance(host, client, 180)
     hb = owner_base(host, owner)
@@ -337,7 +339,35 @@ def rewards(host, client, owner):
         hb, cb = owner_base(host, owner), owner_base(client, owner)
     ok = hb == cb and requests(client) == r0
     diff = {k: (hb[k], cb[k]) for k in hb if hb[k] != cb[k]}
-    return (ok, f"owner={owner} base differs={diff} restreams={requests(client) - r0}")
+    owners = event_soldier_owners(host, client, owner, s0)
+    seat = SEATS[owner]
+    ok = ok and owners == {"host": [seat], "client": [seat]}
+    return (ok, f"owner={owner} base differs={diff} restreams={requests(client) - r0} "
+                f"event soldier owners={owners} (want seat {seat})")
+
+
+SEATS = {"HostPlayer": 0, "ClientPlayer": 1}
+
+
+def soldier_owners(gc, player):
+    name = "HostBase" if player == "HostPlayer" else "ClientBase"
+    return {s["id"]: s["owner"] for b in gc.ok({"cmd": "get_soldiers"})["bases"]
+            if b["name"] == name for s in b["soldiers"]}
+
+
+def event_soldier_owners(host, client, player, before):
+    """Land the event's soldier at the owner's base; its owner on each machine."""
+    name = "HostBase" if player == "HostPlayer" else "ClientBase"
+    host.ok({"cmd": "force_transfer_arrivals", "base": name})
+    deadline = time.time() + 20
+    new = {}
+    while time.time() < deadline:
+        new = {gc.name: [o for i, o in soldier_owners(gc, player).items() if i not in before]
+               for gc in (host, client)}
+        if all(new.values()):
+            break
+        time.sleep(0.5)
+    return new
 
 
 def session_shared(results):
