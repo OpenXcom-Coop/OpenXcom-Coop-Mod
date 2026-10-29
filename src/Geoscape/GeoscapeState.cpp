@@ -1368,9 +1368,16 @@ void GeoscapeState::init()
 				if (hostProfile)
 					for (size_t i = 1; i < players.size(); ++i)
 					{
-						const SeparateEcon::CampaignData::PlayerState* peerProfile = separate.getPlayer(players[i]);
+						SeparateEcon::CampaignData::PlayerState* peerProfile = separate.getPlayer(players[i]);
 						if (peerProfile && peerProfile->faction == hostProfile->faction)
+						{
 							separate.replaceCompletedResearch(players[i], hostProfile->completedResearch);
+							// Private research keeps the topics a discovery disables per
+							// player. The partner takes the host's disabled topics too, or
+							// its research menu would offer topics the shared starting
+							// research already closed.
+							peerProfile->disabledResearch = hostProfile->disabledResearch;
+						}
 					}
 			}
 		}
