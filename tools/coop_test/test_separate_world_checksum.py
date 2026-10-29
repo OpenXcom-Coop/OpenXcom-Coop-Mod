@@ -249,11 +249,16 @@ def row_fast(host, client, host_dir):
         client.wait_for("C9: replica asked for a resync",
                         lambda: resync(client)["requests"] >= 1 or None,
                         timeout=60, interval=0.02)
-        asked_at = geo.game_minutes(host)
+        asked_at, client_asked_at = geo.game_minutes(host), geo.game_minutes(client)
         set_speed(host, client, FASTEST)
+        # The guard is tested only if the replica's own clock (the host's time
+        # heartbeat) passes RESYNC_COOLDOWN_MINUTES while its request is pending.
+        guard_tested = False
         deadline = time.time() + 90
         while counters(client) != counters(host):
             assert time.time() < deadline, ("C9 no repair within 90 s", resync(client))
+            if not guard_tested and resync(client)["pending"]:
+                guard_tested = geo.game_minutes(client) - client_asked_at >= 60
             geo.drain_popups(host, limit=1)
             time.sleep(0.2)
         stream_minutes = geo.game_minutes(host) - asked_at
@@ -266,9 +271,9 @@ def row_fast(host, client, host_dir):
     client.wait_for("C9: checksums agree",
                     lambda: checksum(host) == checksum(client) or None,
                     timeout=30, interval=0.25)
-    assert stream_minutes >= 60, (
-        f"C9 fixture: only {stream_minutes} game minutes passed during the "
-        f"restream, so the fast clock did not run through it")
+    assert guard_tested, (
+        f"C9 fixture: the replica's clock never passed 60 game minutes while its "
+        f"request was pending ({stream_minutes} host minutes during the restream)")
     # A second request needs a surviving mismatch; wait well past the debounce.
     time.sleep(2 * DEBOUNCE_S)
     rs, hs = resync(client), resync(host)
