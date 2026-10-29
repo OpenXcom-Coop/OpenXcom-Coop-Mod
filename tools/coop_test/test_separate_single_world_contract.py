@@ -141,8 +141,11 @@ def main():
     assert "soldier->setOwnerPlayerId(ownerSeat)" in separate_ownership
     assert "seatName(seat) == base->getOwnerPlayerName()" in separate_ownership
     lobby = source("src/CoopMod/LobbyMenu.cpp")
-    assert "_resumeToGame = connectionTCP::session.sessionLocked" in lobby
-    assert "&& (battleRunning || geoRunning)" in lobby
+    # f0698fa4e (issue #93, PR #213 F15): main's rule (a running battle, or a live
+    # geoscape) plus the PR's case: a resumed campaign's lobby (mode 2) offers
+    # RESUME GAME once that campaign is live again.
+    assert "_resumeToGame = (battleRunning || (geoRunning && connectionTCP::session.sessionLocked))" in lobby
+    assert "&& (connectionTCP::session.lobbyMode != 2 || connectionTCP::session.sessionLocked)" in lobby
     host_initial = lobby.split("setOwnerPlayerName(_game->getCoopMod()->getHostName())", 1)[1]
     assert "refreshSeparateBaseOwnership();" in host_initial
     saved_game = source("src/Savegame/SavedGame.cpp")
@@ -151,7 +154,8 @@ def main():
     assert "xbase->getOwnerPlayerName().empty()" in maintenance
     memory_save = saved_game.split("void SavedGame::saveCoopToMemory", 1)[1].split(
         "buildCoopStub", 1)[0]
-    assert "_campaignType == CoopCampaignType::Separate" in memory_save
+    # 223e3b748: Separate-only rules exclude PvP (stored with the same type).
+    assert "isSeparateCoopCampaign()" in memory_save
     server_role = tcp.split("void connectionTCP::setServerOwner", 1)[1].split(
         "void connectionTCP::setCoopCampaign", 1)[0]
     assert "base->_isForeignBase = !base->isOwnedByPlayer(localName)" in server_role

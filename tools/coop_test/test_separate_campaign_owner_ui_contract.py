@@ -16,9 +16,11 @@ def main():
         code = text(source)
         assert 'STR_COOP_MISSION_BELONGS_TO_PLAYER' in code, source
         assert "missionTargetOwner" in code, source
-        assert "ErrorMessageState" in code, source
+        # 50862198b: the geoscape's own CraftErrorState box (palette-safe there).
+        assert "CraftErrorState" in code, source
     for lang in ("bin/common/Language/en-US.yml", "bin/common/Language/en-GB.yml"):
-        assert 'STR_COOP_MISSION_BELONGS_TO_PLAYER: "This belongs to {0}"' in text(lang)
+        # 50862198b reworded the line.
+        assert 'STR_COOP_MISSION_BELONGS_TO_PLAYER: "This mission belongs to {0}."' in text(lang)
     print("PASS named, palette-safe Separate mission ownership popup contract")
 
 

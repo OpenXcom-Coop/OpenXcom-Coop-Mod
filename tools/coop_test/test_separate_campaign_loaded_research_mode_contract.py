@@ -12,9 +12,11 @@ def main():
     end = saved.index("bool SavedGame::isResearchedForPlayer(", start)
     body = saved[start:end]
 
-    # The transient mode flag resets on load, so initialization must not return
-    # early merely because its default already equals the requested OFF value.
-    assert "isResearchSharingEnabled() == enabled" not in body
+    # Initialization must not return early merely because the default already
+    # equals the requested OFF value. 810304d5a (F6) saves the mode with the
+    # campaign, so the early return applies only once the saved mode is known.
+    assert ("if (_separateCampaign.isResearchModeKnown()\n"
+            "\t\t&& _separateCampaign.isResearchSharingEnabled() == enabled)") in body
     assert "for (const auto* rule : _discovered)" in body
     assert "_separateCampaign.addCompletedResearch(player.first, rule->getName())" in body
     assert "for (const auto& player : _separateCampaign.getPlayers())" in body

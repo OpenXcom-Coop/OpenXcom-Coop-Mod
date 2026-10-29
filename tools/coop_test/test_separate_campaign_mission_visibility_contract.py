@@ -21,7 +21,8 @@ def main():
     # Empty owner is not an error: generic scripts, ordinary UFOs and legacy
     # saves stay cooperative. Only faction-restricted scripts receive an owner.
     generator = (ROOT / "src/Geoscape/GeoscapeState.cpp").read_text(encoding="utf-8")
-    assert "if (factionRestricted) commandOwner = missionOwner" in generator
+    # 472e3e84f: a queued faction finale recheck keeps its owner as well.
+    assert "if (factionRestricted || queuedFactionFinale) commandOwner = missionOwner" in generator
     assert "processCommand(command, commandOwner)" in generator
     # Detection information is shared: neither local nor replicated popup paths
     # may suppress another faction's target.
