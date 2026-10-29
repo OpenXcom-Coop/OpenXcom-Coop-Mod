@@ -12,9 +12,10 @@ the order's host context has closed (host free) AND the watching client applied 
 the host, the chain is idle), then TAIL_S s more. A window that never closes (bounded) fails the row's sample cells.
 
 Boot D2 (key 48956, dirs r5u1_d2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
-unit's reactions 0, RM.TILES (H2_DEST, H3_DEST, H4_DEST, K1_TILE checked open ground), the host's END TURN -> side 1 turn
-1, the client's END TURN -> side 0 turn 2. Host orders are REAL-UI orders (tab_select, the walk click; the snap through
-the right-hand box, key, HOME, set_seed, one map_tile_click); the client's order is an intent (session.send_walk).
+unit's reactions 0, RM.TILES (H2_DEST, H3_DEST, H4_DEST, UNSEEN_TILE checked open ground), the host's END TURN -> side 1
+turn 1, the client's END TURN -> side 0 turn 2. Host orders are REAL-UI orders (tab_select, the walk click; the snap
+through the right-hand box, key, HOME, set_seed, one map_tile_click); the client's order is an intent
+(session.send_walk).
   H1  off its own side the alien player sees the screen (side 0 turn 2, the client idle). H1-screen (the client's
       hiddenMovementShown False; its selectedId printed).
   H2  it sees an X-COM soldier its side sees walk: the host's real-UI walk of 9 to H2_DEST (two tiles, in A's sight).
@@ -23,9 +24,9 @@ the right-hand box, key, HOME, set_seed, one map_tile_click); the client's order
   H3  it does not see an unseen X-COM soldier walk: the host's real-UI walk of 13 to H3_DEST. H3-hidden (every client
       sample False).
   H8  an X-COM shot no alien sees keeps its screen: 13's rifle + TU (give_both); the distance precondition (every tile
-      of the segment 13 -> K1_TILE farther than the max view distance from every live hostile unit, else the row fails
-      "staging"); host set_seed SEED_H8; the host's real-UI SNAP of 13 at K1_TILE. H8-shot (one new host context {host,
-      shoot, 13}), H8-hidden (every client sample False).
+      of the segment 13 -> UNSEEN_TILE farther than the max view distance from every live hostile unit, else the row
+      fails "staging"); host set_seed SEED_H8; the host's real-UI SNAP of 13 at UNSEEN_TILE. H8-shot (one new host
+      context {host, shoot, 13}), H8-hidden (every client sample False).
   H4  the X-COM host sees the alien it sees walk: the host's END TURN -> side 1 turn 2; A in the host's spotted (else
       "staging"); the client's send_walk(A, H4_DEST). H4-during (>= 1 host sample True before the host chain closed),
       H4-after (every host sample False from LAG_S s after it closed). H4 is the last row.
@@ -62,7 +63,7 @@ S9, U13 = 9, 13
 H2_DEST = (16, 8, 0)              # 9 (18,6,0) two tiles SW, inside A's view sector (a one-tile walk leaves no window)
 H3_DEST = (31, 33, 0)             # 13 (33,33,0) two tiles W, out of A's sight
 H4_DEST = (15, 4, 0)              # A (15,2,0) two tiles S, inside 8's view sector
-K1_TILE = K.K1_TILE               # (33,30,0): 13 and the tile out of A's sight (S-B pin)
+UNSEEN_TILE = K.UNSEEN_TILE               # (33,30,0): 13 and the tile out of A's sight (S-B pin)
 SEED_H8 = 1
 POLL_S, TAIL_S, LAG_S = 0.1, 2.0, 0.5
 STEP_S = 30
@@ -223,10 +224,10 @@ def row_h3(host, client, crash0):
 
 def row_h8(host, client, crash0):
     ev, cells = {}, {}
-    lever_snap_pre(host, client, U13, K1_TILE, ev)
+    lever_snap_pre(host, client, U13, UNSEEN_TILE, ev)
     K.hand_key(host, U13, K.KEY_SNAP, K.RIFLE_ROWS, K.CT_AIM, ev)
     ctx0, seq0 = ctxs(host), es(host, "lastSeqEmitted") or 0
-    K.click_tile(host, K1_TILE, SEED_H8, ev)
+    K.click_tile(host, UNSEEN_TILE, SEED_H8, ev)
     res = sample_order(client, host, ctx0, seq0, "host", "shoot", U13)
     idle(host, client, ev)
     new = new_contexts(ctx0, ctxs(host))
@@ -263,7 +264,7 @@ def row_h4(host, client, crash0):
 
 def stage(host, client):
     m, ev = (host, client), {}
-    ev["placed"] = RM.stage_tiles(host, client, RM.TILES, (H2_DEST, H3_DEST, H4_DEST, K1_TILE))
+    ev["placed"] = RM.stage_tiles(host, client, RM.TILES, (H2_DEST, H3_DEST, H4_DEST, UNSEEN_TILE))
     sv = ev["settle"] = {}
     G3F.guarded("staging", lambda: RM.side_change(host, client, host, FACTION_HOSTILE, 1, sv.setdefault("a", {})), m)
     G3F.guarded("staging", lambda: RM.side_change(host, client, client, FACTION_PLAYER, 2, sv.setdefault("b", {})), m)

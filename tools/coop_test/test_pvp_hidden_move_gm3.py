@@ -9,9 +9,9 @@ Constants: rewrite/r5u1-task0/sd/CONSTANTS.md (TASK 0 boots Dh, Di; every pin eq
 
 Probe polarity and the sampler: test_pvp_hidden_move (TRUE = the map is drawn, FALSE = the HIDDEN MOVEMENT screen).
 
-Boot D3 (key 48957, dirs r5u1_d3_host / _client): G3F.bring_up (the HOST on the Alien team, STR_SMALL_SCOUT, map seed 1),
-every live unit's reactions 0, RM.TILES (H2_DEST, K1_TILE checked open ground) at side 0 turn 1 (the partner's). Partner
-orders are intents (session.send_walk, a battle_intent shoot lever).
+Boot D3 (key 48957, dirs r5u1_d3_host / _client): G3F.bring_up (the HOST on the Alien team, STR_SMALL_SCOUT, map seed
+1), every live unit's reactions 0, RM.TILES (H2_DEST, UNSEEN_TILE checked open ground) at side 0 turn 1 (the partner's).
+Partner orders are intents (session.send_walk, a battle_intent shoot lever).
   H5  off its own side the alien host sees the screen (a guard; side 0 turn 1, the host idle). H5-screen (the host's
       hiddenMovementShown False; its selectedId printed).
   H6  the alien host sees a seen X-COM soldier walk: the host camera staged on 9 (TASK 0: the lever staging leaves the
@@ -25,9 +25,9 @@ orders are intents (session.send_walk, a battle_intent shoot lever).
       H6-during (>= 1 host sample True before the host chain closed), H6-after (every host sample False from LAG_S s
       after it closed).
   H9  an X-COM shot no alien sees keeps the alien host's screen (a guard: S-B's tile sight already keeps it): 13's rifle
-      + TU (give_both); the distance precondition (else "staging"); host set_seed SEED_H9; the partner's lever snap of 13
-      at K1_TILE. H9-shot (one new host context {intent, shoot, 13}; coopIntentsSent.shoot +1), H9-hidden (every host
-      sample False).
+      + TU (give_both); the distance precondition (else "staging"); host set_seed SEED_H9; the partner's lever snap of
+      13 at UNSEEN_TILE. H9-shot (one new host context {intent, shoot, 13}; coopIntentsSent.shoot +1), H9-hidden (every
+      host sample False).
   H7  off its own side the X-COM partner sees the screen: the partner's END TURN -> side 1 turn 1; the client idle.
       H7-screen (the client's hiddenMovementShown False; its selectedId printed). H7 is the last row.
 Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
@@ -58,7 +58,7 @@ from test_client_shoot import new_contexts, shoot_req  # noqa: E402
 KEY = "48957"
 A_ID = HM.A_ID                    # 1000000 on (15,2,0) facing 4: the host's alien (seat 0)
 S9, U13 = 9, 13
-H2_DEST, K1_TILE = HM.H2_DEST, HM.K1_TILE   # (16,8,0) two tiles from 9 inside A's view sector; (33,30,0)
+H2_DEST, UNSEEN_TILE = HM.H2_DEST, HM.UNSEEN_TILE   # (16,8,0) two tiles from 9 inside A's view sector; (33,30,0)
 # 9's seen start tile, one step S of its staged (18,6,0) and two tiles from H2_DEST. Replacement rule:
 # the nearest open-ground tile one step from (18,6,0) that is two tiles from H2_DEST and puts 9 in the host's HU.
 H6_START = (18, 7, 0)
@@ -111,11 +111,11 @@ def row_h6(host, client, crash0):
 
 def row_h9(host, client, crash0):
     ev, cells = {}, {}
-    HM.lever_snap_pre(host, client, U13, K1_TILE, ev)
+    HM.lever_snap_pre(host, client, U13, UNSEEN_TILE, ev)
     ctx0, seq0 = ctxs(host), es(host, "lastSeqEmitted") or 0
     sent0 = dict(es(client, "coopIntentsSent") or {})
     host.ok({"cmd": "set_seed", "seed": SEED_H9})
-    r = client.cmd(shoot_req(U13, "snap", ev["rifle"][0], ev["rifle"][1], K1_TILE))
+    r = client.cmd(shoot_req(U13, "snap", ev["rifle"][0], ev["rifle"][1], UNSEEN_TILE))
     res = HM.sample_order(host, host, ctx0, seq0, "intent", "shoot", U13)
     HM.idle(host, client, ev)
     new = new_contexts(ctx0, ctxs(host))
@@ -154,7 +154,7 @@ def boot_d3():
         except G3F.Miss:
             return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE D3 line)")
         try:
-            st = {"boot": boot, "placed": RM.stage_tiles(host, client, RM.TILES, (H2_DEST, K1_TILE, H6_START)),
+            st = {"boot": boot, "placed": RM.stage_tiles(host, client, RM.TILES, (H2_DEST, UNSEEN_TILE, H6_START)),
                   "turnSide": [(G3F.bview(g).get("turn"), G3F.bview(g).get("side")) for g in m],
                   "hash": G3F.hash_now(host, client)}
         except G3F.Miss:

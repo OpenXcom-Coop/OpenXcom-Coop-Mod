@@ -9,16 +9,17 @@ exact distance precondition).
 Constants: rewrite/r5u1-task0/sb/CONSTANTS.md (TASK 0 boots Bc, Bd; every pin equal).
 
 Boot B3 (key 48919, dirs r5u1_b3_host / _client): G3F.bring_up (the HOST on the Alien team, STR_SMALL_SCOUT, map seed
-1), every live unit's reactions 0, RM.TILES (K1_TILE, K2_TILE, K6_DEST also checked open ground), the settle cycle (the
-partner's END TURN, the host's END TURN -> side 0 turn 2). Partner orders are intents (CSH.send_intent, session.send_walk).
+1), every live unit's reactions 0, RM.TILES (UNSEEN_TILE, SEEN_TILE, K6_DEST also checked open ground), the settle cycle
+(the partner's END TURN, the host's END TURN -> side 0 turn 2). Partner orders are intents (CSH.send_intent,
+session.send_walk).
 HU = the HOST's union of visibleUnits over the live hostile units. Camera cells read the host's offset after the host is
 idle; offsets compare x / y (z is the view level).
   K4  an X-COM shot no alien sees does not move the alien host's camera (gap 1): host camera on A; the rifle on 13
-      (give_both); host set_seed SEED_K4; the partner's lever snap of 13 at K1_TILE. K4-shot (one new host context
-      {intent, shoot, 13}; coopIntentsSent.shoot +1), K4-pre (13 not in HU; every tile of the segment 13 -> K1_TILE
+      (give_both); host set_seed SEED_K4; the partner's lever snap of 13 at UNSEEN_TILE. K4-shot (one new host context
+      {intent, shoot, 13}; coopIntentsSent.shoot +1), K4-pre (13 not in HU; every tile of the segment 13 -> UNSEEN_TILE
       farther than the max view distance from every live hostile unit), K4-cam (the host's offset == staged).
   K5  a seen shot is followed (control): host camera at FAR; 9's rifle + TU; host set_seed SEED_K5; the partner's lever
-      snap of 9 at K2_TILE. K5-cam (the host's offset != staged).
+      snap of 9 at SEEN_TILE. K5-cam (the host's offset != staged).
   K6  the alien host's camera centres on a seen X-COM walker off screen (gap 2): host camera at FAR; the partner's
       send_walk(8, K6_DEST). K6-walk (one new host context {intent, walk, 8}; walk +1; 8 on K6_DEST on both), K6-pre (8
       in HU after), K6-centre (the host's offset != staged and 8's tile on the host's screen: map_tile_screen_pos inside
@@ -55,7 +56,7 @@ from test_client_shoot import new_contexts, send_intent, shoot_req, set_tu_both,
 KEY = "48919"
 A_ID, A_TILE = K.A_ID, K.A_TILE   # 1000000 on (15,2,0) facing 4: the host's alien (seat 0)
 U13, S9, S8, S11 = 13, 9, 8, 11
-K1_TILE, K2_TILE, FAR, A_CENTRE = K.K1_TILE, K.K2_TILE, K.FAR, K.A_CENTRE
+UNSEEN_TILE, SEEN_TILE, FAR, A_CENTRE = K.UNSEEN_TILE, K.SEEN_TILE, K.FAR, K.A_CENTRE
 K6_DEST = (15, 12, 0)             # 8 (15,9,0) walks 3 tiles south inside A's sight, off the staged screen
 SEED_K4 = SEED_K5 = SEED_K8 = 1
 STEP_S = 30
@@ -117,8 +118,8 @@ def row_k4(host, client, crash0):
     staged = ev["staged"] = HC.cam_offset(HC.stage_camera(host, A_TILE))
     g = RM.give_both(host, client, U13, K.RIFLE, K.CLIP)
     ev["rifle"] = (g.get("weaponId"), g.get("ammoId"))
-    pre = K.far_pre(host, U13, K1_TILE, ev)
-    new, sent = partner_snap(host, client, U13, K1_TILE, SEED_K4, ev)
+    pre = K.far_pre(host, U13, UNSEEN_TILE, ev)
+    new, sent = partner_snap(host, client, U13, UNSEEN_TILE, SEED_K4, ev)
     cam = HC.camera_of(host)
     ev["camera"] = HC.cam_view(cam)
     cells["K4-shot"] = admitted(new, sent, "intent", "shoot", U13)
@@ -135,7 +136,7 @@ def row_k5(host, client, crash0):
     ev["rifle"] = (g.get("weaponId"), g.get("ammoId"))
     ev["tu"] = set_tu_both(host, client, S9, K.TU_MAX)
     ev["HU"] = hu(host)
-    new, sent = partner_snap(host, client, S9, K2_TILE, SEED_K5, ev)
+    new, sent = partner_snap(host, client, S9, SEEN_TILE, SEED_K5, ev)
     ev["sent"] = sent
     cam = HC.camera_of(host)
     ev["camera"] = HC.cam_view(cam)
@@ -207,7 +208,7 @@ def row_k8(host, client, crash0):
 
 def stage(host, client):
     m, ev = (host, client), {}
-    ev["placed"] = RM.stage_tiles(host, client, RM.TILES, (K1_TILE, K2_TILE, K6_DEST))
+    ev["placed"] = RM.stage_tiles(host, client, RM.TILES, (UNSEEN_TILE, SEEN_TILE, K6_DEST))
     sv = ev["settle"] = {}
     G3F.guarded("staging", lambda: RM.side_change(host, client, client, FACTION_HOSTILE, 1, sv.setdefault("a", {})), m)
     G3F.guarded("staging", lambda: RM.side_change(host, client, host, FACTION_PLAYER, 2, sv.setdefault("b", {})), m)
