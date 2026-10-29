@@ -61,9 +61,12 @@ def main():
         before = {gc.name: incoming(gc, target) for gc in (host, client)}
 
         client.ok({"cmd": "open_screen", "screen": "basescape", "base": "SharedSecond"})
-        client.ok({"cmd": "basescape_move_base_left", "base": "SharedSecond"})
-        # Sent before the move comes back: the buy names <target> by its old index.
-        client.ok({"cmd": "buy", "item": RIFLE, "count": 1, "base": target})
+        # One write: the client runs both in the same frame, so the buy names
+        # <target> by its index from before the move, which then means SharedSecond.
+        resps = client.cmd_together(
+            {"cmd": "basescape_move_base_left", "base": "SharedSecond"},
+            {"cmd": "buy", "item": RIFLE, "count": 1, "base": target})
+        assert all(r.get("ok") for r in resps), resps
         client.ok({"cmd": "leave_base"})
 
         want = start[:-2] + ["SharedSecond", target]

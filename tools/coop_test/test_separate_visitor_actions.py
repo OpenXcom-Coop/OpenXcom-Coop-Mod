@@ -363,17 +363,17 @@ def row_transfer_out(host, client, guest):
     rifles = stock(host, "HostBase", RIFLE)
     src, dst = base_index(client, "HostBase"), base_index(client, "ClientBase")
 
-    # Refused: the partner's items, a payload mixing the visitor's soldier with
-    # an item, and the partner's soldier (raw commands: the screen lists only
-    # the visitor's own soldiers).
-    reset_stats(host, client)
-    client.ok({"cmd": "shared_transfer", "item": RIFLE, "count": 1,
-               "fromBase": "HostBase", "toBase": "ClientBase"})
-    refused, last = wait_refused(host, client)
-    check("V10 transfer: the partner's items stay at HostBase",
-          refused and stock(host, "HostBase", RIFLE) == rifles,
-          f"lastFail={last!r} rifles {rifles}->{stock(host, 'HostBase', RIFLE)}")
+    # The visitor's transfer screen at HostBase offers no partner items.
+    r = client.cmd({"cmd": "shared_transfer", "item": RIFLE, "count": 1,
+                    "fromBase": "HostBase", "toBase": "ClientBase"})
+    dismiss_fail(client)
+    check("V10 transfer: the visitor's transfer screen lists none of HostBase's items",
+          not r.get("ok") and "no transferable row" in r.get("error", ""), f"resp={r}")
+    # Refused by the host (raw commands, as a stale or modified client would
+    # send them): the partner's items, a payload mixing the visitor's soldier
+    # with an item, and the partner's soldier.
     for label, payload in (
+            ("the partner's items", {"soldiers": [], "items": [{"rule": RIFLE, "qty": 1}]}),
             ("own soldier plus an item", {"soldiers": [guest],
                                           "items": [{"rule": RIFLE, "qty": 1}]}),
             ("the partner's soldier", {"soldiers": [partner]})):
@@ -384,12 +384,16 @@ def row_transfer_out(host, client, guest):
                    "payload": payload})
         refused, last = wait_refused(host, client)
         check(f"V10 transfer: {label} is refused",
-              refused and {guest, partner} <= set(ids_at(host, "HostBase")),
-              f"lastFail={last!r} host HostBase={ids_at(host, 'HostBase')}")
+              refused and {guest, partner} <= set(ids_at(host, "HostBase"))
+              and stock(host, "HostBase", RIFLE) == rifles,
+              f"lastFail={last!r} host HostBase={ids_at(host, 'HostBase')} "
+              f"rifles {rifles}->{stock(host, 'HostBase', RIFLE)}")
 
+    # Both fixture bases stand on the same spot (the host's first placement falls
+    # back to the client's), so a transfer between them costs nothing and this
+    # row cannot show whose wallet pays.
     reset_stats(host, client)
     before = host.ok({"cmd": "incoming_transfers", "base": "ClientBase"})["soldiers"]
-    funds = owner_funds(host, "ClientBase")
     r = client.cmd({"cmd": "shared_transfer", "soldier_id": guest,
                     "fromBase": "HostBase", "toBase": "ClientBase"})
     moved = poll(lambda: (guest not in ids_at(host, "HostBase")
@@ -401,9 +405,6 @@ def row_transfer_out(host, client, guest):
           f"resp={r} host HostBase has={guest in ids_at(host, 'HostBase')} "
           f"client lastFail={stats(client)['lastFail']!r}")
     dismiss_fail(client)
-    paid = owner_funds(host, "ClientBase")
-    check("V10 transfer: the visitor's wallet pays for it",
-          not moved or paid < funds, f"funds {funds}->{paid}")
 
 
 def row_own_roster(host, client):
@@ -454,9 +455,12 @@ def row_base_order(host, client):
     before = {(gc.name, b): incoming(gc, b) for gc in (host, client)
               for b in ("ClientBase", "ClientSecond")}
     client.ok({"cmd": "open_screen", "screen": "basescape", "base": "ClientSecond"})
-    client.ok({"cmd": "basescape_move_base_left", "base": "ClientSecond"})
-    # Sent before the move comes back: the buy names ClientBase by its old index.
-    client.ok({"cmd": "buy", "item": RIFLE, "count": 1, "base": "ClientBase"})
+    # One write: the client runs both in the same frame, so the buy names
+    # ClientBase by its index from before the move, which then means ClientSecond.
+    resps = client.cmd_together(
+        {"cmd": "basescape_move_base_left", "base": "ClientSecond"},
+        {"cmd": "buy", "item": RIFLE, "count": 1, "base": "ClientBase"})
+    assert all(r.get("ok") for r in resps), resps
     client.ok({"cmd": "leave_base"})
     want = [b for b in start if b != "ClientSecond"]
     want.insert(want.index("ClientBase"), "ClientSecond")
