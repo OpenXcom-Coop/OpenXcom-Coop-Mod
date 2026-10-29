@@ -20,7 +20,7 @@ Boot E3 (key 49034, dirs w2h36_e3_host / _client): G3F.bring_up (the HOST on the
       context closed; V3-sel host selectedId -1.
   H3  the partner's END TURN -> side 1 turn 1: H3-own host selectedId A, cursorType 1; the host's END TURN -> side 0 turn
       2: H3-off2 host selectedId -1.
-Boot E2 (key 49035, dirs w2h36_e2_host / _client): BER.boot_e6 (gm2).
+Boot E2 (key 49035, dirs w2h36_e2_host / _client): BER.boot_pvp (gm2).
   S2  the gm2 alien player at battle start, read at once: S2-turn (0, 1) on both; S2-sel client selectedId A; S2-actor
       client currentActionActorId A; S2-text client coopWaitText != TEXT_SPECTATOR; S2-host host on an X-COM soldier
       without the notice.
@@ -278,7 +278,7 @@ def boot_e2():
     rows = dict(E2_ROWS)
     try:
         try:
-            info = G3F.guarded("E2", lambda: BER.boot_e6(host, client, E2_KEY), (host, client))
+            info = G3F.guarded("E2", lambda: BER.boot_pvp(host, client, E2_KEY), (host, client))
         except G3F.Miss:
             return G3F.fail_all(E2_ROWS, "boot (setup failure, see the CAPTURE E2 line)")
         crash0 = session._crash_log_snapshot()

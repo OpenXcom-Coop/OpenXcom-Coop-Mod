@@ -69,9 +69,9 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
                         interval=0.5)
 
         # RV-U5 S-D RP3 (W2-P8b spine; F10427, F10428): the PvP gm2 skirmish is
-        # test_battle_end_rules.boot_e6's body after its spawn / connect lines,
-        # started from the main menu both machines reached; then BER.stage_e6 (the
-        # host kills the client's only alien) and BER.end_e6 (the host's END TURN,
+        # test_battle_end_rules.boot_pvp's body after its spawn / connect lines,
+        # started from the main menu both machines reached; then BER.stage_pvp_elimination (the
+        # host kills the client's only alien) and BER.end_pvp_elimination (the host's END TURN,
         # its NextTurnState closed).
         host.ok({"cmd": "set_seed", "seed": BER.SEED_MAP})
         BER.raw.skirmish_host(host, SKIRMISH_PORT)
@@ -110,10 +110,10 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
         print(f"RP3 gm2 skirmish boot ok: mapFingerprint {hs.get('mapFingerprint')}, "
               f"pinned {pinned}, authority host={ha} client={ca}", flush=True)
         pre, ending = [], []
-        staging = BER.stage_e6(host, client, pre)
-        assert not pre, f"RP3 staging (BER.stage_e6) failed: {pre} (staging={staging})"
-        closed = BER.end_e6(host, client, ending)
-        assert not ending, f"RP3 ending (BER.end_e6) failed: {ending} (ending={closed})"
+        staging = BER.stage_pvp_elimination(host, client, pre)
+        assert not pre, f"RP3 staging (BER.stage_pvp_elimination) failed: {pre} (staging={staging})"
+        closed = BER.end_pvp_elimination(host, client, ending)
+        assert not ending, f"RP3 ending (BER.end_pvp_elimination) failed: {ending} (ending={closed})"
 
         for gc, label in ((host, "host"), (client, "client")):
             gc.wait_for(f"{label} Skirmish debriefing",

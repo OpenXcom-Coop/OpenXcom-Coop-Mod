@@ -1,6 +1,6 @@
 """W2-H50 rows L1, L2, L3 (lead L-H47-1, orchestrator ruling R-H50-0): on the second player's machine (the thin client)
 each unit's per-turn "spotted" list must reset at every side change, as vanilla's BattleUnit::prepareNewTurn does on the
-host, so the alien player's path preview counts what the host counts. PvP boot E6 (test_battle_end_rules.boot_e6:
+host, so the alien player's path preview counts what the host counts. The PvP boot (test_battle_end_rules.boot_pvp:
 gamemode 2, STR_SMALL_SCOUT, map seed 1; the host plays the X-COM soldiers, seat 0; the client the only alien A, seat 1),
 reactions 0 on both, lobby key 49153, dirs w2h50_s_host / w2h50_s_client.
 
@@ -304,16 +304,16 @@ def stage(host, client, st):
 
 
 def run_all(host, client):
-    """Boot E6, staging, then L1, (client END TURN) L2, (client END TURN) L3; returns the failed cell count."""
+    """The PvP boot, staging, then L1, (client END TURN) L2, (client END TURN) L3; returns the failed cell count."""
     rows, fails, st = dict(ROWS), 0, {}
     try:
-        boot = BER.boot_e6(host, client, KEY)
+        boot = BER.boot_pvp(host, client, KEY)
         crash0 = session._crash_log_snapshot()
         boot["reactions"] = G3F.reactions_zero(host, client)
-        print(f"[w2h50] boot E6: {json.dumps(boot, default=str)}", flush=True)
+        print(f"[w2h50] boot pvp: {json.dumps(boot, default=str)}", flush=True)
     except Exception as e:
-        G3F.capture("E6", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
-        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE E6 line)")
+        G3F.capture("pvp", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE pvp line)")
     try:
         miss = stage(host, client, st)
     except Exception as e:

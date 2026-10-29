@@ -7,7 +7,7 @@ PP1, QU2-A1-4 (a)) and the orchestrator ruling R-U2-SD-1 (a second alien B befor
 battle and the death message can be read).
 Constants: rewrite/r5u2-task0/sd/CONSTANTS.md (TASK 0 boots Da, Db, Dbw, D2a, D2b on the unchanged build; every pin equal).
 
-Boot D2 (key 48889, dirs r5u2_d2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
+Boot D2 (key 48889, dirs r5u2_d2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
 reactions 0, RM.TILES with every X-COM unit facing 4 (A unseen; A sees 8, 9, 10, 11), the host's END TURN -> side 1 turn
 1. Host boxes are closed host-only (test_messages idiom), the client's OK boxes by their OK button. RING(gc) = the new
 `messages` ring records on gc since the row's start {unit, key, owner, presenter}. Seeds are set on the host right before
@@ -529,7 +529,7 @@ def boot_d2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("D2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("D2", lambda: BER.boot_pvp(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("D2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:

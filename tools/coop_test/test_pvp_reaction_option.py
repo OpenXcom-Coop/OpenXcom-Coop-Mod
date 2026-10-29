@@ -8,7 +8,7 @@ Spec: docs repo rewrite/prompts/r5u6_pvp_options.md section (f) test_pvp_reactio
 ruling R-U6-SA-1 (SEED_R1: S alive and unhurt after RN1 on the unchanged build; A's TU refilled before the kneel).
 Constants: rewrite/r5u6-task0/sa/CONSTANTS.md (TASK 0 boots RAa, RAb, rh2, rh2b, rk2, rk2b on the unchanged build).
 
-Boot RA (key 49060): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, R5-U3's
+Boot RA (key 49060): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, R5-U3's
 staging (test_pvp_react_mc.stage: TILES, A's plasma pistol, S3's rifle, the host's END TURN -> side 1 turn 1).
   RN2  X-COM does not react to the alien seat's walk: S3 reactions 100, firing 0, TU 255; host set_seed SEED_R2; the
        client's send_walk of A to R2_DEST.
@@ -264,7 +264,7 @@ def boot_ra():
     try:
         st = {"optionsCfg": {"host": opt_line(host), "client": opt_line(client)}}
         try:
-            G3F.guarded("RA", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("RA", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("RA", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:

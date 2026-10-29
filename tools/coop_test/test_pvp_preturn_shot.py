@@ -10,7 +10,7 @@ Constants: rewrite/r5u1-task0/sc/CONSTANTS.md (TASK 0 boots Ca = Cb for gm2, Ce 
 Probe: event_state.projectileSkips (EC1-EC4, TEST-ONLY): the HOST's count of ProjectileFlyBState::cancel() skipping a
 flying projectile; never reset, the cells read deltas.
 
-Boot C2 (key 48954, dirs r5u1_c2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot C2 (key 48954, dirs r5u1_c2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.TILES with A facing P1_DIR 0 (away from P_TILE; P_TILE and P4_DEST also checked open ground), the
 host's END TURN -> side 1 turn 1 (the host's selection is empty there).
   P1  the alien player's shot that needs a turn flies in full on the host (gap 3): A's pistol (lever), TU; host set_seed
@@ -203,7 +203,7 @@ def boot_c2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("C2", lambda: BER.boot_e6(host, client, KEY_C2), m)
+            G3F.guarded("C2", lambda: BER.boot_pvp(host, client, KEY_C2), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("C2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:

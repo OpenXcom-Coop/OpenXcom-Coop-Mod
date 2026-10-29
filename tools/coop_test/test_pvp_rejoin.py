@@ -6,7 +6,7 @@ D219 (b) rides only the common full hash: its revealHostile bucket equal on the 
 Spec: docs repo rewrite/prompts/r5u9_pvp_gm3_fixture.md section (f) test_pvp_rejoin.py.
 Constants: rewrite/r5u9-task0/CONSTANTS.md (TASK 0 boot R).
 
-Boot R (key 48675): test_battle_end_rules.boot_e6's gm2 bring-up (the client on the Alien team: gamemode 2, MAP_FP,
+Boot R (key 48675): test_battle_end_rules.boot_pvp's gm2 bring-up (the client on the Alien team: gamemode 2, MAP_FP,
 authority, A on seat 1 hostile); census C0; every live unit's reactions 0 on both machines (client first); A on A_TILE.
   R1  the alien player's game leaves mid-battle (disconnect_to_menu): the host holds the battle under its reconnect
       dialog (code 62, no RESUME), peerAbsent true, still in the battle, still gamemode 2.
@@ -39,7 +39,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 from session import battle_state  # noqa: E402
 from repro_atom_side_begin import drive_side_change  # noqa: E402
-from test_battle_end_rules import boot_e6  # noqa: E402
+from test_battle_end_rules import boot_pvp  # noqa: E402
 from test_skirmish_rejoin_battle import (drop_client_mid_battle, rejoin_skirmish, dialog, in_battle_save, has,  # noqa: E402
                                          COOP_DLG_WAIT_PLAYERS, COOP_DLG_CLIENT_RESUME_HOLD)
 from test_client_shoot import new_contexts  # noqa: E402
@@ -173,7 +173,7 @@ def boot_r():
     try:
         m = (host, client)
         try:
-            boot = guarded("R", lambda: boot_e6(host, client, R_KEY), m)
+            boot = guarded("R", lambda: boot_pvp(host, client, R_KEY), m)
             c0 = seats(host)
             guarded("R", lambda: reactions_zero(host, client), m)
             guarded("R", lambda: tele_both(host, client, A_ID, A_TILE, A_DIR), m)

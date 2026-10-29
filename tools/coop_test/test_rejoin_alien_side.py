@@ -9,7 +9,7 @@ THREE boots, each shut down before the next, one row each (every id and pin read
       a fresh process (client2) rejoins and is held on dialog 68; the host offers RESUME; RESUME; the alien side ends.
   AT  boot T, key "48746", co-op traditional: the same in turn-by-turn mode (the host passes, the client's last pass ends
       the side); the client leaves gracefully (disconnect_to_menu).
-  AV  boot V, key "48747", PvP gm2: test_battle_end_rules.boot_e6; the host's END TURN hands the turn to the alien
+  AV  boot V, key "48747", PvP gm2: test_battle_end_rules.boot_pvp; the host's END TURN hands the turn to the alien
       player (the client), who leaves on its own turn (disconnect_to_menu), rejoins and presses END TURN.
 The host's TEST-ONLY `resync_hold {on: true}` is armed right after each bring-up: a desync then
 halts client2 instead of being repaired, so the cells read the defect itself; a green never desyncs.
@@ -52,7 +52,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 from test_rejoin_end_turn import boot as rej_boot, EK, BK  # noqa: E402
-from test_battle_end_rules import boot_e6  # noqa: E402
+from test_battle_end_rules import boot_pvp  # noqa: E402
 from test_pvp_gm3 import reactions_zero, shut  # noqa: E402
 from test_skirmish_rejoin_battle import rejoin_skirmish  # noqa: E402
 from test_turn_baton import drive_full_cycle  # noqa: E402
@@ -235,7 +235,7 @@ def bring_up(x):
         if modes != [want, want]:
             step(x, f"live_mode {want} on both", lambda: fail(f"live_mode {modes}"), m)
     else:
-        step(x, "bring-up (test_battle_end_rules.boot_e6)", lambda: boot_e6(h, c, key), m)
+        step(x, "bring-up (test_battle_end_rules.boot_pvp)", lambda: boot_pvp(h, c, key), m)
         x["ev"]["reactions"] = len(step(x, "reactions_zero", lambda: reactions_zero(h, c), m))
         step(x, "wait_host_idle", lambda: session.wait_host_idle(h, c, timeout=IDLE_S), m)
     b = bs(h)

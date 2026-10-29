@@ -4,7 +4,7 @@
 Spec: docs repo rewrite/prompts/w2h29_mc_unit_seat.md section (f) test_mc_seat_tally.py (QH29-1..QH29-7 (a)).
 Constants: rewrite/w2h29-task0/CONSTANTS.md (TASK 0 boots Ha / Hb, Xa / Xb).
 
-Boot H (gm2 parallel, key 48737; the client plays the aliens, seat 1): BER.boot_e6, every unit's reactions 0, R5-U3 S-B's
+Boot H (gm2 parallel, key 48737; the client plays the aliens, seat 1): BER.boot_pvp, every unit's reactions 0, R5-U3 S-B's
 B2 staging, host END TURN (side 1 turn 1), R2 (SEED_R2: S3 reacts to the client's walk of A), client END TURN (side 0
 turn 2), R1 (SEED_R1: A reacts to the host's real-UI walk of S), host END TURN (side 1 turn 2). R2 / R1 are staging.
   MA  the alien seat mind-controls the X-COM soldier S4 through the client's psi intent lever (SEED_MA):
@@ -15,7 +15,7 @@ turn 2), R1 (SEED_R1: A reacts to the host's real-UI walk of S), host END TURN (
       MA-own   the alien seat's turn order on S4 is denied not_your_unit; no new host context
       MA-end2  the client's press alone: side 0 turn 4 within SIDE_S
       MA-common every bucket EQUAL after the row's last settled side change, desyncSeen false, no new crash file
-Boot X (gm2 traditional, key 48738): BER.boot_e6 with set_mode(host, traditional) after host.connect(), reactions 0,
+Boot X (gm2 traditional, key 48738): BER.boot_pvp with set_mode(host, traditional) after host.connect(), reactions 0,
 the B2 staging.
   MX  X-COM's S mind-controls the alien seat's unit A through the host psi_attack lever (SEED_MX), continued by
       W2-H31 (rewrite/prompts/w2h31_mc_side_never_ends.md; rewrite/w2h31-task0/CONSTANTS.md, boots Xa / Xb):
@@ -348,8 +348,8 @@ def row_ma(host, client, crash0, rec):
 # ===================== boot X and row MX =====================
 
 
-def boot_e6_mode(host, client, port, mode):
-    """BER.boot_e6 (test_battle_end_rules :822-:862) with ONE added line: set_mode(host, mode) right after
+def boot_pvp_mode(host, client, port, mode):
+    """BER.boot_pvp with ONE added line: set_mode(host, mode) right after
     host.connect() (F10917 copy pattern; F11686: the host's CoopTurnMode is stamped at the offer)."""
     raw = BER.raw
     host.spawn(); host.connect()
@@ -498,8 +498,8 @@ def run_boot(tag, key, boot_fn, staging_fn, rows, row_fns):
 
 def main():
     t0 = time.time()
-    fails = run_boot("h", KEY_H, BER.boot_e6, staging_h, MA_ROWS, (row_ma,))
-    fails += run_boot("x", KEY_X, lambda h, c, k: boot_e6_mode(h, c, k, TRADITIONAL),
+    fails = run_boot("h", KEY_H, BER.boot_pvp, staging_h, MA_ROWS, (row_ma,))
+    fails += run_boot("x", KEY_X, lambda h, c, k: boot_pvp_mode(h, c, k, TRADITIONAL),
                       lambda h, c, rec: stage_b2(h, c), MX_ROWS, (row_mx,))
     print(f"test_mc_seat_tally: {'PASS' if not fails else 'FAIL'} ({fails} failing cell(s)) wall "
           f"{time.time() - t0:.1f} s", flush=True)

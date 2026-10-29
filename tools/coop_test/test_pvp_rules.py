@@ -7,7 +7,7 @@ R-U3-A-1 (A staged on A_D2_TILE before D2), R-U3-A-2 ("the bomb gone on both" is
 equality) and R-U3-A-3 (D2 is C20's vanilla dive, two waypoints on LAUNCH_W, with lever-dropped gear inside the blast).
 Constants: rewrite/r5u3-task0/sa/CONSTANTS.md (TASK 0 boots Aa, abcap, Ac-Ag on the unchanged build).
 
-Boot A (key 48677): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, A morale 0.
+Boot A (key 48677): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, A morale 0.
   P1  host set_seed SEED_P1 right before its END TURN; A's status read on both before any NextTurnState closes (the
       roll); drive_side_change to side 1; a bounded wait (PANIC_S) for the host's `panic` ev, every host infobox
       dismissed host-only, leftover NextTurnStates closed.
@@ -354,7 +354,7 @@ def boot_a():
     m = (host, client)
     try:
         try:
-            G3F.guarded("A", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("A", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("A", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("A", lambda: both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "morale": 0},

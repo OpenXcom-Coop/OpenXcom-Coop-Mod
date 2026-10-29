@@ -11,7 +11,7 @@ The sampler: from right after the press, every POLL_S s, the watching machine's 
 the order's host context has closed (host free) AND the watching client applied that context's bt_action_end (or, for
 the host, the chain is idle), then TAIL_S s more. A window that never closes (bounded) fails the row's sample cells.
 
-Boot D2 (key 48956, dirs r5u1_d2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot D2 (key 48956, dirs r5u1_d2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.TILES (H2_DEST, H3_DEST, H4_DEST, K1_TILE checked open ground), the host's END TURN -> side 1 turn
 1, the client's END TURN -> side 0 turn 2. Host orders are REAL-UI orders (tab_select, the walk click; the snap through
 the right-hand box, key, HOME, set_seed, one map_tile_click); the client's order is an intent (session.send_walk).
@@ -278,7 +278,7 @@ def boot_d2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("D2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("D2", lambda: BER.boot_pvp(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("D2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:

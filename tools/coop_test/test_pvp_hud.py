@@ -7,7 +7,7 @@ HDX's soldier rule; U2-1.8: the S-B X-COM facings) and the orchestrator rulings 
 QU2-A1-5 (a)). Constants: rewrite/r5u2-task0/sb/CONSTANTS.md (TASK 0 boots Ba2, Bb on the B1 probe build; every pin
 equal; boot Ba's RM.TILES facings left A on the host's HUD at HDX, so the U2-1.8 facing rule binds here too, F14810).
 
-Boot B2 (key 48878, dirs r5u2_b2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot B2 (key 48878, dirs r5u2_b2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.TILES with every X-COM unit facing FACE_AWAY (A (15,2,0) facing 4 outside each view sector; A
 still sees 8, 9, 10, 11), the host's END TURN -> side 1 turn 1 (the client holds A).
   HD  the alien player's HUD lists its own wounded and stunned units, not X-COM's: levers (client first) A and 13
@@ -236,7 +236,7 @@ def boot_b2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("B2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("B2", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("B2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:

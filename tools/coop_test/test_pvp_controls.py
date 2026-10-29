@@ -7,7 +7,7 @@ Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_pvp_co
 (U2-1.3, U2-1.8) and the orchestrator rulings (QU2-1 .. QU2-17 (a), QU2-A1-1 .. QU2-A1-5 (a)).
 Constants: rewrite/r5u2-task0/sa/CONSTANTS.md (TASK 0 boots Aa, Ab on the A1 probe build; every pin equal).
 
-Boot A2 (key 48874, dirs r5u2_a2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot A2 (key 48874, dirs r5u2_a2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.stage_tiles(RM.TILES) (A (15,2,0) facing 4), the host's END TURN -> side 1 turn 1.
   AR  the alien player's selection arrow on its own turn (side 1 turn 1, the client idle)
       AR-pre    the client's selectedId A, cursorType != 0 (precondition)
@@ -330,7 +330,7 @@ def boot_a2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("A2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("A2", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("A2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:

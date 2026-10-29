@@ -17,8 +17,8 @@ RM.stage_tiles(TILES_D), the partner's END TURN -> side 1 turn 1, X stripped and
   O3  A morale 0, host set_seed SEED_O3, the PARTNER's END TURN -> side 1 turn 2: the host's own alien panics. O3-roll
       (1, 2) on both, A status STATUS_O3, one panic ev {A, MODE_O3} and its bt_action_end; O3-own host selectedId and
       currentActionActorId A (the drop leaves the host's own side alone). O3 is the boot's last row.
-Boot P2 (key 49037, dirs w2h39_p2_host / _client, default options): BER.boot_e6, G3F.reactions_zero, A morale 0 (R5-U3's
-boot A).
+Boot P2 (key 49037, dirs w2h39_p2_host / _client, default options): BER.boot_pvp, G3F.reactions_zero, A morale 0
+(R5-U3's boot A).
   A2  PR.row_p1 (host set_seed SEED_P1, the host's END TURN -> side 1 turn 1, A panics on the X-COM host). A2-roll every
       P1 cell passes; A2-sel / A2-actor host selectedId / currentActionActorId -1 at both reads; A2-client the client
       on A / A at both reads.
@@ -312,7 +312,7 @@ def boot_p2():
     m, rows = (host, client), dict(P2_ROWS)
     try:
         try:
-            info = G3F.guarded("P2", lambda: BER.boot_e6(host, client, P2_KEY), m)
+            info = G3F.guarded("P2", lambda: BER.boot_pvp(host, client, P2_KEY), m)
             G3F.guarded("P2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("P2", lambda: morale0(host, client, A_ID), m)

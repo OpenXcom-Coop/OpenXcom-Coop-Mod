@@ -5,7 +5,7 @@ Spec: docs repo rewrite/prompts/r5u5_battle_gift_order.md section (f) test_battl
 R5U5-A1 A1-3 (P1-key: the host's key with its own unit selected, then the spectator client's key; QU5-A1-3 (a)).
 Constants: rewrite/r5u5-task0/sa/CONSTANTS.md (boots Pa, Pb; re-dispatch Pa2, Pb2).
 
-Boot P = test_battle_end_rules.boot_e6 (roster / map seed 1, the client on the Alien team, STR_SMALL_SCOUT); every live
+Boot P = test_battle_end_rules.boot_pvp (roster / map seed 1, the client on the Alien team, STR_SMALL_SCOUT); every live
 unit's reactions 0. Side 0 (the host's X-COM) is active; the client is a spectator.
   P1  P1-key (a guard row on both builds: the host's own unit, refused only by the gm 2 / 3 term) - the host's
       giftSelectedId -1; tab_select(host, P_X) (P_X = the lowest X-COM unit id other than the host's bring-up selection
@@ -49,7 +49,7 @@ units, top = G3F.units, G3F.top
 
 def bring_up(host, client):
     m = (host, client)
-    boot = GIFT.guarded("P", lambda: BER.boot_e6(host, client, KEY), m)
+    boot = GIFT.guarded("P", lambda: BER.boot_pvp(host, client, KEY), m)
     crash0 = session._crash_log_snapshot()
     GIFT.guarded("P", lambda: G3F.reactions_zero(host, client), m)
     return boot, crash0

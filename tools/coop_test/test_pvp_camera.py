@@ -7,7 +7,7 @@ AMENDMENT U1-1 (here A-3: every shooter gets give_both(rifle, clip) + set_tu_bot
 distance precondition).
 Constants: rewrite/r5u1-task0/sb/CONSTANTS.md (TASK 0 boots Ba, Bb; every pin equal).
 
-Boot B2 (key 48918, dirs r5u1_b2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot B2 (key 48918, dirs r5u1_b2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.TILES (K1_TILE and K2_TILE also checked open ground), the settle cycle (host END TURN, client END
 TURN -> side 0 turn 2). Every order is a host REAL-UI order: tab_select, the right-hand box, the action key, HOME, the
 host's set_seed right before ONE map_tile_click. HU = the HOST's union of visibleUnits over the live hostile
@@ -314,7 +314,7 @@ def boot_b2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("B2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("B2", lambda: BER.boot_pvp(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("B2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:

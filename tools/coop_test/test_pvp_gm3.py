@@ -240,8 +240,8 @@ def record_view(rec):
 
 def ending(row, host, other, kill_faction, dead_ids, presser, expect, crash0):
     """Pre-ending (both records at 0, every bucket EQUAL), host kill_unit_real {faction}, the kill chain, the side
-    owner's END TURN, the host's NextTurnState closed by dismiss_popup, the host's DebriefingState (test_battle_end_rules
-    E6, :433-464). Returns (cells, ev)."""
+    owner's END TURN, the host's NextTurnState closed by dismiss_popup, the host's DebriefingState (as
+    test_battle_end_rules' stage_pvp_elimination and end_pvp_elimination). Returns (cells, ev)."""
     m, ev, cells, steps, ends = (host, other), {}, {}, [], []
     pre = {gc.name: {k: (es(gc, "battleEnd") or {}).get(k) for k in ("emitted", "applied")} for gc in m}
     hashed = hash_now(host, other)
@@ -307,7 +307,7 @@ def bring_up(host, client, key, tag):
     guarded(tag, lambda: PSR.drive_to_gm2_battlescape(host, client), m)
     crash0 = session._crash_log_snapshot()
     pinned = guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="r5u9"), m)   # 0 is legal (PSR :147)
-    guarded(tag, lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)   # as boot_e6 before its hash
+    guarded(tag, lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)   # as boot_pvp before its hash
     return {"lobbyGamemode": gm, "pinned": pinned}, crash0
 
 

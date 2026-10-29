@@ -9,7 +9,7 @@ and the orchestrator ruling R-U6-SB-1 (FP2-sneak and FP4-sneak dropped: no probe
 per-step energy equals a walk's on stock armor, so energy is EVIDENCE only - TASK 0's capture proved both walks BAM_SNEAK).
 Constants: rewrite/r5u6-task0/sb/CONSTANTS.md (TASK 0 boots BPa = BPb). Probe and D(gc, uid): see test_footsteps.py.
 
-Boot BP (key 49062): test_battle_end_rules.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
+Boot BP (key 49062): test_battle_end_rules.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
 reactions 0, R5-U3's staging (test_pvp_react_mc.stage: TILES, A's pistol, S3's rifle, the host's END TURN -> side 1).
   FP1  the opponent's walk plays on the host; the client hears its own; the client's own reaction setting never applies:
        S3 reactions 100, firing 0, TU 255; both cameras on (15,3,0); host set_seed SEED_FP1; the client's send_walk of A
@@ -175,7 +175,7 @@ def boot_bp():
     try:
         print(f"EVIDENCE options: host {opt_lines(host)} client {opt_lines(client)}", flush=True)
         try:
-            G3F.guarded("BP", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("BP", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("BP", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
             print(f"EVIDENCE boot: walkSounds host {FS.sounds(host)} client {FS.sounds(client)}", flush=True)

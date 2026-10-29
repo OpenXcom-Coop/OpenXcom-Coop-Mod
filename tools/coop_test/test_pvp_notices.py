@@ -8,7 +8,7 @@ QU2-17 (a), QU2-A1-1 .. QU2-A1-5 (a)).
 Constants: rewrite/r5u2-task0/sc/CONSTANTS.md (TASK 0 boots Na, Nb, Nc on the C1 probe build; every pin equal on Nb / Nc,
 BO_DEST swapped after Na by U2-1.8's rule, F14660).
 
-Boot N2 (key 48883, dirs r5u2_n2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot N2 (key 48883, dirs r5u2_n2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.stage_tiles(RM.TILES) with BO_PATH / BO_DEST checked open ground, the host's END TURN -> side 1
 turn 1 (the alien seat's own turn).
   WR  the alien player's new-contact count is the X-COM soldiers its side sees: the client's lever turn of A to its own
@@ -188,7 +188,7 @@ def boot_n2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("N2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("N2", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("N2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:

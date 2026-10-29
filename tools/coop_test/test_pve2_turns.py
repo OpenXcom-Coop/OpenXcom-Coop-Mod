@@ -341,9 +341,9 @@ def row_t4(host, client, crash0):
 
 
 def row_e2(host, client, crash0):
-    """Spec (f) E2 (test_battle_end_rules E5's no-press shape): records at 0 and the hash taken; host kill_unit_real
-    {faction 0}; the kill settles; the players' side ends by itself; the host's NextTurnState closed by
-    dismiss_popup; both DebriefingStates."""
+    """Spec (f) E2 (test_battle_end_rules all_xcom_down's no-press shape): records at 0 and the hash taken; host
+    kill_unit_real {faction 0}; the kill settles; the players' side ends by itself; the host's NextTurnState closed
+    by dismiss_popup; both DebriefingStates."""
     m, ev, ends = (host, client), {}, []
     live = sorted(i for i in ALIEN_IDS if not (units(host).get(i) or {}).get("isOut"))
     pre = {gc.name: {k: (es(gc, "battleEnd") or {}).get(k) for k in ("emitted", "applied")} for gc in m}

@@ -7,7 +7,7 @@ Spec: docs repo rewrite/prompts/r5u6_pvp_options.md section (d) Stage S-C and (f
 U6-1 (U6-1.4, U6-1.7). Constants: rewrite/r5u6-task0/sc/CONSTANTS.md (TASK 0 boots CPa = CPb on the probe build). Probes
 (TEST-ONLY, TC1 / TC2) and the scan's real-UI order: see test_scan_share.py (its helpers are imported).
 
-Boot CP (key 49064): test_battle_end_rules.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
+Boot CP (key 49064): test_battle_end_rules.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
 reactions 0; turn 1, the X-COM side.
   SC3  S (8) on SC3_S_TILE facing A; the scanner into S's right hand by lever (both, ids equal); set_tu_both(S); A
        motionPoints 30 (both, client first); the host's real-UI USE SCANNER (TAB S, the right-hand box, key 49); its
@@ -68,7 +68,7 @@ def boot_cp():
     m = (host, client)
     try:
         try:
-            G3F.guarded("CP", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("CP", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("CP", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:

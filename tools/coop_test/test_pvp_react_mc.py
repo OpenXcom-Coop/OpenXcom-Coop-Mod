@@ -6,7 +6,7 @@ Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_react_mc.
 R-U3-B-2 (row order R2, M2, R1, M1: R1's reaction gives A a host AI module, F11585) and register row R5U3-O1 (O1 (a)).
 Constants: rewrite/r5u3-task0/sb/CONSTANTS.md (TASK 0 boots Ba2, Bb2, Bn2 on the unchanged build; every pin equal).
 
-Boot B2 (key 48678): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, the TASK 0
+Boot B2 (key 48678): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, the TASK 0
 staging (TILES; A's plasma pistol and S3's rifle by lever), the host's END TURN -> side 1 turn 1.
   R2  X-COM reacts to the alien seat's walk: S3 reactions 100, firing 0, TU; host set_seed SEED_R2; client send_walk.
       R2-walk   one new host context W {intent, walk, A}; the client's coopIntentsSent.walk +1, inFlight null
@@ -520,7 +520,7 @@ def boot_b2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("B2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("B2", lambda: BER.boot_pvp(host, client, KEY), m)
             G3F.guarded("B2", lambda: G3F.reactions_zero(host, client), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:

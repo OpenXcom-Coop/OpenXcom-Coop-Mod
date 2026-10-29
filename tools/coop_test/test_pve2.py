@@ -350,9 +350,9 @@ def row_a3(host, client, staged, crash0):
 
 
 def row_a4(host, client, crash0):
-    """Spec (f) A4 (test_battle_end_rules E4's two-press shape): records at 0 and the hash taken; host kill_unit_real
-    {faction 1}; the kill chain; the client's END TURN; the host shows END TURN 1/2; the host's END TURN; the host's
-    NextTurnState closed by dismiss_popup; both DebriefingStates."""
+    """Spec (f) A4 (test_battle_end_rules turn_limit's two-press shape): records at 0 and the hash taken; host
+    kill_unit_real {faction 1}; the kill chain; the client's END TURN; the host shows END TURN 1/2; the host's END
+    TURN; the host's NextTurnState closed by dismiss_popup; both DebriefingStates."""
     m, ev, ends = (host, client), {}, []
     pre = {gc.name: {k: (es(gc, "battleEnd") or {}).get(k) for k in ("emitted", "applied")} for gc in m}
     hashed = hash_now(host, client)

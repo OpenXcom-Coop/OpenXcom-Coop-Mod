@@ -1,7 +1,7 @@
 """test_fatal_vote_partner.py: the fatal-wounds vote after a partner's kill (V9) and in PvP (E6v).
 Spec, rulings, staging, answers, Q11 and the shared assertions: test_fatal_vote.py (whose helpers this file runs);
 the split is SV-T1 (P7-5b): V9 on test_client_shoot's C16 terror bring-up, E6v on test_battle_end_rules'
-gm2 boot_e6.
+gm2 boot_pvp.
 
   V9  (Q8 (a)) the client's own real-UI snap kills the last alien (C16: SEED_MAP 1 terror map, C = 8 with a rifle
       at C_TILE, A = 1000000 at A_TILE with health 1, set_seed SEED_C16 right before the click). SV-T3: the 12 other
@@ -14,8 +14,8 @@ gm2 boot_e6.
   E6v (P7-5 Q1 (a)) gm2: the host is X-COM (seat 0), the client the aliens (seat 1). WS0 = 8 wounded; host
       kill_unit_real {faction: 1}. Green: voters [0] (the alien seat never votes), the host's own question, the alien
       client stays on BattlescapeState with no question while Open and applies the open and close evs; host OK ->
-      close end -> NextTurnState -> battle_end -> test_battle_end_rules' E6 assertion set (the alien client's
-      display-only debriefing, S-D2).
+      close end -> NextTurnState -> battle_end -> test_battle_end_rules' pvp_elimination assertion set (the alien
+      client's display-only debriefing, S-D2).
 
 RED (S-V-A.1; one run, exit 2):
   V9  open: host top ConfirmEndMissionState (it asked while the client's chain ran, T0-3) with no Wait line and
@@ -130,9 +130,11 @@ def v9_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
     return f + extra
 
 
-def e6_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
-    """test_battle_end_rules' E6 assertion set (TASK 0 T0-6b: the gm2 vote ending equals it on S-D2's build)."""
-    return rules.row_verdict("E6", rules.ROW_EXPECT["E6"], hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb)
+def pvp_elimination_verdict(hrec, crec, cend, hend, b0, cleft, extra, hold, hdeb, cdeb):
+    """test_battle_end_rules' pvp_elimination assertion set (TASK 0 T0-6b: the gm2 vote ending equals it on S-D2's
+    build)."""
+    return rules.row_verdict("pvp_elimination", rules.ROW_EXPECT["pvp_elimination"], hrec, crec, cend, hend, b0, cleft,
+                             extra, hold, hdeb, cdeb)
 
 
 def row_v9(r):
@@ -172,10 +174,10 @@ def row_e6v(r):
     if not fvt.answer(r, r.host, "OK", "answer"):
         r.ending = "the host's OK was not pressed"
     fvt.check_close(r, "end", {0: True}, {"answerSent": "", "questionPushed": 0, "questionClosedByClose": 0})
-    fvt.ending(r, census, e6_verdict)
+    fvt.ending(r, census, pvp_elimination_verdict)
 
 
-ROWS = (("V9", boot_c16, row_v9), ("E6v", rules.boot_e6, row_e6v))
+ROWS = (("V9", boot_c16, row_v9), ("E6v", rules.boot_pvp, row_e6v))
 
 
 def main():

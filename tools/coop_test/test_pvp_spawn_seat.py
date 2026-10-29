@@ -6,7 +6,7 @@ with the orchestrator rulings R-U4-A-1 (the shooter staged onto open ground, has
 click that selects Z3), R-U4-A-5 / R-U4-A-7 (Z3's victim staged onto open ground first, facing Z3's walk) and R-9B-2
 (boot P3's lobby key 48697). Constants: rewrite/r5u4-task0/CONSTANTS.md (TASK 0 boots P2a / P2b, P3a-P3d).
 
-Boot P2 (gm2: the partner plays the aliens; key 48689, dirs r5u4_p2_host / _client): test_battle_end_rules.boot_e6;
+Boot P2 (gm2: the partner plays the aliens; key 48689, dirs r5u4_p2_host / _client): test_battle_end_rules.boot_pvp;
 every live unit's reactions 0.
   Z2  side 0: X2's rifle, X2 onto open ground, X's spawn staging (STR_ZOMBIE, spawnUnitFaction 1), host set_seed, the
       host-local lever snap shot of X2 at FLOOR_Z2 converts X into the zombie Z2 on X-COM's side: Z2-spawn, Z2-seat (the
@@ -113,7 +113,7 @@ def boot_p2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("P2", lambda: BER.boot_e6(host, client, P2_KEY), m)
+            G3F.guarded("P2", lambda: BER.boot_pvp(host, client, P2_KEY), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("P2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:

@@ -7,7 +7,7 @@ AMENDMENT U1-1 (the plan review's A-1 .. A-8; here A-2: F5 is a PANIC, F4's D), 
 (F5 re-staged with a second alien B made by R5-U4's conversion lever; DF-U1-2-1: F4-agree is red at A1).
 Constants: rewrite/r5u1-task0/sa/CONSTANTS.md (TASK 0 boots Aa, Ab and the U1-2 re-measure boots Ae, Af; pins equal).
 
-Boot A2 (key 48916, dirs r5u1_a2_host / _client): BER.boot_e6 (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+Boot A2 (key 48916, dirs r5u1_a2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
 unit's reactions 0, RM.TILES with W (12) on W_OUT facing W_DIR (FLOOR_B also checked open ground), the settle cycle
 (host END TURN, client END TURN -> side 0 turn 2). Host orders are real-UI (tab_select, RM.host_walk); client orders
 are intents. VH(gc, id) = battle_state(gc).units[id].visibleHere (what that machine's map and minimap draw a unit by,
@@ -76,7 +76,7 @@ from test_host_combat import evs_since  # noqa: E402
 from test_ai_origins import host_payloads  # noqa: E402
 
 KEY = "48916"
-A_ID = RM.A_ID                    # 1000000: the alien of boot_e6 (STR_SECTOID_SOLDIER), the client's seat 1
+A_ID = RM.A_ID                    # 1000000: the alien of boot_pvp (STR_SECTOID_SOLDIER), the client's seat 1
 W_ID, S4_ID, U_ID = 12, 11, 13    # the walker W, S4 (F3), the unseen walker (F6)
 A_TILE = RM.TILES[A_ID][0]        # (15,2,0) facing 4: sees 8, 9, 10, 11
 W_OUT, W_DIR = (19, 2, 0), 6      # open ground, A inside W's sector, W outside A's
@@ -412,7 +412,7 @@ def boot_a2():
     m = (host, client)
     try:
         try:
-            G3F.guarded("A2", lambda: BER.boot_e6(host, client, KEY), m)
+            G3F.guarded("A2", lambda: BER.boot_pvp(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
             G3F.guarded("A2", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
