@@ -1,11 +1,8 @@
-"""test_client_nextturn.py: REV E.58 E58.3
-as corrected by REV E.59 E59.3 - SPEC 9's guarded call at
-`NextTurnState::close()` (`coopSuppressNextTurnLifecycle`, W1-P13a) makes a
-CLIENT's own `NextTurnState` dismissal presentation-only: `cleanupDeleted` +
-`popState` always run, but the tally / mind-control conversion /
-`finishBattle` / autosave tail below them never runs on a client. This unit
-does not build that guard (it is SPEC 9's) - it is SPEC 12's ACCEPTANCE of
-it.
+"""test_client_nextturn.py: the guarded call at `NextTurnState::close()`
+(`coopSuppressNextTurnLifecycle`) makes a CLIENT's own `NextTurnState`
+dismissal presentation-only: `cleanupDeleted` + `popState` always run, but
+the tally / mind-control conversion / `finishBattle` / autosave tail below
+them never runs on a client. This test checks that guard on both machines.
 
 PROOF METHOD: the HOST's vanilla tail is proven by the real battle autosave
 file `NextTurnState::close()` writes (`NextTurnState.cpp:544-587`), not by a
@@ -18,24 +15,24 @@ TRUE BY CONSTRUCTION (`localSavesAllowed()` false swallows every client
 save, `SaveGameState.cpp:192`) and is recorded INFORMATIONALLY, never as a
 bar.
 
-THE SETUP: a classic seated boot (REV E.48 SS.B.2 pin, mission
-STR_SMALL_SCOUT) crossing a full side boundary. `BattlescapeGame::endTurn()`
+THE SETUP: a classic seated boot (every AI unit pinned by `pin_ai_neutral`,
+mission STR_SMALL_SCOUT) crossing a full side boundary. `BattlescapeGame::endTurn()`
 pushes a `NextTurnState` at EVERY side transition except the one INTO the
 neutral side (`BattlescapeGame.cpp:764`: `if ((side != FACTION_NEUTRAL ||
 battleComplete) && _endTurnRequested)`), so one full cycle shows TWO of them
 per machine: a transient HOSTILE-side one (no autosave - the vanilla `else`
 arm's own `side == FACTION_PLAYER` guard) and, after
 HOSTILE->NEUTRAL->PLAYER, the PLAYER-side one this file's two legs act on
-(F228's lesson: do not assume which NextTurnState is on top). The transient
+(so never assume which NextTurnState is on top). The transient
 HOSTILE-side one on each machine is dismissed by this file's own driver
 (`drive_to_final_nextturn`) as ordinary setup - via the REAL `close_nextturn`
 path, never `dismiss_popup`, which pops a NextTurnState WITHOUT running
 close().
 
-WV-D77 (instrumented on the first surprise, captured, then fixed TWICE - a
-test bookkeeping bug, not a product one). A `side`-only dismiss loop races
-on the CLIENT (with B.2 pinning the whole hostile+neutral phase instantly
-inert, the client can apply its ENTIRE event backlog - pushing EVERY
+THE DRIVER: two simpler dismiss loops failed (test bookkeeping bugs, not
+product ones). A `side`-only dismiss loop races on the CLIENT (with
+`pin_ai_neutral` making the whole hostile+neutral phase instantly inert,
+the client can apply its ENTIRE event backlog - pushing EVERY
 NextTurnState in it - before the first poll ever runs; captured stack
 `['...BattlescapeState', 'NextTurnState', 'NextTurnState']`, both already
 present). A stack-COUNT-only drain is wrong the OTHER way on the HOST (the
@@ -46,10 +43,10 @@ ever advancing). `drive_to_final_nextturn` reads BOTH signals - see its own
 doc comment for the full trace and why that combination is sound for both
 machines.
 
-Cites REV E.48 SS.B.2, REV E.58 E58.3, REV E.59 E59.3 (F246: the
-top-state probe is `list_widgets`'s `resp["state"]`, `TestServer.cpp:7878`
-handler / `:7908` field - not `:3634`/`:6847`, unreachable in a battle),
-F255 (the measured autosave file BEFORE/AFTER pair).
+The top-state probe is `list_widgets`'s `resp["state"]` (the `list_widgets`
+handler in `TestServer.cpp`; the other `state` replies are unreachable in a
+battle). The host leg prints the autosave file's (size, mtime) BEFORE and
+AFTER its close.
 
 Run:  python tools/coop_test/test_client_nextturn.py
 """
@@ -95,12 +92,12 @@ def drive_to_final_nextturn(gc, target_side, target_turn, timeout=60):
     as `gc` passes through this boundary, until `battle_state` reports
     side==target_side and turn==target_turn (GROUND TRUTH - reliable even
     though the NextTurnState push/pop queue can lag behind it or, on a fast
-    fully-B.2-pinned cycle, race AHEAD of it), then drains any STILL-EXTRA
-    stacked NextTurnState down to exactly ONE - left standing for the caller
-    to close as the action under test.
+    cycle with every AI unit pinned, race AHEAD of it), then drains any
+    STILL-EXTRA stacked NextTurnState down to exactly ONE - left standing for
+    the caller to close as the action under test.
 
-    WV-D77 (instrumented on the first surprise, captured, then fixed - a
-    test bookkeeping bug, not a product one). Two captures:
+    Two simpler rules failed (test bookkeeping bugs, not product ones); a
+    captured run showed each:
     (1) A `side`-based dismiss loop ("close the current one while
     `battle_state()['side'] != FACTION_PLAYER'") RACES on the CLIENT: with
     `pin_ai_neutral` making the whole hostile+neutral phase instantly inert,
@@ -124,7 +121,7 @@ def drive_to_final_nextturn(gc, target_side, target_turn, timeout=60):
     count down to one - sound for the HOST (which cannot race ahead of its
     own UI: NextTurnState blocks `think()` until dismissed, so nothing is
     ever stacked before `side` reflects it) and for the CLIENT (whose extra,
-    already-stacked entries are interchangeable for this purpose - SPEC 9's
+    already-stacked entries are interchangeable for this purpose - the
     client-side close() tail is presentation-only regardless of which
     transition a given instance nominally represents, so it does not matter
     which of several already-stacked instances ends up being the one left
@@ -176,7 +173,7 @@ def run():
         pinned = pin_ai_neutral(host, client, tag="client_nextturn")
         assert len(pinned) > 0, (
             f"pin_ai_neutral pinned ZERO NONE-seat non-player units on a "
-            f"CLASSIC {MISSION} boot - the premise is unexercised (M9a-3)")
+            f"CLASSIC {MISSION} boot - the premise is unexercised")
 
         for gc in (host, client):
             r1 = gc.cmd({"cmd": "set_option", "name": "autosave", "value": True})
@@ -189,7 +186,8 @@ def run():
 
         turn0 = battle_state(host)["turn"]
 
-        # ---- F236/D66=(a) press pair: needed==2 in this classic fixture ----
+        # ---- END TURN press pair: needed==2 in this classic fixture; the
+        # client arms through its own real button first, the host completes ----
         client.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         def _host_shows_1_of_2():
@@ -201,7 +199,7 @@ def run():
         # ---- drive BOTH machines down to their own single, FINAL
         # PLAYER-side NextTurnState, dismissing each machine's transient
         # HOSTILE-side one along the way (drive_to_final_nextturn's own
-        # doc comment carries the WV-D77 trace for both machines) ----
+        # doc comment explains its stop rule for both machines) ----
         target_turn = turn0 + 1
         drive_to_final_nextturn(host, FACTION_PLAYER, target_turn, timeout=60)
         drive_to_final_nextturn(client, FACTION_PLAYER, target_turn, timeout=60)
@@ -271,7 +269,7 @@ def run():
             f"CLIENT leg: client is not inBattle after its own close: {cs_after}")
 
         client_wrote = os.path.exists(autosave_path(client))
-        print(f"[CLIENT leg] client wrote no autosave (informational, E58.3): "
+        print(f"[CLIENT leg] client wrote no autosave (informational): "
               f"exists={client_wrote}")
 
         print(f"[CLIENT leg] PASS: hash_now EQUAL before and after "
@@ -285,7 +283,7 @@ def run():
 
 def main():
     run()
-    print("ALL SPEC 12 test_client_nextturn TESTS PASSED")
+    print("ALL test_client_nextturn TESTS PASSED")
 
 
 if __name__ == "__main__":
