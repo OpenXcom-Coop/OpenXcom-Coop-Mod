@@ -1,86 +1,86 @@
 """test_ghost_impact.py: the watching machine shows the hit
-spark and the explosion of an action it did not execute - display only (spec
-rewrite/prompts/w2p5_display_ghosts.md section (f) "test_ghost_impact.py
-(S-B)", sections (b)3, (b)5, (b)7 and (b)11 for `hit` and `explosion`, ruling
-Q2 (b), as amended by PLAN REVIEW + AMENDMENT E1: PR-E5 (the delivery proof on
-option-ON rows only; a record with no display object counts completed at
-enqueue), PR-E6 (row order H1, H4, H6, H3, H2; H6 has its own battle_fire
-small rocket), OQ1 (a pellet `hit` joins the running combat ghost of its
-actionId; with none running it counts `joined` and draws nothing), OQ2 (Q2's
-two fields on all four coopCueExplosionInit branches and on coopCuePellet);
-amendments E3 / E3.1 (stage S-T): H2's throw follows its pre-action `turn`, so
-the Q1 (b) hold applies to its projectile ghost).
+spark and the explosion of an action it did not execute - display only.
 
-Before S-B the second player's machine shows no hit and no explosion: every
-applied `hit` / `explosion` cue only counts in cueCounts and the state snaps.
-After S-B every applied `hit` / `explosion` cue starts one
+Without the hit / explosion ghosts the second player's machine shows no hit and
+no explosion: every applied `hit` / `explosion` cue only counts in cueCounts and
+the state snaps. With them every applied `hit` / `explosion` cue starts one
 display-only combat ghost on the client (vanilla Explosion sprites on the
 client's Map, frame timing and sounds from the loaded rules; the explosion
-scatter from RNG::seedless), a pellet `hit` joins the running hit ghost, and
-the host's `hit` / `explosion` payloads carry the damage item's `itemType` and
-the weapon's `weaponType` (Q2 (b)). Six rows, ONE boot (terror seed 12, the
-Coop_Pellet_Test mod on both machines, coopGhostStepper pinned true in both
-boot options, every fire dial at its default), in this order (PR-E6: the END
-TURN last, the terrain-changing rockets before it):
+scatter from RNG::seedless), a pellet `hit` joins the running combat ghost of its
+actionId (with none running it counts `joined` and draws nothing), and the
+host's `hit` / `explosion` payloads carry the damage item's `itemType` and the
+weapon's `weaponType` (on all four coopCueExplosionInit branches and on
+coopCuePellet). A record with no display object counts completed at enqueue.
+Six rows, ONE boot (terror seed 12, the Coop_Pellet_Test mod on both machines,
+coopGhostStepper pinned true in both boot options, every fire dial at its
+default), in this order (the END TURN last, the terrain-changing rockets before
+it; option_off has its own small rocket):
 
-  H1  bullet hit on a wall (test_host_combat_terrain C2's staging). H gets
-      a rifle + clip (clear_hands, BOTH), H -> H1_H_TILE facing H1_H_DIR, H
-      firing 120; host set_seed SEED_H1 and battle_fire {aimed, H1_WALL}.
-      RED: client cueCounts.hit +1 and combatGhost.enqueued.hit +0; the hit
-      payload has no weaponType / itemType. GREEN: one hit record for the
-      hit's seq: frame == hitAnimation(STR_RIFLE_CLIP), frames == its
+  wall_hit  bullet hit on a wall (the staging of test_host_combat_terrain's
+      bullet wall hit). H gets a rifle + clip (clear_hands, BOTH), H ->
+      WALL_HIT_TILE facing WALL_HIT_DIR, H firing 120; host set_seed
+      WALL_HIT_SEED and battle_fire {aimed, FENCE_WALL}.
+      When broken: client cueCounts.hit +1 and combatGhost.enqueued.hit +0; the
+      hit payload has no weaponType / itemType. With the fix: one hit record for
+      the hit's seq: frame == hitAnimation(STR_RIFLE_CLIP), frames == its
       hitAnimationFrames when > 0 else Explosion::BULLET_FRAMES (10),
       intervalMs == max(1, 50 - 10 x explosionSpeed) (50), ms == frames x
       intervalMs (500), sprites == 1, sound == hitSound(STR_RIFLE_CLIP); the
       hit payload's weaponType STR_RIFLE, itemType STR_RIFLE_CLIP.
-  H4  pellets. H stays on H1_H_TILE facing H1_H_DIR (never
-      teleported onto its own tile, S2); H gets STR_PISTOL + the mod's
-      STR_COOP_PELLET_CLIP (clear_hands, BOTH); host set_seed SEED_H4 and
-      battle_fire {snap, H4_TARGET}. RED: shot +1, hit +1 +H4_PELLETS, hit
-      +0 ghosts. GREEN: the shot record has pellets true and ms 0; ONE hit
-      record (the main hit's seq) with sprites == 1 + H4_PELLETS; joined
-      +H4_PELLETS; the record's sound == hitSound(STR_COOP_PELLET_CLIP) (one
-      hit sound: the pellets play none); every hit payload (main and
-      pellets, OQ2) has weaponType STR_PISTOL, itemType STR_COOP_PELLET_CLIP.
-  H6  option OFF (declared green at red; "as G7 for an explosion"). Client
-      set_option coopGhostStepper false; H gets a rocket launcher +
-      STR_SMALL_ROCKET (clear_hands, BOTH), H -> H6_H_TILE facing H6_H_DIR,
-      H firing 120; host set_seed SEED_H6 and battle_fire {aimed,
-      H6_TARGET}; then the option back on. RED = GREEN: client
-      cueCounts.shot +1, cueCounts.explosion +H6_EXPLOSIONS, and
-      combatGhost.enqueued.shot / .explosion +0 while off (Q4 = a).
-  H3  rocket + terrain chain (test_host_combat_terrain C4's staging). H
-      gets a rocket launcher + STR_SMALL_ROCKET (clear_hands, BOTH), H ->
-      H3_H_TILE facing H3_H_DIR, two rifle clips dropped on H3_TARGET (BOTH),
-      H firing 120; host set_seed SEED_H3 and battle_fire {aimed, H3_TARGET}.
-      RED: +0 explosion ghosts; no weaponType / itemType. GREEN: the shot
-      record (as G1: speed == the host seat's fire dial + bulletSpeeds, seat
-      0, trajLen == the host's, pathMatches, ticks / ms per the formula,
-      sound == the ammo's fire sound, else the weapon's); the chain-0
-      explosion record from STR_SMALL_ROCKET's rules and the chain-1
-      (`terrain`, itemless) record: frame == EXPLOSION_OFFSET, payload power
-      46 -> 9 sprites, step 1, maxDelay 7, ms == (7 + 8) x 50 == 750; the
-      chain-0 payload's weaponType STR_ROCKET_LAUNCHER, itemType
-      STR_SMALL_ROCKET, the chain-1 payload neither (no item, Q2 "when
-      present").
-  H2  throw + END TURN grenade (test_host_combat_terrain C3's staging). H
-      gets a grenade (clear_hands, BOTH), H -> H2_H_TILE facing H2_H_DIR
-      (away from the throw tile, F490: a two-octant pre-action `turn`, stage
-      S-T), H TU max; host real-UI prime (fuse 0); host set_seed SEED_H2 and
-      battle_fire {throw, H2_THROW_TILE}; a rifle clip dropped on the landing
-      tile (BOTH); END TURN on both and the full side cycle. RED: +0
-      explosion ghosts; no weaponType / itemType. GREEN: the throw record as
-      G5 (arc, pathMatches, trajLen == the host's, the formula, sound ==
-      ITEM_THROW, soundEnd == ITEM_DROP); the explosion record (an `endturn`
-      context, no shot): sprites == max(1, power / 5), maxDelay / ms per
-      (b)3, sound == SMALL_EXPLOSION (power 50), 0 <= spread <= power / 2;
-      the payload's itemType STR_GRENADE (and weaponType STR_GRENADE: the
-      timed grenade is the attack's weapon and its own ammo).
-  H5  V4 over the whole file (declared: no ghost is needed for it): the
-      client's rngSeed after the last row equals its value after the boot
-      (TASK 0 T0-3 (ii)).
+  pellet_hits  pellets. H stays on WALL_HIT_TILE facing WALL_HIT_DIR (never
+      teleported onto its own tile); H gets STR_PISTOL + the mod's
+      STR_COOP_PELLET_CLIP (clear_hands, BOTH); host set_seed PELLET_SEED and
+      battle_fire {snap, PELLET_TARGET}. When broken: shot +1, hit +1
+      +PELLET_COUNT, hit +0 ghosts. With the fix: the shot record has pellets
+      true and ms 0; ONE hit record (the main hit's seq) with sprites == 1 +
+      PELLET_COUNT; joined +PELLET_COUNT; the record's sound ==
+      hitSound(STR_COOP_PELLET_CLIP) (one hit sound: the pellets play none);
+      every hit payload (main and pellets) has weaponType STR_PISTOL, itemType
+      STR_COOP_PELLET_CLIP.
+  option_off  option OFF (passes with or without the fix; test_ghost_projectile's
+      option-off check, for an explosion). Client set_option coopGhostStepper
+      false; H gets a rocket launcher + STR_SMALL_ROCKET (clear_hands, BOTH), H
+      -> OPTION_OFF_TILE facing OPTION_OFF_DIR, H firing 120; host set_seed
+      OPTION_OFF_SEED and battle_fire {aimed, OPTION_OFF_TARGET}; then the
+      option back on. Client cueCounts.shot +1, cueCounts.explosion
+      +OPTION_OFF_EXPLOSIONS, and combatGhost.enqueued.shot / .explosion +0
+      while off (no ghost while the option is off).
+  rocket_chain  rocket + terrain chain (the staging of test_host_combat_terrain's
+      rocket chain). H gets a rocket launcher + STR_SMALL_ROCKET (clear_hands,
+      BOTH), H -> ROCKET_TILE facing ROCKET_DIR, two rifle clips dropped on
+      ROCKET_TARGET (BOTH), H firing 120; host set_seed ROCKET_SEED and
+      battle_fire {aimed, ROCKET_TARGET}.
+      When broken: +0 explosion ghosts; no weaponType / itemType. With the fix:
+      the shot record (as test_ghost_projectile checks a host snap: speed ==
+      the host seat's fire dial + bulletSpeeds, seat 0, trajLen == the host's,
+      pathMatches, ticks / ms per the formula, sound == the ammo's fire sound,
+      else the weapon's); the chain-0 explosion record from STR_SMALL_ROCKET's
+      rules and the chain-1 (`terrain`, itemless) record: frame ==
+      EXPLOSION_OFFSET, payload power 46 -> 9 sprites, step 1, maxDelay 7, ms
+      == (7 + 8) x 50 == 750; the chain-0 payload's weaponType
+      STR_ROCKET_LAUNCHER, itemType STR_SMALL_ROCKET, the chain-1 payload
+      neither (no item: the fields are sent only when present).
+  endturn_grenade  throw + END TURN grenade (the staging of
+      test_host_combat_terrain's END TURN grenade). H gets a grenade
+      (clear_hands, BOTH), H -> GRENADE_TILE facing GRENADE_DIR (away from the
+      throw tile: a two-octant pre-action `turn`), H TU max; host real-UI prime
+      (fuse 0); host set_seed GRENADE_SEED and battle_fire {throw,
+      GRENADE_THROW_TILE}; a rifle clip dropped on the landing tile (BOTH); END
+      TURN on both and the full side cycle. The throw follows its pre-action
+      `turn`, so its projectile ghost waits for that turn. When broken: +0
+      explosion ghosts; no weaponType / itemType. With the fix: the throw record
+      as test_ghost_projectile checks a throw (arc, pathMatches, trajLen == the
+      host's, the formula, sound == ITEM_THROW, soundEnd == ITEM_DROP); the
+      explosion record (an `endturn` context, no shot): sprites == max(1, power
+      / 5), maxDelay / ms per the explosion formula, sound == SMALL_EXPLOSION
+      (power 50), 0 <= spread <= power / 2; the payload's itemType STR_GRENADE
+      (and weaponType STR_GRENADE: the timed grenade is the attack's weapon and
+      its own ammo).
+  client_rng_kept  the client's RNG over the whole file (no ghost is needed for
+      it): the client's rngSeed after the last row equals its value after the
+      boot.
 
-Explosion formula (spec (b)3, vanilla ExplosionBState::init; computed here from
+Explosion formula (vanilla ExplosionBState::init; computed here from
 the payload and the LOADED rules of the damage item the row names, itemless for
 a terrain link): pfa = the rule's powerForAnimation when > 0 else the payload
 power; sprites = max(1, pfa / 5); step = max(1, (pfa / 5) / 5); sprite i
@@ -101,48 +101,45 @@ Common to every row (after session.wait_host_idle: the host has no context and
 no BState, the client applied up to the host's lastSeqEmitted): hash_now
 {full:true} every bucket EQUAL; desyncSeen false on both; client
 coopClientBStatePushes unchanged and host 0; the client's rngSeed unchanged from
-the row's start (V4); the host's combatGhost all zero (the host never ghosts);
+the row's start; the host's combatGhost all zero (the host never ghosts);
 the client's combatGhost.live == 0 and completed + cut == enqueued per kind;
 the client's cueCounts moved by exactly the host's cues of the row per kind (its
-cues applied). Option-ON rows (all but H6, PR-E5) add the DELIVERY PROOF: every
+cues applied). Option-ON rows (all but option_off) add the DELIVERY PROOF: every
 host `shot` / `hit` / `explosion` cue of the row (host event_log; payloads from
 the host's openxcom.log `[coop-cue]` lines) has exactly one client ring record
 with that seq, its kind and unresolved / noMap false - except a pellet `hit`
-(payload `pellet`), which has none and counts in `joined` (OQ1) -
+(payload `pellet`), which has none and counts in `joined` -
 combatGhost.enqueued[k] moved by the client's cueCounts[k] delta minus the
 row's pellet hits, and joined by the row's pellet hits. Every row also requires
-its own cues (vacuous = red): their number, kind, shooter and pinned outcome.
-No wall-clock duration is asserted (F1503 / F1505: the harness host steps a
+its own cues (a row without them fails): their number, kind, shooter and pinned
+outcome. No wall-clock duration is asserted (the harness host steps a
 projectile every ~24 ms; a ghost may complete or be cut, so only completed +
-cut == enqueued): every timing check is an equality with the (b)3 formula
+cut == enqueued): every timing check is an equality with the formula above,
 computed here.
 
-Probes (event_state, all present before S-B: S-A.1 / S-T.1): combatGhost
+Probes (event_state): combatGhost
 {enqueued, completed, cut: {shot, hit, explosion}, joined, live, unresolved,
-noMap, ring} (both machines; hit / explosion records are written by S-B's green
-commit), rngSeed (both, read only), shotTrajectories (host: the last 16 shots'
-{seq, trajLen, speed, impact}), speed (the SPEC 17 seat table), cueCounts,
-closedContexts; the read-only lever display_rules {types} (items' display rules
-and the Mod constants from the loaded rules). S-B.1 adds no probe and no lever:
-the rows read only what S-A.1 already exposes.
+noMap, ring} (both machines), rngSeed (both, read only), shotTrajectories (host:
+the last 16 shots' {seq, trajLen, speed, impact}), speed (the per-seat speed
+table), cueCounts, closedContexts; the read-only test command display_rules
+{types} (items' display rules and the Mod constants from the loaded rules).
 
-FIXTURE (TASK 0 T0-5 and T0-7 on the S-B.1 build; the roster-pinned terror boot
-of test_host_combat_terrain.py with the Coop_Pellet_Test mod on both):
+FIXTURE (the roster-pinned terror boot of test_host_combat_terrain.py with the
+Coop_Pellet_Test mod on both):
 set_seed SEED_ROSTER on the HOST right before its open_new_battle, mission
 STR_TERROR_MISSION, set_seed SEED_MAP right before newbattle_ok, seat_count 2,
 MAP_FP asserted on both, pin_ai_neutral, the mod's active line on both. Every
-lever pair goes to the CLIENT first; item ids are read from the lever
-replies at run time.
+test command sent to both machines goes to the CLIENT first; item ids are read
+from its replies at run time.
 
-RED-THEN-GREEN (spec (d) row S-B). Commit S-B.1 (this file and the pellet mod;
-no probe, no lever, no product change) is run ONCE: H1, H4, H3 and H2 must FAIL
-with their RED evidence (enqueued.hit / .explosion +0 while the cues applied,
-the payload rule fields absent); H6 and H5 are declared green at red. Commit
-S-B.2 (the product) is run ONCE and every row must PASS. Each row prints ONE
-"EVIDENCE <id>:" line (JSON) with both machines' fields BEFORE its green
-conditions are checked; main() runs every row even after an earlier one failed
-and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait
-that times out is recorded in the EVIDENCE line and fails the row.
+Without the hit / explosion ghosts, wall_hit, pellet_hits, rocket_chain and
+endturn_grenade FAIL (enqueued.hit / .explosion +0 while the cues applied, the
+payload rule fields absent); option_off and client_rng_kept pass either way.
+Each row prints ONE "EVIDENCE <id>:" line (JSON) with both machines' fields
+BEFORE its pass conditions are checked; main() runs every row even after an
+earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait
+is bounded; a wait that times out is recorded in the EVIDENCE line and fails the
+row.
 
 one run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all six rows pass, 2 otherwise (a
@@ -182,43 +179,44 @@ MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_N
 MOD_ACTIVE_LINE = "- Coop_Pellet_Test v1.0"
 PELLET_CLIP = "STR_COOP_PELLET_CLIP"
 
-# T0-7 (S-B.1 build; 3 boots + one K=2 run of this file, every outcome below identical; the fire dials stay at
-# their default 6 on both seats): the item ids run rifle 96 / clip 97, pistol 98 / pellet clip 99, H6 launcher
-# 100 / rocket 101, H3 launcher 102 / rocket 103 / clips 104, 105, grenade 106 / clip 107 (read at run time).
+# Measured over 3 boots and one K=2 run of this file, every outcome below identical (the fire dials stay at their
+# default 6 on both seats): the item ids run rifle 96 / clip 97, pistol 98 / pellet clip 99, option_off launcher
+# 100 / rocket 101, rocket_chain launcher 102 / rocket 103 / clips 104, 105, grenade 106 / clip 107 (read at run time).
 
-# ----- H1 (test_host_combat_terrain C2; TASK 0 T0-5 / T0-7) -----
-H1_H_TILE, H1_H_DIR = (4, 16, 0), 4       # open road, facing the fence 4 tiles south
-H1_WALL = (4, 20, 0)                      # the fence's NORTH wall
-V_NORTHWALL = 2                           # src/Mod/MapData.h enum VoxelType
-SEED_H1 = 1                               # aimed: impact (72,320,5) on H1_WALL's north wall, host trajLen 51;
-                                          # hit power 30, not a miss; chain shot, hit, bt_action_end
+# ----- wall_hit (the staging of test_host_combat_terrain's bullet wall hit) -----
+WALL_HIT_TILE, WALL_HIT_DIR = (4, 16, 0), 4  # open road, facing the fence 4 tiles south
+FENCE_WALL = (4, 20, 0)                      # the fence's NORTH wall
+V_NORTHWALL = 2                              # src/Mod/MapData.h enum VoxelType
+WALL_HIT_SEED = 1                            # aimed: impact (72,320,5) on FENCE_WALL's north wall, host trajLen 51;
+                                             # hit power 30, not a miss; chain shot, hit, bt_action_end
 
-# ----- H4 (TASK 0 T0-5: Coop_Pellet_Test, SEED_H4 1, k = 3) -----
-H4_TARGET = (4, 18, 0)                    # road floor 2 tiles south of H1_H_TILE (H faces it after H1)
-SEED_H4 = 1                               # snap: impact floor (73,294,1), host trajLen 25; main hit + 3 pellet
-H4_PELLETS = 3                            # hits (pellet 1, 2, 3), power 26 each; H tu cost 10
+# ----- pellet_hits (Coop_Pellet_Test, PELLET_SEED 1, k = 3) -----
+PELLET_TARGET = (4, 18, 0)                   # road floor 2 tiles south of WALL_HIT_TILE (H faces it after wall_hit)
+PELLET_SEED = 1                              # snap: impact floor (73,294,1), host trajLen 25; main hit + 3 pellet
+PELLET_COUNT = 3                             # hits (pellet 1, 2, 3), power 26 each; H tu cost 10
 
-# ----- H6 (PR-E6: its own small rocket; TASK 0 T0-7, the first and only construction) -----
-H6_H_TILE, H6_H_DIR = (14, 8, 0), 0       # the open street north of the URBAN block (x 10..19); faces north
-H6_TARGET = (14, 2, 0)                    # road floor 6 tiles north: no unit and no explosive part within 3 tiles
-SEED_H6 = 1                               # aimed: impact floor (233,47,1), host trajLen 84; ONE explosion
-H6_EXPLOSIONS = 1                         # centred (233,48,2), power 75, radius 3, chain 0, no terrain link,
-H6_BLAST = (0, False, 75)                 # no `hit`: (chain, terrain, power)
+# ----- option_off (its own small rocket; one construction) -----
+OPTION_OFF_TILE, OPTION_OFF_DIR = (14, 8, 0), 0  # the open street north of the URBAN block (x 10..19); faces north
+OPTION_OFF_TARGET = (14, 2, 0)               # road floor 6 tiles north: no unit and no explosive part within 3 tiles
+OPTION_OFF_SEED = 1                          # aimed: impact floor (233,47,1), host trajLen 84; ONE explosion
+OPTION_OFF_EXPLOSIONS = 1                    # centred (233,48,2), power 75, radius 3, chain 0, no terrain link,
+OPTION_OFF_BLAST = (0, False, 75)            # no `hit`: (chain, terrain, power)
 
-# ----- H3 (test_host_combat_terrain C4; TASK 0 T0-5 / T0-7) -----
-H3_H_TILE, H3_H_DIR = (22, 34, 0), 0
-H3_TARGET = (21, 26, 0)                   # ROADS floor beside the gas pump (20,26,0); two rifle clips dropped here
-H3_ROCKET = "STR_SMALL_ROCKET"
-SEED_H3 = 1                               # aimed: impact floor (346,432,1), host trajLen 115; explosion chain 0
-H3_POWERS = (75, 46)                      # (power 75, radius 3) + the pump's chained terrain link (chain 1,
-                                          # `terrain`, itemless, power 46, radius 4); both clips destroyed
+# ----- rocket_chain (the staging of test_host_combat_terrain's rocket chain) -----
+ROCKET_TILE, ROCKET_DIR = (22, 34, 0), 0
+ROCKET_TARGET = (21, 26, 0)                  # ROADS floor beside the gas pump (20,26,0); two rifle clips dropped here
+SMALL_ROCKET = "STR_SMALL_ROCKET"
+ROCKET_SEED = 1                              # aimed: impact floor (346,432,1), host trajLen 115; explosion chain 0
+ROCKET_POWERS = (75, 46)                     # (power 75, radius 3) + the pump's chained terrain link (chain 1,
+                                             # `terrain`, itemless, power 46, radius 4); both clips destroyed
 
-# ----- H2 (test_host_combat_terrain C3; TASK 0 T0-5 / T0-7) -----
-H2_H_TILE, H2_H_DIR = (5, 17, 0), 2       # faces east, AWAY from the throw tile: a two-octant turn first
-H2_THROW_TILE = (5, 11, 0)                # 6 tiles north; the grenade lands here, a rifle clip is dropped here
-SEED_H2 = 1                               # throw chain turn, shot, bt_action_end (the shot record waits on the
-H2_POWER = 50                             # turn: afterTurnSeq); host trajLen 89; lands on H2_THROW_TILE; END TURN:
-                                          # ONE explosion (endturn context), power 50, radius 5, centre (88,184,0)
+# ----- endturn_grenade (the staging of test_host_combat_terrain's END TURN grenade) -----
+GRENADE_TILE, GRENADE_DIR = (5, 17, 0), 2    # faces east, AWAY from the throw tile: a two-octant turn first
+GRENADE_THROW_TILE = (5, 11, 0)              # 6 tiles north; the grenade lands here, a rifle clip is dropped here
+GRENADE_SEED = 1                             # throw chain turn, shot, bt_action_end (the shot record waits on the
+GRENADE_POWER = 50                           # turn: afterTurnSeq); host trajLen 89; lands on GRENADE_THROW_TILE; END
+                                             # TURN: ONE explosion (endturn context), power 50, radius 5, centre
+                                             # (88,184,0)
 KEY_PRIME, KEY_FUSE_0 = 49, 48            # PRIME (grenade menu item 1), fuse 0
 
 # ----- display constants (vanilla code, not rules: Explosion.cpp, ExplosionBState.cpp) -----
@@ -228,10 +226,10 @@ HALF_ANIM_MS = 50                         # BattlescapeState::DEFAULT_ANIM_SPEED
 DEPTH = 0                                 # SavedBattleGame::getDepth(): xcom1 battles have no depth
 NO_SOUND = -1                             # Mod::NO_SOUND
 
-DISPLAY_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_PISTOL", PELLET_CLIP, "STR_ROCKET_LAUNCHER", H3_ROCKET,
+DISPLAY_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_PISTOL", PELLET_CLIP, "STR_ROCKET_LAUNCHER", SMALL_ROCKET,
                  "STR_GRENADE")
 CUE_KINDS = ("shot", "hit", "explosion")
-Q2_KEYS = ("weaponType", "itemType")
+RULE_TYPE_KEYS = ("weaponType", "itemType")
 PROBE_KEYS = ("combatGhost", "rngSeed", "shotTrajectories", "cueCounts", "lastSeqEmitted", "lastSeqApplied",
               "desyncSeen", "coopClientBStatePushes", "speed", "closedContexts")
 
@@ -268,7 +266,7 @@ def cue_delta(before, after, kind):
 
 
 def fire_dial(snap, seat):
-    """`seat`'s fire dial in this machine's SPEC 17 seat table (None when absent)."""
+    """`seat`'s fire dial in this machine's per-seat speed table (None when absent)."""
     ent = [s for s in ((snap.get("speed") or {}).get("seats") or []) if s.get("seat") == seat]
     return ent[0].get("fire") if ent else None
 
@@ -321,7 +319,7 @@ def staging_fails(staged):
 
 def collect(host, client, before, seq0, rng0):
     """The row's end state: both machines' probes, the row's evs, the host's
-    P5 cues with their payloads, the host's per-seq trajectories and the client's
+    combat cues with their payloads, the host's per-seq trajectories and the client's
     ring records by seq."""
     after = snap2(host, client)
     hev, cev = evs_since(host, seq0), evs_since(client, seq0)
@@ -347,9 +345,10 @@ def pellet_of(c):
 
 
 def cue_view(rec):
-    """Per host P5 cue: seq, kind, actionId, the payload brief (incl. Q2's fields) and the client's ring record(s)."""
+    """Per host combat cue: seq, kind, actionId, the payload brief (incl. the rule type fields) and the client's ring
+    record(s)."""
     keys = ("actor", "unit", "action", "impact", "impactVoxel", "voxel", "centreVoxel", "power", "radius", "chain",
-            "terrain", "miss", "pellet", "damageType") + Q2_KEYS
+            "terrain", "miss", "pellet", "damageType") + RULE_TYPE_KEYS
     return [{"seq": c["seq"], "kind": c["kind"], "actionId": c["actionId"],
              "payload": {k: c["payload"].get(k) for k in keys if k in c["payload"]},
              "hostTraj": rec["traj"].get(c["seq"]) if c["kind"] == "shot" else None,
@@ -376,7 +375,7 @@ def evidence(row, rec, extra):
 
 
 def common_fails(host, client, rec, option_on, what):
-    """Spec (f) common asserts; PR-E5: the delivery proof on option-ON rows only."""
+    """The checks common to every row; the delivery proof on option-ON rows only."""
     fails = []
     try:
         assert_hash_clean(host, client, full=True, what=what)
@@ -392,7 +391,7 @@ def common_fails(host, client, rec, option_on, what):
     if a["host"]["coopClientBStatePushes"] != 0:
         fails.append(f"host coopClientBStatePushes={a['host']['coopClientBStatePushes']} (want 0)")
     if rec["rng"]["start"] is None or rec["rng"]["end"] != rec["rng"]["start"]:
-        fails.append(f"client rngSeed {rec['rng']} (want the row's start value at its end: V4)")
+        fails.append(f"client rngSeed {rec['rng']} (want the row's start value at its end)")
     hc = a["host"]["combatGhost"] or {}
     hz = all(kind_of(hc.get(g), k) == 0 for g in ("enqueued", "completed", "cut") for k in CUE_KINDS) \
         and all((hc.get(k) or 0) == 0 for k in ("joined", "live", "unresolved", "noMap")) and not hc.get("ring")
@@ -422,7 +421,7 @@ def common_fails(host, client, rec, option_on, what):
         if pellet_of(x):
             if rs:
                 fails.append(f"delivery: pellet hit seq {x['seq']} has client ring record(s) {rs} (want none: a "
-                             f"pellet joins, OQ1)")
+                             f"pellet joins)")
             continue
         if len(rs) != 1 or rs[0].get("kind") != x["kind"] or rs[0].get("unresolved") or rs[0].get("noMap"):
             fails.append(f"delivery: host {x['kind']} seq {x['seq']} has {len(rs)} client ring record(s) {rs} (want "
@@ -436,7 +435,7 @@ def common_fails(host, client, rec, option_on, what):
                          f"+{dc - np}{' = the cues minus the pellet hits' if np else ''})")
     dj = (cc.get("joined") or 0) - (cb.get("joined") or 0)
     if dj != len(pellets):
-        fails.append(f"delivery: client combatGhost.joined +{dj} (want +{len(pellets)}: the row's pellet hits, OQ1)")
+        fails.append(f"delivery: client combatGhost.joined +{dj} (want +{len(pellets)}: the row's pellet hits)")
     return fails
 
 
@@ -452,17 +451,17 @@ def only_record(rec, c):
     return rs[0] if len(rs) == 1 else None
 
 
-def q2_fails(c, weapon, item):
-    """Q2 (b), OQ2: the cue's payload carries the RuleItem type strings of the attack's weapon and damage item,
+def rule_type_fails(c, weapon, item):
+    """The cue's payload carries the RuleItem type strings of the attack's weapon and damage item,
     when present (an itemless terrain link carries neither)."""
     want = {}
     if weapon:
         want["weaponType"] = weapon
     if item:
         want["itemType"] = item
-    got = {k: c["payload"].get(k) for k in Q2_KEYS if k in c["payload"]}
+    got = {k: c["payload"].get(k) for k in RULE_TYPE_KEYS if k in c["payload"]}
     if got != want:
-        return [f"{c['kind']} seq {c['seq']}: payload rule fields {got or 'absent'} (want {want or 'absent'}: Q2 (b))"]
+        return [f"{c['kind']} seq {c['seq']}: payload rule fields {got or 'absent'} (want {want or 'absent'})"]
     return []
 
 
@@ -478,7 +477,7 @@ def rule_list(rules, item, field):
 
 
 def hit_want(rules, item):
-    """Spec (b)3 bullet hit, not a miss (vanilla ExplosionBState::init's non-melee branch)."""
+    """The bullet hit's display, not a miss (vanilla ExplosionBState::init's non-melee branch)."""
     r = rules.get(item) or {}
     anim = r.get("hitAnimation", -1)
     fc = r.get("hitAnimationFrames", -1)
@@ -489,7 +488,7 @@ def hit_want(rules, item):
 
 
 def hit_record_fails(rec, c, rules, item):
-    """H1 GREEN: the bullet hit's record."""
+    """wall_hit with the fix: the bullet hit's record."""
     if c["payload"].get("miss") is not False:
         return [f"precondition: hit seq {c['seq']} payload miss={c['payload'].get('miss')} (want false)"]
     r = only_record(rec, c)
@@ -503,7 +502,7 @@ def hit_record_fails(rec, c, rules, item):
 
 
 def explosion_want(c, rules, item, k):
-    """Spec (b)3 explosion from the payload and `item`'s loaded rules (None = itemless: a terrain link)."""
+    """The explosion formula from the payload and `item`'s loaded rules (None = itemless: a terrain link)."""
     p = c["payload"]
     r = (rules.get(item) or {}) if item else None
     power, chain = p.get("power"), p.get("chain")
@@ -532,7 +531,8 @@ def explosion_want(c, rules, item, k):
 
 
 def explosion_record_fails(rec, c, rules, item, k):
-    """H2 / H3 GREEN: one explosion record per the formula; 0 <= spread <= pfa / 2 (the seedless scatter)."""
+    """endturn_grenade / rocket_chain with the fix: one explosion record per the formula; 0 <= spread <= pfa / 2 (the
+    seedless scatter)."""
     want, ids = explosion_want(c, rules, item, k)
     if want is None:
         return [f"precondition: explosion seq {c['seq']} payload power/chain {c['payload']} (want ints)"]
@@ -554,7 +554,8 @@ def explosion_record_fails(rec, c, rules, item, k):
 
 
 def shot_record_fails(rec, s, p, rules, weapon, ammo, dial, arc=False):
-    """A shot's S-A record (as G1 / G5): speed == the seat's dial + the bulletSpeeds (a throw: the dial only)."""
+    """A shot's projectile ghost record (as test_ghost_projectile checks a snap / a throw): speed == the seat's dial +
+    the bulletSpeeds (a throw: the dial only)."""
     wr, ar = rules.get(weapon) or {}, rules.get(ammo) or {}
     if arc:
         speed = dial
@@ -576,41 +577,41 @@ def finish(fails):
 # ===================== rows =====================
 
 
-def h1_wall_hit(host, client, ctx):
+def row_wall_hit(host, client, ctx):
     notes = []
     rng0 = rng_of(client)
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_RIFLE", "ammo": "STR_RIFLE_CLIP",
                             "clear_hands": True}, ("weaponId", "ammoId"))
-    ph = tele_both(host, client, H_ID, H1_H_TILE, H1_H_DIR)
+    ph = tele_both(host, client, H_ID, WALL_HIT_TILE, WALL_HIT_DIR)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": H_ID, "stat": "firing",
                         "value": FIRING_120}, ("tu",))
     staged = diff_buckets(host, client)
     before = snap2(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_H1})
-    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": H1_WALL[0], "y": H1_WALL[1],
-                     "z": H1_WALL[2], "tu": TU_MAX}, notes, "aimed")
+    host.ok({"cmd": "set_seed", "seed": WALL_HIT_SEED})
+    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": FENCE_WALL[0], "y": FENCE_WALL[1],
+                     "z": FENCE_WALL[2], "tu": TU_MAX}, notes, "aimed")
     settle(host, client, notes)
     rec = collect(host, client, before, seq0, rng0)
-    evidence("H1", rec, {"rifle": g.get("weaponId"), "clip": g.get("ammoId"), "H": ph, "fire": rf,
+    evidence("wall_hit", rec, {"rifle": g.get("weaponId"), "clip": g.get("ammoId"), "H": ph, "fire": rf,
                          "stagedDiff": staged, "notes": notes,
                          "H_after": {"host": ubrief(units(host).get(H_ID)), "client": ubrief(units(client).get(H_ID))}})
     fails = list(notes) + staging_fails(staged)
     shots, hits = cues_of(rec, "shot"), cues_of(rec, "hit")
     sp = shots[0]["payload"] if len(shots) == 1 else {}
     if (len(shots) != 1 or sp.get("actor") != H_ID or sp.get("action") != "aimed"
-            or voxel_tile(sp.get("impactVoxel")) != H1_WALL or sp.get("impact") != V_NORTHWALL
+            or voxel_tile(sp.get("impactVoxel")) != FENCE_WALL or sp.get("impact") != V_NORTHWALL
             or len(hits) != 1 or pellet_of(hits[0]) or cues_of(rec, "explosion")):
         fails.append(f"precondition: the row's cues {[(c['seq'], c['kind'], c['payload']) for c in rec['cues']]} "
-                     f"(want one aimed `shot` by H on {H1_WALL} impact V_NORTHWALL {V_NORTHWALL}, then one `hit`)")
-    fails += common_fails(host, client, rec, True, "H1")
+                     f"(want one aimed `shot` by H on {FENCE_WALL} impact V_NORTHWALL {V_NORTHWALL}, then one `hit`)")
+    fails += common_fails(host, client, rec, True, "wall_hit")
     for c in hits[:1]:
         fails += hit_record_fails(rec, c, ctx["rules"], "STR_RIFLE_CLIP")
-        fails += q2_fails(c, "STR_RIFLE", "STR_RIFLE_CLIP")
+        fails += rule_type_fails(c, "STR_RIFLE", "STR_RIFLE_CLIP")
     finish(fails)
 
 
-def h4_pellets(host, client, ctx):
+def row_pellet_hits(host, client, ctx):
     notes = []
     rng0 = rng_of(client)
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_PISTOL", "ammo": PELLET_CLIP,
@@ -620,27 +621,27 @@ def h4_pellets(host, client, ctx):
     staged = diff_buckets(host, client)
     before = snap2(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_H4})
-    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "snap", "x": H4_TARGET[0], "y": H4_TARGET[1],
-                     "z": H4_TARGET[2], "tu": TU_MAX}, notes, "snap")
+    host.ok({"cmd": "set_seed", "seed": PELLET_SEED})
+    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "snap", "x": PELLET_TARGET[0], "y": PELLET_TARGET[1],
+                     "z": PELLET_TARGET[2], "tu": TU_MAX}, notes, "snap")
     settle(host, client, notes)
     rec = collect(host, client, before, seq0, rng0)
-    evidence("H4", rec, {"pistol": g.get("weaponId"), "clip": g.get("ammoId"), "H_at": at, "fire": rf,
+    evidence("pellet_hits", rec, {"pistol": g.get("weaponId"), "clip": g.get("ammoId"), "H_at": at, "fire": rf,
                          "stagedDiff": staged, "notes": notes})
     fails = list(notes) + staging_fails(staged)
-    want_at = tuple(H1_H_TILE) + (H1_H_DIR,)
+    want_at = tuple(WALL_HIT_TILE) + (WALL_HIT_DIR,)
     if at["host"] != want_at or at["client"] != want_at:
-        fails.append(f"precondition: H before the pellet snap {at} (want {want_at} on both: H1 left it there)")
+        fails.append(f"precondition: H before the pellet snap {at} (want {want_at} on both: wall_hit left it there)")
     if g.get("ammoId") is None or g.get("ammoId") < 0:
         fails.append(f"precondition: battle_give gave no {PELLET_CLIP} (ammoId {g.get('ammoId')}: the mod loaded?)")
     shots, mains, pels = cues_of(rec, "shot"), cues_of(rec, "hit", pellet=False), cues_of(rec, "hit", pellet=True)
     sp = shots[0]["payload"] if len(shots) == 1 else {}
     if (len(shots) != 1 or sp.get("actor") != H_ID or sp.get("action") != "snap" or len(mains) != 1
-            or [c["payload"].get("pellet") for c in pels] != list(range(1, H4_PELLETS + 1))
+            or [c["payload"].get("pellet") for c in pels] != list(range(1, PELLET_COUNT + 1))
             or cues_of(rec, "explosion")):
         fails.append(f"precondition: the row's cues {[(c['seq'], c['kind'], c['payload']) for c in rec['cues']]} "
-                     f"(want one snap `shot` by H, one main `hit`, then pellet hits 1..{H4_PELLETS})")
-    fails += common_fails(host, client, rec, True, "H4")
+                     f"(want one snap `shot` by H, one main `hit`, then pellet hits 1..{PELLET_COUNT})")
+    fails += common_fails(host, client, rec, True, "pellet_hits")
     for c in shots[:1]:
         r = only_record(rec, c) or {}
         if r.get("pellets") is not True or r.get("ms") != 0:
@@ -655,108 +656,108 @@ def h4_pellets(host, client, ctx):
             fails.append(f"hit seq {c['seq']}: record sprites {r.get('sprites')} (want 1 + {len(pels)} pellet hits)")
         fails += sound_fails(f"hit seq {c['seq']}", r.get("sound"), rule_list(ctx["rules"], PELLET_CLIP, "hitSound"))
     for c in mains + pels:
-        fails += q2_fails(c, "STR_PISTOL", PELLET_CLIP)
+        fails += rule_type_fails(c, "STR_PISTOL", PELLET_CLIP)
     finish(fails)
 
 
-def h6_option_off(host, client, ctx):
+def row_option_off(host, client, ctx):
     notes = []
     rng0 = rng_of(client)
     off = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
-    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_ROCKET_LAUNCHER", "ammo": H3_ROCKET,
+    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_ROCKET_LAUNCHER", "ammo": SMALL_ROCKET,
                             "clear_hands": True}, ("weaponId", "ammoId"))
-    ph = tele_both(host, client, H_ID, H6_H_TILE, H6_H_DIR)
+    ph = tele_both(host, client, H_ID, OPTION_OFF_TILE, OPTION_OFF_DIR)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": H_ID, "stat": "firing",
                         "value": FIRING_120}, ("tu",))
     staged = diff_buckets(host, client)
     before = snap2(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_H6})
-    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": H6_TARGET[0], "y": H6_TARGET[1],
-                     "z": H6_TARGET[2], "tu": TU_MAX}, notes, "aimed rocket")
+    host.ok({"cmd": "set_seed", "seed": OPTION_OFF_SEED})
+    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": OPTION_OFF_TARGET[0],
+                     "y": OPTION_OFF_TARGET[1], "z": OPTION_OFF_TARGET[2], "tu": TU_MAX}, notes, "aimed rocket")
     settle(host, client, notes)
     rec = collect(host, client, before, seq0, rng0)
     on = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
-    evidence("H6", rec, {"optionOff": off, "optionBackOn": on, "launcher": g.get("weaponId"),
+    evidence("option_off", rec, {"optionOff": off, "optionBackOn": on, "launcher": g.get("weaponId"),
                          "rocket": g.get("ammoId"), "H": ph, "fire": rf, "stagedDiff": staged, "notes": notes})
     fails = list(notes) + staging_fails(staged)
     if off is not False or on is not True:
-        fails.append(f"client coopGhostStepper lever answered off={off} on={on} (want False then True)")
+        fails.append(f"client coopGhostStepper set_option answered off={off} on={on} (want False then True)")
     shots, expl = cues_of(rec, "shot"), cues_of(rec, "explosion")
     sp = shots[0]["payload"] if len(shots) == 1 else {}
     blasts = [(c["payload"].get("chain"), c["payload"].get("terrain"), c["payload"].get("power")) for c in expl]
     if (len(shots) != 1 or sp.get("actor") != H_ID or sp.get("action") != "aimed"
-            or blasts != [H6_BLAST] * H6_EXPLOSIONS or cues_of(rec, "hit")):
+            or blasts != [OPTION_OFF_BLAST] * OPTION_OFF_EXPLOSIONS or cues_of(rec, "hit")):
         fails.append(f"precondition: the row's cues {[(c['seq'], c['kind'], c['payload']) for c in rec['cues']]} "
-                     f"(want one aimed `shot` by H and {H6_EXPLOSIONS} `explosion`(s) (chain, terrain, power) "
-                     f"{H6_BLAST}, no `hit`)")
+                     f"(want one aimed `shot` by H and {OPTION_OFF_EXPLOSIONS} `explosion`(s) (chain, terrain, power) "
+                     f"{OPTION_OFF_BLAST}, no `hit`)")
     b, a = rec["before"]["client"], rec["after"]["client"]
-    for k, n in (("shot", 1), ("explosion", H6_EXPLOSIONS)):
+    for k, n in (("shot", 1), ("explosion", OPTION_OFF_EXPLOSIONS)):
         dc = cue_delta(b["cueCounts"], a["cueCounts"], k)
         de = cue_delta((b["combatGhost"] or {}).get("enqueued"), (a["combatGhost"] or {}).get("enqueued"), k)
         if dc != n or de != 0:
             fails.append(f"client cueCounts.{k} +{dc} combatGhost.enqueued.{k} +{de} while the option is off (want "
-                         f"+{n} and +0: Q4 = a)")
-    fails += common_fails(host, client, rec, False, "H6")
+                         f"+{n} and +0)")
+    fails += common_fails(host, client, rec, False, "option_off")
     finish(fails)
 
 
-def h3_rocket_chain(host, client, ctx):
+def row_rocket_chain(host, client, ctx):
     notes = []
     rng0 = rng_of(client)
-    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_ROCKET_LAUNCHER", "ammo": H3_ROCKET,
+    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_ROCKET_LAUNCHER", "ammo": SMALL_ROCKET,
                             "clear_hands": True}, ("weaponId", "ammoId"))
-    ph = tele_both(host, client, H_ID, H3_H_TILE, H3_H_DIR)
-    clips = both(host, client, {"cmd": "battle_drop", "x": H3_TARGET[0], "y": H3_TARGET[1], "z": H3_TARGET[2],
-                                "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
+    ph = tele_both(host, client, H_ID, ROCKET_TILE, ROCKET_DIR)
+    clips = both(host, client, {"cmd": "battle_drop", "x": ROCKET_TARGET[0], "y": ROCKET_TARGET[1],
+                                "z": ROCKET_TARGET[2], "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": H_ID, "stat": "firing",
                         "value": FIRING_120}, ("tu",))
     staged = diff_buckets(host, client)
     before = snap2(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_H3})
-    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": H3_TARGET[0], "y": H3_TARGET[1],
-                     "z": H3_TARGET[2], "tu": TU_MAX}, notes, "aimed rocket")
+    host.ok({"cmd": "set_seed", "seed": ROCKET_SEED})
+    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": ROCKET_TARGET[0], "y": ROCKET_TARGET[1],
+                     "z": ROCKET_TARGET[2], "tu": TU_MAX}, notes, "aimed rocket")
     settle(host, client, notes)
     rec = collect(host, client, before, seq0, rng0)
     ih = items_by_id(host)
-    evidence("H3", rec, {"launcher": g.get("weaponId"), "rocket": g.get("ammoId"), "clips": clips, "H": ph,
+    evidence("rocket_chain", rec, {"launcher": g.get("weaponId"), "rocket": g.get("ammoId"), "clips": clips, "H": ph,
                          "fire": rf, "clipsLeftHost": [c for c in clips if c in ih], "stagedDiff": staged,
                          "notes": notes})
     fails = list(notes) + staging_fails(staged)
     shots, expl = cues_of(rec, "shot"), cues_of(rec, "explosion")
     sp = shots[0]["payload"] if len(shots) == 1 else {}
     got = [(c["payload"].get("chain"), c["payload"].get("terrain"), c["payload"].get("power")) for c in expl]
-    want = [(0, False, H3_POWERS[0]), (1, True, H3_POWERS[1])]
+    want = [(0, False, ROCKET_POWERS[0]), (1, True, ROCKET_POWERS[1])]
     if (len(shots) != 1 or sp.get("actor") != H_ID or sp.get("action") != "aimed" or got != want
             or cues_of(rec, "hit")):
         fails.append(f"precondition: the row's cues {[(c['seq'], c['kind'], c['payload']) for c in rec['cues']]} "
                      f"(want one aimed `shot` by H, then explosions (chain, terrain, power) {want}, no `hit`)")
-    fails += common_fails(host, client, rec, True, "H3")
+    fails += common_fails(host, client, rec, True, "rocket_chain")
     dial = fire_dial(rec["after"]["host"], COOP_SEAT_0)
     for s, p in rec["shots"][:1]:
-        fails += shot_record_fails(rec, s, p, ctx["rules"], "STR_ROCKET_LAUNCHER", H3_ROCKET, dial)
+        fails += shot_record_fails(rec, s, p, ctx["rules"], "STR_ROCKET_LAUNCHER", SMALL_ROCKET, dial)
     k = ctx["constants"]
     for c in expl:
         link = c["payload"].get("terrain") is True
-        item = None if link else H3_ROCKET
+        item = None if link else SMALL_ROCKET
         fails += explosion_record_fails(rec, c, ctx["rules"], item, k)
-        fails += q2_fails(c, None if link else "STR_ROCKET_LAUNCHER", item)
+        fails += rule_type_fails(c, None if link else "STR_ROCKET_LAUNCHER", item)
     finish(fails)
 
 
-def h2_grenade_endturn(host, client, ctx):
+def row_endturn_grenade(host, client, ctx):
     notes = []
     rng0 = rng_of(client)
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_GRENADE", "clear_hands": True},
              ("weaponId", "ammoId"))
     gid = g["weaponId"]
-    ph = tele_both(host, client, H_ID, H2_H_TILE, H2_H_DIR)
+    ph = tele_both(host, client, H_ID, GRENADE_TILE, GRENADE_DIR)
     tu_both(host, client, H_ID)
     staged = diff_buckets(host, client)
     before = snap2(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    # the prime: real UI (PRIME key, fuse 0), as test_host_combat_terrain C3
+    # the prime: real UI (PRIME key, fuse 0), as test_host_combat_terrain's END TURN grenade
     pv = {}
     try:
         pv["cursor"] = open_hand_menu_host(host)
@@ -772,21 +773,21 @@ def h2_grenade_endturn(host, client, ctx):
         notes.append(f"host prime: {short(e)} (top {session.top_state(host)})")
     settle(host, client, notes)
     fuse = {n: (items_by_id(gc).get(gid) or {}).get("fuse") for n, gc in (("host", host), ("client", client))}
-    # the throw (the thrower faces away: its pre-action turn, stage S-T)
-    host.ok({"cmd": "set_seed", "seed": SEED_H2})
-    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "throw", "x": H2_THROW_TILE[0],
-                     "y": H2_THROW_TILE[1], "z": H2_THROW_TILE[2], "tu": TU_MAX}, notes, "throw")
+    # the throw (the thrower faces away: its pre-action turn)
+    host.ok({"cmd": "set_seed", "seed": GRENADE_SEED})
+    rf = fire(host, {"cmd": "battle_fire", "unit": H_ID, "mode": "throw", "x": GRENADE_THROW_TILE[0],
+                     "y": GRENADE_THROW_TILE[1], "z": GRENADE_THROW_TILE[2], "tu": TU_MAX}, notes, "throw")
     settle(host, client, notes)
     landed = {n: tile_of(items_by_id(gc).get(gid)) for n, gc in (("host", host), ("client", client))}
-    clip = both(host, client, {"cmd": "battle_drop", "x": H2_THROW_TILE[0], "y": H2_THROW_TILE[1],
-                               "z": H2_THROW_TILE[2], "item": "STR_RIFLE_CLIP"}, ("ids",))["ids"][0]
+    clip = both(host, client, {"cmd": "battle_drop", "x": GRENADE_THROW_TILE[0], "y": GRENADE_THROW_TILE[1],
+                               "z": GRENADE_THROW_TILE[2], "item": "STR_RIFLE_CLIP"}, ("ids",))["ids"][0]
     turn0 = end_turn_cycle(host, client, notes)
     rec = collect(host, client, before, seq0, rng0)
     hs, cs = battle_state(host), battle_state(client)
     ih, ic = items_by_id(host), items_by_id(client)
     closed = event_state(host).get("closedContexts") or []
     endturn = {c.get("actionId") for c in closed if c.get("origin") == "endturn"}
-    evidence("H2", rec, {"grenade": gid, "H": ph, "prime": pv, "fuse": fuse, "fire": rf, "landed": landed,
+    evidence("endturn_grenade", rec, {"grenade": gid, "H": ph, "prime": pv, "fuse": fuse, "fire": rf, "landed": landed,
                          "clip": clip, "turn": (turn0, (hs.get("turn"), hs.get("side")), (cs.get("turn"),
                                                                                          cs.get("side"))),
                          "endturnContexts": sorted(endturn), "grenadeLeft": {"host": gid in ih, "client": gid in ic},
@@ -794,8 +795,8 @@ def h2_grenade_endturn(host, client, ctx):
     fails = list(notes) + staging_fails(staged)
     if fuse != {"host": 0, "client": 0}:
         fails.append(f"precondition: grenade {gid} fuse after the prime {fuse} (want 0 on both)")
-    if landed != {"host": H2_THROW_TILE, "client": H2_THROW_TILE}:
-        fails.append(f"precondition: the grenade after the throw lies on {landed} (want {H2_THROW_TILE} on both)")
+    if landed != {"host": GRENADE_THROW_TILE, "client": GRENADE_THROW_TILE}:
+        fails.append(f"precondition: the grenade after the throw lies on {landed} (want {GRENADE_THROW_TILE} on both)")
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (turn0 + 1, FACTION_PLAYER,
                                                                              turn0 + 1, FACTION_PLAYER):
         fails.append(f"precondition: not on player turn {turn0 + 1} on both after the cycle: host=({hs.get('turn')},"
@@ -805,14 +806,14 @@ def h2_grenade_endturn(host, client, ctx):
     ep = expl[0]["payload"] if len(expl) == 1 else {}
     shot_aids = {c["actionId"] for c in shots}
     if (len(shots) != 1 or sp.get("actor") != H_ID or sp.get("action") != "throw"
-            or not isinstance(sp.get("arc"), dict) or len(expl) != 1 or ep.get("power") != H2_POWER
-            or ep.get("chain") != 0 or voxel_tile(ep.get("centreVoxel")) != H2_THROW_TILE
+            or not isinstance(sp.get("arc"), dict) or len(expl) != 1 or ep.get("power") != GRENADE_POWER
+            or ep.get("chain") != 0 or voxel_tile(ep.get("centreVoxel")) != GRENADE_THROW_TILE
             or expl[0]["actionId"] not in endturn or expl[0]["actionId"] in shot_aids or cues_of(rec, "hit")):
         view = [(c["seq"], c["kind"], c["actionId"], c["payload"]) for c in rec["cues"]]
         fails.append(f"precondition: the row's cues {view} (want one `throw` shot by H with an arc, then ONE "
-                     f"explosion of power {H2_POWER}, chain 0, centred on {H2_THROW_TILE}, on an `endturn` context "
-                     f"{sorted(endturn)} holding no shot; no `hit`)")
-    fails += common_fails(host, client, rec, True, "H2")
+                     f"explosion of power {GRENADE_POWER}, chain 0, centred on {GRENADE_THROW_TILE}, on an `endturn` "
+                     f"context {sorted(endturn)} holding no shot; no `hit`)")
+    fails += common_fails(host, client, rec, True, "endturn_grenade")
     dial = fire_dial(rec["after"]["host"], COOP_SEAT_0)
     k = ctx["constants"]
     for s, p in rec["shots"][:1]:
@@ -823,23 +824,25 @@ def h2_grenade_endturn(host, client, ctx):
                          f"{k.get('ITEM_THROW')}, ITEM_DROP {k.get('ITEM_DROP')})")
     for c in expl[:1]:
         fails += explosion_record_fails(rec, c, ctx["rules"], "STR_GRENADE", k)
-        fails += q2_fails(c, "STR_GRENADE", "STR_GRENADE")
+        fails += rule_type_fails(c, "STR_GRENADE", "STR_GRENADE")
     finish(fails)
 
 
-def h5_v4_file(host, client, ctx):
-    """H5 (declared: no ghost is needed): the client's rngSeed after the last row equals its value after the boot."""
+def row_client_rng_kept(host, client, ctx):
+    """client_rng_kept (no ghost is needed): the client's rngSeed after the last row equals its value after the
+    boot."""
     end = rng_of(client)
     ev = {"rngClientBoot": ctx["rng0"], "rngClientEnd": end, "rngHostBoot": ctx["rngHost0"],
           "rngHostEnd": rng_of(host)}
-    print(f"EVIDENCE H5: {json.dumps(ev, sort_keys=True)}", flush=True)
+    print(f"EVIDENCE client_rng_kept: {json.dumps(ev, sort_keys=True)}", flush=True)
     if ctx["rng0"] is None or end != ctx["rng0"]:
-        raise AssertionError(f"client rngSeed after the file {end} (want its value after the boot {ctx['rng0']}: V4, "
-                             f"TASK 0 T0-3 (ii))")
+        raise AssertionError(f"client rngSeed after the file {end} (want its value after the boot "
+                             f"{ctx['rng0']})")
 
 
-SCENARIOS = (("H1", h1_wall_hit), ("H4", h4_pellets), ("H6", h6_option_off), ("H3", h3_rocket_chain),
-             ("H2", h2_grenade_endturn), ("H5", h5_v4_file))
+SCENARIOS = (("wall_hit", row_wall_hit), ("pellet_hits", row_pellet_hits), ("option_off", row_option_off),
+             ("rocket_chain", row_rocket_chain), ("endturn_grenade", row_endturn_grenade),
+             ("client_rng_kept", row_client_rng_kept))
 
 
 # ===================== bring-up =====================
@@ -859,7 +862,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p5-sb")
+    pinned = pin_ai_neutral(host, client, tag="ghost_impact")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     h_ids = sorted(u["id"] for u in hs["units"] if u.get("coop") == COOP_SEAT_0
                    and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
@@ -869,7 +872,7 @@ def boot(host, client):
     for gc in (host, client):
         es = event_state(gc)
         miss = [k for k in ("combatGhost", "rngSeed", "shotTrajectories", "speed", "cueCounts") if k not in es]
-        assert not miss, f"{gc.name} event_state lacks the W2-P5 probes {miss}"
+        assert not miss, f"{gc.name} event_state lacks the combat ghost probes {miss}"
     dr = client.ok({"cmd": "display_rules", "types": list(DISPLAY_TYPES)})
     drh = host.ok({"cmd": "display_rules", "types": list(DISPLAY_TYPES)})
     missing = [t for t in DISPLAY_TYPES if not (dr.get("items") or {}).get(t)]
@@ -881,7 +884,7 @@ def boot(host, client):
     ub = session.units_by_id(hs)
     ctx = {"rules": dr["items"], "constants": dr["constants"], "rng0": rng_of(client), "rngHost0": rng_of(host)}
     dials = {gc.name: (event_state(gc).get("speed") or {}).get("seats") for gc in (host, client)}
-    print(f"[w2p5-sb] boot ok: {MISSION} MAP_FP={MAP_FP!r} mod={ml} turn={hs['turn']} H={H_ID} "
+    print(f"[ghost_impact] boot ok: {MISSION} MAP_FP={MAP_FP!r} mod={ml} turn={hs['turn']} H={H_ID} "
           f"({ubrief(ub.get(H_ID))}) pinned={len(pinned)} items={len(items_by_id(host))} coopGhostStepper={opts} "
           f"dials={dials} rngClient={ctx['rng0']} display_rules={json.dumps(dr, sort_keys=True)}", flush=True)
     return ctx
@@ -889,9 +892,9 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49890, make_user_dir("w2p5_ghost_impact_host", mods=[MOD_DIR],
+    host = GameClient("host", 49890, make_user_dir("ghost_impact_host", mods=[MOD_DIR],
                                                    options={"coopGhostStepper": True}))
-    client = GameClient("client", 49891, make_user_dir("w2p5_ghost_impact_client", mods=[MOD_DIR],
+    client = GameClient("client", 49891, make_user_dir("ghost_impact_client", mods=[MOD_DIR],
                                                        options={"coopGhostStepper": True}))
     results = {}
     try:
@@ -914,7 +917,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p5-sb] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[ghost_impact] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_ghost_impact: {len(passed)}/{len(SCENARIOS)} passed "
