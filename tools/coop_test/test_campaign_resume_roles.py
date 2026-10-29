@@ -3,24 +3,26 @@ the aliens, client = X-COM) and a gm2 campaign (host = X-COM, client = the alien
 and a fresh pair resumes the save: the resumed campaign plays its own PvP mode, each side keeps its role, and the next landing starts a
 PvP battle with that mode's seats.
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-5 (SC5-3 "Stage S-C4a", SC5-5 file A, SC5-6 FX4A-1 .. FX4A-12) and its
-rulings (QC4A-1 .. QC4A-4 (a)) and docs rewrite/w2-resume-efd75a6c/ruling-d250uci.md (R-D250-SC4A-1 (a): the resume's START HOST
-through the real host window); QC-16 (a), VL-C-10, VL-C4A-1; owner D250, O1 (a); F5106, F15861, F15862. TASK 0 pins: docs
-rewrite/d250u-task0/sc4a/CONSTANTS.md (boots Ra_ui, Rb_ui on the unchanged build; Ra2, Rb2 with C4AG applied, then restored).
+The fixture values below were measured on builds with and without the handling that keeps a resumed PvP campaign's
+mode and roles.
 
-Boot R3 (gm3): lobby key 48017, dirs d250uc4a_r3_host / _client / _client2. Boot R2 (gm2, after R3): key 48017, dirs
-d250uc4a_r2_host / _client / _client2. Each boot (FX4A-2): bring-up (gm3: G3D's bring_up copied; gm2: PF.start_pvp_campaign
-alien_player="client"; the mode and noBases pair are preconditions); the host's direct save_game (FX4A-3); both processes end; the
-host respawns on ITS dir and client2 on an EMPTY dir; resume_campaign, session.resume_campaign copied with the host's START HOST
-through host_menu_host (visibility 0: HostMenu::hostTCPGame) instead of the host_tcp lever (FX4A-4 as ruled by R-D250-SC4A-1). A bring-up, save, relaunch or staging miss is
-a setup failure: ONE "CAPTURE <boot>:" line and every remaining cell of that boot FAILs "boot". A resume that does not reach its
-session-up bound is not a setup failure: its row's cells FAIL with the captured state.
+Boot gm3_boot (gm3): lobby key 48017, dirs campaign_resume_roles_gm3_host / _client / _client2. Boot gm2_boot (gm2,
+after gm3_boot): key 48017, dirs campaign_resume_roles_gm2_host / _client / _client2. Each boot: bring-up (gm3:
+test_campaign_gm3_drop's bring_up, copied; gm2: PF.start_pvp_campaign alien_player="client"; the mode and noBases
+pair are preconditions); the host's direct save_game; both processes end; the host respawns on ITS dir and client2 on
+an EMPTY dir; resume_campaign, session.resume_campaign copied with the host's START HOST through host_menu_host
+(visibility 0: HostMenu::hostTCPGame) instead of the host_tcp test command. A bring-up, save, relaunch or staging miss
+is a setup failure: ONE "CAPTURE <boot>:" line and every remaining cell of that boot FAILs "boot". A resume that does
+not reach its session-up bound is not a setup failure: its row's cells FAIL with the captured state.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a cell whose precondition was never reached
 FAILs "blocked: <why>"):
-  P1 (R3) gm3 geoscape save + resume, client2's landing (FX4A-5): P1-mode, P1-role, P1-land, P1-seats, P1-common.
-  P2 (R2) gm2 geoscape save + resume, the host's landing (FX4A-6): P2-mode, P2-role, P2-land, P2-seats, P2-common.
-RED (C4AR, the unchanged build; TASK 0 boots Ra_ui / Rb_ui): 3/10 - FAIL P1-mode, P1-role, P1-land (W2-H9's refusal), P1-seats
-(blocked), P2-mode, P2-land, P2-seats (blocked). GREEN (C4AG): 10/10.
+  gm3_resume (gm3_boot) gm3 geoscape save + resume, client2's landing: gm3_resume-mode, gm3_resume-role,
+     gm3_resume-land, gm3_resume-seats, gm3_resume-common.
+  gm2_resume (gm2_boot) gm2 geoscape save + resume, the host's landing: gm2_resume-mode, gm2_resume-role,
+     gm2_resume-land, gm2_resume-seats, gm2_resume-common.
+A build without that handling passes 3/10: gm3_resume-mode, gm3_resume-role, gm3_resume-land (client2's landing is
+refused), gm2_resume-mode and gm2_resume-land FAIL, and gm3_resume-seats and gm2_resume-seats are blocked. With it,
+10/10 pass.
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_resume_roles.py
@@ -45,24 +47,30 @@ import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
 import test_campaign_rejoin as CR  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sc4a/CONSTANTS.md) -----
+# ----- fixture values -----
 KEY = "48017"
-SEED = 1                                     # P1: on the X-COM client2 right before its confirm_landing; P2: the host's
+# set right before the confirm_landing: by the X-COM client2 in gm3_resume, by the host in gm2_resume
+SEED = 1
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}
-POINT, CRAFT_AT = (0.35, 0.10), (0.34, 0.10)   # FX3-3 / FX3-5 (P1); P2: G2F.to_battle's b0 + (0.35, 0.10), 0.01 short
+# offsets from the X-COM player's base: the mission site, and the Skyranger's forced position 0.01 short of it
+POINT, CRAFT_AT = (0.35, 0.10), (0.34, 0.10)
 SQUAD = 2
-SAVE = {"P1": "d250uc4a_p1.sav", "P2": "d250uc4a_p2.sav"}
-STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 0}]   # FX4A-11: buildCoopStub's one unplaced, unnamed, empty base
-STUB_FUNDS = 1000                                              # FX4A-11: get_coop.noBases's effect on geo_state.funds
-FIX = {"P1-mode", "P1-role", "P1-land", "P1-seats", "P2-mode", "P2-land", "P2-seats"}   # TASK 0 Ra_ui / Rb_ui (= SC5-5)
+SAVE = {"gm3_resume": "resume_roles_gm3.sav", "gm2_resume": "resume_roles_gm2.sav"}
+STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 0}]   # buildCoopStub's one unplaced, unnamed, empty base
+STUB_FUNDS = 1000                                              # get_coop.noBases's effect on geo_state.funds
+# the cells that fail on a build that does not keep a resumed PvP campaign's mode and roles (the others are guards)
+FIX = {"gm3_resume-mode", "gm3_resume-role", "gm3_resume-land", "gm3_resume-seats",
+       "gm2_resume-mode", "gm2_resume-land", "gm2_resume-seats"}
 # ----- bounds -----
 SAVE_S = 10
 MIRROR_S = 30
 LANDING_S = 180
-BOTH_IN = {"P1": 60, "P2": 180}
-ROWS = {"P1": ["P1-mode", "P1-role", "P1-land", "P1-seats", "P1-common"],
-        "P2": ["P2-mode", "P2-role", "P2-land", "P2-seats", "P2-common"]}
-BOOT = {"tag": "R3"}
+BOTH_IN = {"gm3_resume": 60, "gm2_resume": 180}
+ROWS = {"gm3_resume": ["gm3_resume-mode", "gm3_resume-role", "gm3_resume-land", "gm3_resume-seats",
+                       "gm3_resume-common"],
+        "gm2_resume": ["gm2_resume-mode", "gm2_resume-role", "gm2_resume-land", "gm2_resume-seats",
+                       "gm2_resume-common"]}
+BOOT = {"tag": "gm3_boot"}
 
 
 class FixtureMiss(Exception):
@@ -119,15 +127,16 @@ def rbases(g):
 
 
 def view(gc):
-    """get_coop {gamemode, noBases, localSeat, saveID} + geo_state {funds, real bases} (SC5-5 EVIDENCE)."""
+    """get_coop {gamemode, noBases, localSeat, saveID} + geo_state {funds, real bases}, as printed in EVIDENCE."""
     c, g = gc.cmd({"cmd": "get_coop"}), gc.ok({"cmd": "geo_state"})
     return {"gamemode": c.get("gamemode"), "noBases": c.get("noBases"), "localSeat": c.get("localSeat"), "saveID": c.get("saveID"),
             "funds": g.get("funds"), "realBases": rbases(g)}
 
 
 def capture(err, *machines):
-    """The captured state of each live machine (SC5-5 shape): stack, battle_state (F10980-guarded), coop_dialog_info, get_coop, the
-    last 40 engine log lines."""
+    """The captured state of each live machine: stack, battle_state (read only when CR.bs_raw allows it; otherwise the
+    probe would dereference a stale _battleState after a BattlescapeState pop and kill the process), coop_dialog_info,
+    get_coop, the last 40 engine log lines."""
     cap = {}
     for gc in machines:
         if not alive(gc):
@@ -137,7 +146,8 @@ def capture(err, *machines):
             with open(os.path.join(gc.user_dir, "openxcom.log"), "rb") as fh:
                 tail = fh.read().decode("utf-8", errors="replace").splitlines()[-40:]
             cap[gc.name] = {"stack": stack(gc), "battle": {k: bs.get(k) for k in ("inBattle", "phase", "side", "turn")} if bs else
-                            "skipped (F10980)", "coop_dialog_info": gc.cmd({"cmd": "coop_dialog_info"}),
+                            "skipped (no BattlescapeState, a battle in the world)",
+                            "coop_dialog_info": gc.cmd({"cmd": "coop_dialog_info"}),
                             "get_coop": gc.cmd({"cmd": "get_coop"}), "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
@@ -192,7 +202,8 @@ def common(row, host, c2, crash0, spine):
 
 
 def bring_up(host, client, gm, ev):
-    """FX4A-2: gm3 = G3D's bring_up (copied, KEY); gm2 = PF.start_pvp_campaign(alien_player="client"). Returns (HOST0, CLIENT0, xb)."""
+    """gm3: test_campaign_gm3_drop's bring_up (copied, KEY); gm2: PF.start_pvp_campaign(alien_player="client"). Returns
+    (HOST0, CLIENT0, xb)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         lob = PF.start_pvp_campaign(host, client, KEY, alien_player="host" if gm == 3 else "client")
@@ -205,7 +216,7 @@ def bring_up(host, client, gm, ev):
     ev.update(lobbyGamemode=lob, HOST0=hv, CLIENT0=dict(cv, sky=sky and {"type": sky.get("type"), "id": sky.get("id")}))
     want = (True, False) if gm == 3 else (False, True)
     if [hv["gamemode"], cv["gamemode"]] != [gm, gm] or (hv["noBases"], cv["noBases"]) != want:
-        capture_boot(f"bring-up preconditions (FX4A-2): gamemode {[hv['gamemode'], cv['gamemode']]} (want [{gm}, {gm}]), noBases host / "
+        capture_boot(f"bring-up preconditions: gamemode {[hv['gamemode'], cv['gamemode']]} (want [{gm}, {gm}]), noBases host / "
                      f"client {[hv['noBases'], cv['noBases']]} (want {list(want)})", host, client)
     if gm == 3 and (not xb or not sky):
         capture_boot(f"the client has no real base / Skyranger (base {xb and xb.get('name')}, sky {sky})", host, client)
@@ -214,7 +225,7 @@ def bring_up(host, client, gm, ev):
 
 
 def save_keys(path):
-    """FX4A-3: the save's coop YAML keys (PyYAML), every document."""
+    """The save's coop YAML keys (PyYAML), every document."""
     import yaml
     out = {}
     try:
@@ -236,18 +247,19 @@ def save_keys(path):
 
 
 def geo_save(host, client, name, ev):
-    """FX4A-3: the host's direct save_game lever; the file in <host dir>\\xcom1\\ <= SAVE_S; its YAML keys as EVIDENCE."""
+    """The host's direct save_game test command; the file in <host dir>\\xcom1\\ <= SAVE_S; its YAML keys as EVIDENCE."""
     path = os.path.join(host.user_dir, "xcom1", name)
     r = host.cmd({"cmd": "save_game", "file": name})
     ok, secs = wait(lambda: os.path.exists(path) and os.path.getsize(path) > 0, SAVE_S, 0.2)
     if not r.get("ok") or not ok:
-        capture_boot(f"host save_game {name}: {r}, file present {os.path.exists(path)} (FX4A-3)", host, client)
+        capture_boot(f"host save_game {name}: {r}, file present {os.path.exists(path)} "
+                     "(want ok and a non-empty file)", host, client)
     time.sleep(1.0)
     ev.update(save={"file": name, "s": secs, "bytes": os.path.getsize(path), "keys": save_keys(path)})
 
 
 def relaunch(x, ev):
-    """FX4A-4: both shut down; the host respawned on ITS dir; client2 on an EMPTY dir; spawn, connect. Returns (host, client2)."""
+    """Both shut down; the host respawned on ITS dir; client2 on an EMPTY dir; spawn, connect. Returns (host, client2)."""
     t0 = time.time()
     try:
         x["client"].shutdown()
@@ -256,15 +268,15 @@ def relaunch(x, ev):
         c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
         host.spawn(); host.connect(); c2.spawn(); c2.connect()
     except Exception as e:  # noqa: BLE001
-        capture_boot(f"relaunch (FX4A-4): {type(e).__name__}: {str(e)[:300]}", x["host"], x.get("client2"))
+        capture_boot(f"relaunch: {type(e).__name__}: {str(e)[:300]}", x["host"], x.get("client2"))
     ev["relaunchS"] = round(time.time() - t0, 2)
     return host, c2
 
 
 def resume_campaign(host, client, save_file, port, host_name="HostPlayer", client_name="ClientPlayer"):
     """session.resume_campaign copied with ONE change: the host's START HOST goes through the real host window
-    (host_menu_host visibility 0 -> HostMenu::hostTCPGame, HM :535), not the host_tcp lever, which keeps a loaded save's mode
-    (TS :14584-:14593) and so never reaches the code the stage changes."""
+    (host_menu_host visibility 0 -> HostMenu::hostTCPGame), not the host_tcp test command, which keeps a loaded save's
+    mode and so never reaches the host window's handling of that mode."""
     host.ok({"cmd": "load_save_menu", "file": save_file})
     host.wait_for("host window (resume)", lambda: session.has_state(host, "HostMenu"))
     host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv", "port": port, "player": host_name})
@@ -281,7 +293,7 @@ def resume_campaign(host, client, save_file, port, host_name="HostPlayer", clien
 
 
 def resume(host, c2, name, ev):
-    """FX4A-4: resume_campaign (the copy above) on KEY. Returns True, or False with the captured state (the row's cells FAIL)."""
+    """resume_campaign (the copy above) on KEY. Returns True, or False with the captured state (the row's cells FAIL)."""
     t0 = time.time()
     try:
         resume_campaign(host, c2, name, port=KEY)
@@ -318,10 +330,11 @@ def mirror(gc, point):
                  if m.get("coop") and abs(m.get("lon", 9.0) - point[0]) < 0.01 and abs(m.get("lat", 9.0) - point[1]) < 0.01), None)
 
 
-def p1_land(host, c2, ev):
-    """FX4A-5: G3D's stage_to_prompt on client2 (squad of two, the host's site at X + POINT, its mirror, the Skyranger forced out),
-    whose landing wait ends at client2's ConfirmLandingState OR a W2-H9 refusal (G3D row F3's landing()); then client2 set_seed SEED +
-    confirm_landing; both inBattle <= 60 s; the spine. Returns (bad, spine, squad)."""
+def gm3_land(host, c2, ev):
+    """test_campaign_gm3_drop's stage_to_prompt on client2 (squad of two, the host's site at X + POINT, its mirror, the
+    Skyranger forced out), whose landing wait ends at client2's ConfirmLandingState OR a landing refusal (event_state
+    coopClientBattleRefused, as in that test's landing_drop row); then client2 set_seed SEED + confirm_landing; both
+    inBattle <= 60 s; the spine. Returns (bad, spine, squad)."""
     g2 = c2.ok({"cmd": "geo_state"})
     xb = next((b for b in g2.get("bases", []) if not b.get("coopBase") and not b.get("coopIcon")), None)
     sky = next((c for c in (xb or {}).get("crafts", []) if "SKYRANGER" in c.get("type", "") and not c.get("coop")), None)
@@ -330,24 +343,26 @@ def p1_land(host, c2, ev):
     recs = {sid: G3E.srec(c2, sid) for sid in sids}
     sq = [sid for sid in sids if recs[sid].get("where") == "base" and recs[sid].get("recovery") == 0][:SQUAD]
     if not xb or not sky or len(sq) < SQUAD:
-        capture_boot(f"P1: client2 base {xb and xb.get('name')}, Skyranger {sky}, squad {sq} (FX3-6)", host, c2)
+        capture_boot(f"gm3_resume: client2 base {xb and xb.get('name')}, Skyranger {sky}, squad {sq} "
+                     "(want a base, a Skyranger and a squad of two)", host, c2)
     asg = [c2.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": False}) for sid in sids]
     asg += [c2.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": True}) for sid in sq]
     if not all(r.get("ok") for r in asg):
-        capture_boot(f"P1: client2 craft_assign (SQ {sq}): {[r for r in asg if not r.get('ok')][:2]}", host, c2)
+        capture_boot(f"gm3_resume: client2 craft_assign (SQ {sq}): {[r for r in asg if not r.get('ok')][:2]}", host, c2)
     point = [xb["lon"] + POINT[0], xb["lat"] + POINT[1]]
     site = host.cmd(dict(SITE, cmd="spawn_mission_site", lon=point[0], lat=point[1]))
     if not site.get("ok"):
-        capture_boot(f"P1: host spawn_mission_site {site}", host, c2)
+        capture_boot(f"gm3_resume: host spawn_mission_site {site}", host, c2)
     ok, ms = wait(lambda: mirror(c2, point) is not None, MIRROR_S, 0.1)
     mir = mirror(c2, point)
     ev.update(SQ=sq, point=point, siteHost=site.get("site_id"), mirrorS=ms, siteClient=mir and mir.get("id"), sky=sky.get("id"))
     if not ok:
-        capture_boot(f"P1: no coop mirror of host site {site.get('site_id')} on client2 within {MIRROR_S} s", host, c2)
+        capture_boot(f"gm3_resume: no coop mirror of host site {site.get('site_id')} on client2 within {MIRROR_S} s",
+                     host, c2)
     cf = c2.cmd({"cmd": "craft_force", "craft_id": sky["id"], "status": "STR_OUT", "lon": xb["lon"] + CRAFT_AT[0],
                  "lat": xb["lat"] + CRAFT_AT[1], "dest": f"site:{mir['id']}", "fuel": 999999, "lowFuel": False})
     if not cf.get("ok"):
-        capture_boot(f"P1: client2 craft_force {cf}", host, c2)
+        capture_boot(f"gm3_resume: client2 craft_force {cf}", host, c2)
     ref0, how, t1 = event_state(c2).get("coopClientBattleRefused"), {}, time.time()
 
     def landing():
@@ -365,15 +380,16 @@ def p1_land(host, c2, ev):
     ok, _s = wait(landing, LANDING_S)
     ev.update(landing=how.get("v"), landingS=round(time.time() - t1, 2), refused0=ref0)
     if not ok:
-        capture_boot(f"P1: neither a ConfirmLandingState nor a refusal on client2 within {LANDING_S} s", host, c2)
+        capture_boot(f"gm3_resume: neither a ConfirmLandingState nor a refusal on client2 within {LANDING_S} s",
+                     host, c2)
     if how["v"] != "prompt":
         return [f"client2's landing refused, no ConfirmLandingState ({how['v']}; host pvpBorrow {G3E.coop(host).get('pvpBorrow')})"], \
             False, sq
     pre = G3E.coop(host).get("pvpBorrow") or {}
     sd, cl = c2.cmd({"cmd": "set_seed", "seed": SEED}), c2.cmd({"cmd": "confirm_landing"})
     if not sd.get("ok") or not cl.get("ok"):
-        capture_boot(f"P1: client2 set_seed {sd} / confirm_landing {cl}", host, c2)
-    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN["P1"])
+        capture_boot(f"gm3_resume: client2 set_seed {sd} / confirm_landing {cl}", host, c2)
+    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN["gm3_resume"])
     post = G3E.coop(host).get("pvpBorrow") or {}
     ref1 = event_state(c2).get("coopClientBattleRefused")
     ev.update(pvpBefore=pre, pvpAfter=post, bothInS=bs, refused1=ref1, client2StackAfterConfirm=stack(c2))
@@ -391,21 +407,23 @@ def p1_land(host, c2, ev):
     return bad, True, sq
 
 
-def p2_land(host, c2, ev):
-    """FX4A-6: G2F's to_battle copied (the host's Skyranger and squad of two, its own site at b0 + (0.35, 0.10), forced out 0.01
-    short; the landing prompt; host set_seed + confirm_landing); both inBattle <= 180 s; G2F's spine. Returns (bad, spine, squad)."""
+def gm2_land(host, c2, ev):
+    """G2F's to_battle, copied (the host's Skyranger and squad of two, its own site at b0 + (0.35, 0.10), forced out
+    0.01 short; the landing prompt; host set_seed + confirm_landing); both inBattle <= 180 s; G2F's spine. Returns (bad,
+    spine, squad)."""
     b0 = session._campaign_base0(host)
     sky = next((c for c in b0.get("crafts", []) if "SKYRANGER" in c.get("type", "")), None)
     sids = G2F.host_soldiers(host)
     if not sky or len(sids) < SQUAD:
-        capture_boot(f"P2: no host Skyranger or fewer than {SQUAD} soldiers (sky {sky}, soldiers {sids})", host, c2)
+        capture_boot(f"gm2_resume: no host Skyranger or fewer than {SQUAD} soldiers (sky {sky}, soldiers {sids})",
+                     host, c2)
     for sid in sids:
         host.ok({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": False})
     for sid in sids[:SQUAD]:
         host.ok({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": True})
     site = host.cmd(dict(SITE, cmd="spawn_mission_site", lon=b0["lon"] + POINT[0], lat=b0["lat"] + POINT[1]))
     if not site.get("ok"):
-        capture_boot(f"P2: host spawn_mission_site {site}", host, c2)
+        capture_boot(f"gm2_resume: host spawn_mission_site {site}", host, c2)
     host.ok({"cmd": "craft_force", "craft_id": sky["id"], "status": "STR_OUT", "lon": b0["lon"] + POINT[0] - 0.01,
              "lat": b0["lat"] + POINT[1], "dest": f"site:{site['site_id']}", "fuel": 999999, "lowFuel": False})
 
@@ -418,10 +436,10 @@ def p2_land(host, c2, ev):
         return None
     ok, ps = wait(prompt, LANDING_S, 0.5)
     if not ok:
-        capture_boot(f"P2: no host ConfirmLandingState within {LANDING_S} s", host, c2)
+        capture_boot(f"gm2_resume: no host ConfirmLandingState within {LANDING_S} s", host, c2)
     host.ok({"cmd": "set_seed", "seed": SEED})
     host.ok({"cmd": "confirm_landing"})
-    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN["P2"])
+    both, bs = wait(lambda: G3B.in_battle(host) and G3B.in_battle(c2), BOTH_IN["gm2_resume"])
     ev.update(squad=sids[:SQUAD], site=site.get("site_id"), promptS=ps, bothInS=bs, stacksAfterConfirm=[stack(host), stack(c2)])
     if not both:
         return [f"inBattle host/client2 {[G3B.in_battle(host), G3B.in_battle(c2)]} {bs} s after the confirm"], False, sids[:SQUAD]
@@ -429,7 +447,7 @@ def p2_land(host, c2, ev):
     return ([] if sp_ok else [sp_detail]), sp_ok, sids[:SQUAD]
 
 
-def row_p(row, gm, x, ev):
+def row_resume(row, gm, x, ev):
     host, client = x["host"], x["client"]
     crash0, t_row = crash_set(), time.time()
     host0, client0, _xb = bring_up(host, client, gm, ev)
@@ -441,7 +459,7 @@ def row_p(row, gm, x, ev):
     if not ok:
         block([f"{row}-land", f"{row}-seats"], "the resume never reached session up")
     else:
-        bad, spine, sq = (p1_land if gm == 3 else p2_land)(host, c2, ev)
+        bad, spine, sq = (gm3_land if gm == 3 else gm2_land)(host, c2, ev)
         cell(f"{row}-land", not bad, "; ".join(bad) or ("client2's prompt without a refusal; its confirm borrowed once (site, mirror); "
                                                        "both inBattle; spine passed" if gm == 3 else
                                                        "both inBattle after the host's confirm; spine passed"))
@@ -465,7 +483,7 @@ def run_boot(tag, label, row, gm):
          "client": GameClient("client", None, make_user_dir(tag + "_client")), "client2": None}
     ev = {}
     try:
-        row_p(row, gm, x, ev)
+        row_resume(row, gm, x, ev)
     except FixtureMiss as e:
         block(ROWS[row], f"boot ({str(e)[:200]})")
     except Exception as e:  # noqa: BLE001
@@ -485,11 +503,11 @@ def run_boot(tag, label, row, gm):
 
 def main():
     t0 = time.time()
-    run_boot("d250uc4a_r3", "R3", "P1", 3)
-    run_boot("d250uc4a_r2", "R2", "P2", 2)
-    allc = ROWS["P1"] + ROWS["P2"]
+    run_boot("campaign_resume_roles_gm3", "gm3_boot", "gm3_resume", 3)
+    run_boot("campaign_resume_roles_gm2", "gm2_boot", "gm2_resume", 2)
+    allc = ROWS["gm3_resume"] + ROWS["gm2_resume"]
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-C4a resumed PvP campaign roles: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
+    print(f"\n==== test_campaign_resume_roles: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
