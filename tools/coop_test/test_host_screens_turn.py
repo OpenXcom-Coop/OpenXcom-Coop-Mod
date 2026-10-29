@@ -199,7 +199,7 @@ def cycle_fails(cyc, turn0, what):
 def hs8_side_change(host, client, ctx):
     notes = []
     crash0 = crash_census()
-    st = {"H": restage_h(host, client, STAGE_H, "K0", placer=place_host_first)}
+    st = {"H": restage_h(host, client, STAGE_H, "belt_and_ground", placer=place_host_first)}
     staged = settle(host, client)
     g = st["H"]["ids"]["grenade"]
     turn0 = battle_state(host).get("turn")
@@ -459,7 +459,7 @@ def hs10_battle_end(host, client, ctx):
     crash0 = crash_census()
     kills = kill_all_but_one(host, client)
     last = kills["last"]
-    st = {"H": restage_h(host, client, STAGE_H, "K0", placer=place_host_first)}
+    st = {"H": restage_h(host, client, STAGE_H, "belt_and_ground", placer=place_host_first)}
     st["rod"] = give_hands(host, client, C_ID, STUN_ROD)
     st["C"] = place_host_first(host, client, C_ID, KO_C_TILE, KO_C_DIR)
     st["A"] = place_alien(host, client, last, KO_T_TILE, KO_T_DIR) if last is not None else None

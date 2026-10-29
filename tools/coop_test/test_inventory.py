@@ -80,7 +80,7 @@ live host twin before S-C1's host sync):
   IV10  paperdoll drop (boot option on): grenade belt (1,0); pick it, click the
         paperdoll. GREEN: admitted (site paperdoll, op move), the grenade on C's
         tile, owner -1, STR_GROUND, on both; C TU 64 - 6; the cursor empty.
-  IV11b host denies, load/unload ops (lever, screen open; ST1 (a)): K0 plus a
+  IV11b host denies, load/unload ops (lever, screen open; ST1 (a)): belt_and_ground plus a
         grenade in STR_LEFT_HAND and a loaded rifle in STR_BACK_PACK (0,0). The
         pistol clip -> the empty RH rifle: wrong_ammo "Wrong Ammunition for this
         Weapon!"; the belt clip -> the loaded backpack rifle, swap false:
@@ -127,7 +127,7 @@ or the INVENTORY key with the field focused blanks the name).
         {iseq, reason not_your_unit}, H's names unchanged on both, host
         renames.applied +0; EQUAL.
   RN4   a rename never waits (R-M2), in the T0-4 window (test_inventory_held.py
-        IH1a's pins: the host's snap shot at fire dial 1; C K0 on (2,33,0)): the
+        IH1a's pins: the host's snap shot at fire dial 1; C belt_and_ground on (2,33,0)): the
         client clicks C's name field before the fire and types "z" on its first
         `shot` cue. RED: as RN1. GREEN: host renames.applied +1 while the host's
         shot still runs (host busyOwnerSeat != -1 at the apply), host
@@ -209,7 +209,7 @@ ROW_TILE = {"IV1": (0, 33, 0), "IV2": (0, 34, 0), "IV3": (49, 25, 0), "IV4": (1,
             # S-B (P8-2 T0-1)
             "IV6": (0, 32, 0), "IV7": (1, 32, 0), "IV8": (0, 35, 0), "IV9": (2, 32, 0), "IV10": (48, 25, 0),
             "IV11b": (1, 34, 0),
-            # S-R (P8-3b T0-4 window A: "C K0 on STAGE_C (2,33,0)", test_inventory_held.py IH1A_TILE)
+            # S-R (P8-3b T0-4 window A: "C belt_and_ground on STAGE_C (2,33,0)", test_inventory_held.py IH1A_TILE)
             "RN4": (2, 33, 0)}
 STAGE_H = (48, 24, 0)             # P8-2 T0-1 STAGE_H
 ROW_DIR = 2                       # section 8.2: tele_both(C, <row tile>, 2)
@@ -228,7 +228,7 @@ UNPRIME_PCT = 25                  # op6: the grenade's unprime cost, a % of the 
 TU_UNPRIME_TO_HAND = 4            # op6: + the move belt (3,0) -> the free LH
 TU_UNPRIME_C = 20                 # RULING F2090 (a): max(1, floor(64 x 25 / 100)) + 4 on C (IV9)
 
-# ----- the K0 kit (P8-2 T0-1 / plan review section 5) -----
+# ----- the belt_and_ground kit (P8-2 T0-1 / plan review section 5) -----
 RIFLE, RIFLE_CLIP, PISTOL_CLIP, GRENADE = "STR_RIFLE", "STR_RIFLE_CLIP", "STR_PISTOL_CLIP", "STR_GRENADE"
 BELT, LH, RH, GROUND = "STR_BELT", "STR_LEFT_HAND", "STR_RIGHT_HAND", "STR_GROUND"
 BACK_PACK = "STR_BACK_PACK"
@@ -407,13 +407,13 @@ def give_primed(host, client, uid, sx, sy):
 
 def restage(host, client, row, kit):
     """ST5 (a): C onto the row's own tile facing 2, stripped, the row's kit, TU max.
-    kit "K0": rifle (no ammo) RH, rifle clip belt (0,0), grenade belt (1,0), primed
+    kit "belt_and_ground": rifle (no ammo) RH, rifle clip belt (0,0), grenade belt (1,0), primed
     grenade belt (3,0) (fuse 0), a rifle clip and a pistol clip dropped on the tile.
     kit "RH_LH": rifle RH, grenade LH (IV5).
     S-B kits = the kit each row's T0-1b host-vanilla twin ran on (t0_1_3_1b.py ops 4-8):
     "IV6" rifle RH + rifle clip belt (0,0); "IV7" rifle RH loaded (clip in ammo slot
     0); "IV8" rifle RH + a grenade on the tile; "IV9" rifle RH + primed grenade belt
-    (3,0); "IV10" grenade belt (1,0); "IV11b" K0 + a grenade LH + a loaded rifle
+    (3,0); "IV10" grenade belt (1,0); "IV11b" belt_and_ground + a grenade LH + a loaded rifle
     STR_BACK_PACK (0,0). Returns the staging record with the ids."""
     tile = ROW_TILE[row]
     rec = {"tile": tile}
@@ -421,7 +421,7 @@ def restage(host, client, row, kit):
     rec["tele"] = {"to": t.get("to"), "dir": t.get("dir")}
     rec["stripped"] = strip_both(host, client, C_ID)
     ids = {}
-    if kit in ("K0", "IV11b"):
+    if kit in ("belt_and_ground", "IV11b"):
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["beltClip"] = give(host, client, C_ID, RIFLE_CLIP, BELT, 0, 0)
         ids["grenade"] = give(host, client, C_ID, GRENADE, BELT, 1, 0)
@@ -750,7 +750,7 @@ def evidence(row, fields):
 def iv1_open_look(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV1", "K0")
+    st = restage(host, client, "IV1", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     ev = {"leftover": leftover, "tab": tab_select(client, C_ID)}
@@ -806,7 +806,7 @@ def iv1_open_look(host, client, ctx):
 def iv2_pickup_local(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV2", "K0")
+    st = restage(host, client, "IV2", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
@@ -850,7 +850,7 @@ def iv2_pickup_local(host, client, ctx):
 def iv3_grenade_to_hand(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV3", "K0")
+    st = restage(host, client, "IV3", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
@@ -941,7 +941,7 @@ def iv3_grenade_to_hand(host, client, ctx):
 def iv4_ground_to_belt(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV4", "K0")
+    st = restage(host, client, "IV4", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     clip = st["ids"]["groundClip"]
@@ -1077,7 +1077,7 @@ def iv11_host_denies(host, client, ctx):
     th = tele_both(host, client, H_ID, STAGE_H, ROW_DIR)
     h_stripped = strip_both(host, client, H_ID)
     h_gren = give(host, client, H_ID, GRENADE, BELT, 1, 0)
-    st = restage(host, client, "IV11", "K0")
+    st = restage(host, client, "IV11", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g, clip = st["ids"]["grenade"], st["ids"]["beltClip"]
@@ -1168,7 +1168,7 @@ def iv11_host_denies(host, client, ctx):
 def iv12_local_tu_refusal(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV12", "K0")
+    st = restage(host, client, "IV12", "belt_and_ground")
     st["tuSet"] = set_tu_both(host, client, C_ID, 1)
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
@@ -1225,7 +1225,7 @@ def iv12_local_tu_refusal(host, client, ctx):
 def iv13_real_ui_deny(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV13", "K0")
+    st = restage(host, client, "IV13", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
@@ -1949,7 +1949,7 @@ def rn4_rename_in_window(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
     ws = held.fire_setup(host, client)
-    st = restage(host, client, "RN4", "K0")
+    st = restage(host, client, "RN4", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     n0 = names_both(host, client, C_ID)

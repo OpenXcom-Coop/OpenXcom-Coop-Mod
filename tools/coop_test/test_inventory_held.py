@@ -176,9 +176,9 @@ STATUS_DEAD = 6                   # src/Mod/Unit.h UnitStatus (test_host_combat.
 STATUS_UNCONSCIOUS = 7
 
 # ----- P8-3b T0-4 row (IH1a/b/c): "fire dial 1 on seat 0 (wait_seat_dial); H (14,24,0) dir 2, rifle + clip via
-# give_both; set_seed 1 before each fire; battle_fire snap at (34,24,0), tuCost 14 (impact tile (40,25,0)); C K0 on
-# STAGE_C (2,33,0) (window A) / (0,34,0) (window B); C2 (4,32,0) dir 6, walk dest (1,32,0)"; window 8775-10206 ms
-# (3 boots) >= 3 x the longest in-window sequence 814 ms -----
+# give_both; set_seed 1 before each fire; battle_fire snap at (34,24,0), tuCost 14 (impact tile (40,25,0)); C
+# belt_and_ground on STAGE_C (2,33,0) (window A) / (0,34,0) (window B); C2 (4,32,0) dir 6, walk dest (1,32,0)";
+# window 8775-10206 ms (3 boots) >= 3 x the longest in-window sequence 814 ms -----
 FIRE_DIAL = 1
 FIRE_SEED = 1
 FIRE_MODE = "snap"
@@ -215,13 +215,13 @@ KEY_SETTLE_S = 0.3                # P8-4b ruling 2: a key injected right after a
 COVER_KEY = "keyGeoUfopedia"      # InventoryState :227 (_btnOk -> btnUfopaediaClick)
 CLOSE_KEY = "keyCancel"           # UfopaediaStartState :114 (_btnOk -> btnOkClick)
 COVER_WAIT_S = 2.0                # T0-S9: covered 0.102 s after the key
-# ----- P8-3b T0-11 row (IH2 a): "shape 2: restage_h STAGE_H (48,24,0) dir 2, K0, H TU 58" -----
-# ----- P8-3b T0-7 row (IH5): "C K0 on (1,33,0) dir 2"; the client stack at the flip [.., BattlescapeState,
+# ----- P8-3b T0-11 row (IH2 a): "shape 2: restage_h STAGE_H (48,24,0) dir 2, belt_and_ground, H TU 58" -----
+# ----- P8-3b T0-7 row (IH5): "C belt_and_ground on (1,33,0) dir 2"; the client stack at the flip [.., BattlescapeState,
 # InventoryState, NextTurnState]; at turn 2 the screen rebinds to C2 with C's grenade on the cursor --
 IH5_TILE = (1, 33, 0)
 TURN0 = 1                         # the boot's first player turn (battle_state.turn at bring-up)
-# ----- P8-3b T0-9 row (IH7): "C K0 on STAGE_C (2,33,0); host abort + dismiss_popup"; the client's display-only
-# DebriefingState 0.103 s after the confirm -----
+# ----- P8-3b T0-9 row (IH7): "C belt_and_ground on STAGE_C (2,33,0); host abort + dismiss_popup"; the client's
+# display-only DebriefingState 0.103 s after the confirm -----
 IH7_TILE = (2, 33, 0)
 # ----- P8-3b T0-6 row + ruling 1 (IH6): "C2 (4,32,0) dir 6 (Q5 a), stripped, grenade belt (1,0), TU 58; host
 # kill_unit_real {C2}"; RED = "the client dies within 5 s of the host kill_unit_real" -----
@@ -243,7 +243,7 @@ SYNC_WAIT_S = 3.0                 # P8-2 T0-3: the F1133 negative control sample
 LATCH_WAIT_S = 2.0                # C3: the close latch runs at ~InventoryState, one frame after the pop
 KEY_READ_S = 0.5                  # a text is read within 0.5 s of the press
 
-SC1_KEYS = ("invHostDirty", "invForcedCloses", "invWarningWrites", "syncEvsEmitted", "syncEvsApplied",
+HELD_PROBE_KEYS = ("invHostDirty", "invForcedCloses", "invWarningWrites", "syncEvsEmitted", "syncEvsApplied",
             "contextsOpened", "cueCounts", "battleEnd", "deltaEvsEmitted")
 
 
@@ -254,7 +254,7 @@ def probes_sc1(gc):
     """test_inventory.probes()' keys plus the S-C1 probes."""
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
-    return {k: es.get(k) for k in inv.PROBE_KEYS + SC1_KEYS}
+    return {k: es.get(k) for k in inv.PROBE_KEYS + HELD_PROBE_KEYS}
 
 
 def snap_sc1(host, client):
@@ -418,9 +418,9 @@ def settle(host, client):
 
 
 def restage_c(host, client, key, tile):
-    """test_inventory.restage (ST5 a, kit K0) with C's tile for this file's row `key` (the P8-3b pin)."""
+    """test_inventory.restage (ST5 a, kit belt_and_ground) with C's tile for this file's row `key` (the P8-3b pin)."""
     inv.ROW_TILE[key] = tile
-    return inv.restage(host, client, key, "K0")
+    return inv.restage(host, client, key, "belt_and_ground")
 
 
 def place_host_first(host, client, uid, tile, d):
@@ -489,16 +489,16 @@ def cover_inventory(gc, rec):
 
 
 def restage_h(host, client, tile, kit, placer=None):
-    """test_inventory.restage (:356-:391) for unit H, copied: kit "K0" (rifle RH, rifle clip belt (0,0), grenade
-    belt (1,0), primed grenade belt (3,0), a rifle clip and a pistol clip on the tile) or "IV6" (rifle RH with no
-    clip, rifle clip belt (0,0)). The teleport is test_client_shoot.place (re-entrant: a unit already on the
-    tile is not teleported onto it, CLAUDE.local.md S2) instead of tele_both; W2-P8 S-C2's rows pass
+    """test_inventory.restage (:356-:391) for unit H, copied: kit "belt_and_ground" (rifle RH, rifle clip belt
+    (0,0), grenade belt (1,0), primed grenade belt (3,0), a rifle clip and a pistol clip on the tile) or "IV6"
+    (rifle RH with no clip, rifle clip belt (0,0)). The teleport is test_client_shoot.place (re-entrant: a unit
+    already on the tile is not teleported onto it, CLAUDE.local.md S2) instead of tele_both; W2-P8 S-C2's rows pass
     `placer=place_host_first` (P8-4b ruling 3)."""
     rec = {"tile": tile}
     rec["place"] = (placer or cs.place)(host, client, H_ID, tile, ROW_DIR)
     rec["stripped"] = strip_both(host, client, H_ID)
     ids = {}
-    if kit == "K0":
+    if kit == "belt_and_ground":
         ids["rifle"] = give(host, client, H_ID, RIFLE, "right")
         ids["beltClip"] = give(host, client, H_ID, RIFLE_CLIP, BELT, 0, 0)
         ids["grenade"] = give(host, client, H_ID, GRENADE, BELT, 1, 0)
@@ -887,7 +887,7 @@ def ih1c_held_walk_blocks(host, client, ctx):
 def ih8_open_context_gate(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
-    hst = restage_h(host, client, STAGE_H, "K0", placer=place_host_first)
+    hst = restage_h(host, client, STAGE_H, "belt_and_ground", placer=place_host_first)
     ct = place_host_first(host, client, C_ID, IH8_C_TILE, IH8_C_DIR)
     ctu = cs.set_tu_both(host, client, C_ID, TU_MAX)
     staged = settle(host, client)
@@ -1200,7 +1200,7 @@ def heal_step(host, client):
 def ih2_host_placement_sync(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
-    hst = restage_h(host, client, STAGE_H, "K0")
+    hst = restage_h(host, client, STAGE_H, "belt_and_ground")
     staged = settle(host, client)
     gh = hst["ids"]["grenade"]
     before = snap_sc1(host, client)
@@ -1255,7 +1255,7 @@ def ih2_host_placement_sync(host, client, ctx):
     evidence("IH2", {"staging": hst, "stagedDiff": staged, "ui": ev,
                      "a": {"hostDirty": (before["host"]["invHostDirty"], mid["host"]["invHostDirty"]),
                            "hostSync": (before["host"]["syncEvsEmitted"], mid["host"]["syncEvsEmitted"])},
-                     "b": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in SC1_KEYS[:5]})
+                     "b": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in HELD_PROBE_KEYS[:5]})
                            for k, v in sample.items()},
                      "heal": heal, "row": rec_view(before, rec, {"hGrenade": gh}), "notes": notes})
     fails = list(notes) + staged_fails(hst, staged, H_TU_MAX, "H")
@@ -1329,7 +1329,7 @@ def ih3_host_reload_key(host, client, ctx):
     heal = heal_step(host, client)
     rec = collect_sc1(host, client, seq0)
     evidence("IH3", {"staging": hst, "stagedDiff": staged, "ui": ev,
-                     "sample": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in SC1_KEYS[:5]})
+                     "sample": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in HELD_PROBE_KEYS[:5]})
                                 for k, v in sample.items()},
                      "heal": heal, "row": rec_view(before, rec, {"rifle": rifle, "clip": clip}), "notes": notes})
     fails = list(notes) + staged_fails(hst, staged, H_TU_MAX, "H")

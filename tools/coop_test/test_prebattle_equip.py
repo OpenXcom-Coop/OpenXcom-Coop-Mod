@@ -97,7 +97,7 @@ screen shows C1; C1's TU is read on both machines before and after each row.
   EQ15  host refresh: the client moves the staged rifle to C2's right hand, no host
         input. GREEN: the host's inventory_view.ground loses the rifle and its
         hostScreens.refreshes +1 or more (M4 counts one refresh per pump pass after a host
-        emission; HS4's bar).
+        emission; inventory_refreshes's bar).
   EQ7   the barrier (Q4 a, Q5 a) with EQ7b: a. client ok (un-ready) b. host ok (ready)
         c. the host picks X (the staged proximity grenade) d. host defer_intents {ms 3000,
         count 1}, the client Ctrl-clicks Z (the staged smoke grenade; no cursor) e.
@@ -975,7 +975,8 @@ def eq15_host_refresh(host, client, ctx):
             fails.append(f"EQ15: the host's ground {ground_ids(hv0)} -> {ground_ids(hv1)} (want the rifle {item} gone "
                          f"with no host input)")
         # coopHostScreenCheck's M4 counts one refresh per pump pass after which the host emitted (the order's
-        # bt_action_end, plus e.g. F2093's `reveal`), so one client order is >= +1 (test_host_screens.py HS4's bar)
+        # bt_action_end, plus e.g. F2093's `reveal`), so one client order is >= +1 (test_host_screens.py
+        # inventory_refreshes's bar)
         if not (isinstance(ref0, int) and isinstance(ref1, int) and ref1 - ref0 >= 1):
             fails.append(f"EQ15: host hostScreens.refreshes {ref0} -> {ref1} (want +1 or more: the refresh ran)")
     fails += tail_fails(host, client, "EQ15")

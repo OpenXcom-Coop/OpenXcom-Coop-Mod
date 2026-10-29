@@ -1,91 +1,63 @@
-"""test_host_screens.py: parallel mode, the second player's actions keep
-running while the host sits in any screen (its inventory, the Esc menu, an info
-screen, the medi-kit screen, a message box); the host's screens refresh, return a
-lost cursor item and close themselves when their soldier goes down; a covered
-inventory whose soldier goes down is detached. Spec docs
-rewrite/prompts/w2p8_inventory.md: owner D166 = B, D187-D191; AMENDMENT P8-4 section
-4.2 (corrections C2-1..C2-10, the rows, the named red) with the draft
-rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1 (1.2 mechanism, 1.5 probes, 1.8 rows);
-P8-4 RULINGS (Q1 (a): HS3c; Q4 moot: HS5 asserted; Q6 (a): C2-1's order); AMENDMENT
-P8-4b (the TASK 0 pins and rulings 1-6).
+"""test_host_screens.py: parallel mode, the second player's actions keep running while the host sits in any screen
+(its inventory, the Esc menu, an info screen, the medi-kit screen, a message box); the host's screens refresh, return
+a lost cursor item and close themselves when their soldier goes down; a covered inventory whose soldier goes down is
+detached.
 
-ONE boot = test_inventory.boot (the roster-pinned terror boot, paperdoll option on
-both; H = 10, C = 8, C2 = 9). Rows in this order, every row ONE run, every row
-restages (HS3, HS3b and HS3c knock out H, H2 and H3, so they come last):
-  HS1   (the draft's IH4, D166 B) host opens H's inventory; client walk order C
-        (12,26,0) -> (9,29,0). RED: admitted and frozen (host contextsOpened.intent
-        +1, isBusy, C still on its tile after HS_WALK_UNDER_S, hostCovered.steps +0,
-        F2071). GREEN: the walk's context closes and C stands on the destination
-        on both while the host's inventory_view.open is true;
-        hostCovered.byOrigin.intent +> 0; then the host closes; EQUAL.
-  HS2   the same walk under the host's PauseState (its options key); GREEN
-        as HS1 with PauseState on top throughout; the host closes it after.
-  HS2b  the same walk under the host's UnitInfoState on H (TAB H, the
-        battlescape stats button by rect); GREEN as HS1 under UnitInfoState.
-  HS7   the host's MedikitState on C (H adjacent, a medi-kit in H's
-        right hand; C one fatal wound); client walk order C two tiles away; then
-        the host presses HEAL. RED: the walk frozen; the heal applies to C.
-        GREEN: the walk ends under MedikitState; the heal press closes it: host
-        top BattlescapeState, host warningText "There is no one there!",
-        hostScreens.medikitRefused +1, the kit's charges, H's TU and C's health
-        and fatal wounds unchanged on both; EQUAL.
-  HS4   (D190 refresh, M4) host opens H's inventory on (12,25,0); client throws
-        a rifle clip onto H's tile (T0-S3, seed 1). RED: the throw frozen (the
-        clip still C's). GREEN: while the screen is open the clip lies on H's tile
-        on both and in the host's inventory_view.ground, hostScreens.refreshes
-        +>= 1; EQUAL.
-  HS5   instant grenades on both; host opens H's inventory on
-        (12,20,0) and picks the rifle clip lying on H's tile; client throws a
-        primed grenade (fuse 0) at (12,22,0) (T0-S4, seed 2). RED: the throw
-        frozen; the clip still on the host's cursor. GREEN: while the screen is
-        open the clip is gone on both, host selectedItem -1,
-        hostScreens.cursorReturned +1, host invLastWarning "Order cancelled -
-        item unavailable", H conscious on both; EQUAL.
-  HS3   (D190 down + D187 box; C2-1) host opens H's inventory on (24,23,0) and
-        picks H's grenade (belt (1,0)); client stun-rod melee on H (T0-S2, seed
-        1). Leg 2: with the host's "has become unconscious" box on top, client
-        walk order C2 (4,32,0) -> (1,32,0). Then the box is dismissed. RED: the
-        melee frozen; H conscious; no box. GREEN leg 1 (C2-1, Q6 a): H
-        unconscious on both, hostScreens.closes.byReason.unit_out +1 and
-        byScreen.inventory +1, no InventoryState on the host, THEN the host's top
-        InfoboxOKState whose text holds "has become unconscious"; leg 2: C2 on
-        the destination on both with the box still up; after the dismiss the
-        grenade lies among H's dropped items on (24,23,0) on both; EQUAL.
-  HS3b  (M2, C2-7) host opens H2's action menu (TAB H2, the right-hand box);
-        client knocks H2 out (T0-S2). RED: the melee frozen. GREEN:
-        hostScreens.closes.byScreen.action_menu +1 (byReason.unit_out +1), no
-        ActionMenuState when the box shows; the box dismissed; EQUAL.
-  HS3c  (C2-3, P8-4 RULINGS Q1 (a), F2856; host) host opens H3's inventory and
-        covers it (the inventory's Ufopaedia key, T0-S9's cover recipe);
-        client knocks H3 out. RED: the melee frozen; H3 conscious. GREEN:
-        hostScreens.coveredDetach +1 while covered; the test dismisses the box
-        and closes the cover: no new host crash file, then
-        hostScreens.closes.byReason.unit_out +1, no InventoryState; EQUAL.
-        (H and H2 lie unconscious after HS3 / HS3b and no lever revives a unit,
-        so HS3c's target is the third host-seat soldier, H3 = 12.)
+ONE boot = test_inventory.boot (the roster-pinned terror boot, paperdoll option on both; H = 10, C = 8, C2 = 9). Rows
+in this order, every row ONE run, every row restages (knockout_closes_inventory, knockout_closes_menu and
+knockout_covered_detach knock out H, H2 and H3, so they come last):
+  walk_under_inventory: the host opens H's inventory; client walk order C (12,26,0) -> (9,29,0). Passes when the
+      walk's context closes and C stands on the destination on both while the host's inventory_view.open is true;
+      hostCovered.byOrigin.intent +> 0; then the host closes; EQUAL. When broken the walk is admitted and frozen (host
+      contextsOpened.intent +1, isBusy, C still on its tile after HS_WALK_UNDER_S, hostCovered.steps +0).
+  walk_under_pause: the same walk under the host's PauseState (its options key); passes as walk_under_inventory with
+      PauseState on top throughout; the host closes it after.
+  walk_under_unit_info: the same walk under the host's UnitInfoState on H (TAB H, the battlescape stats button by
+      rect); passes as walk_under_inventory under UnitInfoState.
+  walk_under_medikit: the host's MedikitState on C (H adjacent, a medi-kit in H's right hand; C one fatal wound);
+      client walk order C two tiles away; then the host presses HEAL. Passes when the walk ends under MedikitState and
+      the heal press closes it: host top BattlescapeState, host warningText "There is no one there!",
+      hostScreens.medikitRefused +1, the kit's charges, H's TU and C's health and fatal wounds unchanged on both;
+      EQUAL. When broken the walk is frozen and the heal applies to C.
+  inventory_refreshes: the host opens H's inventory on (12,25,0); the client throws a rifle clip onto H's tile (seed
+      1). Passes when, while the screen is open, the clip lies on H's tile on both and in the host's
+      inventory_view.ground, hostScreens.refreshes +>= 1; EQUAL. When broken the throw is frozen (the clip still C's).
+  cursor_item_returned: instant grenades on both; the host opens H's inventory on (12,20,0) and picks the rifle clip
+      lying on H's tile; the client throws a primed grenade (fuse 0) at (12,22,0) (seed 2). Passes when, while the
+      screen is open, the clip is gone on both, host selectedItem -1, hostScreens.cursorReturned +1, host
+      invLastWarning "Order cancelled - item unavailable", H conscious on both; EQUAL. When broken the throw is frozen
+      and the clip still on the host's cursor.
+  knockout_closes_inventory: the host opens H's inventory on (24,23,0) and picks H's grenade (belt (1,0)); client
+      stun-rod melee on H (seed 1). Leg 2: with the host's "has become unconscious" box on top, client walk order C2
+      (4,32,0) -> (1,32,0). Then the box is dismissed. Leg 1 passes when H is unconscious on both,
+      hostScreens.closes.byReason.unit_out +1 and byScreen.inventory +1, no InventoryState on the host, THEN the
+      host's top InfoboxOKState whose text holds "has become unconscious"; leg 2 when C2 is on the destination on both
+      with the box still up; after the dismiss the grenade lies among H's dropped items on (24,23,0) on both; EQUAL.
+      When broken the melee is frozen, H conscious, no box.
+  knockout_closes_menu: the host opens H2's action menu (TAB H2, the right-hand box); the client knocks H2 out. Passes
+      when hostScreens.closes.byScreen.action_menu +1 (byReason.unit_out +1), no ActionMenuState when the box shows;
+      the box dismissed; EQUAL. When broken the melee is frozen.
+  knockout_covered_detach: the host opens H3's inventory and covers it (the inventory's Ufopaedia key); the client
+      knocks H3 out. Passes when hostScreens.coveredDetach +1 while covered; the test dismisses the box and closes the
+      cover: no new host crash file, then hostScreens.closes.byReason.unit_out +1, no InventoryState; EQUAL. When
+      broken the melee is frozen and H3 conscious. (H and H2 lie unconscious after the two rows before and no test
+      command revives a unit, so this row's target is the third host-seat soldier, H3 = 12.)
 
-Common asserts, every row (after wait_host_idle): hash_now full EQUAL; desyncSeen
-false on both; client coopClientBStatePushes unchanged and host 0; client
-invLocalWrites 0 and the client's invGuard unchanged; no host or client screen left
-open; no new crash file; host hostCovered.byOrigin moves only on intent / endturn
-(STOP-IF 20). A red row's cleanup (after its window: the cursor item back through
-inventory_cursor_clear, the screen closed) lets the frozen order finish so the next
-row starts clean; the cleanup is recorded in the row's EVIDENCE and is a no-op on a
-green run.
+Common asserts, every row (after wait_host_idle): hash_now full EQUAL; desyncSeen false on both; client
+coopClientBStatePushes unchanged and host 0; client invLocalWrites 0 and the client's invGuard unchanged; no host or
+client screen left open; no new crash file; host hostCovered.byOrigin moves only on intent / endturn. A frozen row's
+cleanup (after its window: the cursor item back through inventory_cursor_clear, the screen closed) lets the frozen
+order finish so the next row starts clean; the cleanup is recorded in the row's EVIDENCE and is a no-op on a passing
+run.
 
-Constants: the P8-4b pin table (T0-S1, the host sequences, T0-S2, T0-S3, T0-S4,
-T0-S5, T0-S9; docs rewrite/w2p8-task0/sc2/, t0_sc2.py with --s3seed 1 --s4seed 2
---koseed 1), each with its source line below. Item ids come from each row's staging
-record (C7), never literals. Lever pairs go to the CLIENT first, except the
-teleports: P8-4b ruling 3 (host leg first, checked, then the client leg;
-test_inventory_held.place_host_first). P8-4b ruling 1: every walk-window row
-pins the host camera on the lane and the client's xcom dial 40; the other rows run
-at the boot's dial (30), as TASK 0 measured them. P8-4b ruling 2: a host key right
-after a state opened waits KEY_SETTLE_S. Each row prints ONE "EVIDENCE <id>:" line
-with both machines' fields before its conditions are checked; every row runs after
-an earlier failure; "PASS <id>" / "FAIL <id>: <message>". Exit 0 only when every row
-passes, 2 otherwise (a bring-up failure is also 2). one run is the
-result. run in the foreground to completion.
+Constants: measured setup values, each with its measurement in the comment above it. Item ids come from each row's
+staging record, never literals. Paired test commands go to the CLIENT first, except the teleports: host leg first,
+checked, then the client leg (test_inventory_held.place_host_first). Every walk-window row pins the host camera on the
+lane and the client's xcom dial 40; the other rows run at the boot's dial (30), as they were measured. A host key
+right after a state opened waits KEY_SETTLE_S. Each row prints ONE "EVIDENCE <id>:" line with both machines' fields
+before its conditions are checked; every row runs after an earlier failure; "PASS <id>" / "FAIL <id>: <message>". Exit
+0 only when every row passes, 2 otherwise (a bring-up failure is also 2). One run is the result; run it in the
+foreground to completion.
 
 Run:  python tools/coop_test/test_host_screens.py
 """
@@ -107,7 +79,7 @@ from test_inventory_held import (C2_ID, STATUS_UNCONSCIOUS, C2_TILE, C2_DIR, C2_
                                     KEY_SETTLE_S, CLOSE_KEY, place_host_first, read_key, xcom_dial_of,
                                     set_xcom_dial, camera_lane, cover_inventory, restage_h, settle,
                                     crash_exception_lines, log_mark, ui_lines, dnum, item_both, unit_pos, ms_since,
-                                    SC1_KEYS)
+                                    HELD_PROBE_KEYS)
 from test_delta_core import short, both
 from test_delta_items import items_by_id, unit_view
 from test_client_items import strip_both, dismiss_host_box, items_of, charges
@@ -116,67 +88,68 @@ from test_host_combat import open_hand_menu_host, CURSOR_AIM
 from test_turn_baton import RHAND_RECT, click_nth
 from test_seat_pacing import tab_select
 
-# ----- units (test_inventory.py :154-:156; t0_sc2.py :233) -----
-H2_ID = 11                        # the second host-seat soldier (t0_sc2.py :233 H2_ID; T0-S2 knocked it out)
-H3_ID = 12                        # the third host-seat soldier (HS3c's target; see the docstring)
+# ----- units (test_inventory.py :154-:156) -----
+H2_ID = 11                        # the second host-seat soldier
+H3_ID = 12                        # the third host-seat soldier (knockout_covered_detach's target; see the docstring)
 RHAND_NTH = 25                    # click_widget nth of the right-hand box (test_host_combat.py :162)
 
-# ----- P8-4b T0-S1 row: "C (12,26,0) dir 2 -> (9,29,0) 3 tiles / (10,28,0) 2 tiles; host camera
-# battle_camera_center (11,27,0) (on-screen) + client battleXcomSpeed 40 + wait_seat_dial(seat 1, "xcom", 40)";
-# "on-screen dial 40: 3 tiles 2339 ms, 2 tiles 1554-1559 ms (3 boots)" (LANE_MID and WALK_DIAL: held) ----------
+# ----- the walks: C (12,26,0) dir 2 -> (9,29,0), 3 tiles, or (10,28,0), 2 tiles; the host camera centred on
+# (11,27,0) (on screen), the client's battleXcomSpeed 40 and wait_seat_dial(seat 1, "xcom", 40). Measured on screen
+# at dial 40 over 3 boots: 3 tiles 2339 ms, 2 tiles 1554-1559 ms (LANE_MID and WALK_DIAL: test_inventory_held) -----
 WALK_C_TILE, WALK_C_DIR = (12, 26, 0), 2
-WALK_DEST3 = (9, 29, 0)           # HS1, HS2, HS2b
-WALK_DEST2 = (10, 28, 0)          # HS7 ("C two tiles away")
+WALK_DEST3 = (9, 29, 0)           # walk_under_inventory, walk_under_pause, walk_under_unit_info
+WALK_DEST2 = (10, 28, 0)          # walk_under_medikit ("C two tiles away")
 # The walk windows: the dial-40 step interval (40 ms) is longer than a frame, so a covered BattlescapeState's one
-# step per frame keeps the uncovered pace; ~2 x the measured walk bounds the green run, and each window is
-# the whole red cost of its row (the K=2 wall bar, S13).
+# step per frame keeps the uncovered pace; ~2 x the measured walk bounds a passing run, and each window is the whole
+# extra time a frozen walk costs its row.
 HS_WALK_UNDER_S = 4.5             # a 3-tile walk (2339 ms uncovered)
 WALK2_UNDER_S = 3.5               # a 2-tile walk (1554-1559 ms uncovered)
-BOOT_DIAL = 30                    # the boot's xcom dial (T0 BOOT lines: speed local xcom 30); T0-S2/S3/S4 ran at it
-# ----- P8-4b "host sequences" row: "HS1 open/close ~100 ms; HS2 PauseState keyBattleOptions 27, close 27 after a
-# 0.3 s settle; HS2b TAB H + click_widget nth 16 (stats rect) -> UnitInfoState, close 27; HS7 hand box + key 49 ->
-# MedikitState 954 ms" (F2887; t0_sc2.py :394-:462; run_a3: stats button rect (107,177,164,23)) -----
-STATS_RECT = (107, 177, 164, 23)  # the battlescape stats button (T0-S1 hostSeqs HS2b_statsButton, nth 16)
+BOOT_DIAL = 30                    # the boot's xcom dial; the throw and knockout rows were measured at it
+# ----- the host's screens, as measured: the inventory opens and closes in ~100 ms; PauseState opens on
+# keyBattleOptions (27) and closes on 27 after a 0.3 s settle; UnitInfoState opens on TAB H + click_widget nth 16
+# (the stats button) and closes on 27; MedikitState opens from the hand box + key 49 in 954 ms -----
+STATS_RECT = (107, 177, 164, 23)  # the battlescape stats button (click_widget nth 16)
 SCREEN_WAIT_S = 3.0
-# ----- P8-4b T0-S5 row: "H (13,26,0) dir 6, medi-kit RH; C (12,26,0) wounds [0,0,1,0,0,0]; TAB H, RH box nth 25,
-# key 49 | heal button rect (190,120,30,20) key 51; end (220,140,20,20) key 27" -----
+# ----- the medi-kit: H (13,26,0) dir 6, a medi-kit in the right hand; C (12,26,0) wounds [0,0,1,0,0,0]; TAB H,
+# the right-hand box nth 25, key 49; the heal button rect (190,120,30,20), key 51; end (220,140,20,20), key 27 -----
 MED_H_TILE, MED_H_DIR = (13, 26, 0), 6
 C_WOUNDS = [0, 0, 1, 0, 0, 0]
 MEDIKIT = "STR_MEDI_KIT"
 KEY_ITEM1 = 49                    # keyBattleActionItem1: USE MEDI-KIT (test_client_items KEY_ITEM1)
-KEY_HEAL = 51                     # MedikitState SDLK_3: the heal button (T0-S5)
+KEY_HEAL = 51                     # MedikitState SDLK_3: the heal button
 TEXT_NO_ONE = "There is no one there!"   # xcom1 en-US STR_THERE_IS_NO_ONE_THERE (the partner's no_one_there deny)
 WARN_READ_S = 1.0                 # the host's warning text is read within this of the press
-# ----- P8-4b T0-S3 row: "C (12,27,0) dir 2 (facing reset via PARK (11,27,0)); H (12,25,0) dir 4; clip via
-# clear_hands; seed 1 | lands on (12,25,0) on both 4/4" (F2890; t0_sc2.py :245-:247) -----
+# ----- the clip throw: C (12,27,0) dir 2 (facing reset via PARK (11,27,0)); H (12,25,0) dir 4; the clip given
+# with clear_hands; seed 1: it landed on (12,25,0) on both in 4 runs of 4 -----
 THROW_C_TILE, THROW_C_DIR = (12, 27, 0), 2
 THROW_H_TILE, THROW_H_DIR = (12, 25, 0), 4
 PARK_TILE = (11, 27, 0)
 SEED_THROW = 1
-# ----- P8-4b T0-S4 row: "battleInstantGrenade on both; grenade fuse 0 thrown at (12,22,0); H (12,20,0) dir 4 with
-# a clip on its tile; C (12,27,0); seed 2 | clip removed on both 3/3, H conscious" (F2891; t0_sc2.py :249-:254,
-# H health raised 500) -----
+# ----- the grenade throw: battleInstantGrenade on both; a grenade (fuse 0) thrown at (12,22,0); H (12,20,0) dir 4
+# with a clip on its tile and its health raised to 500; C (12,27,0); seed 2: the clip was removed on both in 3 runs
+# of 3, H conscious -----
 BLAST_TARGET = (12, 22, 0)
 BLAST_H_TILE, BLAST_H_DIR = (12, 20, 0), 4
 H_HEALTH_RAISED = 500
 SEED_BLAST = 2
 TEXT_ITEM_MISSING = "Order cancelled - item unavailable"   # STR_COOP_DENY_ITEM_MISSING (test_inventory TEXT_DENY)
-# ----- P8-4b T0-S2 row: "C (24,24,0) dir 0 with stun rod; target on (24,23,0) health 5, no fatal wounds;
-# battle_intent melee; seed 1 | H and H2 unconscious on both 3/3; box "<name>\nhas become unconscious" at
-# 1459-1715 ms" (F2892; t0_sc2.py :255-:258; T0-S2 staged H with restage_h K0 (dir 2) and H2 with place dir 4) --
+# ----- the knockout: C (24,24,0) dir 0 with a stun rod; the target on (24,23,0), health 5, no fatal wounds;
+# battle_intent melee; seed 1: H and H2 unconscious on both in 3 runs of 3; the box "<name>\nhas become
+# unconscious" at 1459-1715 ms (H staged with restage_h belt_and_ground (dir 2), H2 with place dir 4) -----
 KO_C_TILE, KO_C_DIR = (24, 24, 0), 0
 KO_T_TILE, KO_T_DIR = (24, 23, 0), 4
 KO_HEALTH = 5
 SEED_KO = 1
 STUN_ROD = "STR_STUN_ROD"
 TEXT_UNCONSCIOUS = "has become unconscious"
-# ----- windows (about 3 x TASK 0's longest measured order; the walk windows are above) -----
-ORDER_UNDER_S = 5.5               # throws: T0-S3 556 ms, T0-S4 1312 ms (a covered projectile moves one step per
-                                  # frame instead of battleFireSpeed's 6, F2617: the flight can take longer)
-KO_UNDER_S = 4.5                  # the knockout box: T0-S2 1459-1715 ms (a melee has no projectile)
-MELEE_CLOSE_S = 2.0               # HS3 leg 2: the melee's context closes a few driven steps after its box
-ADMIT_WAIT_S = 5.0                # T0-10: a partner order admitted 0.124 s after the send
-AFTER_WAIT_S = 20.0               # a red row's released order finishes within this after its cleanup
+# ----- windows (about 3 x the longest measured order; the walk windows are above) -----
+ORDER_UNDER_S = 5.5               # throws: the clip 556 ms, the grenade 1312 ms (a covered projectile moves one step
+                                  # per frame instead of battleFireSpeed's 6, so the flight can take longer)
+KO_UNDER_S = 4.5                  # the knockout box: 1459-1715 ms (a melee has no projectile)
+MELEE_CLOSE_S = 2.0               # knockout_closes_inventory leg 2: the melee's context closes a few driven steps
+                                  # after its box
+ADMIT_WAIT_S = 5.0                # a partner order was admitted 0.124 s after the send
+AFTER_WAIT_S = 20.0               # a frozen row's released order finishes within this after its cleanup
 BOX_WAIT_S = 10.0
 
 HS_KEYS = ("hostCovered", "hostScreens")
@@ -188,7 +161,7 @@ HS_KEYS = ("hostCovered", "hostScreens")
 def probes_hs(gc):
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
-    return {k: es.get(k) for k in inv.PROBE_KEYS + SC1_KEYS + HS_KEYS}
+    return {k: es.get(k) for k in inv.PROBE_KEYS + HELD_PROBE_KEYS + HS_KEYS}
 
 
 def snap_hs(host, client):
@@ -200,13 +173,13 @@ def top(gc):
     return s[-1] if s else None
 
 
-from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
+from harness import CRASH_DIR  # noqa: E402  (this harness slot's own crash folder)
 
 
 def crash_census():
     """Every file in the exe's crashlogs directory, where the crash handler writes each crash_*.log and .dmp
-    (the dispatch note: count only NEW ones). test_inventory_held.crash_files() globs the harness root and the
-    whole exe tree recursively (~2 s a call), too slow for a per-row census under the K=2 wall bar (S13)."""
+    (only new ones count). test_inventory_held.crash_files() globs the harness root and the whole exe tree
+    recursively (~2 s a call), too slow for a census on every row."""
     try:
         return {os.path.join(CRASH_DIR, f) for f in os.listdir(CRASH_DIR)}
     except OSError:
@@ -254,7 +227,7 @@ def press(gc, key):
     gc.ok({"cmd": "inject_input", "kind": "key", "key": key})
 
 
-# ===================== staging (teleports host-first, P8-4b ruling 3; other lever pairs client-first) =========
+# ===================== staging (teleports host first; other paired test commands client first) =================
 
 
 def set_state_both(host, client, uid, **fields):
@@ -263,13 +236,13 @@ def set_state_both(host, client, uid, **fields):
 
 
 def give_hands(host, client, uid, item, **extra):
-    """battle_give with clear_hands (both hands emptied first); returns the item id (t0_sc2.py's pattern)."""
+    """battle_give with clear_hands (both hands emptied first); returns the item id."""
     req = dict({"cmd": "battle_give", "unit": uid, "item": item, "clear_hands": True}, **extra)
     return both(host, client, req, ("weaponId", "ammoId"))["weaponId"]
 
 
 def reset_facing(host, client, uid, tile, d):
-    """t0_sc2.py reset_facing :524-:528 (PARK, then the tile, never onto its own tile, S2), host-first."""
+    """Turn the unit to `d` on `tile`: PARK_TILE first, then the tile (never onto its own tile), host first."""
     a = place_host_first(host, client, uid, PARK_TILE, d)
     b = place_host_first(host, client, uid, tile, d)
     return {"park": a, "to": b}
@@ -306,7 +279,7 @@ def host_pick(host, ev, key, slot, x, y, want):
 
 def open_hand_menu_unit(host, uid):
     """test_host_combat.open_hand_menu_host (:284-:304) for unit `uid`: TAB-select it on the host, then the
-    right-hand box (one extra click first when it is still aiming, F503) -> ActionMenuState."""
+    right-hand box (one extra click first when it is still aiming) -> ActionMenuState."""
     assert tab_select(host, uid), f"TAB never selected {uid} on the host (selectedId " \
                                   f"{battle_state(host).get('selectedId')})"
     want = (RHAND_RECT[0] + RHAND_RECT[2] // 2, RHAND_RECT[1] + RHAND_RECT[3] // 2)
@@ -388,17 +361,17 @@ def wait_under(host, client, done, window, t0, screen):
 
 
 def frozen_sample(host, client, uid):
-    """The red cell's record: where the partner's unit stands and what the host's chain holds."""
+    """The record of a frozen order: where the partner's unit stands and what the host's chain holds."""
     return {"unit": {"host": pos(host, uid), "client": pos(client, uid)}, "hostIsBusy": battle_state(host).get("isBusy"),
             "hostCovered": event_state(host).get("hostCovered"), "hostStack": stack(host)}
 
 
 def release(host, notes, what):
-    """A red row's cleanup (a no-op on green): the host's cursor item back through inventory_cursor_clear (no
-    click), then every host screen this file opens closed from the top: an InventoryState through
-    battle_close_inventory, a box through dismiss_host_box, anything else through its cancel key after
-    KEY_SETTLE_S. A NextTurnState or a DebriefingState is never touched (the side cycle and the battle end handle
-    them). Recorded."""
+    """A frozen row's cleanup (a no-op on a passing row): the host's cursor item back through
+    inventory_cursor_clear (no click), then every host screen this file opens closed from the top: an
+    InventoryState through battle_close_inventory, a box through dismiss_host_box, anything else through its
+    cancel key after KEY_SETTLE_S. A NextTurnState or a DebriefingState is never touched (the side cycle and the
+    battle end handle them). Recorded."""
     rec = []
     for _ in range(4):
         t = top(host)
@@ -442,7 +415,7 @@ def finish_order(host, client, notes, what, box=None):
 def hs_common_fails(host, client, before, crash0, what):
     """test_inventory.common_fails (hash, desync, pushes, invLocalWrites, host screen closed, the client's
     invGuard unchanged) plus: no new crash file, no screen left on either machine, and the host driver's origins
-    (STOP-IF 20: only intent / endturn may move)."""
+    (only intent / endturn may move)."""
     fails = common_fails(host, client, before, {}, None, what)
     nc = sorted(crash_census() - crash0)
     if nc:
@@ -454,7 +427,7 @@ def hs_common_fails(host, client, before, crash0, what):
     b0, b1 = hcov(before["host"]).get("byOrigin") or {}, hcov(event_state(host)).get("byOrigin") or {}
     odd = {k: (b0.get(k), v) for k, v in b1.items() if k not in ("intent", "endturn") and v != b0.get(k)}
     if odd:
-        fails.append(f"{what}: host hostCovered.byOrigin moved on {odd} (STOP-IF 20: only intent / endturn)")
+        fails.append(f"{what}: host hostCovered.byOrigin moved on {odd} (only intent / endturn may move)")
     return fails
 
 
@@ -462,16 +435,17 @@ def cov_delta(before, after, k):
     return dnum(hcov_origin(before, k), hcov_origin(after, k))
 
 
-# ===================== walk rows (HS1, HS2, HS2b) =====================
+# ===================== walk rows =====================
 
 
 def walk_row(host, client, name, open_screen, screen, close_screen, restage=False):
-    """HS1 / HS2 / HS2b: `open_screen` puts the host's `screen` on top; the client's walk C -> WALK_DEST3 must end
-    under it (green) or stays frozen (red); `close_screen` closes it. HS1 restages H on STAGE_H (K0); HS2 and HS2b
-    use H where HS1 left it."""
+    """The three walk rows: `open_screen` puts the host's `screen` on top; the client's walk C -> WALK_DEST3 must
+    end under it (when broken it stays frozen); `close_screen` closes it. walk_under_inventory restages H on STAGE_H
+    (belt_and_ground); walk_under_pause and walk_under_unit_info use H where walk_under_inventory left it."""
     notes = []
     crash0 = crash_census()
-    st = {"H": restage_h(host, client, STAGE_H, "K0", placer=place_host_first) if restage else pos(host, H_ID),
+    st = {"H": (restage_h(host, client, STAGE_H, "belt_and_ground", placer=place_host_first) if restage
+                else pos(host, H_ID)),
           "C": place_host_first(host, client, C_ID, WALK_C_TILE, WALK_C_DIR)}
     st["cTu"] = cs.set_tu_both(host, client, C_ID, TU_MAX)
     staged = settle(host, client)
@@ -506,7 +480,7 @@ def walk_row(host, client, name, open_screen, screen, close_screen, restage=Fals
     elif not admitted:
         fails.append(f"precondition ({name}): the client's walk was not admitted ({order})")
     else:
-        # the RED cell (S-C2.1): admitted and frozen under the host's screen; GREEN
+        # the walk must end under the host's screen (when broken it is admitted and frozen there)
         if not under.get("done"):
             fails.append(f"{name}: the walk did not end under the host's {screen} within {HS_WALK_UNDER_S} s "
                          f"({under.get('frozen')})")
@@ -521,14 +495,15 @@ def walk_row(host, client, name, open_screen, screen, close_screen, restage=Fals
     finish(fails)
 
 
-def hs1_inventory(host, client, ctx):
+def walk_under_inventory(host, client, ctx):
     def open_screen(ev):
         return open_host_inventory(host, H_ID, ev)
 
-    walk_row(host, client, "HS1", open_screen, "InventoryState", lambda: close_host_inventory(host), restage=True)
+    walk_row(host, client, "walk_under_inventory", open_screen, "InventoryState", lambda: close_host_inventory(host),
+             restage=True)
 
 
-def hs2_pause(host, client, ctx):
+def walk_under_pause(host, client, ctx):
     def open_screen(ev):
         k = read_key(host.user_dir, "keyBattleOptions")
         ev["key"] = k
@@ -542,10 +517,10 @@ def hs2_pause(host, client, ctx):
         press(host, read_key(host.user_dir, CLOSE_KEY))
         got, _ = wait_until(lambda: top(host) == "BattlescapeState", 2.0, 0.02)
         return {"closed": bool(got), "stack": stack(host)}
-    walk_row(host, client, "HS2", open_screen, "PauseState", close_screen)
+    walk_row(host, client, "walk_under_pause", open_screen, "PauseState", close_screen)
 
 
-def hs2b_unit_info(host, client, ctx):
+def walk_under_unit_info(host, client, ctx):
     def open_screen(ev):
         ev["tab"] = tab_select(host, H_ID)
         lw = host.cmd({"cmd": "list_widgets"})
@@ -565,13 +540,13 @@ def hs2b_unit_info(host, client, ctx):
         press(host, read_key(host.user_dir, CLOSE_KEY))
         got, _ = wait_until(lambda: top(host) == "BattlescapeState", 2.0, 0.02)
         return {"closed": bool(got), "stack": stack(host)}
-    walk_row(host, client, "HS2b", open_screen, "UnitInfoState", close_screen)
+    walk_row(host, client, "walk_under_unit_info", open_screen, "UnitInfoState", close_screen)
 
 
-# ===================== HS7 =====================
+# ===================== walk_under_medikit =====================
 
 
-def hs7_medikit(host, client, ctx):
+def walk_under_medikit(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"kit": give_hands(host, client, H_ID, MEDIKIT),
@@ -596,7 +571,7 @@ def hs7_medikit(host, client, ctx):
         press(host, KEY_ITEM1)
         opened, ev["medikitWaited"] = wait_until(lambda: top(host) == "MedikitState", SCREEN_WAIT_S, 0.02)
     except Exception as e:
-        notes.append(f"HS7: the host's medi-kit screen: {short(e)}")
+        notes.append(f"walk_under_medikit: the host's medi-kit screen: {short(e)}")
     ev["stack"] = stack(host)
     ev["camera"] = camera_lane(host)
     order, admitted, under, press_rec = {}, False, {}, {}
@@ -609,7 +584,7 @@ def hs7_medikit(host, client, ctx):
                                WALK2_UNDER_S, order["t0"], "MedikitState")
             if not under["done"]:
                 under["frozen"] = frozen_sample(host, client, C_ID)
-        # the heal press (the RED cell: C still adjacent, the heal applies; GREEN: the patient is gone)
+        # the heal press: the patient has walked away (when broken C is still adjacent and the heal applies)
         s0 = snap_hs(host, client)
         time.sleep(KEY_SETTLE_S)
         press(host, KEY_HEAL)
@@ -622,54 +597,61 @@ def hs7_medikit(host, client, ctx):
                      "Htu": {"host": inv.tu_of(host, H_ID), "client": inv.tu_of(client, H_ID)},
                      "C": {n: {k: (units(gc).get(C_ID) or {}).get(k) for k in ("health", "wounds")}
                            for n, gc in (("host", host), ("client", client))}}
-    rel = release(host, notes, "HS7")
-    after_s = finish_order(host, client, notes, "HS7") if (admitted and not under.get("done")) else None
+    rel = release(host, notes, "walk_under_medikit")
+    after_s = finish_order(host, client, notes, "walk_under_medikit") if (admitted and not under.get("done")) else None
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"HS7: host never idle: {short(e)}")
+        notes.append(f"walk_under_medikit: host never idle: {short(e)}")
     final = {"kit": {"host": charges(items_of(host), kit), "client": charges(items_of(client), kit)},
              "C": {n: {k: (units(gc).get(C_ID) or {}).get(k) for k in ("health", "wounds")}
                    for n, gc in (("host", host), ("client", client))}}
     ev["woundsCleared"] = set_state_both(host, client, C_ID, fatalWounds=[0] * 6)
-    evidence("HS7", {"staging": st, "stagedDiff": staged, "pre": pre, "ui": ev,
-                     "order": {k: v for k, v in order.items() if k != "t0"}, "under": under, "press": press_rec,
-                     "release": rel, "afterReleaseS": after_s, "final": final, "notes": notes})
+    evidence("walk_under_medikit", {"staging": st, "stagedDiff": staged, "pre": pre, "ui": ev,
+                                    "order": {k: v for k, v in order.items() if k != "t0"}, "under": under,
+                                    "press": press_rec, "release": rel, "afterReleaseS": after_s, "final": final,
+                                    "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS7: buckets differ after the staging: {staged}")
+        fails.append(f"walk_under_medikit: buckets differ after the staging: {staged}")
     if not opened:
-        fails.append(f"precondition (T0-S5): the host's MedikitState did not open on C ({ev})")
+        fails.append(f"precondition (walk_under_medikit): the host's MedikitState did not open on C ({ev})")
     elif not admitted:
-        fails.append(f"precondition (HS7): the client's walk was not admitted under MedikitState ({order})")
+        fails.append(f"precondition (walk_under_medikit): the client's walk was not admitted under MedikitState "
+                     f"({order})")
     else:
         if not under.get("done"):
-            fails.append(f"HS7: the walk did not end under the host's MedikitState within {WALK2_UNDER_S} s "
-                         f"({under.get('frozen')})")
+            fails.append(f"walk_under_medikit: the walk did not end under the host's MedikitState within "
+                         f"{WALK2_UNDER_S} s ({under.get('frozen')})")
         elif under.get("tops") != ["MedikitState"]:
-            fails.append(f"HS7: the host's tops while the walk ran {under.get('tops')} (want only MedikitState)")
+            fails.append(f"walk_under_medikit: the host's tops while the walk ran {under.get('tops')} (want only "
+                         f"MedikitState)")
         if press_rec.get("top") != "BattlescapeState":
-            fails.append(f"HS7: the host's top after the heal press {press_rec.get('top')} (want BattlescapeState: "
-                         f"the press closes the screen, M5)")
+            fails.append(f"walk_under_medikit: the host's top after the heal press {press_rec.get('top')} (want "
+                         f"BattlescapeState: the press closes the screen)")
         if press_rec.get("warningText") != TEXT_NO_ONE:
-            fails.append(f"HS7: host warningText after the press {press_rec.get('warningText')!r} (want "
+            fails.append(f"walk_under_medikit: host warningText after the press {press_rec.get('warningText')!r} (want "
                          f"{TEXT_NO_ONE!r})")
         if press_rec.get("medikitRefused") != 1:
-            fails.append(f"HS7: host hostScreens.medikitRefused +{press_rec.get('medikitRefused')} (want +1)")
+            fails.append(f"walk_under_medikit: host hostScreens.medikitRefused +{press_rec.get('medikitRefused')} "
+                         f"(want +1)")
         if press_rec.get("kit") != pre["kit"]:
-            fails.append(f"HS7: the kit's charges {pre['kit']} -> {press_rec.get('kit')} (want unchanged on both)")
+            fails.append(f"walk_under_medikit: the kit's charges {pre['kit']} -> {press_rec.get('kit')} (want "
+                         f"unchanged on both)")
         if press_rec.get("Htu") != pre.get("HtuAtOpen"):
-            fails.append(f"HS7: H TU {pre.get('HtuAtOpen')} -> {press_rec.get('Htu')} (want unchanged on both)")
+            fails.append(f"walk_under_medikit: H TU {pre.get('HtuAtOpen')} -> {press_rec.get('Htu')} (want unchanged "
+                         f"on both)")
         if press_rec.get("C") != pre["C"]:
-            fails.append(f"HS7: C health / wounds {pre['C']} -> {press_rec.get('C')} (want unchanged on both)")
-    fails += hs_common_fails(host, client, before, crash0, "HS7")
+            fails.append(f"walk_under_medikit: C health / wounds {pre['C']} -> {press_rec.get('C')} (want unchanged on "
+                         f"both)")
+    fails += hs_common_fails(host, client, before, crash0, "walk_under_medikit")
     finish(fails)
 
 
-# ===================== HS4 =====================
+# ===================== inventory_refreshes =====================
 
 
-def hs4_refresh(host, client, ctx):
+def inventory_refreshes(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"dial": ensure_dial(host, client, BOOT_DIAL),
@@ -705,47 +687,49 @@ def hs4_refresh(host, client, ctx):
                 under["frozen"] = frozen_sample(host, client, C_ID)
     if under.get("done"):
         ev["close"] = close_host_inventory(host)
-    rel = release(host, notes, "HS4")
-    after_s = finish_order(host, client, notes, "HS4") if (admitted and not under.get("done")) else None
-    evidence("HS4", {"staging": st, "stagedDiff": staged, "ui": ev, "order": {k: v for k, v in order.items()
-                                                                              if k != "t0"},
-                     "under": under, "release": rel, "afterReleaseS": after_s,
-                     "clipEnd": item_both(host, client, clip), "notes": notes})
+    rel = release(host, notes, "inventory_refreshes")
+    after_s = finish_order(host, client, notes, "inventory_refreshes") if (admitted and not under.get("done")) else None
+    evidence("inventory_refreshes", {"staging": st, "stagedDiff": staged, "ui": ev,
+                                     "order": {k: v for k, v in order.items() if k != "t0"},
+                                     "under": under, "release": rel, "afterReleaseS": after_s,
+                                     "clipEnd": item_both(host, client, clip), "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS4: buckets differ after the staging: {staged}")
+        fails.append(f"inventory_refreshes: buckets differ after the staging: {staged}")
     if not opened:
-        fails.append(f"precondition (HS4): the host's inventory did not open on H ({ev})")
+        fails.append(f"precondition (inventory_refreshes): the host's inventory did not open on H ({ev})")
     elif not admitted:
-        fails.append(f"precondition (HS4): the client's throw was not admitted ({order})")
+        fails.append(f"precondition (inventory_refreshes): the client's throw was not admitted ({order})")
     else:
-        # RED: the throw frozen (the clip still C's); GREEN: it lands under the open screen, which re-lays its ground
+        # the clip lands under the open screen, which re-lays its ground (when broken the throw is frozen)
         if not under.get("done"):
-            fails.append(f"HS4: the clip did not land on H's tile {THROW_H_TILE} on both under the host's open "
+            fails.append(f"inventory_refreshes: the clip did not land on H's tile {THROW_H_TILE} on both under the "
+                         f"host's open "
                          f"inventory within {ORDER_UNDER_S} s (clip {under.get('clip')}, {under.get('frozen')})")
         else:
             if under.get("tops") != ["InventoryState"]:
-                fails.append(f"HS4: the host's tops while the throw ran {under.get('tops')} (want only InventoryState)")
+                fails.append(f"inventory_refreshes: the host's tops while the throw ran {under.get('tops')} (want only "
+                             f"InventoryState)")
             gl = [g for g in (under.get("view") or {}).get("ground") or [] if g.get("id") == clip]
             if len(gl) != 1 or not isinstance(gl[0].get("x"), int) or not isinstance(gl[0].get("y"), int):
-                fails.append(f"HS4: the host's inventory_view.ground with the screen open {under['view'].get('ground')} "
-                             f"(want the clip {clip} in a laid-out cell)")
+                fails.append(f"inventory_refreshes: the host's inventory_view.ground with the screen open "
+                             f"{under['view'].get('ground')} (want the clip {clip} in a laid-out cell)")
             dr = dnum(hscr(before["host"]).get("refreshes"), hscr({"hostScreens": under.get("hostScreens")}).get(
                 "refreshes"))
             if not isinstance(dr, int) or dr < 1:
-                fails.append(f"HS4: host hostScreens.refreshes +{dr} with the screen open (want >= 1)")
+                fails.append(f"inventory_refreshes: host hostScreens.refreshes +{dr} with the screen open (want >= 1)")
     ce = item_both(host, client, clip)
     for n in ("host", "client"):
         if {k: (ce[n] or {}).get(k) for k in want} != want:
-            fails.append(f"HS4: the {n}'s clip at the row's end {ce[n]} (want {want})")
-    fails += hs_common_fails(host, client, before, crash0, "HS4")
+            fails.append(f"inventory_refreshes: the {n}'s clip at the row's end {ce[n]} (want {want})")
+    fails += hs_common_fails(host, client, before, crash0, "inventory_refreshes")
     finish(fails)
 
 
-# ===================== HS5 =====================
+# ===================== cursor_item_returned =====================
 
 
-def hs5_cursor_returned(host, client, ctx):
+def cursor_item_returned(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"dial": ensure_dial(host, client, BOOT_DIAL),
@@ -791,59 +775,64 @@ def hs5_cursor_returned(host, client, ctx):
                 under["frozen"] = frozen_sample(host, client, C_ID)
     if under.get("done"):
         ev["close"] = close_host_inventory(host)
-    rel = release(host, notes, "HS5")
-    after_s = finish_order(host, client, notes, "HS5") if (admitted and not under.get("done")) else None
+    rel = release(host, notes, "cursor_item_returned")
+    after_s = (finish_order(host, client, notes, "cursor_item_returned") if (admitted and not under.get("done"))
+               else None)
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"HS5: host never idle: {short(e)}")
+        notes.append(f"cursor_item_returned: host never idle: {short(e)}")
     end = {"clip": {"host": clip in items_by_id(host), "client": clip in items_by_id(client)},
            "H": status_both(host, client, H_ID)}
     end["instantOff"] = both(host, client, {"cmd": "set_option", "name": "battleInstantGrenade", "value": False},
                              ("ok",))["ok"]
-    evidence("HS5", {"staging": st, "stagedDiff": staged, "ui": ev, "order": {k: v for k, v in order.items()
-                                                                              if k != "t0"},
-                     "under": under, "release": rel, "afterReleaseS": after_s, "end": end, "notes": notes})
+    evidence("cursor_item_returned", {"staging": st, "stagedDiff": staged, "ui": ev,
+                                      "order": {k: v for k, v in order.items() if k != "t0"},
+                                      "under": under, "release": rel, "afterReleaseS": after_s, "end": end,
+                                      "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS5: buckets differ after the staging: {staged}")
+        fails.append(f"cursor_item_returned: buckets differ after the staging: {staged}")
     if not opened:
-        fails.append(f"precondition (HS5): the host's inventory did not open on H ({ev})")
+        fails.append(f"precondition (cursor_item_returned): the host's inventory did not open on H ({ev})")
     elif not picked:
-        fails.append(f"precondition (HS5): the host's click on the clip's ground cell did not put {clip} on the "
-                     f"cursor ({ev.get('pick')}, ground {ev.get('ground')})")
+        fails.append(f"precondition (cursor_item_returned): the host's click on the clip's ground cell did not put "
+                     f"{clip} on the cursor ({ev.get('pick')}, ground {ev.get('ground')})")
     elif not admitted:
-        fails.append(f"precondition (HS5): the client's throw was not admitted ({order})")
+        fails.append(f"precondition (cursor_item_returned): the client's throw was not admitted ({order})")
     else:
-        # RED: the throw frozen, the clip still on the host's cursor; GREEN (M3): the blast removes the clip on
-        # both and the host's screen returns the cursor with the partner's item_missing text
+        # the blast removes the clip on both and the host's screen returns the cursor with the partner's
+        # item_missing text (when broken the throw is frozen and the clip still on the host's cursor)
         if not under.get("done"):
-            fails.append(f"HS5: the clip {clip} was not gone on both with the host's cursor returned under the open "
+            fails.append(f"cursor_item_returned: the clip {clip} was not gone on both with the host's cursor returned "
+                         f"under the open "
                          f"inventory within {ORDER_UNDER_S} s (cursor {(under.get('view') or {}).get('selectedItem')}, "
                          f"clip present {under.get('clip')}, {under.get('frozen')})")
         else:
             if under.get("tops") != ["InventoryState"]:
-                fails.append(f"HS5: the host's tops while the throw ran {under.get('tops')} (want only InventoryState)")
+                fails.append(f"cursor_item_returned: the host's tops while the throw ran {under.get('tops')} (want "
+                             f"only InventoryState)")
             dr = dnum(hscr(before["host"]).get("cursorReturned"), hscr({"hostScreens": under.get("hostScreens")}).get(
                 "cursorReturned"))
             if dr != 1:
-                fails.append(f"HS5: host hostScreens.cursorReturned +{dr} (want +1)")
+                fails.append(f"cursor_item_returned: host hostScreens.cursorReturned +{dr} (want +1)")
             if under.get("invLastWarning") != TEXT_ITEM_MISSING:
-                fails.append(f"HS5: host invLastWarning {under.get('invLastWarning')!r} (want {TEXT_ITEM_MISSING!r})")
+                fails.append(f"cursor_item_returned: host invLastWarning {under.get('invLastWarning')!r} (want "
+                             f"{TEXT_ITEM_MISSING!r})")
             hh = under.get("H") or {}
             if any((hh.get(n) or {}).get("status") != 0 or (hh.get(n) or {}).get("isOut") for n in ("host", "client")):
-                fails.append(f"HS5: H after the blast {hh} (want conscious on both)")
+                fails.append(f"cursor_item_returned: H after the blast {hh} (want conscious on both)")
     if end["clip"] != {"host": False, "client": False}:
-        fails.append(f"HS5: the clip at the row's end {end['clip']} (want gone on both)")
-    fails += hs_common_fails(host, client, before, crash0, "HS5")
+        fails.append(f"cursor_item_returned: the clip at the row's end {end['clip']} (want gone on both)")
+    fails += hs_common_fails(host, client, before, crash0, "cursor_item_returned")
     finish(fails)
 
 
-# ===================== knockout rows (HS3, HS3b, HS3c) =====================
+# ===================== knockout rows =====================
 
 
 def ko_stage(host, client, target, st):
-    """T0-S2's knockout staging: the target's health KO_HEALTH, no stun, no fatal wound; a fresh stun rod on C
+    """The knockout staging: the target's health KO_HEALTH, no stun, no fatal wound; a fresh stun rod on C
     (clear_hands) on KO_C_TILE facing it; C's TU max."""
     st["targetSet"] = set_state_both(host, client, target, health=KO_HEALTH, stun=0, fatalWounds=[0] * 6)
     st["rod"] = give_hands(host, client, C_ID, STUN_ROD)
@@ -862,10 +851,10 @@ def box_moment(host):
     return {"stack": stack(host), "hostScreens": event_state(host).get("hostScreens"), "texts": box_texts(host)}
 
 
-def hs3_down_and_box(host, client, ctx):
+def knockout_closes_inventory(host, client, ctx):
     notes = []
     crash0 = crash_census()
-    st = {"dial": ensure_dial(host, client, BOOT_DIAL), "H": restage_h(host, client, KO_T_TILE, "K0",
+    st = {"dial": ensure_dial(host, client, BOOT_DIAL), "H": restage_h(host, client, KO_T_TILE, "belt_and_ground",
                                                                          placer=place_host_first)}
     ko_stage(host, client, H_ID, st)
     st["C2"] = place_host_first(host, client, C2_ID, C2_TILE, C2_DIR)
@@ -892,10 +881,10 @@ def hs3_down_and_box(host, client, ctx):
             else:
                 leg1["frozen"] = frozen_sample(host, client, C_ID)
                 leg1["H"] = status_both(host, client, H_ID)
-    # the red cleanup: the cursor back, the inventory closed, the frozen melee released; then the box shows
+    # a frozen melee's cleanup: the cursor back, the inventory closed, the melee released; then the box shows
     rel = []
     if admitted and not leg1.get("done"):
-        rel = release(host, notes, "HS3 leg 1")
+        rel = release(host, notes, "knockout_closes_inventory leg 1")
         leg1["afterRelease"] = {"boxWaited": wait_until(lambda: top(host) == "InfoboxOKState", BOX_WAIT_S, 0.05)[1]}
         leg1["afterRelease"]["moment"] = box_moment(host)
     # leg 2: a partner walk with the box on top
@@ -911,69 +900,72 @@ def hs3_down_and_box(host, client, ctx):
         leg2["topAfter"] = top(host)
         leg2["C2"] = {"host": pos(host, C2_ID), "client": pos(client, C2_ID)}
     dismiss_host_box(host, box)
-    rel += release(host, notes, "HS3")
-    after_s = finish_order(host, client, notes, "HS3", box)
+    rel += release(host, notes, "knockout_closes_inventory")
+    after_s = finish_order(host, client, notes, "knockout_closes_inventory", box)
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"HS3: host never idle: {short(e)}")
+        notes.append(f"knockout_closes_inventory: host never idle: {short(e)}")
     end = {"H": status_both(host, client, H_ID), "grenade": item_both(host, client, g),
            "C2": {"host": pos(host, C2_ID), "client": pos(client, C2_ID)}}
-    evidence("HS3", {"staging": st, "stagedDiff": staged, "ui": ev, "order": {k: v for k, v in order.items()
-                                                                              if k != "t0"},
-                     "leg1": leg1, "leg2": leg2, "box": box, "release": rel, "afterReleaseS": after_s, "end": end,
-                     "notes": notes})
+    evidence("knockout_closes_inventory", {"staging": st, "stagedDiff": staged, "ui": ev,
+                                           "order": {k: v for k, v in order.items() if k != "t0"},
+                                           "leg1": leg1, "leg2": leg2, "box": box, "release": rel,
+                                           "afterReleaseS": after_s, "end": end, "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS3: buckets differ after the staging: {staged}")
+        fails.append(f"knockout_closes_inventory: buckets differ after the staging: {staged}")
     if not (st["c2Lane"].get("reachable") and st["c2Lane"].get("steps") == 3):
-        fails.append(f"precondition (HS3 leg 2): C2's lane {C2_TILE} -> {C2_DEST} {st['c2Lane']} (want reachable, 3 "
-                     f"steps)")
+        fails.append(f"precondition (knockout_closes_inventory leg 2): C2's lane {C2_TILE} -> {C2_DEST} {st['c2Lane']} "
+                     f"(want reachable, 3 steps)")
     if not opened:
-        fails.append(f"precondition (HS3): the host's inventory did not open on H ({ev})")
+        fails.append(f"precondition (knockout_closes_inventory): the host's inventory did not open on H ({ev})")
     elif not picked:
-        fails.append(f"precondition (HS3): the host's click on belt (1,0) did not pick H's grenade {g} ({ev})")
+        fails.append(f"precondition (knockout_closes_inventory): the host's click on belt (1,0) did not pick H's "
+                     f"grenade {g} ({ev})")
     elif not admitted:
-        fails.append(f"precondition (HS3): the client's melee was not admitted ({order})")
+        fails.append(f"precondition (knockout_closes_inventory): the client's melee was not admitted ({order})")
     else:
-        # leg 1 - RED: the melee frozen, H conscious, no box; GREEN (C2-1): the inventory closes first, then the box
+        # leg 1: the inventory closes first, then the box shows (when broken the melee is frozen, H conscious, no box)
         if not leg1.get("done"):
-            fails.append(f"HS3 leg 1: H was not knocked out with the host's box on top within {KO_UNDER_S} s "
-                         f"(H {leg1.get('H')}, {leg1.get('frozen')})")
+            fails.append(f"knockout_closes_inventory leg 1: H was not knocked out with the host's box on top within "
+                         f"{KO_UNDER_S} s (H {leg1.get('H')}, {leg1.get('frozen')})")
         else:
             m = leg1.get("moment") or {}
             if "InventoryState" in (m.get("stack") or []):
-                fails.append(f"HS3 leg 1: the host's stack when the box showed {m.get('stack')} (want no "
-                             f"InventoryState: C2-1, the inventory closes before the box)")
+                fails.append(f"knockout_closes_inventory leg 1: the host's stack when the box showed {m.get('stack')} "
+                             f"(want no InventoryState: the inventory closes before the box)")
             du = dnum(hclose(before["host"], "byReason", "unit_out"), hclose({"hostScreens": m.get("hostScreens")},
                                                                                "byReason", "unit_out"))
             di = dnum(hclose(before["host"], "byScreen", "inventory"), hclose({"hostScreens": m.get("hostScreens")},
                                                                                 "byScreen", "inventory"))
             if (du, di) != (1, 1):
-                fails.append(f"HS3 leg 1: host hostScreens.closes byReason.unit_out +{du}, byScreen.inventory +{di} "
-                             f"(want +1 / +1)")
+                fails.append(f"knockout_closes_inventory leg 1: host hostScreens.closes byReason.unit_out +{du}, "
+                             f"byScreen.inventory +{di} (want +1 / +1)")
             if not any(TEXT_UNCONSCIOUS in (t or "") for t in m.get("texts") or []):
-                fails.append(f"HS3 leg 1: the host's box texts {m.get('texts')} (want {TEXT_UNCONSCIOUS!r})")
-        # leg 2 - GREEN: the partner's walk runs under the box
+                fails.append(f"knockout_closes_inventory leg 1: the host's box texts {m.get('texts')} (want "
+                             f"{TEXT_UNCONSCIOUS!r})")
+        # leg 2: the partner's walk runs under the box
         if not leg2:
-            fails.append(f"HS3 leg 2: no host box on top to walk under ({leg1})")
+            fails.append(f"knockout_closes_inventory leg 2: no host box on top to walk under ({leg1})")
         elif not leg2.get("admitted"):
-            fails.append(f"HS3 leg 2: C2's walk was not admitted under the host's box ({leg2.get('order')})")
+            fails.append(f"knockout_closes_inventory leg 2: C2's walk was not admitted under the host's box "
+                         f"({leg2.get('order')})")
         elif not leg2.get("done") or leg2.get("tops") != ["InfoboxOKState"]:
-            fails.append(f"HS3 leg 2: C2's walk did not end with the host's box still on top within "
-                         f"{HS_WALK_UNDER_S} s "
-                         f"(C2 {leg2.get('C2')}, tops {leg2.get('tops')})")
+            fails.append(f"knockout_closes_inventory leg 2: C2's walk did not end with the host's box still on top "
+                         f"within {HS_WALK_UNDER_S} s (C2 {leg2.get('C2')}, tops {leg2.get('tops')})")
         want = {"onTile": True, "tx": KO_T_TILE[0], "ty": KO_T_TILE[1], "tz": KO_T_TILE[2], "owner": -1}
         for n in ("host", "client"):
             if {k: (end["grenade"][n] or {}).get(k) for k in want} != want:
-                fails.append(f"HS3: the {n}'s grenade {end['grenade'][n]} (want among H's dropped items {want})")
+                fails.append(f"knockout_closes_inventory: the {n}'s grenade {end['grenade'][n]} (want among H's "
+                             f"dropped items {want})")
     if not unconscious_both(host, client, H_ID):
-        fails.append(f"HS3: H at the row's end {end['H']} (want unconscious on both)")
-    fails += hs_common_fails(host, client, before, crash0, "HS3")
+        fails.append(f"knockout_closes_inventory: H at the row's end {end['H']} (want unconscious on both)")
+    fails += hs_common_fails(host, client, before, crash0, "knockout_closes_inventory")
     finish(fails)
 
 
-def hs3b_action_menu(host, client, ctx):
+def knockout_closes_menu(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"dial": ensure_dial(host, client, BOOT_DIAL),
@@ -991,7 +983,7 @@ def hs3b_action_menu(host, client, ctx):
         ev["menu"] = open_hand_menu_unit(host, H2_ID)
         opened = top(host) == "ActionMenuState"
     except Exception as e:
-        notes.append(f"HS3b: the host's action menu on H2: {short(e)}")
+        notes.append(f"knockout_closes_menu: the host's action menu on H2: {short(e)}")
     ev["stack"] = stack(host)
     order, admitted, under, box = {}, False, {}, []
 
@@ -1008,45 +1000,46 @@ def hs3b_action_menu(host, client, ctx):
                 under["frozen"] = frozen_sample(host, client, C_ID)
                 under["H2"] = status_both(host, client, H2_ID)
     dismiss_host_box(host, box)
-    rel = release(host, notes, "HS3b")
-    after_s = finish_order(host, client, notes, "HS3b", box)
+    rel = release(host, notes, "knockout_closes_menu")
+    after_s = finish_order(host, client, notes, "knockout_closes_menu", box)
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"HS3b: host never idle: {short(e)}")
+        notes.append(f"knockout_closes_menu: host never idle: {short(e)}")
     end = {"H2": status_both(host, client, H2_ID)}
-    evidence("HS3b", {"staging": st, "stagedDiff": staged, "ui": ev, "order": {k: v for k, v in order.items()
-                                                                               if k != "t0"},
-                      "under": under, "box": box, "release": rel, "afterReleaseS": after_s, "end": end,
-                      "notes": notes})
+    evidence("knockout_closes_menu", {"staging": st, "stagedDiff": staged, "ui": ev,
+                                      "order": {k: v for k, v in order.items() if k != "t0"},
+                                      "under": under, "box": box, "release": rel, "afterReleaseS": after_s,
+                                      "end": end, "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS3b: buckets differ after the staging: {staged}")
+        fails.append(f"knockout_closes_menu: buckets differ after the staging: {staged}")
     if not opened:
-        fails.append(f"precondition (HS3b): the host's ActionMenuState did not open on H2 ({ev})")
+        fails.append(f"precondition (knockout_closes_menu): the host's ActionMenuState did not open on H2 ({ev})")
     elif not admitted:
-        fails.append(f"precondition (HS3b): the client's melee was not admitted ({order})")
+        fails.append(f"precondition (knockout_closes_menu): the client's melee was not admitted ({order})")
     elif not under.get("done"):
-        fails.append(f"HS3b: H2 was not knocked out with the host's box on top within {KO_UNDER_S} s (H2 "
-                     f"{under.get('H2')}, {under.get('frozen')})")
+        fails.append(f"knockout_closes_menu: H2 was not knocked out with the host's box on top within {KO_UNDER_S} s "
+                     f"(H2 {under.get('H2')}, {under.get('frozen')})")
     else:
         m = under.get("moment") or {}
         if "ActionMenuState" in (m.get("stack") or []):
-            fails.append(f"HS3b: the host's stack when the box showed {m.get('stack')} (want no ActionMenuState)")
+            fails.append(f"knockout_closes_menu: the host's stack when the box showed {m.get('stack')} (want no "
+                         f"ActionMenuState)")
         da = dnum(hclose(before["host"], "byScreen", "action_menu"), hclose({"hostScreens": m.get("hostScreens")},
                                                                               "byScreen", "action_menu"))
         du = dnum(hclose(before["host"], "byReason", "unit_out"), hclose({"hostScreens": m.get("hostScreens")},
                                                                            "byReason", "unit_out"))
         if (da, du) != (1, 1):
-            fails.append(f"HS3b: host hostScreens.closes byScreen.action_menu +{da}, byReason.unit_out +{du} (want "
-                         f"+1 / +1)")
+            fails.append(f"knockout_closes_menu: host hostScreens.closes byScreen.action_menu +{da}, byReason.unit_out "
+                         f"+{du} (want +1 / +1)")
     if not unconscious_both(host, client, H2_ID):
-        fails.append(f"HS3b: H2 at the row's end {end['H2']} (want unconscious on both)")
-    fails += hs_common_fails(host, client, before, crash0, "HS3b")
+        fails.append(f"knockout_closes_menu: H2 at the row's end {end['H2']} (want unconscious on both)")
+    fails += hs_common_fails(host, client, before, crash0, "knockout_closes_menu")
     finish(fails)
 
 
-def hs3c_covered_detach(host, client, ctx):
+def knockout_covered_detach(host, client, ctx):
     notes = []
     crash0 = crash_census()
     st = {"dial": ensure_dial(host, client, BOOT_DIAL),
@@ -1079,7 +1072,7 @@ def hs3c_covered_detach(host, client, ctx):
             under["moment"] = {"stack": stack(host), "hostScreens": event_state(host).get("hostScreens"),
                                "H3": status_both(host, client, H3_ID)}
             if under["done"]:
-                # GREEN: the box (if any) dismissed, then the cover closed; the uncovered inventory closes itself
+                # the box (if any) dismissed, then the cover closed; the uncovered inventory closes itself
                 wait_until(lambda: top(host) == "InfoboxOKState", 3.0, 0.05)
                 dismiss_host_box(host, box)
                 time.sleep(KEY_SETTLE_S)
@@ -1093,82 +1086,87 @@ def hs3c_covered_detach(host, client, ctx):
                 closing["hostAlive"] = host.proc is not None and host.proc.poll() is None
             else:
                 under["frozen"] = frozen_sample(host, client, C_ID)
-    rel = release(host, notes, "HS3c")
-    after_s = finish_order(host, client, notes, "HS3c", box)
+    rel = release(host, notes, "knockout_covered_detach")
+    after_s = finish_order(host, client, notes, "knockout_covered_detach", box)
     dismiss_host_box(host, box)
     try:
         session.wait_host_idle(host, client, timeout=30)
     except Exception as e:
-        notes.append(f"HS3c: host never idle: {short(e)}")
+        notes.append(f"knockout_covered_detach: host never idle: {short(e)}")
     end = {"H3": status_both(host, client, H3_ID)}
-    evidence("HS3c", {"staging": st, "stagedDiff": staged, "ui": ev, "order": {k: v for k, v in order.items()
-                                                                               if k != "t0"},
-                      "under": under, "closing": closing, "box": box, "release": rel, "afterReleaseS": after_s,
-                      "end": end, "hostUi": ui_lines(host, hmark)[-12:], "notes": notes})
+    evidence("knockout_covered_detach", {"staging": st, "stagedDiff": staged, "ui": ev,
+                                         "order": {k: v for k, v in order.items() if k != "t0"},
+                                         "under": under, "closing": closing, "box": box, "release": rel,
+                                         "afterReleaseS": after_s, "end": end, "hostUi": ui_lines(host, hmark)[-12:],
+                                         "notes": notes})
     fails = list(notes)
     if staged:
-        fails.append(f"HS3c: buckets differ after the staging: {staged}")
+        fails.append(f"knockout_covered_detach: buckets differ after the staging: {staged}")
     if not opened:
-        fails.append(f"precondition (HS3c): the host's inventory did not open on H3 ({ev})")
+        fails.append(f"precondition (knockout_covered_detach): the host's inventory did not open on H3 ({ev})")
     elif not covered:
-        fails.append(f"SETUP-FAILURE (P8-4b T0-S9 recipe on the host): the host's keyGeoUfopedia did not cover its "
+        fails.append(f"SETUP-FAILURE (the cover recipe on the host): the host's keyGeoUfopedia did not cover its "
                      f"inventory ({cov})")
     elif not admitted:
-        fails.append(f"precondition (HS3c): the client's melee was not admitted ({order})")
+        fails.append(f"precondition (knockout_covered_detach): the client's melee was not admitted ({order})")
     elif not under.get("done"):
-        # the RED cell (S-C2.1): the melee frozen under the covering screen; H3 conscious
-        fails.append(f"HS3c: H3 was not knocked out under the host's covered inventory within {KO_UNDER_S} s "
-                     f"(H3 {(under.get('moment') or {}).get('H3')}, {under.get('frozen')})")
+        # when broken the melee is frozen under the covering screen and H3 stays conscious
+        fails.append(f"knockout_covered_detach: H3 was not knocked out under the host's covered inventory within "
+                     f"{KO_UNDER_S} s (H3 {(under.get('moment') or {}).get('H3')}, {under.get('frozen')})")
     else:
         m = under.get("moment") or {}
         dcd = dnum(hscr(before["host"]).get("coveredDetach"), hscr({"hostScreens": m.get("hostScreens")}).get(
             "coveredDetach"))
         if dcd != 1:
-            fails.append(f"HS3c: host hostScreens.coveredDetach +{dcd} while covered (want +1; stack {m.get('stack')})")
+            fails.append(f"knockout_covered_detach: host hostScreens.coveredDetach +{dcd} while covered (want +1; "
+                         f"stack {m.get('stack')})")
         if not closing.get("hostAlive", True):
-            fails.append(f"HS3c: the host died after the cover closed ({closing})")
+            fails.append(f"knockout_covered_detach: the host died after the cover closed ({closing})")
         du = dnum(hclose(before["host"], "byReason", "unit_out"), hclose({"hostScreens": closing.get("hostScreens")},
                                                                            "byReason", "unit_out"))
         di = dnum(hclose(before["host"], "byScreen", "inventory"), hclose({"hostScreens": closing.get("hostScreens")},
                                                                             "byScreen", "inventory"))
         if (du, di) != (1, 1) or not closing.get("invGone"):
-            fails.append(f"HS3c: after the cover closed: host closes byReason.unit_out +{du}, byScreen.inventory +{di}, "
+            fails.append(f"knockout_covered_detach: after the cover closed: host closes byReason.unit_out +{du}, "
+                         f"byScreen.inventory +{di}, "
                          f"InventoryState gone {closing.get('invGone')} (want +1 / +1 / true; {closing})")
     if not unconscious_both(host, client, H3_ID):
-        fails.append(f"HS3c: H3 at the row's end {end['H3']} (want unconscious on both)")
-    fails += hs_common_fails(host, client, before, crash0, "HS3c")
+        fails.append(f"knockout_covered_detach: H3 at the row's end {end['H3']} (want unconscious on both)")
+    fails += hs_common_fails(host, client, before, crash0, "knockout_covered_detach")
     finish(fails)
 
 
-SCENARIOS = (("HS1", hs1_inventory), ("HS2", hs2_pause), ("HS2b", hs2b_unit_info), ("HS7", hs7_medikit),
-             ("HS4", hs4_refresh), ("HS5", hs5_cursor_returned), ("HS3", hs3_down_and_box),
-             ("HS3b", hs3b_action_menu), ("HS3c", hs3c_covered_detach))
+SCENARIOS = (("walk_under_inventory", walk_under_inventory), ("walk_under_pause", walk_under_pause),
+             ("walk_under_unit_info", walk_under_unit_info), ("walk_under_medikit", walk_under_medikit),
+             ("inventory_refreshes", inventory_refreshes), ("cursor_item_returned", cursor_item_returned),
+             ("knockout_closes_inventory", knockout_closes_inventory), ("knockout_closes_menu", knockout_closes_menu),
+             ("knockout_covered_detach", knockout_covered_detach))
 
 
 # ===================== bring-up =====================
 
 
 def boot(host, client):
-    """test_inventory_held.boot (the held boot: test_inventory.boot + the S-C1 probes) plus the S-C2 host
-    probes' zeros on both machines."""
+    """test_inventory_held.boot (test_inventory.boot plus the held-inventory probes), then a check that both
+    machines report the host-screen probes (hostCovered, hostScreens)."""
     ctx = held.boot(host, client)
     for gc in (host, client):
         es = event_state(gc)
         hc, hs = es.get("hostCovered"), es.get("hostScreens")
         assert (isinstance(hc, dict) and isinstance(hc.get("byOrigin"), dict) and isinstance(hs, dict)
                 and isinstance(hs.get("closes"), dict) and "coveredDetach" in hs), (
-            f"{gc.name} event_state lacks the W2-P8 S-C2 probes: hostCovered={hc!r} hostScreens={hs!r}")
+            f"{gc.name} event_state lacks the host-screen probes: hostCovered={hc!r} hostScreens={hs!r}")
     d = xcom_dial_of(host)
-    assert d == BOOT_DIAL, f"the boot's seat-1 xcom dial {d} (want {BOOT_DIAL}, TASK 0's boot)"
-    print(f"[w2p8-sc2] boot ok: hostCovered={event_state(host).get('hostCovered')} "
+    assert d == BOOT_DIAL, f"the boot's seat-1 xcom dial {d} (want {BOOT_DIAL})"
+    print(f"[host-screens] boot ok: hostCovered={event_state(host).get('hostCovered')} "
           f"hostScreens={event_state(host).get('hostScreens')}", flush=True)
     return ctx
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49950, make_user_dir("w2p8_hscreens_host", options=OPTS))
-    client = GameClient("client", 49951, make_user_dir("w2p8_hscreens_client", options=OPTS))
+    host = GameClient("host", 49950, make_user_dir("host_screens_host", options=OPTS))
+    client = GameClient("client", 49951, make_user_dir("host_screens_client", options=OPTS))
     results = {}
     try:
         try:
@@ -1186,13 +1184,13 @@ def main():
                 results[name] = False
                 kind = "" if isinstance(e, AssertionError) else f"{type(e).__name__}: "
                 print(f"FAIL {name}: {kind}{e}", flush=True)
-            print(f"[w2p8-sc2] row {name} wall {time.time() - t_row:.1f}s", flush=True)
+            print(f"[host-screens] row {name} wall {time.time() - t_row:.1f}s", flush=True)
     finally:
         for gc in (host, client):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p8-sc2] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[host-screens] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_host_screens: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "

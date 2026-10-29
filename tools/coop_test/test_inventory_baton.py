@@ -16,7 +16,7 @@ ONE boot (T0-8 B's traditional boot, docs rewrite/w2p8-task0/t0_common.py
 boot_traditional :103-:116: roster-pinned lobby, pre_ok_traditional, MAP_FP,
 pin_ai_neutral, the baton on seat 0 on both; the paperdoll option on both as in
 test_inventory.py). Rows in this order, every row ONE run, every row restages
-on its own P8-2 T0-1 tile with the K0 kit through client-first lever pairs:
+on its own P8-2 T0-1 tile with the belt_and_ground kit through client-first lever pairs:
   IB1  client LOOK off-baton (baton 0). The client opens C's inventory
        (battle_open_inventory), picks the grenade (belt (1,0)), drops it on
        STR_LEFT_HAND, right-clicks, closes. The screen opens; the drop gives
@@ -105,13 +105,13 @@ TEXT_NOT_YOUR_GO_CLIENT = "Not your turn - waiting for ClientPlayer"  # on the h
 
 
 def restage_c(host, client, key, tile):
-    """test_inventory.restage (ST5 a, kit K0) with C's tile for this file's row `key`."""
+    """test_inventory.restage (ST5 a, kit belt_and_ground) with C's tile for this file's row `key`."""
     inv.ROW_TILE[key] = tile
-    return inv.restage(host, client, key, "K0")
+    return inv.restage(host, client, key, "belt_and_ground")
 
 
 def restage_h(host, client, tile):
-    """test_inventory.restage (:356-:368, :391) kit K0 for unit H, copied; the teleport is
+    """test_inventory.restage (:356-:368, :391) kit belt_and_ground for unit H, copied; the teleport is
     test_client_shoot.place (re-entrant, CLAUDE.local.md S2) instead of tele_both."""
     rec = {"tile": tile}
     rec["place"] = cs.place(host, client, H_ID, tile, ROW_DIR)
