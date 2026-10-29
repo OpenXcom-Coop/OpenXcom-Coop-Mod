@@ -2,9 +2,10 @@
 nothing over that exit (issue #79, D156 (a), D239 (a); trace F10500-F10512). Spec docs
 rewrite/prompts/w2h25_gameover_lobby_race.md (f); TASK 0 constants docs rewrite/w2h25-task0/CONSTANTS.md.
 
-Every row boots its own pair with test_cydonia_ending's helpers, imported unchanged: boot_e (custom battle, Cydonia
-landing, seed 1, pinned), ms8 into stage 2 (a precondition miss is a setup failure), then abort_ok (AbortMissionState
-"0 Units in Target Exit" -> loseGame, the game-ending slideshow on both machines). A SlideshowState on both within
+Every row boots its own pair with test_cydonia_ending's helpers, imported unchanged: boot_custom (custom battle,
+Cydonia landing, seed 1, pinned), row_stage_offer_stash into stage 2 (a precondition miss is a setup failure), then
+abort_ok (AbortMissionState "0 Units in Target Exit" -> loseGame, the game-ending slideshow on both machines). A
+SlideshowState on both within
 SLIDESHOW_S is a guard. Both stacks are polled every POLL_S from the OK to the row's end ("no LobbyMenu at any poll").
 A main-menu cell is a bare ['MainMenuState'] read that is still bare SETTLE_S later (every poll between, F10505). A
 keyCancel is a real SDL key (inject_input key 27 -> SlideshowState::screenSkip).
@@ -126,19 +127,19 @@ class Watch:
 
 
 def to_ending(host, client, rid, crash0):
-    """Boot E, MS8 into stage 2, the abort OK, a SlideshowState on both. FixtureMiss on any miss."""
+    """Boot custom, stage_offer_stash into stage 2, the abort OK, a SlideshowState on both. FixtureMiss on any miss."""
     ctx = {}
     try:
-        ctx["boot"] = ce.boot_e(host, client)
+        ctx["boot"] = ce.boot_custom(host, client)
     except FixtureMiss as e:
-        raise FixtureMiss(f"boot E: {e}") from None
-    f8 = ce.ms8(host, client, ctx, crash0)
+        raise FixtureMiss(f"boot custom: {e}") from None
+    f8 = ce.row_stage_offer_stash(host, client, ctx, crash0)
     if f8:
-        raise FixtureMiss(f"MS8 into stage 2: {f8}")
+        raise FixtureMiss(f"stage_offer_stash into stage 2: {f8}")
     for name, gc in (("host", host), ("client", client)):
         st = stack(gc)
         if not (isinstance(st, list) and st and st[-1] == "BattlescapeState"):
-            raise FixtureMiss(f"{name} top is not BattlescapeState after MS8: {st}")
+            raise FixtureMiss(f"{name} top is not BattlescapeState after stage_offer_stash: {st}")
         if ce.bview(gc).get("missionType") != ce.MISSION_2:
             raise FixtureMiss(f"{name} missionType={ce.bview(gc).get('missionType')!r} (want {ce.MISSION_2!r})")
     ctx["marks"] = {"host": len(log_msgs(host)), "client": len(log_msgs(client))}

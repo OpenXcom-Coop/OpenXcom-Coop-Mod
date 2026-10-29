@@ -1,41 +1,41 @@
-"""test_cydonia_ending.py: Cydonia's game-ending end on both machines (owner D239 (a), V5; D158 (a),
-D226 (a)) and the stage offer that overtakes its stage_end. Spec docs rewrite/prompts/mga_multistage_handoff.md
-(f), AMENDMENT MG-A-1 section 5 stage S-E (rows MS6, MS7) plus the F9992 row MS8 (orchestrator ruling, R3); TASK 0
-constants docs rewrite/mga-task0/e/CONSTANTS.md (pins, the D239 (a) cell table, the walls).
+"""test_cydonia_ending.py: Cydonia's game-ending end on both machines, and the stage offer that overtakes its
+stage_end.
 
-Boot E (custom battle, lobby PORT_E): raw.bring_up_lobby + drive_to_battlescape(STR_MARS_CYDONIA_LANDING, seat_count 2,
-pre_ok set_seed SEED_E), MAP_FP_E pinned, pin_ai_neutral (the 12 aliens), hash clean. MS6 continues MS8's boot.
-Boot F (SHARED campaign, lobby PORT_F): new_campaign shared, the squad split (seat 0 / seat 1), open_cydonia, set_seed
-SEED_F, confirm_cydonia, the stage-1 spine, MAP_FP_F pinned, pin_ai_neutral, hash clean.
+Boot custom (custom battle, lobby PORT_CUSTOM): raw.bring_up_lobby + drive_to_battlescape(STR_MARS_CYDONIA_LANDING,
+seat_count 2, pre_ok set_seed SEED_CUSTOM), MAP_FP_CUSTOM pinned, pin_ai_neutral (the 12 aliens), hash clean.
+custom_abort_ending continues stage_offer_stash's boot.
+Boot campaign (SHARED campaign, lobby PORT_CAMPAIGN): new_campaign shared, the squad split (seat 0 / seat 1),
+open_cydonia, set_seed SEED_CAMPAIGN, confirm_cydonia, the stage-1 spine, MAP_FP_CAMPAIGN pinned, pin_ai_neutral, hash
+clean.
 
-  MS8  the stage offer is stashed and replayed. Kill-all, END TURN client then host; the stash lever: the
-       client's TEST-ONLY read-only `hash_timing {reps}` (reps from a 1-rep measurement, a ~STASH_BLOCK_S block of its
-       main thread) is sent on a harness thread, STASH_LEAD_S later the host closes its NextTurnState, so `stage_end`
-       and the stage offer reach the client in one pull (guard: the block outlasts the host's close). Cells: the
-       client's stage-2 BriefingState within ENTRY_S; its `stage` record offerStashed 1, offerReplayed 1, applied 1;
-       its log names the stash; after the spine both machines turn 1 on STR_MARS_THE_FINAL_ASSAULT, mapSizeXYZ 7200,
-       mapFingerprint equal, battleId b2 > b1 equal; hash_now full all buckets EQUAL; desyncSeen false; both alive.
-  MS6  custom battle, stage 2: the host aborts and the partner votes YES with nobody on an exit ("0 Units in
-       Target Exit") ->
-       abortCutscene loseGame. Polled every POLL_S until both machines show the main menu (MENU_S bound), never a
-       dismiss_popup (W2-H17b keep list). Once both tops are SlideshowState, at the first poll after the SCOPE_T2
-       read, a real Escape on the host then the client (owner D299 (b); test_leave_for_menu's key: inject_input
-       key 27 -> SlideshowState::screenSkip). Cells: the partner applies `battle_end` (applied 1, reason abort, aborted,
+  stage_offer_stash  the stage offer is stashed and replayed. Kill-all, END TURN client then host; the stash hook:
+       the client's test-only read-only `hash_timing {reps}` (reps from a 1-rep measurement, a ~STASH_BLOCK_S block
+       of its main thread) is sent on a harness thread, STASH_LEAD_S later the host closes its NextTurnState, so
+       `stage_end` and the stage offer reach the client in one pull (guard: the block outlasts the host's close).
+       Cells: the client's stage-2 BriefingState within ENTRY_S; its `stage` record offerStashed 1, offerReplayed 1,
+       applied 1; its log names the stash; after the spine both machines turn 1 on STR_MARS_THE_FINAL_ASSAULT,
+       mapSizeXYZ 7200, mapFingerprint equal, battleId b2 > b1 equal; hash_now full all buckets EQUAL; desyncSeen
+       false; both alive.
+  custom_abort_ending  custom battle, stage 2: the host aborts and the partner votes YES with nobody on an exit
+       ("0 Units in Target Exit") -> abortCutscene loseGame. Polled every POLL_S until both machines show the main
+       menu (MENU_S bound), never a dismiss_popup. Once both tops are SlideshowState, at the first poll after the
+       SCOPE_T2 read, a real Escape on the host then the client (test_leave_for_menu's key: inject_input key 27 ->
+       SlideshowState::screenSkip). Cells: the partner applies `battle_end` (applied 1, reason abort, aborted,
        inExitArea 0, the host's seq) hash-clean (desyncSeen false; the teardown snapshot battleEnd.hashVerify, else
        lastHashVerify, is {kind battle_end, the host's seq}); no DebriefingState on either machine at any poll; both
        play the host's ending (a SlideshowState on both); both reach the main menu; the partner alive, no new crash
        file; the partner's battle scope is reset: event_state phase not Active at SCOPE_T1 and
        battleEnd.resultWaitPasses equal at SCOPE_T1 and SCOPE_T2 (s after the OK).
-  MS7  SHARED campaign, stage 1: the host aborts and the partner votes YES with nobody on an END_POINT tile
-       ("0 Units in Target Exit"; both
-       soldiers in the craft) -> loseGame. Polled until SCOPE_T2. Cells: ending_state ending END_LOSE and statistics
-       on both; no DebriefingState at any poll; a SlideshowState on both; the partner applies `battle_end` hash-clean;
-       the partner alive, no new crash file; the partner's battle scope reset (MS6's two cells).
+  shared_abort_ending  SHARED campaign, stage 1: the host aborts and the partner votes YES with nobody on an
+       END_POINT tile ("0 Units in Target Exit"; both soldiers in the craft) -> loseGame. Polled until SCOPE_T2.
+       Cells: ending_state ending END_LOSE and statistics on both; no DebriefingState at any poll; a SlideshowState on
+       both; the partner applies `battle_end` hash-clean; the partner alive, no new crash file; the partner's battle
+       scope reset (custom_abort_ending's two cells).
 
-RED on S-E's commit 1 (= S-A1's green build; TASK 0 T0-E1 4/4, T0-E2 3/3): MS6 and MS7 fail ONLY their two scope cells
-- the partner's battle_end consumer waits for a debrief result the host never sends (no DebriefingState::init under a
-game-ending cutscene, F9814), so its phase stays Active and resultWaitPasses grows every frame; every other cell holds.
-MS8 has no red cell (S-A1's stash / replay is in this base): it PASSES on the red build.
+A build without the scope reset fails custom_abort_ending and shared_abort_ending ONLY on their two scope cells: the
+partner's battle_end consumer waits for a debrief result the host never sends (no DebriefingState::init under a
+game-ending cutscene), so its phase stays Active and resultWaitPasses grows every frame; every other cell holds.
+stage_offer_stash passes on that build too.
 
 Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a FAIL,
 ONE "CAPTURE <id>:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past its bound
@@ -61,35 +61,35 @@ from test_cydonia_coop_start import _craft_and_soldiers, _seat, _aboard
 from test_multistage import (FixtureMiss, short, rc, stack, has_bstate, evidence, wait_until, step, run_spine,
                                 ENTRY_S, IDLE_S, FACTION_PLAYER, FACTION_HOSTILE)
 
-# ----- boot E (TASK 0: SEED_E 1, stage-1 fingerprint 5/5, stage-2 fingerprint 5/5, host == client) -----
-PORT_E, GC_E = "48575", (49682, 49683)
-SEED_E = 1
-MAP_FP_E = 2.509715288832488e+18
-ALIENS_E = list(range(1000000, 1000012))
-SEATS_E = {8: 1, 9: 1, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0}
-# ----- boot F (TASK 0: SEED_F 1 right before confirm_cydonia, fingerprint 3/3) -----
-PORT_F, GC_F = "48576", (49684, 49685)
-SEED_F = 1
-MAP_FP_F = -3.7087676953867494e+18
-SEATS_F = {1: 0, 2: 1}
-ALIENS_F = list(range(1000000, 1000012))
+# ----- boot custom (SEED_CUSTOM 1: the same stage-1 and stage-2 fingerprints on 5 of 5 boots, host == client) -----
+PORT_CUSTOM, GC_CUSTOM = "48575", (49682, 49683)
+SEED_CUSTOM = 1
+MAP_FP_CUSTOM = 2.509715288832488e+18
+ALIENS_CUSTOM = list(range(1000000, 1000012))
+SEATS_CUSTOM = {8: 1, 9: 1, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0}
+# ----- boot campaign (SEED_CAMPAIGN 1 right before confirm_cydonia: the same fingerprint on 3 of 3 boots) -----
+PORT_CAMPAIGN, GC_CAMPAIGN = "48576", (49684, 49685)
+SEED_CAMPAIGN = 1
+MAP_FP_CAMPAIGN = -3.7087676953867494e+18
+SEATS_CAMPAIGN = {1: 0, 2: 1}
+ALIENS_CAMPAIGN = list(range(1000000, 1000012))
 MISSION_1, MISSION_2 = "STR_MARS_CYDONIA_LANDING", "STR_MARS_THE_FINAL_ASSAULT"
 STAGE2_TILES = 7200
 STASH_BLOCK_S, STASH_LEAD_S = 2.0, 0.3   # the client's hash_timing block, the host's close this long into it
-MENU_S = 100            # the OK -> both main menus (TASK 0: 89.8-90.4 s, loseGame's 3 x 30 s slideshow)
+MENU_S = 100            # the OK -> both main menus (measured 89.8-90.4 s: loseGame's 3 x 30 s slideshow)
 SCOPE_T1, SCOPE_T2 = 5.0, 10.0          # the partner's scope reads, s after the OK
 POLL_S = 0.5
 END_LOSE = 2
 NO_EXIT = "0 Units in Target Exit"
-END_STATES = ("CutsceneState", "StatisticsState", "SlideshowState", "VideoState")   # W2-H17b keep list
-KEY_CANCEL = 27         # Options::keyCancel default (SDLK_ESCAPE); MS6's slideshow skip
+END_STATES = ("CutsceneState", "StatisticsState", "SlideshowState", "VideoState")   # the game-ending screens
+KEY_CANCEL = 27         # Options::keyCancel default (SDLK_ESCAPE); custom_abort_ending's slideshow skip
 
 
 def bview(gc):
     """battle_state, only while a BattlescapeState is on the stack."""
     st = stack(gc)
     if not has_bstate(st):
-        return {"skipped": f"no BattlescapeState on the stack (F9920): {st}"}
+        return {"skipped": f"no BattlescapeState on the stack: {st}"}
     b = battle_state(gc)
     units = b.get("units") or []
     return {"missionType": b.get("missionType"), "mapSizeXYZ": b.get("mapSizeXYZ"),
@@ -164,19 +164,20 @@ def pins(host, client, fp, seats, aliens, tag):
     return {"mapFingerprint": hb.get("mapFingerprint"), "pinned": len(pinned)}
 
 
-def boot_e(host, client):
+def boot_custom(host, client):
     m = [host, client]
-    step("bring_up_lobby", lambda: raw.bring_up_lobby(host, client, PORT_E), m)
+    step("bring_up_lobby", lambda: raw.bring_up_lobby(host, client, PORT_CUSTOM), m)
     step("drive_to_battlescape", lambda: session.drive_to_battlescape(
         host, client, {}, mission=MISSION_1, seat_count=2,
-        pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_E})), m)
-    return pins(host, client, MAP_FP_E, SEATS_E, ALIENS_E, "mga-e")
+        pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_CUSTOM})), m)
+    return pins(host, client, MAP_FP_CUSTOM, SEATS_CUSTOM, ALIENS_CUSTOM, "cydonia_ending")
 
 
-def boot_f(host, client):
+def boot_campaign(host, client):
     m = [host, client]
     step("spawn + connect", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
-    step("new_campaign shared", lambda: session.new_campaign(host, client, port=PORT_F, campaign_mode="shared"), m)
+    step("new_campaign shared",
+         lambda: session.new_campaign(host, client, port=PORT_CAMPAIGN, campaign_mode="shared"), m)
     craft, roster = step("craft and roster", lambda: _craft_and_soldiers(host), m)
 
     def split():
@@ -190,24 +191,25 @@ def boot_f(host, client):
     def cydonia():
         host.ok({"cmd": "open_cydonia", "craft_id": craft})
         host.wait_for("Cydonia confirmation", lambda: session.has_state(host, "ConfirmCydoniaState") or None)
-        host.ok({"cmd": "set_seed", "seed": SEED_F})
+        host.ok({"cmd": "set_seed", "seed": SEED_CAMPAIGN})
         host.ok({"cmd": "confirm_cydonia"})
     step("open + confirm Cydonia", cydonia, m)
     step("stage-1 spine", lambda: run_spine(host, client), m)
     if (stack(client) or [None])[0] != "GeoscapeState":
         raise FixtureMiss(f"client stack {stack(client)} (want GeoscapeState at the bottom)")
-    return dict(pins(host, client, MAP_FP_F, SEATS_F, ALIENS_F, "mga-e-f"), craft=craft, squad=roster[:2])
+    return dict(pins(host, client, MAP_FP_CAMPAIGN, SEATS_CAMPAIGN, ALIENS_CAMPAIGN, "cydonia_ending_campaign"),
+                craft=craft, squad=roster[:2])
 
 
-# ===================== MS8 (boot E): the stage offer stashed and replayed =====================
+# ===================== stage_offer_stash (boot custom): the stage offer stashed and replayed =====================
 
 
 def kill_and_end_turn(host, client, seats):
     """Kill-all, settle, hash clean, END TURN client then host; the host's NextTurnState up. Guard failures."""
     g = []
     r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "faction": FACTION_HOSTILE})
-    if not r.get("ok") or sorted(r.get("killed") or []) != ALIENS_E:
-        g.append(f"kill_unit_real faction 1 answered {r} (want ok, killed {ALIENS_E})")
+    if not r.get("ok") or sorted(r.get("killed") or []) != ALIENS_CUSTOM:
+        g.append(f"kill_unit_real faction 1 answered {r} (want ok, killed {ALIENS_CUSTOM})")
     ok, secs = wait_until(lambda: (not bview(host).get("aliens") and bview(host).get("pendingStates") == 0
                                    and not bview(host).get("isBusy") and stack(host)[-1] == "BattlescapeState"),
                           60, 0.2)
@@ -236,7 +238,7 @@ def kill_and_end_turn(host, client, seats):
 
 
 def stash_close(host, client, ctx):
-    """The F9992 lever around the host's NextTurnState close. Guard failures."""
+    """The stash hook: the client's main thread blocked across the host's NextTurnState close. Guard failures."""
     g, lv = [], {}
     one = client.cmd({"cmd": "hash_timing", "reps": 1})
     per = ((one.get("sweepUs") or {}).get("mean") or 0) + ((one.get("saveBlobUs") or {}).get("mean") or 0)
@@ -260,12 +262,12 @@ def stash_close(host, client, ctx):
         g.append(f"host dismiss_popup answered {d} (want handled NextTurnState->close)")
     if not (lv.get("ok") and lv["sent"] < lv["close"] and lv.get("answered", 0) > lv["closeAnswered"]):
         g.append(f"the client's hash_timing block did not outlast the host's close: {lv}")
-    ctx["lever"] = {k: (round(v - lv["sent"], 2) if k in ("close", "closeAnswered", "answered") else v)
+    ctx["stash_hook"] = {k: (round(v - lv["sent"], 2) if k in ("close", "closeAnswered", "answered") else v)
                     for k, v in lv.items() if k != "sent"}
     return g
 
 
-def ms8(host, client, ctx, crash0):
+def row_stage_offer_stash(host, client, ctx, crash0):
     he, ce = eview(host), eview(client)
     ctx["b1"] = he.get("battleId")
     g = []
@@ -275,11 +277,11 @@ def ms8(host, client, ctx, crash0):
             g.append(f"{name} event_state.stage before the stage = {st} (want emitted 0, applied 0, offerStashed 0)")
     if not isinstance(ctx["b1"], int) or ctx["b1"] <= 0 or ce.get("battleId") != ctx["b1"]:
         g.append(f"battleId host={ctx['b1']} client={ce.get('battleId')} (want equal, > 0)")
-    g += kill_and_end_turn(host, client, SEATS_E)
+    g += kill_and_end_turn(host, client, SEATS_CUSTOM)
     if not g:
         g += stash_close(host, client, ctx)
     if g:
-        evidence("MS8", {"guards": g, "ctx": ctx})
+        evidence("stage_offer_stash", {"guards": g, "ctx": ctx})
         return [f"pre-stage: {m}" for m in g]
     f = []
     seen, _s = wait_until(lambda: any("BriefingState" in s for s in stack(client)),
@@ -297,12 +299,12 @@ def ms8(host, client, ctx, crash0):
     hs = ctx.get("hostStageAtClose") or {}
     if hs.get("emitted") != 1:
         f.append(f"host stage.emitted={hs.get('emitted')} at the close (want 1)")
-    green = {}
+    stage2_views = {}
     if seen:
         try:
             ctx["pressed"], ctx["spineS"] = run_spine(host, client)
             hb, cb = bview(host), bview(client)
-            green = {"host": hb, "client": cb}
+            stage2_views = {"host": hb, "client": cb}
             b2 = eview(host).get("battleId")
             ctx["b2"] = b2
             for name, b in (("host", hb), ("client", cb)):
@@ -325,14 +327,14 @@ def ms8(host, client, ctx, crash0):
     new_crash = sorted(os.path.basename(p) for p in session._crash_log_snapshot() - crash0)
     if new_crash:
         f.append(f"new crash file(s) {new_crash}")
-    evidence("MS8", {"b1": ctx.get("b1"), "b2": ctx.get("b2"), "lever": ctx.get("lever"),
+    evidence("stage_offer_stash", {"b1": ctx.get("b1"), "b2": ctx.get("b2"), "stash_hook": ctx.get("stash_hook"),
                      "clientBriefingS": ctx.get("clientBriefingS"), "clientStage": cs, "hostStageAtClose": hs,
                      "stashLog": stash_log, "spineS": ctx.get("spineS"), "pressed": ctx.get("pressed"),
-                     "green": green, "newCrashFiles": new_crash})
+                     "stage2_views": stage2_views, "newCrashFiles": new_crash})
     return f
 
 
-# ===================== MS6 / MS7: the game-ending end =====================
+# ===================== custom_abort_ending / shared_abort_ending: the game-ending end =====================
 
 
 def abort_ok(host, client, rid, ctx):
@@ -391,7 +393,7 @@ def poll_end(host, client, ctx, until):
 
 
 def end_cells(host, client, ctx, crash0):
-    """The D239 (a) cells both rows share."""
+    """The game-ending cells both rows share."""
     f, p = [], ctx["poll"]
     s1, s2 = ctx.get("scope1") or {}, ctx.get("scope2") or {}
     ce1, he1 = s1.get("client") or {}, s1.get("host") or {}
@@ -415,7 +417,7 @@ def end_cells(host, client, ctx, crash0):
     ctx["newCrashFiles"] = new_crash
     if new_crash:
         f.append(f"new crash file(s) {new_crash}")
-    # RED on commit 1: the partner's battle scope stays live under the end screens
+    # without the scope reset, the partner's battle scope stays live under the end screens
     if ce1.get("phase") == "Active" or "phase" not in ce1:
         f.append(f"partner battle scope not reset: event_state phase {ce1.get('phase')!r} at {s1.get('t')}s "
                  f"after the OK (want not Active)")
@@ -427,11 +429,11 @@ def end_cells(host, client, ctx, crash0):
     return f
 
 
-def ms6(host, client, ctx):
+def row_custom_abort_ending(host, client, ctx):
     hst, cst = stack(host), stack(client)
     pre = []
     if not ctx.get("inStage2"):
-        pre.append("MS8 never brought both machines into stage 2")
+        pre.append("stage_offer_stash never brought both machines into stage 2")
     for name, gc, st in (("host", host, hst), ("client", client, cst)):
         if rc(gc) is not None:
             pre.append(f"{name} process exited rc={rc(gc)}")
@@ -440,12 +442,12 @@ def ms6(host, client, ctx):
         elif bview(gc).get("missionType") != MISSION_2:
             pre.append(f"{name} missionType={bview(gc).get('missionType')!r} (want {MISSION_2!r})")
     if pre:
-        evidence("MS6", {"precondition": pre, "hostStack": hst, "clientStack": cst})
+        evidence("custom_abort_ending", {"precondition": pre, "hostStack": hst, "clientStack": cst})
         return [f"precondition 'both in stage 2' missing: {'; '.join(pre)}"]
     crash0 = session._crash_log_snapshot()
-    g = abort_ok(host, client, "MS6", ctx)
+    g = abort_ok(host, client, "custom_abort_ending", ctx)
     if g:
-        evidence("MS6", {"guards": g, "abortDialog": ctx.get("abortDialog")})
+        evidence("custom_abort_ending", {"guards": g, "abortDialog": ctx.get("abortDialog")})
         return [f"guard: {m}" for m in g]
     def until(p):
         # once both machines show the ending, a real Escape on each, host then client (the
@@ -463,19 +465,19 @@ def ms6(host, client, ctx):
     if sorted(ctx["poll"]["mainMenuS"]) != ["client", "host"]:
         f.append(f"both machines never reached the main menu within {MENU_S}s of the OK: main menu at "
                  f"{ctx['poll']['mainMenuS']}, stacks host {stack(host)} client {stack(client)}")
-    evidence("MS6", {"abortDialog": ctx.get("abortDialog"), "poll": ctx["poll"], "escape": ctx.get("escape"),
-                     "scope1": ctx.get("scope1"),
+    evidence("custom_abort_ending", {"abortDialog": ctx.get("abortDialog"), "poll": ctx["poll"],
+                                     "escape": ctx.get("escape"), "scope1": ctx.get("scope1"),
                      "scope2": ctx.get("scope2"), "end": {"host": stack(host), "client": stack(client)},
                      "newCrashFiles": ctx.get("newCrashFiles")})
     return f
 
 
-def ms7(host, client, ctx):
+def row_shared_abort_ending(host, client, ctx):
     crash0 = session._crash_log_snapshot()
     ctx["b1"] = eview(host).get("battleId")
-    g = abort_ok(host, client, "MS7", ctx)
+    g = abort_ok(host, client, "shared_abort_ending", ctx)
     if g:
-        evidence("MS7", {"guards": g, "abortDialog": ctx.get("abortDialog")})
+        evidence("shared_abort_ending", {"guards": g, "abortDialog": ctx.get("abortDialog")})
         return [f"guard: {m}" for m in g]
     ends = ctx["endings"] = {}
 
@@ -490,7 +492,7 @@ def ms7(host, client, ctx):
     if sorted(ends) != ["client", "host"]:
         f.append(f"ending_state ending {END_LOSE} + statistics not on both: {ends}; last host {ending(host)} "
                  f"client {ending(client)}")
-    evidence("MS7", {"b1": ctx.get("b1"), "abortDialog": ctx.get("abortDialog"), "endings": ends,
+    evidence("shared_abort_ending", {"b1": ctx.get("b1"), "abortDialog": ctx.get("abortDialog"), "endings": ends,
                      "poll": ctx["poll"], "scope1": ctx.get("scope1"), "scope2": ctx.get("scope2"),
                      "end": {"host": stack(host), "client": stack(client)}, "newCrashFiles": ctx.get("newCrashFiles")})
     return f
@@ -500,12 +502,12 @@ def ms7(host, client, ctx):
 
 
 def run_boot(tag, ports, up, rows, results):
-    host = GameClient("host", ports[0], make_user_dir(f"mga_e_{tag}_host"))
-    client = GameClient("client", ports[1], make_user_dir(f"mga_e_{tag}_client"))
+    host = GameClient("host", ports[0], make_user_dir(f"cydonia_ending_{tag}_host"))
+    client = GameClient("client", ports[1], make_user_dir(f"cydonia_ending_{tag}_client"))
     try:
         try:
             info = up(host, client)
-            print(f"[mga-e] boot {tag} ok: {info}", flush=True)
+            print(f"[cydonia_ending] boot {tag} ok: {info}", flush=True)
         except Exception as e:
             capture("boot", [host, client], short(e, 600))
             for rid, _fn in rows:
@@ -531,17 +533,19 @@ def run_boot(tag, ports, up, rows, results):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[mga-e] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[cydonia_ending] shutdown {gc.name}: {short(e)}", flush=True)
 
 
 def main():
     t0 = time.time()
-    results, ctx_e, ctx_f = {}, {}, {}
+    results, ctx_custom, ctx_campaign = {}, {}, {}
     crash0 = session._crash_log_snapshot()
-    run_boot("E", GC_E, boot_e, (("MS8", lambda h, c: ms8(h, c, ctx_e, crash0)),
-                                 ("MS6", lambda h, c: ms6(h, c, ctx_e))), results)
-    run_boot("F", GC_F, boot_f, (("MS7", lambda h, c: ms7(h, c, ctx_f)),), results)
-    order = ["MS8", "MS6", "MS7"]
+    run_boot("custom", GC_CUSTOM, boot_custom,
+             (("stage_offer_stash", lambda h, c: row_stage_offer_stash(h, c, ctx_custom, crash0)),
+              ("custom_abort_ending", lambda h, c: row_custom_abort_ending(h, c, ctx_custom))), results)
+    run_boot("campaign", GC_CAMPAIGN, boot_campaign,
+             (("shared_abort_ending", lambda h, c: row_shared_abort_ending(h, c, ctx_campaign)),), results)
+    order = ["stage_offer_stash", "custom_abort_ending", "shared_abort_ending"]
     passed = [r for r in order if results.get(r)]
     failed = [r for r in order if not results.get(r)]
     print(f"\ntest_cydonia_ending: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
