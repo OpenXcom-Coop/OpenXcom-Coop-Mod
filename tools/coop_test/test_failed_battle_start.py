@@ -1,26 +1,35 @@
-"""a failed
-or refused co-op CAMPAIGN battle start. Refused: the host's craft stays "in battle" at its target, the landing question pops up again
-and the .sav keeps inBattlescape for the craft and the site. The partner lost during the ~1 s start: the host sits on "Waiting
-for <name>" over a briefing that can never start and a rejoin never reaches RESUME.
-  Boot A (lobby key "48580", w2h24_a_host / _client): C1 a refused start (host corrupt_next_blob), then C0 the negative control on the
-  same world (a clean start, then a mid-battle kill: the SPEC 16 pause). Boot B (key "48581", w2h24_b_host / _client / _client2): C2 the
-  partner lost during the start (client hold_battle_ready, then kill), then client2 rejoins (test_rejoin_flow.py :47-:70).
-  Cells: C1-1 GUARD refused, C1-2 GUARD no battle, C1-3 FIX UNWIND, C1-4 FIX no re-prompt, C1-5 FIX craft turned home, C1-6 FIX MARKS 0,
-  C1-7 GUARD the site stays, C1-8 GUARD CRASH 0; C0-1 GUARD the start works, C0-2 GUARD the SPEC 16 pause, C0-3 GUARD CRASH 0; C2-1 FIX
-  UNWIND, C2-2 FIX the host waits on the geoscape, C2-3 FIX craft home, C2-4 FIX MARKS 0, C2-5 FIX the rejoin works (TASK 0 T0-2: the
-  kill took the -2 path; today client2 gets the world but the host never reads resumeAck in 120 s), C2-6 GUARD CRASH 0.
-  Stage S-B (AMENDMENT H24-2 section 2, D259 (a); TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B1): boot C (key "48582",
-  w2h24_c_host / _client), row S1 a co-op SKIRMISH start that loses its partner: test_handshake_teardown.drive_to_seated, the
-  client's hold_battle_ready, newbattle_ok, host Handshake + client held, client.kill(), observe W. Cells: S1-1 FIX UNWIND, S1-2 FIX
-  the host lands on a bare main menu with the session ended (as a refused skirmish start, D259 (a)), S1-3 FIX no battle, S1-4 GUARD
-  CRASH 0. EVIDENCE names the loss path and the stale-heal line delta (recorded, never asserted, F5197).
-W = 15 s, POLL = 0.2 s. CAMP = r4l6 TASK 0 t0_2.py's head (session.bring_up_separate_guest_battle :2446-:2546 through the landing prompt,
-geoscape clock left at its speed). SKY = the host's geo_state entry of the craft. MARKS = host save_game, then the file's "inBattlescape:
-true" lines with their key paths. UNWIND = host log lines with "failed battle start (" since the row's baseline. CRASH =
-session._crash_log_snapshot() delta, read at the row's end in every case. A WAIT that times out (or a lever reply that is not ok) ends
-the row, its later cells "not reached". EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a
-failure; ONE run; exit 0 iff every cell passes, else 2. Red (S-A commit 1): C1 FAIL C1-3..C1-6, C0 PASS, C2 FAIL C2-1..C2-5.
-Red (S-B): C1, C0, C2 PASS; S1 FAIL S1-1..S1-3, S1-4 PASS.
+"""test_failed_battle_start.py: a co-op CAMPAIGN battle start that is refused or that loses its partner, and a co-op
+SKIRMISH start that loses its partner. When broken, a refused start leaves the host's craft "in battle" at its target,
+the landing question pops up again and the .sav keeps inBattlescape for the craft and the site; a partner lost during
+the ~1 s start leaves the host on "Waiting for <name>" over a briefing that can never start, and a rejoin never
+reaches RESUME.
+  Boot failed_start_refused (lobby key "48580", failed_start_refused_host / _client): refused_start, a refused start
+  (host corrupt_next_blob), then clean_start, the negative control on the same world (a clean start, then a mid-battle
+  kill: the battle pauses for the lost partner). Boot failed_start_drop (key "48581", failed_start_drop_host / _client /
+  _client2): partner_drops, the partner lost during the start (client hold_battle_ready, then kill), then client2
+  rejoins (test_rejoin_flow.py :47-:70).
+  Cells: refused_start-1 GUARD refused, refused_start-2 GUARD no battle, refused_start-3 FIX UNWIND, refused_start-4
+  FIX no re-prompt, refused_start-5 FIX craft turned home, refused_start-6 FIX MARKS 0, refused_start-7 GUARD the site
+  stays, refused_start-no_crash GUARD CRASH 0; clean_start-works GUARD the start works, clean_start-pause GUARD the
+  pause, clean_start-no_crash GUARD CRASH 0; partner_drops-1 FIX UNWIND, partner_drops-2 FIX the host waits on the
+  geoscape, partner_drops-3 FIX craft home, partner_drops-4 FIX MARKS 0, partner_drops-5 FIX the rejoin works (when
+  broken, the kill takes the -2 path and client2 gets the world, but the host never reads resumeAck in 120 s),
+  partner_drops-no_crash GUARD CRASH 0.
+  Boot failed_start_skirmish (key "48582", failed_start_skirmish_host / _client): skirmish_partner_drops, a co-op
+  SKIRMISH start that loses its partner: test_handshake_teardown.drive_to_seated, the client's hold_battle_ready,
+  newbattle_ok, host Handshake + client held, client.kill(), observe W. Cells: skirmish_partner_drops-unwind FIX
+  UNWIND, skirmish_partner_drops-main_menu FIX the host lands on a bare main menu with the session ended (as after a
+  refused skirmish start), skirmish_partner_drops-no_battle FIX no battle, skirmish_partner_drops-no_crash GUARD
+  CRASH 0. EVIDENCE names the loss path and the stale-heal line delta (recorded, never asserted).
+W = 15 s, POLL = 0.2 s. CAMP = camp(): session.bring_up_separate_guest_battle's steps with staged=False (the full
+flight) up to the landing prompt, the geoscape clock left at its speed. SKY = the host's geo_state entry of the craft.
+MARKS = host save_game, then the file's "inBattlescape: true" lines with their key paths. UNWIND = host log lines with
+"failed battle start (" since the row's baseline. CRASH = session._crash_log_snapshot() delta, read at the row's end in
+every case. A WAIT that times out (or a test command reply that is not ok) ends the row, its later cells "not
+reached". EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run;
+exit 0 iff every cell passes, else 2. A build without the campaign unwind fails refused_start-3 .. refused_start-6 and
+partner_drops-1 .. partner_drops-5 and passes clean_start; a build with it but without the skirmish unwind passes
+those three rows and fails skirmish_partner_drops-unwind, -main_menu and -no_battle (its no_crash cell passes).
 """
 import json
 import os
@@ -34,7 +43,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 from test_handshake_teardown import drive_to_seated  # noqa: E402
 
 W, POLL = 15.0, 0.2
-KEY_A, KEY_B, KEY_C = "48580", "48581", "48582"
+KEY_REFUSED, KEY_DROP, KEY_SKIRMISH = "48580", "48581", "48582"
 UNMARKED, STALE = "battle marks cleared=0, crafts sent home=0", "[exit] stale SavedGame reached the main menu"
 REFUSE, MISMATCH = "battle_refuse received (battleId=", "battle blob sha MISMATCH (battleId="
 CLIENT_ACTIVE, UNWIND = "CLIENT phase Active (battleId=", "failed battle start ("
@@ -42,7 +51,7 @@ REJOIN_GUARD, MARKED = "offerRejoinBattle() called while the battle is not ", "b
 CLS, GEO, BRF, BS, COOP = "ConfirmLandingState", "GeoscapeState", "BriefingState", "BattlescapeState", "CoopState"
 
 class Stop(Exception):
-    """a WAIT timed out or a lever reply was not ok: the row ends here"""
+    """a WAIT timed out or a test command reply was not ok: the row ends here"""
 
 def short(e, n=400):
     return ("%s: %s" % (type(e).__name__, e))[:n]
@@ -90,7 +99,7 @@ def since(gc, n0, needle):
     return [ln.split("\t")[-1][:220] for ln in log(gc)[n0:] if needle in ln]
 
 def marks(host, fname):
-    """host save_game (a direct SavedGame::save), then every `inBattlescape: true` line with its key path (r4l6 TASK 0 sav_flags)"""
+    """host save_game (a direct SavedGame::save), then every `inBattlescape: true` line with its key path"""
     rep, path, out, keys = q(host, {"cmd": "save_game", "file": fname}), os.path.join(host.user_dir, "xcom1", fname), [], []
     if rep.get("ok") is not True or not os.path.exists(path):
         return {"reply": rep, "file": "missing", "flags": None}
@@ -154,8 +163,8 @@ class Row:
         print(("PASS %s" % self.rid) if not self.fails else ("FAIL %s: %s" % (self.rid, " ".join(self.fails))), flush=True)
 
     def boot_miss(self, results, walls):
-        print("EVIDENCE %s boot: %s\nFAIL %s boot: the boot did not reach the row's start (CAMP: the landing prompt; boot C: BATTLE "
-              "SETTINGS seated)" % (self.rid, self.x.err, self.rid), flush=True)
+        print("EVIDENCE %s boot: %s\nFAIL %s boot: the boot did not reach the row's start (CAMP: the landing "
+              "prompt; the skirmish boot: BATTLE SETTINGS seated)" % (self.rid, self.x.err, self.rid), flush=True)
         self.fails.append("boot")
         self.end(None, results, walls)
 
@@ -176,8 +185,8 @@ def force_to_site(x):
                       "dest": "site:%s" % x.site, "fuel": 999999, "lowFuel": False})
 
 def camp(x, key):
-    """CAMP: the r4l6 TASK 0 t0_2.py head - the host squad of 3 on the Skyranger, the client's "Guest" transferred and seated, a terror
-    site near base 0, the craft forced to it, the landing prompt (geo_set_speed idx 2)"""
+    """CAMP: the host squad of 3 on the Skyranger, the client's "Guest" transferred and seated, a terror site near base
+    0, the craft forced to it, the landing prompt (geo_set_speed idx 2)"""
     host, client, S = x.host, x.client, session
     S.new_campaign(host, client, port=key)
     hb = S._campaign_own_roster_base(host)
@@ -211,7 +220,8 @@ def camp(x, key):
     host.wait_for("host landing prompt", landing_prompt(host), timeout=120, interval=0.5)
 
 def seated(x, key):
-    """boot C (S-B): R4-L6's skirmish drive - lobby -> BATTLE SETTINGS with seat 1 holding soldiers 0 and 1"""
+    """the skirmish boot: test_handshake_teardown.drive_to_seated, lobby -> BATTLE SETTINGS with seat 1 holding
+    soldiers 0 and 1"""
     x.seated = drive_to_seated(x.host, x.client, key)
 
 def boot(tag, key, up=camp):
@@ -224,8 +234,8 @@ def boot(tag, key, up=camp):
         x.err = short(e, 600)
     return x
 
-def row_c1(x, results, walls):
-    r = Row("C1", ["C1-%d" % i for i in range(1, 8)], x)
+def row_refused_start(x, results, walls):
+    r = Row("refused_start", ["refused_start-%d" % i for i in range(1, 8)], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
@@ -248,29 +258,39 @@ def row_c1(x, results, walls):
         while time.time() - t1 < W:
             polls.append((round(time.time() - t0, 2), stack(h)))
             time.sleep(POLL)
-        s1, r.ctx["MARKS"], hb, cb, hc, cc = sky(h, x.cid), marks(h, "w2h24_c1.sav"), bstate(h), bstate(c), coop(h), coop(c)
+        s1, r.ctx["MARKS"], hb, cb, hc, cc = (sky(h, x.cid), marks(h, "failed_start_refused_marks.sav"), bstate(h),
+                                              bstate(c), coop(h), coop(c))
         ref, mis, act, unw = since(h, n_h, REFUSE), since(c, n_c, MISMATCH), since(c, n_c, CLIENT_ACTIVE), since(h, n_h, UNWIND)
-        r.cell("C1-1", "GUARD", "refused: host refuse +1 with reason=corrupt; client sha MISMATCH +1; client CLIENT phase Active +0",
+        r.cell("refused_start-1", "GUARD",
+               "refused: host refuse +1 with reason=corrupt; client sha MISMATCH +1; client CLIENT phase Active +0",
                len(ref) == 1 and "reason=corrupt" in ref[0] and len(mis) == 1 and not act, {"refuse": ref, "mismatch": mis, "active": act})
-        r.cell("C1-2", "GUARD", "no battle: host phase Idle, inBattle false, battleId 0; client phase Idle; both onConnect 1, coopSession true",
+        r.cell("refused_start-2", "GUARD",
+               "no battle: host phase Idle, inBattle false, battleId 0; client phase Idle; both onConnect 1, "
+               "coopSession true",
                hb["phase"] == "Idle" and hb["inBattle"] is False and hb["battleId"] == 0 and cb["phase"] == "Idle"
                and all(v["onConnect"] == 1 and v["coopSession"] is True for v in (hc, cc)), {"host": [hb, hc], "client": [cb, cc]})
-        r.cell("C1-3", "FIX", 'UNWIND +1 reading "(refused) unwound - %s" (red today: 0 lines, T0-1)' % MARKED,
+        r.cell("refused_start-3", "FIX", 'UNWIND +1 reading "(refused) unwound - %s" (when broken: 0 lines)' % MARKED,
                len(unw) == 1 and ("(refused) unwound - " + MARKED) in unw[0], unw)
         hit = [t for t, st in polls if CLS in st]
-        r.cell("C1-4", "FIX", "no re-prompt: ConfirmLandingState on no host poll after the refusal (red today: up from 1.71 s, T0-1)",
+        r.cell("refused_start-4", "FIX",
+               "no re-prompt: ConfirmLandingState on no host poll after the refusal (when broken: up from 1.71 s)",
                bool(polls) and not hit, {"polls": len(polls), "with CLS": len(hit), "first CLS s": hit[:1], "stacks": changes(polls)})
-        r.cell("C1-5", "FIX", 'craft turned home: SKY destKind not "site", and destKind "base" while status STR_OUT (red today: "site")',
+        r.cell("refused_start-5", "FIX",
+               'craft turned home: SKY destKind not "site", and destKind "base" while status STR_OUT '
+               '(when broken: "site")',
                s1.get("destKind") not in (None, "site") and (s1.get("status") != "STR_OUT" or s1.get("destKind") == "base"), s1)
-        r.cell("C1-6", "FIX", "MARKS = 0 lines (red today: 2, bases/crafts + missionSites, T0-1)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
+        r.cell("refused_start-6", "FIX", "MARKS = 0 lines (when broken: 2, bases/crafts + missionSites)",
+               r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
         ids = sky(h, None, sites=True)
-        r.cell("C1-7", "GUARD", "the target stays: host geo_state.missionSites holds the site id %s" % x.site, x.site in ids, ids)
-    except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
+        r.cell("refused_start-7", "GUARD",
+               "the target stays: host geo_state.missionSites holds the site id %s" % x.site,
+               x.site in ids, ids)
+    except Exception as e:  # Stop, or a test command / kill() that raised: the row ends here
         r.stop(e)
-    r.end("C1-8", results, walls)
+    r.end("refused_start-no_crash", results, walls)
 
-def row_c0(x, results, walls):
-    r = Row("C0", ["C0-1", "C0-2"], x)
+def row_clean_start(x, results, walls):
+    r = Row("clean_start", ["clean_start-works", "clean_start-pause"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
@@ -284,28 +304,32 @@ def row_c0(x, results, walls):
         hook_cmd(h, {"cmd": "coop_mission_start"})
         wait("both phase Active", lambda: bstate(h)["phase"] == "Active" and bstate(c)["phase"] == "Active", 20.0)
         hb, cb, act, unw = bstate(h), bstate(c), since(c, n_c, CLIENT_ACTIVE), since(h, n_h, UNWIND)
-        r.cell("C0-1", "GUARD", "the start works: both phase Active, equal non-zero battleId, client CLIENT phase Active +1, UNWIND +0",
+        r.cell("clean_start-works", "GUARD",
+               "the start works: both phase Active, equal non-zero battleId, client CLIENT phase Active +1, UNWIND +0",
                hb["phase"] == cb["phase"] == "Active" and bool(hb["battleId"]) and hb["battleId"] == cb["battleId"] and len(act) == 1
                and not unw, {"host": hb, "client": cb, "active": act, "UNWIND": unw})
         c.kill()
         tk = time.time()
         wait("host peerAbsent true and dialog 62", lambda: bstate(h)["peerAbsent"] is True and dlg(h).get("code") == 62, 30.0)
         hb, s, unw, d = bstate(h), sky(h, x.cid), since(h, n_h, UNWIND), dlg(h)
-        r.cell("C0-2", "GUARD", 'the SPEC 16 pause: host phase Active, peerAbsent true, inBattle true, dialog 62 within 30 s, UNWIND +0, '
-               'SKY destKind "site"', hb["phase"] == "Active" and hb["peerAbsent"] is True and hb["inBattle"] is True
+        r.cell("clean_start-pause", "GUARD", 'the pause for the lost partner: host phase Active, peerAbsent true, '
+               'inBattle true, dialog 62 within 30 s, UNWIND +0, SKY destKind "site"',
+               hb["phase"] == "Active" and hb["peerAbsent"] is True and hb["inBattle"] is True
                and d.get("code") == 62 and not unw and s.get("destKind") == "site",
                {"host": hb, "dialog": d, "UNWIND": unw, "SKY": s, "s after kill": round(time.time() - tk, 2)})
-    except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
+    except Exception as e:  # Stop, or a test command / kill() that raised: the row ends here
         r.stop(e)
-    r.end("C0-3", results, walls)
+    r.end("clean_start-no_crash", results, walls)
 
 def rejoin(x, n_h, ev):
-    """client2 rejoins (test_rejoin_flow.py :47-:70) -> True when every C2-5 check holds; ev collects the values"""
+    """client2 rejoins (test_rejoin_flow.py :47-:70) -> True when every partner_drops-5 check holds; ev collects the
+    values"""
     h, on52 = x.host, {"since": None, "max s": 0.0}
     try:
         x.client2 = GameClient("client2", 3, make_user_dir(x.tag + "_client2"))
         x.client2.spawn(); x.client2.connect()
-        ev["join_tcp"] = x.client2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY_B, "player": "ClientPlayer"})
+        ev["join_tcp"] = x.client2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY_DROP,
+                                        "player": "ClientPlayer"})
     except Exception as e:
         ev["join"] = short(e)
         return False
@@ -322,15 +346,15 @@ def rejoin(x, n_h, ev):
             time.sleep(0.5)
         ev["RESUME"] = session.press_back_when_shown(h, "host RESUME", codes=(60, 62))
         wait("client2 top GeoscapeState", lambda: sample() or stack(c2)[-1:] == [GEO], 120.0)
-    except Exception as e:  # a timed-out wait (Stop / TimeoutError) or a machine gone: C2-5's own evidence
+    except Exception as e:  # a timed-out wait (Stop / TimeoutError) or a machine gone: partner_drops-5's own evidence
         ev["wait"] = short(e, 300)
     ev.update({"host resumeAck": coop(h).get("resumeAck"), "host stack": stack(h), "host dialog": dlg(h), "client2 stack": stack(c2),
                "client2 dialog": dlg(c2), "client2 longest on 52 s": on52["max s"], "rejoin guard": since(h, n_h, REJOIN_GUARD)})
     return (ev["host resumeAck"] is True and (ev.get("RESUME") or {}).get("ok") is True and ev["host stack"][-1:] == [GEO]
             and ev["client2 stack"][-1:] == [GEO] and not ev["rejoin guard"] and on52["max s"] <= 30.0)
 
-def row_c2(x, results, walls):
-    r = Row("C2", ["C2-%d" % i for i in range(1, 6)], x)
+def row_partner_drops(x, results, walls):
+    r = Row("partner_drops", ["partner_drops-%d" % i for i in range(1, 6)], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
@@ -346,29 +370,34 @@ def row_c2(x, results, walls):
         while time.time() - tk < W:
             polls.append((round(time.time() - tk, 2), stack(h)))
             time.sleep(POLL)
-        hs, hb, d, s, r.ctx["MARKS"] = stack(h), bstate(h), dlg(h), sky(h, x.cid), marks(h, "w2h24_c2.sav")
+        hs, hb, d, s, r.ctx["MARKS"] = (stack(h), bstate(h), dlg(h), sky(h, x.cid),
+                                        marks(h, "failed_start_drop_marks.sav"))
         unw = since(h, n_h, UNWIND)
         why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
         path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
                 "UNWIND reason": why}
-        r.cell("C2-1", "FIX", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-2)' % MARKED,
+        r.cell("partner_drops-1", "FIX",
+               'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (when broken: 0 lines)' % MARKED,
                len(unw) == 1 and bool(why) and MARKED in unw[0], {"UNWIND": unw, "path": path})
-        r.cell("C2-2", "FIX", "the host waits on the geoscape: stack ends [GeoscapeState, CoopState], dialog 62, no BriefingState / "
-               "BattlescapeState, inBattle false, phase Idle, peerAbsent false (red today: 62 over BriefingState, inBattle true, T0-2)",
+        r.cell("partner_drops-2", "FIX", "the host waits on the geoscape: stack ends [GeoscapeState, CoopState], "
+               "dialog 62, no BriefingState / BattlescapeState, inBattle false, phase Idle, peerAbsent false (when "
+               "broken: 62 over BriefingState, inBattle true)",
                hs[-2:] == [GEO, COOP] and d.get("code") == 62 and BRF not in hs and BS not in hs and hb["inBattle"] is False
                and hb["phase"] == "Idle" and hb["peerAbsent"] is False, {"stack": hs, "dialog": d, "battle": hb, "stacks": changes(polls)})
-        r.cell("C2-3", "FIX", 'SKY destKind "base" (red today: "site", T0-2)', s.get("destKind") == "base", s)
-        r.cell("C2-4", "FIX", "MARKS = 0 (red today: 2, T0-2)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
+        r.cell("partner_drops-3", "FIX", 'SKY destKind "base" (when broken: "site")', s.get("destKind") == "base", s)
+        r.cell("partner_drops-4", "FIX", "MARKS = 0 (when broken: 2)", r.ctx["MARKS"]["flags"] == [], r.ctx["MARKS"])
         ev = {}
         ok = rejoin(x, n_h, ev)
-        r.cell("C2-5", "FIX", "the rejoin works: resumeAck true, RESUME pressed, client2 and host top GeoscapeState, rejoin guard +0, "
-               "client2 never > 30 s on CoopState 52 (red today: resumeAck never true in 120 s, T0-2)", ok, ev)
-    except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
+        r.cell("partner_drops-5", "FIX", "the rejoin works: resumeAck true, RESUME pressed, client2 and host top "
+               "GeoscapeState, rejoin guard +0, client2 never > 30 s on CoopState 52 (when broken: resumeAck never "
+               "true in 120 s)", ok, ev)
+    except Exception as e:  # Stop, or a test command / kill() that raised: the row ends here
         r.stop(e)
-    r.end("C2-6", results, walls)
+    r.end("partner_drops-no_crash", results, walls)
 
-def row_s1(x, results, walls):
-    r = Row("S1", ["S1-1", "S1-2", "S1-3"], x)
+def row_skirmish_partner_drops(x, results, walls):
+    r = Row("skirmish_partner_drops", ["skirmish_partner_drops-unwind", "skirmish_partner_drops-main_menu",
+                                       "skirmish_partner_drops-no_battle"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c = x.host, x.client
@@ -388,25 +417,29 @@ def row_s1(x, results, walls):
         unw, stale = since(h, n_h, UNWIND), since(h, n_h, STALE)
         why = re.findall(r"\((partner dropped|partner lost)\)", " ".join(unw))
         path = {"first poll after the kill": first, "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first["phase"], "?"),
-                "UNWIND reason": why, "stale-heal lines (recorded, never asserted, F5197)": stale}
-        r.cell("S1-1", "FIX", 'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (red today: 0 lines, T0-B1)' % UNMARKED,
+                "UNWIND reason": why, "stale-heal lines (recorded, never asserted)": stale}
+        r.cell("skirmish_partner_drops-unwind", "FIX",
+               'UNWIND +1 reading "(partner dropped)" or "(partner lost)" and "%s" (when broken: 0 lines)' % UNMARKED,
                len(unw) == 1 and bool(why) and UNMARKED in unw[0], {"UNWIND": unw, "path": path})
         lobby = [t for t, st in polls if "LobbyMenu" in st]
-        r.cell("S1-2", "FIX", "the host lands on a bare main menu, the session ended (D259 (a)): at W stack ['MainMenuState'], has_save "
-               "false, coopSession false, onConnect -1, no coop dialog, LobbyMenu on no poll (red today: [BriefingState, CoopState] 62, "
-               "T0-B1)", hs == ["MainMenuState"] and has_save is False and hc["coopSession"] is False and hc["onConnect"] == -1
+        r.cell("skirmish_partner_drops-main_menu", "FIX", "the host lands on a bare main menu, the session ended (as "
+               "after a refused skirmish start): at W stack ['MainMenuState'], has_save false, coopSession false, "
+               "onConnect -1, no coop dialog, LobbyMenu on no poll (when broken: [BriefingState, CoopState] 62)",
+               hs == ["MainMenuState"] and has_save is False and hc["coopSession"] is False and hc["onConnect"] == -1
                and d.get("present") is False and bool(polls) and not lobby,
                {"stack": hs, "has_save": has_save, "get_coop": hc, "dialog": d, "LobbyMenu polls s": lobby[:3], "stacks": changes(polls)})
-        r.cell("S1-3", "FIX", "no battle: host phase Idle, inBattle false, battleId 0 (red today: inBattle true, T0-B1)",
+        r.cell("skirmish_partner_drops-no_battle", "FIX",
+               "no battle: host phase Idle, inBattle false, battleId 0 (when broken: inBattle true)",
                hb["phase"] == "Idle" and hb["inBattle"] is False and hb["battleId"] == 0, hb)
-    except Exception as e:  # Stop, or a lever / kill() that raised: the row ends here
+    except Exception as e:  # Stop, or a test command / kill() that raised: the row ends here
         r.stop(e)
-    r.end("S1-4", results, walls)
+    r.end("skirmish_partner_drops-no_crash", results, walls)
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
-    for tag, key, rows, up in (("w2h24_a", KEY_A, (row_c1, row_c0), camp), ("w2h24_b", KEY_B, (row_c2,), camp),
-                               ("w2h24_c", KEY_C, (row_s1,), seated)):
+    for tag, key, rows, up in (("failed_start_refused", KEY_REFUSED, (row_refused_start, row_clean_start), camp),
+                               ("failed_start_drop", KEY_DROP, (row_partner_drops,), camp),
+                               ("failed_start_skirmish", KEY_SKIRMISH, (row_skirmish_partner_drops,), seated)):
         tb = time.time()
         x = boot(tag, key, up)
         walls[tag + (" CAMP" if up is camp else " seated")] = round(time.time() - tb, 1)
@@ -420,7 +453,7 @@ def main():
                 print("FAIL %s shutdown (%s): %s" % (tag, gc.name, short(e, 300)), flush=True)
                 failed.append("%s shutdown %s" % (tag, gc.name))
         walls[tag] = round(time.time() - tb, 1)
-    rows = ("C1", "C0", "C2", "S1")
+    rows = ("refused_start", "clean_start", "partner_drops", "skirmish_partner_drops")
     failed += [rid for rid in rows if not results.get(rid)]
     print("\ntest_failed_battle_start: %d/%d rows passed (fail=%s) walls %s in %.1fs" % (
         sum(1 for rid in rows if results.get(rid)), len(rows), failed, json.dumps(walls), time.time() - t0), flush=True)
