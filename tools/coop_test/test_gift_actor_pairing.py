@@ -1,39 +1,41 @@
-"""W2-H43 rows R1, R2, R3, R4 (boot C, classic co-op, gamemode 1): after a gift moves the co-op HOST's selection (it
-gave away the soldier it held, or it held none and received one), the host's battle action follows the new selection
-at once, an aim it had open ends and the cursor is set up again, as vanilla's Tab does (lead L-H40-2, CONFIRMED by
-lh402-capture F16920-F16932; orchestrator ruling R-H43-0; W2-H6-SEL on the host; design-D6).
+"""test_gift_actor_pairing.py (classic co-op, gamemode 1): after a gift moves the co-op HOST's selection (it gave away
+the soldier it held, or it held none and received one), the host's battle action follows the new selection at once, an
+aim it had open ends and the cursor is set up again, as vanilla's Tab does.
 
-Spec: docs repo rewrite/prompts/w2h43_gift_actor_pairing.md section (f), orchestrator rulings QH43-1 .. QH43-7 (a).
-Constants: rewrite/w2h43-task0/sa/CONSTANTS.md (TASK 0 boots a, b on the unchanged build fe1fa1468, equal on every read;
-boot c with E1-E3 applied; every pin kept).
-
-Boot C (key 49046, dirs w2h43_c_host / _client, default options = parallel): test_coop_panic_selection.boot's chain
-with the key as a parameter (F10917; asserts map fingerprint, seated [8, 9], unit order, gamemode 1, pinned [A]). Ids
-are read at run time (S25): G, N, N2, N3, N4 = the host seat's live units from its entry hold on, C1 = the client's
-hold, C2 its next. Staging: G, N, N2, C1 stripped (client first, F16954), then a rifle + clip in the right hand;
+The boot (key 49046, dirs gift_actor_pairing_host / _client, default options = parallel):
+test_coop_panic_selection.boot's chain with the key as a parameter (asserts map fingerprint, seated [8, 9], unit
+order, gamemode 1, pinned [A]). Ids
+are read at run time (they vary per boot): G, N, N2, N3, N4 = the host seat's live units from its entry hold on, C1 =
+the client's hold, C2 its next. Staging: G, N, N2, C1 stripped (client first), then a rifle + clip in the right hand;
 hash EQUAL.
 Steps: hold(H) = real Tab presses (>= 1) until H is selected; give(H) = the give-unit key GIVE_KEY, the GiftSoldierMenu
 click, reads A / B at READ_A / READ_B, the order lands, the host's apply line, the receiver's notice (dismissed);
 menu(U) = camera on TARGET (host only), the right-hand key, ActionMenuState, read C; snap = the SNAP row, read D;
 act(U) = set_seed SEED_SHOT, one map click on TARGET, the new host closed contexts within ACT_S, read E; unaim = one
 right click on TARGET only while the host's cursorType is 2 (in normal mode it would turn the unit).
-  R1  (turn 1) hold(G), give(G), menu(N), snap, act(N), unaim. R1-hold, R1-give (preconditions), R1-sel (host selectedId
-      N at A and B), R1-pair (actor N and cursorType 1 at A and B), R1-menu (ActionMenuState, actor N at C), R1-act
-      (exactly one new context {host, shoot, N}, the client applied its endSeq, A neither dead nor unconscious).
-  R2  (turn 2 after TCU.cycle, no note) as R1 with (N, N2).
-  R3  hold(N2), menu(N2), snap (the aim stays open), give(N2) while aiming, unaim. R3-aim (precondition: cursorType 2,
-      actor and selection N2), R3-give, R3-sel (N3 at A and B), R3-pair (actor N3 at A and B), R3-cursor (1 at A and B).
-  R4  (LAST) the host gives N3 and N4 by the battle_gift lever: R4-none (host selectedId and actor -1). The client's
-      lever notices dismissed, its real Tab onto C1, its key and menu: R4-recv (C1 seat 0, the host's notice, host
-      selectedId C1 at A), R4-pair (actor C1, cursorType 1 at A), R4-client (client selectedId C2 = its actor at A),
-      menu(C1) -> R4-menu, snap, act(C1) -> R4-act.
+  gave_held_soldier  (turn 1) hold(G), give(G), menu(N), snap, act(N), unaim. gave_held_soldier-hold,
+      gave_held_soldier-give (preconditions), gave_held_soldier-sel (host selectedId N at A and B),
+      gave_held_soldier-pair (actor N and cursorType 1 at A and B), gave_held_soldier-menu (ActionMenuState, actor N at
+      C), gave_held_soldier-act (exactly one new context {host, shoot, N}, the client applied its endSeq, A neither dead
+      nor unconscious).
+  gave_held_next_turn  (turn 2 after TCU.cycle, no note) as gave_held_soldier with (N, N2).
+  gave_while_aiming  hold(N2), menu(N2), snap (the aim stays open), give(N2) while aiming, unaim.
+      gave_while_aiming-aim (precondition: cursorType 2, actor and selection N2), gave_while_aiming-give,
+      gave_while_aiming-sel (N3 at A and B), gave_while_aiming-pair (actor N3 at A and B), gave_while_aiming-cursor (1
+      at A and B).
+  held_none_received  (LAST) the host gives N3 and N4 by the battle_gift test command: held_none_received-none (host
+      selectedId and actor -1). The client's notices for those gifts dismissed, its real Tab onto C1, its key and menu:
+      held_none_received-recv (C1 seat 0, the host's notice, host selectedId C1 at A), held_none_received-pair (actor
+      C1, cursorType 1 at A), held_none_received-client (client selectedId C2 = its actor at A), menu(C1) ->
+      held_none_received-menu, snap, act(C1) -> held_none_received-act.
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new crash file.
 
-RED on the unchanged build (commit R1): R1-pair, R1-menu, R1-act, R2-pair, R2-menu, R2-act, R3-pair, R3-cursor,
-R4-none, R4-pair, R4-menu, R4-act (12 of 27 cells). GREEN (G1, E1-E3): every cell PASS. One EVIDENCE line per row, one
-PASS/FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its row (later
-cells "not reached"); a boot miss prints ONE CAPTURE line and fails every row "boot". run in the foreground to
-completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+Without the fix: the -pair, -menu and -act cells of gave_held_soldier and gave_held_next_turn, gave_while_aiming-pair,
+gave_while_aiming-cursor and held_none_received-none, -pair, -menu and -act FAIL (12 of 27 cells). With it every cell
+PASSES. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure; a
+precondition miss ends its row (later cells "not reached"); a boot miss prints ONE CAPTURE line and fails every row
+"boot". run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes,
+else 2.
 
 Run:  python tools/coop_test/test_gift_actor_pairing.py
 """
@@ -59,26 +61,33 @@ import test_coop_panic_selection as PS  # noqa: E402
 from test_seat_pacing import SDLK_TAB  # noqa: E402
 
 KEY = "49046"
-HOST_DIR, CLIENT_DIR = "w2h43_c_host", "w2h43_c_client"    # default options (parallel)
+HOST_DIR, CLIENT_DIR = "gift_actor_pairing_host", "gift_actor_pairing_client"    # default options (parallel)
 GAMEMODE = 1                      # classic co-op skirmish
-A_ID = TCU.A_ID                   # 1000000, the only alien (pinned neutral); TARGET = its tile, (27,12,0) in TASK 0
+A_ID = TCU.A_ID                   # 1000000, the only alien (pinned neutral); TARGET = its tile, (27,12,0) when measured
 RIFLE, CLIP = "STR_RIFLE", "STR_RIFLE_CLIP"   # STAGED on G, N, N2, C1 after the strip
-GIVE_KEY = 258                    # Options::giveUnit, SDLK_KP2 (also opens the menu while aiming, TASK 0 a / b / c)
+GIVE_KEY = 258                    # Options::giveUnit, SDLK_KP2 (also opens the menu while aiming)
 KEY_RHAND = 101                   # keyBattleUseRightHand, SDLK_e (ActionMenuState in 0.05 s)
 SNAP_NTH = 2                      # the rifle's rows THROW, AUTO, SNAP, AIMED: the SNAP row is the 3rd (cursorType 2)
 CT_NORMAL, CT_AIM = 1, 2
-SEED_SHOT = 1                     # host set_seed right before each act click (A alive after every act, boot c)
-READ_A, READ_B = 0.3, 1.3         # after the gift click (R4: after the notice dismissal, then +1.0 s)
+SEED_SHOT = 1                     # host set_seed right before each act click (A alive after every act)
+READ_A, READ_B = 0.3, 1.3         # after the gift click (held_none_received: after the notice dismissal, then +1.0 s)
 MENU_S, ACT_S, STEP_S = 5, 10, 30
 TAB_MAX = 16
 DEAD, UNCONSCIOUS = 6, 7          # UnitStatus
 HOST_NAME, CLIENT_NAME = TBG.HOST_NAME, TBG.CLIENT_NAME
 VIEW = ("side", "turn", "selectedId", "currentActionActorId", "giftSelectedId", "cursorType", "warningText",
         "coopWaitText", "hud")
-ROWS = (("R1", ("R1-hold", "R1-give", "R1-sel", "R1-pair", "R1-menu", "R1-act", "R1-common")),
-        ("R2", ("R2-hold", "R2-give", "R2-sel", "R2-pair", "R2-menu", "R2-act", "R2-common")),
-        ("R3", ("R3-aim", "R3-give", "R3-sel", "R3-pair", "R3-cursor", "R3-common")),
-        ("R4", ("R4-none", "R4-recv", "R4-pair", "R4-client", "R4-menu", "R4-act", "R4-common")))
+ROWS = (("gave_held_soldier", ("gave_held_soldier-hold", "gave_held_soldier-give", "gave_held_soldier-sel",
+                               "gave_held_soldier-pair", "gave_held_soldier-menu", "gave_held_soldier-act",
+                               "gave_held_soldier-common")),
+        ("gave_held_next_turn", ("gave_held_next_turn-hold", "gave_held_next_turn-give", "gave_held_next_turn-sel",
+                                 "gave_held_next_turn-pair", "gave_held_next_turn-menu", "gave_held_next_turn-act",
+                                 "gave_held_next_turn-common")),
+        ("gave_while_aiming", ("gave_while_aiming-aim", "gave_while_aiming-give", "gave_while_aiming-sel",
+                               "gave_while_aiming-pair", "gave_while_aiming-cursor", "gave_while_aiming-common")),
+        ("held_none_received", ("held_none_received-none", "held_none_received-recv", "held_none_received-pair",
+                                "held_none_received-client", "held_none_received-menu", "held_none_received-act",
+                                "held_none_received-common")))
 
 top, units, es = G3F.top, G3F.units, G3F.es
 not_reached = OWN.not_reached
@@ -89,7 +98,7 @@ def wait_until(pred, timeout, interval=0.05):
 
 
 def boot(host, client):
-    """test_coop_panic_selection.boot's chain with this file's lobby key (F10917: copied with the key)."""
+    """test_coop_panic_selection.boot's chain, copied with this file's lobby key."""
     bring_up_lobby_roster_pinned(host, client, KEY)
     seated = {}
     session.drive_to_battlescape(host, client, seated, seat_count=2,
@@ -102,7 +111,7 @@ def boot(host, client):
     assert order == [TCU.UNIT_ORDER] * 2, f"unit order host/client {order} (want {TCU.UNIT_ORDER} on both)"
     gm = [hs.get("coopGamemode"), cs.get("coopGamemode")]
     assert gm == [GAMEMODE] * 2, f"coopGamemode host/client {gm} (want {GAMEMODE} on both)"
-    pinned = pin_ai_neutral(host, client, tag="w2h43")
+    pinned = pin_ai_neutral(host, client, tag="gift_actor_pairing")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (want [{A_ID}])"
     session.wait_host_idle(host, client, timeout=30)
     return {"mapFP": fp, "seated": seated.get("soldierIds"), "pinned": pinned, "gamemode": gm}
@@ -230,7 +239,7 @@ def unaim(host, target, ev):
 
 
 def row_give(host, client, crash0, row, ids, target, h, nxt, pre=None):
-    """R1 / R2: hold(H), give(H), menu(next), snap, act(next), unaim."""
+    """gave_held_soldier / gave_held_next_turn: hold(H), give(H), menu(next), snap, act(next), unaim."""
     cells, ev = {}, {"ids": ids, "target": target}
     names = dict(ROWS)[row]
     if pre:
@@ -254,7 +263,7 @@ def row_give(host, client, crash0, row, ids, target, h, nxt, pre=None):
                 cells[f"{row}-sel"] = (ok, f"host selectedId at A / B {got} (want {nxt})")
                 a, b = at_reads(ev, "host", "currentActionActorId", nxt), at_reads(ev, "host", "cursorType", CT_NORMAL)
                 cells[f"{row}-pair"] = (a[0] and b[0], f"host currentActionActorId at A / B {a[1]} (want {nxt}; "
-                                                       f"unchanged build: {h}); cursorType {b[1]} (want {CT_NORMAL})")
+                                                       f"without the fix: {h}); cursorType {b[1]} (want {CT_NORMAL})")
                 cells[f"{row}-menu"] = menu(host, target, nxt, ev)
                 snap(host, ev)
                 cells[f"{row}-act"] = act(host, client, target, nxt, ev)
@@ -263,42 +272,43 @@ def row_give(host, client, crash0, row, ids, target, h, nxt, pre=None):
     return cells, ev
 
 
-def row_r3(host, client, crash0, ids, target):
+def row_gave_while_aiming(host, client, crash0, ids, target):
     cells, ev = {}, {"ids": ids}
     n2, n3 = ids["N2"], ids["N3"]
-    names = dict(ROWS)["R3"]
+    names = dict(ROWS)["gave_while_aiming"]
     ev["hold"] = hold(host, n2)
     ev["menuOk"] = menu(host, target, n2, ev)
     snap(host, ev)
     aim = tuple(ev["D"][k] for k in ("cursorType", "currentActionActorId", "selectedId"))
-    cells["R3-aim"] = (aim == (CT_AIM, n2, n2), f"host Tab presses {ev['hold']}; before the key host cursorType / "
-                                                f"currentActionActorId / selectedId {aim} (want {CT_AIM} / {n2} / "
-                                                f"{n2})")
-    if not cells["R3-aim"][0]:
-        not_reached(cells, names[1:-1], "R3-aim failed")
+    cells["gave_while_aiming-aim"] = (aim == (CT_AIM, n2, n2), f"host Tab presses {ev['hold']}; before the key host "
+                                                               f"cursorType / currentActionActorId / selectedId {aim} "
+                                                               f"(want {CT_AIM} / {n2} / {n2})")
+    if not cells["gave_while_aiming-aim"][0]:
+        not_reached(cells, names[1:-1], "gave_while_aiming-aim failed")
     else:
-        cells["R3-give"] = give(host, client, n2, ev)
-        if not cells["R3-give"][0]:
-            not_reached(cells, names[2:-1], "R3-give failed")
+        cells["gave_while_aiming-give"] = give(host, client, n2, ev)
+        if not cells["gave_while_aiming-give"][0]:
+            not_reached(cells, names[2:-1], "gave_while_aiming-give failed")
         else:
             ok, got = at_reads(ev, "host", "selectedId", n3)
-            cells["R3-sel"] = (ok, f"host selectedId at A / B {got} (want {n3})")
+            cells["gave_while_aiming-sel"] = (ok, f"host selectedId at A / B {got} (want {n3})")
             ok, got = at_reads(ev, "host", "currentActionActorId", n3)
-            cells["R3-pair"] = (ok, f"host currentActionActorId at A / B {got} (want {n3}; unchanged build: {n2})")
+            cells["gave_while_aiming-pair"] = (ok, f"host currentActionActorId at A / B {got} (want {n3}; without the "
+                                                   f"fix: {n2})")
             ok, got = at_reads(ev, "host", "cursorType", CT_NORMAL)
-            cells["R3-cursor"] = (ok, f"host cursorType at A / B {got} (want {CT_NORMAL}: the aim ended; unchanged "
-                                      f"build: {CT_AIM})")
+            cells["gave_while_aiming-cursor"] = (ok, f"host cursorType at A / B {got} (want {CT_NORMAL}: the aim "
+                                                     f"ended; without the fix: {CT_AIM})")
     unaim(host, target, ev)
-    cells["R3-common"] = G3F.common(host, client, crash0)
+    cells["gave_while_aiming-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_r4(host, client, crash0, ids, target):
+def row_held_none_received(host, client, crash0, ids, target):
     cells, ev = {}, {"ids": ids}
-    names = dict(ROWS)["R4"]
+    names = dict(ROWS)["held_none_received"]
     n3, n4, c1, c2 = ids["N3"], ids["N4"], ids["C1"], ids["C2"]
     nl0 = TBG.notices(client)
-    lv = ev["levers"] = []
+    lv = ev["battleGifts"] = []
     for u in (n3, n4):
         r = host.cmd({"cmd": "battle_gift", "unit_id": u, "owner": 1})
         lv.append([u, r.get("ok"), r.get("error"), TBG.lands(host, client, u, 1, ev.setdefault(f"land{u}", {}))])
@@ -306,14 +316,15 @@ def row_r4(host, client, crash0, ids, target):
     time.sleep(max(0.0, t0 + READ_B - time.time()))
     ev["none"] = reads(host, client)
     if not all(x[1] and x[3][0] for x in lv):
-        cells["R4-none"] = (False, f"precondition: lever gifts [unit, ok, error, lands] {lv} (want ok and landed)")
-        not_reached(cells, names[1:-1], "R4 lever gifts")
+        cells["held_none_received-none"] = (False, f"precondition: battle_gift gifts [unit, ok, error, lands] {lv} "
+                                                   f"(want ok and landed)")
+        not_reached(cells, names[1:-1], "held_none_received battle_gift gifts")
     else:
         got = (ev["none"]["host"]["selectedId"], ev["none"]["host"]["currentActionActorId"])
-        cells["R4-none"] = (got == (-1, -1), f"after the lever gifts of {n3}, {n4} (landed) host selectedId / "
-                                             f"currentActionActorId {got} at READ_B (want -1 / -1; unchanged build: "
-                                             f"-1 / {n3})")
-        ev["leverNotices"] = TBG.notices(client)[len(nl0):]
+        cells["held_none_received-none"] = (got == (-1, -1), f"after the battle_gift gifts of {n3}, {n4} (landed) host "
+                                                             f"selectedId / currentActionActorId {got} at READ_B (want "
+                                                             f"-1 / -1; without the fix: -1 / {n3})")
+        ev["giftNotices"] = TBG.notices(client)[len(nl0):]
         ev["clientCleared"] = TBG.clear_popups(client)
         n0 = TBG.notices(host)
         ev["clientHold"] = hold(client, c1)
@@ -336,26 +347,27 @@ def row_r4(host, client, crash0, ids, target):
                 ok = clicked and landed and n_ok and ev["A"]["host"]["selectedId"] == c1
                 time.sleep(max(0.0, t1 + 1.0 - time.time()))
                 ev["B"] = reads(host, client)
-        cells["R4-recv"] = (ok, "; ".join(parts) + f" (want {c1})")
+        cells["held_none_received-recv"] = (ok, "; ".join(parts) + f" (want {c1})")
         if not ok:
-            not_reached(cells, names[2:-1], "R4-recv failed")
+            not_reached(cells, names[2:-1], "held_none_received-recv failed")
         else:
             a = ev["A"]["host"]
-            cells["R4-pair"] = ((a["currentActionActorId"], a["cursorType"]) == (c1, CT_NORMAL),
-                                f"host currentActionActorId / cursorType at A {a['currentActionActorId']} / "
-                                f"{a['cursorType']} (want {c1} / {CT_NORMAL}; unchanged build: {n3})")
+            cells["held_none_received-pair"] = ((a["currentActionActorId"], a["cursorType"]) == (c1, CT_NORMAL),
+                                                f"host currentActionActorId / cursorType at A "
+                                                f"{a['currentActionActorId']} / {a['cursorType']} (want {c1} / "
+                                                f"{CT_NORMAL}; without the fix: {n3})")
             c = ev["A"]["client"]
-            cells["R4-client"] = (c["selectedId"] == c2 == c["currentActionActorId"],
-                                  f"client selectedId / currentActionActorId at A {c['selectedId']} / "
-                                  f"{c['currentActionActorId']} (want {c2} / {c2})")
-            cells["R4-menu"] = menu(host, target, c1, ev)
+            cells["held_none_received-client"] = (c["selectedId"] == c2 == c["currentActionActorId"],
+                                                  f"client selectedId / currentActionActorId at A {c['selectedId']} / "
+                                                  f"{c['currentActionActorId']} (want {c2} / {c2})")
+            cells["held_none_received-menu"] = menu(host, target, c1, ev)
             snap(host, ev)
-            cells["R4-act"] = act(host, client, target, c1, ev)
-    cells["R4-common"] = G3F.common(host, client, crash0)
+            cells["held_none_received-act"] = act(host, client, target, c1, ev)
+    cells["held_none_received-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-# ===================== boot C =====================
+# ===================== the boot =====================
 
 
 def stage(host, client):
@@ -376,38 +388,42 @@ def stage(host, client):
     return st
 
 
-def boot_c(host, client):
+def run_boot(host, client):
     m = (host, client)
     try:
-        info = G3F.guarded("C", lambda: boot(host, client), m)
+        info = G3F.guarded("boot", lambda: boot(host, client), m)
     except G3F.Miss:
-        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE C line)")
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
     crash0 = session._crash_log_snapshot()
     try:
-        st = G3F.guarded("C staging", lambda: stage(host, client), m)
+        st = G3F.guarded("staging", lambda: stage(host, client), m)
     except G3F.Miss:
         st = None
-    print(f"EVIDENCE C staging: {json.dumps({'boot': info, 'staging': st}, sort_keys=True, default=str)}", flush=True)
+    print(f"EVIDENCE staging: {json.dumps({'boot': info, 'staging': st}, sort_keys=True, default=str)}", flush=True)
     if st is None:
-        return G3F.fail_all(ROWS, "staging (see the CAPTURE C staging line)")
+        return G3F.fail_all(ROWS, "staging (see the CAPTURE staging line)")
     ids, target = st["ids"], st["target"]
     rows = dict(ROWS)
-    fails = G3F.run_row("R1", rows["R1"], lambda: row_give(host, client, crash0, "R1", ids, target, ids["G"],
-                                                           ids["N"]))
+    fails = G3F.run_row("gave_held_soldier", rows["gave_held_soldier"],
+                        lambda: row_give(host, client, crash0, "gave_held_soldier", ids, target, ids["G"], ids["N"]))
     rec, cleared, sides = {"notes": [], "dismissed": [], "cycles": []}, None, None
     try:
         cleared = {"host": TBG.clear_popups(host), "client": TBG.clear_popups(client)}
-        TCU.cycle(host, client, None, rec, "R2")
+        TCU.cycle(host, client, None, rec, "gave_held_next_turn")
         sides = [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in m]
     except Exception as e:
-        rec["notes"].append(f"between R1 and R2: {type(e).__name__}: {str(e)[:300]}")
+        rec["notes"].append(f"between gave_held_soldier and gave_held_next_turn: {type(e).__name__}: "
+                            f"{str(e)[:300]}")
     print(f"EVIDENCE cycle: {json.dumps({'cleared': cleared, 'rec': rec, 'sides': sides}, default=str)}", flush=True)
     pre = None if (not rec["notes"] and sides == [(0, 2)] * 2) else (
         f"precondition: the cycle notes {rec['notes']}, (side, turn) host/client {sides} (want none, (0, 2))")
-    fails += G3F.run_row("R2", rows["R2"], lambda: row_give(host, client, crash0, "R2", ids, target, ids["N"],
-                                                            ids["N2"], pre))
-    fails += G3F.run_row("R3", rows["R3"], lambda: row_r3(host, client, crash0, ids, target))
-    fails += G3F.run_row("R4", rows["R4"], lambda: row_r4(host, client, crash0, ids, target))
+    fails += G3F.run_row("gave_held_next_turn", rows["gave_held_next_turn"],
+                         lambda: row_give(host, client, crash0, "gave_held_next_turn", ids, target, ids["N"],
+                                          ids["N2"], pre))
+    fails += G3F.run_row("gave_while_aiming", rows["gave_while_aiming"],
+                         lambda: row_gave_while_aiming(host, client, crash0, ids, target))
+    fails += G3F.run_row("held_none_received", rows["held_none_received"],
+                         lambda: row_held_none_received(host, client, crash0, ids, target))
     return fails
 
 
@@ -416,7 +432,7 @@ def main():
     host = GameClient("host", None, make_user_dir(HOST_DIR))
     client = GameClient("client", None, make_user_dir(CLIENT_DIR))
     try:
-        fails = boot_c(host, client)
+        fails = run_boot(host, client)
     finally:
         G3F.shut(host, client)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
