@@ -20,7 +20,7 @@ One boot, the mod on both machines: a two-player co-op skirmish (terror mission,
 seed 1, the default parallel turns, the client commands two soldiers, every unit no
 player commands pinned so it cannot act). Steps:
   1. the client's first soldier C gets a stun rod and stands next to a Sectoid (test
-     levers, both machines); the client orders a melee hit through the order path,
+     commands, both machines); the client orders a melee hit through the order path,
      which the host runs, up to SWINGS times, until the host's tags show that the
      script ran;
   2. the victim's tags are equal on both machines with the hit counter written, every
