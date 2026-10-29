@@ -1,35 +1,37 @@
-"""W2-H40 rows P, Z, M (boot C, classic co-op, gamemode 1: both seats play X-COM): after the start-of-side panic check
-on the host's own side, a co-op host never keeps its partner's soldier selected (design-D6; the orchestrator's ruling
-for W2-H40): it holds its own next soldier H_NEXT (vanilla's next-unit order, what its Tab gives), with the action actor
-and the HUD on it; the panic itself still plays out on the host, and an own panicked soldier stays selected (vanilla).
+"""After the start-of-side panic check on the host's own side, a co-op host never keeps its partner's soldier selected
+(classic co-op, gamemode 1: both seats play X-COM): it holds its own next soldier H_NEXT (vanilla's next-unit order,
+what its Tab gives), with the action actor and the HUD on it; the panic itself still plays out on the host, and an own
+panicked soldier stays selected (vanilla).
 
-Spec: docs repo rewrite/prompts/w2h40_coop_panic_selection.md section (f), orchestrator rulings QH40-1 .. QH40-7 (a).
-Constants: rewrite/w2h40-task0/CONSTANTS.md (TASK 0 boots Ca, Cb on this file's red chain and Cc, Cd on the green
-chain's stand-in, unchanged build 59fa2ed3a; every pin equal on the paired boots; VERDICT CONFIRMED).
-
-Boot C (key 49038, dirs w2h40_c_host / _client, default options): test_turn_cues' bring-up with this key (asserts:
-map fingerprint, seated [8, 9], unit order on both, pinned [A], coopGamemode 1 on both); staging = the partner's X
-stripped (client then host, remaining 0 on both) and X morale 0 on both (client first).
-  P  TCU.cycle, host set_seed SEED_P right before its END TURN -> side 0 turn 2: the partner's X panics on the host.
-     P-roll (0, 2) on both, no cycle note, one host panic ev {X, MODE_P} and one bt_action_end on its actionId;
-     P-sel / P-actor host selectedId / currentActionActorId H_NEXT at both reads; P-hud the host's painted hud equals
-     H_NEXT's units[] view on HUD_FIELDS at the second read; P-partner the client on one of SEATED with its action
-     actor equal at both reads (L-H40-1: the client's id alternates, never pinned).
-  Z  the host's Delete (key 127) after the panic: Z-text host coopWaitText != TEXT_NOT_YOURS ZERO_READ_S after the
-     key; Z-own H_NEXT's TU 0 on both within FOLLOW_S and HLE.ctx_fails("zero_tu", H_NEXT, ...) == [] (W2-H30's host
-     zero_tu context: evs [zero_tu, bt_action_end], payload {actor, unit}).
-  M  X morale 100, H stripped and morale 0, TCU.cycle with SEED_M -> side 0 turn 3: the host's own H panics.
-     M-roll (0, 3) on both, one panic {H, MODE_M} and its bt_action_end; M-own host selectedId and
-     currentActionActorId H at both reads (guard); M-partner as P-partner. M is the last row.
+Boot classic (key 49038, dirs coop_panic_selection_host / _client, default options): test_turn_cues' bring-up with
+this key (asserts: map fingerprint, seated [8, 9], unit order on both, pinned [A], coopGamemode 1 on both); staging =
+the partner's X stripped (client then host, remaining 0 on both) and X morale 0 on both (client first).
+  partner_panic  TCU.cycle, host set_seed SEED_PARTNER_PANIC right before its END TURN -> side 0 turn 2: the partner's
+     X panics on the host.
+     partner_panic-roll (0, 2) on both, no cycle note, one host panic ev {X, MODE_PARTNER_PANIC} and one
+     bt_action_end on its actionId; partner_panic-sel / partner_panic-actor host selectedId / currentActionActorId
+     H_NEXT at both reads; partner_panic-hud the host's painted hud equals H_NEXT's units[] view on HUD_FIELDS at the
+     second read; partner_panic-partner the client on one of SEATED with its action actor equal at both reads (the
+     client's id alternates, so no id is fixed).
+  host_delete  the host's Delete (key 127) after the panic: host_delete-text host coopWaitText != TEXT_NOT_YOURS
+     ZERO_READ_S after the key; host_delete-zeroed H_NEXT's TU 0 on both within FOLLOW_S and
+     HLE.ctx_fails("zero_tu", H_NEXT, ...) == [] (the host's zero_tu context: evs [zero_tu, bt_action_end], payload
+     {actor, unit}).
+  own_panic  X morale 100, H stripped and morale 0, TCU.cycle with SEED_OWN_PANIC -> side 0 turn 3: the host's own H
+     panics.
+     own_panic-roll (0, 3) on both, one panic {H, MODE_OWN_PANIC} and its bt_action_end; own_panic-held host
+     selectedId and currentActionActorId H at both reads (guard); own_panic-partner as partner_panic-partner.
+     own_panic is the last row.
 Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new crash file.
 EVIDENCE only: both reads' views of both machines, the units' (status, tu, morale), the host boxes, the cycles, the
 host camera offset before the cycle and at the second read, the top stacks.
 
-RED on the unchanged build (commit A1): P-sel, P-actor, P-hud, Z-text, Z-own (8 of 13 cells PASS). GREEN (A2): all
-13 cells PASS. One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a
-failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound
-fails the rows that need it "staging". Lever pairs go to the client first. run in the foreground to
-completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+A host that keeps its partner's soldier selected fails partner_panic-sel, partner_panic-actor, partner_panic-hud,
+host_delete-text and host_delete-zeroed (8 of 13 cells pass). One EVIDENCE line per row, one PASS/FAIL line per cell,
+then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails
+every row "boot"; a staging step past its bound fails the rows that need it "staging". Test command pairs go to the
+client first. Run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
+passes, else 2.
 
 Run:  python tools/coop_test/test_coop_panic_selection.py
 """
@@ -54,18 +56,19 @@ import test_client_shoot as CSH  # noqa: E402
 import test_host_skill_ev as HSE  # noqa: E402
 
 KEY = "49038"
-HOST_DIR, CLIENT_DIR = "w2h40_c_host", "w2h40_c_client"    # default options
+HOST_DIR, CLIENT_DIR = "coop_panic_selection_host", "coop_panic_selection_client"    # default options
 X = TCU.C2_ID                     # 9: the partner's (client seat's) soldier staged to panic
-H = TCU.H_ID                      # 10: a host seat soldier (the M row's own panic)
+H = TCU.H_ID                      # 10: a host seat soldier (the own_panic row's own panic)
 A_ID = TCU.A_ID                   # 1000000, the only alien (pinned neutral)
 SEATED = TCU.SEATED               # [8, 9], the client seat's soldiers
 GAMEMODE = 1                      # classic co-op skirmish
-SEED_P, MODE_P = 1, "berserk"     # host set_seed before its END TURN -> X goes berserk (Ca, Cb, Cc, Cd)
-SEED_M, MODE_M = 1, "flee"        # host set_seed before its END TURN -> H flees (Ca, Cb, Cc, Cd; both chains)
-TU_H = 58                         # H_NEXT's TU at turn 2 before the Delete (Ca, Cb, Cc, Cd) = HLE.H_TU_FULL
-H_NEXT = 10                       # the host's Tab from X after P (Cc, Cd): the first seat-0 live unit after X
-HUD_FIELDS = ("tu", "energy", "health", "morale")   # hud == units[] view on all four (Ca, Cb boot; Cc, Cd Tab)
-TEXT_NOT_YOURS = "Not one of your soldiers"   # en-US :77 STR_COOP_DENY_NOT_YOUR_UNIT (Ca, Cb: 0.20 s, 1.05 s)
+SEED_PARTNER_PANIC, MODE_PARTNER_PANIC = 1, "berserk"   # host set_seed before its END TURN -> X goes berserk
+SEED_OWN_PANIC, MODE_OWN_PANIC = 1, "flee"              # host set_seed before its END TURN -> H flees
+TU_H = 58                         # H_NEXT's TU at turn 2 before the Delete = HLE.H_TU_FULL
+H_NEXT = 10                       # the host's Tab from X after partner_panic: the first seat-0 live unit after X
+HUD_FIELDS = ("tu", "energy", "health", "morale")   # hud == units[] view on all four, at boot and after a Tab
+TEXT_NOT_YOURS = "Not one of your soldiers"   # en-US :77 STR_COOP_DENY_NOT_YOUR_UNIT (seen 0.20 s and 1.05 s
+                                              # after the key on a host that keeps the partner's soldier)
 KEY_ZERO = 127                    # Delete: Zero TU (keyBattleZeroTUs)
 ZERO_READ_S = 1.0
 TEXT_WAIT_S = 8                   # the bounded wait for an empty host coopWaitText before the Delete
@@ -74,15 +77,16 @@ READ_GAP_S = 1.0
 STEP_S = G3F.STEP_S
 BS_KEYS = ("side", "turn", "selectedId", "currentActionActorId", "cursorType", "cursorVisible", "coopWaitText",
            "warningText", "panicHandled", "hud")
-ROWS = (("P", ("P-roll", "P-sel", "P-actor", "P-hud", "P-partner", "P-common")),
-        ("Z", ("Z-text", "Z-own", "Z-common")),
-        ("M", ("M-roll", "M-own", "M-partner", "M-common")))
+ROWS = (("partner_panic", ("partner_panic-roll", "partner_panic-sel", "partner_panic-actor", "partner_panic-hud",
+                           "partner_panic-partner", "partner_panic-common")),
+        ("host_delete", ("host_delete-text", "host_delete-zeroed", "host_delete-common")),
+        ("own_panic", ("own_panic-roll", "own_panic-held", "own_panic-partner", "own_panic-common")))
 
 es = G3F.es
 
 
 def boot(host, client):
-    """test_turn_cues.boot's chain with this file's lobby key (F10917: copied with the key as a parameter)."""
+    """test_turn_cues.boot's chain with this file's lobby key (copied here with the key as a parameter)."""
     bring_up_lobby_roster_pinned(host, client, KEY)
     seated = {}
     session.drive_to_battlescape(host, client, seated, seat_count=2,
@@ -95,7 +99,7 @@ def boot(host, client):
     assert order == [TCU.UNIT_ORDER] * 2, f"unit order host/client {order} (want {TCU.UNIT_ORDER} on both)"
     gm = [hs.get("coopGamemode"), cs.get("coopGamemode")]
     assert gm == [GAMEMODE] * 2, f"coopGamemode host/client {gm} (want {GAMEMODE} on both)"
-    pinned = pin_ai_neutral(host, client, tag="w2h40")
+    pinned = pin_ai_neutral(host, client, tag="panic_selection")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (want [{A_ID}])"
     session.wait_host_idle(host, client, timeout=30)
     return {"mapFP": fp, "seated": seated.get("soldierIds"), "pinned": pinned, "gamemode": gm}
@@ -187,9 +191,10 @@ def panic_cell(host, ev, uid, mode, want_turn, at):
                                        f"bt_action_end, no cycle note")
 
 
-def both_reads(r, key, want, red):
+def both_reads(r, key, want, kept_value):
     got = [x["host"][key] for x in r]
-    return (got == [want, want], f"host {key} at the two reads {got} (want {want} at both; unchanged build: {red})")
+    return (got == [want, want], f"host {key} at the two reads {got} (want {want} at both; a host that keeps "
+                                 f"the partner's soldier reads {kept_value})")
 
 
 def partner_cell(r):
@@ -202,23 +207,24 @@ def partner_cell(r):
 # ===================== rows =====================
 
 
-def row_p(host, client, crash0):
+def row_partner_panic(host, client, crash0):
     ev = {}
-    r = cycle(host, client, SEED_P, X, "P", ev)
+    r = cycle(host, client, SEED_PARTNER_PANIC, X, "partner_panic", ev)
     hud, nxt = r[1]["host"]["hud"] or {}, r[1]["host"]["nextUnit"]
     cmp_ = {f: (hud.get(f), nxt.get(f)) for f in HUD_FIELDS}
-    cells = {"P-roll": panic_cell(host, ev, X, MODE_P, 2, r[0]),
-             "P-sel": both_reads(r, "selectedId", H_NEXT, f"X {X}, F15450"),
-             "P-actor": both_reads(r, "currentActionActorId", H_NEXT, f"X {X}"),
-             "P-hud": (all(a == b for a, b in cmp_.values()),
+    cells = {"partner_panic-roll": panic_cell(host, ev, X, MODE_PARTNER_PANIC, 2, r[0]),
+             "partner_panic-sel": both_reads(r, "selectedId", H_NEXT, f"X {X} selected"),
+             "partner_panic-actor": both_reads(r, "currentActionActorId", H_NEXT, f"X {X}"),
+             "partner_panic-hud": (all(a == b for a, b in cmp_.values()),
                        f"host hud vs unit {H_NEXT}'s units[] view at the second read {{field: (hud, unit)}} {cmp_} "
-                       f"(want equal on {list(HUD_FIELDS)}; unchanged build: X's numbers)"),
-             "P-partner": partner_cell(r),
-             "P-common": G3F.common(host, client, crash0)}
+                       f"(want equal on {list(HUD_FIELDS)}; a host that keeps the partner's soldier shows "
+                       f"X's numbers)"),
+             "partner_panic-partner": partner_cell(r),
+             "partner_panic-common": G3F.common(host, client, crash0)}
     return cells, ev
 
 
-def row_z(host, client, crash0):
+def row_host_delete(host, client, crash0):
     ev = {"textBefore": battle_state(host).get("coopWaitText")}
     ev["textWait"] = PR.wait_until(lambda: battle_state(host).get("coopWaitText") == "", TEXT_WAIT_S, 0.1)
     tu0 = ev["tu0"] = [tu(host, H_NEXT), tu(client, H_NEXT)]
@@ -251,68 +257,72 @@ def row_z(host, client, crash0):
     if not ok:
         fails.insert(0, f"unit {H_NEXT} TU host/client {tu0} -> {ev['tuPoll'][2:]} {FOLLOW_S} s after the key "
                         f"(want 0 on both)")
-    cells = {"Z-text": (ev["text"] != TEXT_NOT_YOURS,
+    cells = {"host_delete-text": (ev["text"] != TEXT_NOT_YOURS,
                         f"host coopWaitText {ev['text']!r} {ev['atS']} s after Delete (want not {TEXT_NOT_YOURS!r}; "
-                        f"unchanged build: it, F15452)"),
-             "Z-own": (not fails, ("; ".join(fails) + f" (unchanged build: TU {TU_H} unchanged, no new context)")
+                        f"a host that keeps the partner's soldier shows it)"),
+             "host_delete-zeroed": (not fails, ("; ".join(fails) + f" (a host that keeps the partner's soldier "
+                                                                f"leaves TU {TU_H} unchanged, no new context)")
                        if fails else f"unit {H_NEXT} TU {tu0} -> 0 on both at {ev['tuPoll'][1]} s, one host zero_tu "
                                      f"context, evs [zero_tu, bt_action_end]"),
-             "Z-common": G3F.common(host, client, crash0)}
+             "host_delete-common": G3F.common(host, client, crash0)}
     return cells, ev
 
 
-def stage_m(host, client):
+def stage_own_panic(host, client):
     m = (host, client)
-    st = {"moraleX": G3F.guarded("M staging", lambda: morale(host, client, X, 100), m)}
-    st["strip"] = G3F.guarded("M staging", lambda: strip(host, client, H), m)
-    st["moraleH"] = G3F.guarded("M staging", lambda: morale(host, client, H, 0), m)
+    st = {"moraleX": G3F.guarded("own_panic staging", lambda: morale(host, client, X, 100), m)}
+    st["strip"] = G3F.guarded("own_panic staging", lambda: strip(host, client, H), m)
+    st["moraleH"] = G3F.guarded("own_panic staging", lambda: morale(host, client, H, 0), m)
     return st
 
 
-def row_m(host, client, crash0):
+def row_own_panic(host, client, crash0):
     try:
-        ev = {"staging": stage_m(host, client)}
+        ev = {"staging": stage_own_panic(host, client)}
     except G3F.Miss:
-        return {n: (False, "staging (see the CAPTURE M staging line)") for n in dict(ROWS)["M"]}, {"error": "staging"}
-    r = cycle(host, client, SEED_M, H, "M", ev)
+        return ({n: (False, "staging (see the CAPTURE own_panic staging line)") for n in dict(ROWS)["own_panic"]},
+                {"error": "staging"})
+    r = cycle(host, client, SEED_OWN_PANIC, H, "own_panic", ev)
     own = [(x["host"]["selectedId"], x["host"]["currentActionActorId"]) for x in r]
-    cells = {"M-roll": panic_cell(host, ev, H, MODE_M, 3, r[0]),
-             "M-own": (own == [(H, H)] * 2, f"host (selectedId, currentActionActorId) at the two reads {own} (want "
-                                            f"{(H, H)} at both: its own panicked soldier, vanilla)"),
-             "M-partner": partner_cell(r),
-             "M-common": G3F.common(host, client, crash0)}
+    cells = {"own_panic-roll": panic_cell(host, ev, H, MODE_OWN_PANIC, 3, r[0]),
+             "own_panic-held": (own == [(H, H)] * 2, f"host (selectedId, currentActionActorId) at the two reads "
+                                                     f"{own} (want {(H, H)} at both: its own panicked soldier, "
+                                                     f"vanilla)"),
+             "own_panic-partner": partner_cell(r),
+             "own_panic-common": G3F.common(host, client, crash0)}
     return cells, ev
 
 
-# ===================== boot C =====================
+# ===================== boot classic =====================
 
 
-def stage_c(host, client):
+def stage_partner(host, client):
     m = (host, client)
     st = {"hostEntry": {k: battle_state(host).get(k) for k in ("selectedId", "currentActionActorId", "hud")}}
-    st["strip"] = G3F.guarded("C staging", lambda: strip(host, client, X), m)
-    st["morale"] = G3F.guarded("C staging", lambda: morale(host, client, X, 0), m)
+    st["strip"] = G3F.guarded("classic staging", lambda: strip(host, client, X), m)
+    st["morale"] = G3F.guarded("classic staging", lambda: morale(host, client, X, 0), m)
     st["x"] = [stm(host, X), stm(client, X)]
     return st
 
 
-def boot_c(host, client):
+def run_boot(host, client):
     rows = dict(ROWS)
     try:
-        info = G3F.guarded("C", lambda: boot(host, client), (host, client))
+        info = G3F.guarded("classic", lambda: boot(host, client), (host, client))
     except G3F.Miss:
-        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE C line)")
+        return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE classic line)")
     crash0 = session._crash_log_snapshot()
     try:
-        st = stage_c(host, client)
+        st = stage_partner(host, client)
     except G3F.Miss:
         st = None
-    print(f"EVIDENCE C staging: {json.dumps({'boot': info, 'staging': st}, sort_keys=True, default=str)}", flush=True)
+    print(f"EVIDENCE classic staging: {json.dumps({'boot': info, 'staging': st}, sort_keys=True, default=str)}",
+          flush=True)
     if st is None:
-        return G3F.fail_all(ROWS, "staging (see the CAPTURE C staging line)")
-    fails = G3F.run_row("P", rows["P"], lambda: row_p(host, client, crash0))
-    fails += G3F.run_row("Z", rows["Z"], lambda: row_z(host, client, crash0))
-    fails += G3F.run_row("M", rows["M"], lambda: row_m(host, client, crash0))
+        return G3F.fail_all(ROWS, "staging (see the CAPTURE classic staging line)")
+    fails = G3F.run_row("partner_panic", rows["partner_panic"], lambda: row_partner_panic(host, client, crash0))
+    fails += G3F.run_row("host_delete", rows["host_delete"], lambda: row_host_delete(host, client, crash0))
+    fails += G3F.run_row("own_panic", rows["own_panic"], lambda: row_own_panic(host, client, crash0))
     return fails
 
 
@@ -321,7 +331,7 @@ def main():
     host = GameClient("host", None, make_user_dir(HOST_DIR))
     client = GameClient("client", None, make_user_dir(CLIENT_DIR))
     try:
-        fails = boot_c(host, client)
+        fails = run_boot(host, client)
     finally:
         G3F.shut(host, client)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
