@@ -68,9 +68,8 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
                         timeout=60,
                         interval=0.5)
 
-        # RV-U5 S-D RP3 (W2-P8b spine; F10427, F10428): the PvP gm2 skirmish is
-        # test_battle_end_rules.boot_pvp's body after its spawn / connect lines,
-        # started from the main menu both machines reached; then BER.stage_pvp_elimination (the
+        # The PvP gm2 skirmish is test_battle_end_rules.boot_pvp's body after its spawn / connect
+        # lines, started from the main menu both machines reached; then BER.stage_pvp_elimination (the
         # host kills the client's only alien) and BER.end_pvp_elimination (the host's END TURN,
         # its NextTurnState closed).
         host.ok({"cmd": "set_seed", "seed": BER.SEED_MAP})
@@ -104,16 +103,16 @@ def test_campaign_clock_does_not_leak_into_skirmish_debrief():
         assert (a.get("faction"), a.get("coop"), a.get("isOut")) == (BER.FACTION_HOSTILE, 1, False), (
             f"alien {BER.A_ID} at bring-up: faction {a.get('faction')} coop {a.get('coop')} "
             f"isOut {a.get('isOut')} (want a live FACTION_HOSTILE unit of seat 1)")
-        pinned = BER.pin_ai_neutral(host, client, tag="w2p7-sd1-gm2")   # 0 is legal in gm2
+        pinned = BER.pin_ai_neutral(host, client, tag="campaign_then_skirmish_gm2")   # 0 is legal in gm2
         session.wait_host_idle(host, client, timeout=30)
         BER.assert_hash_clean(host, client, full=True, what="gm2 bring-up")
-        print(f"RP3 gm2 skirmish boot ok: mapFingerprint {hs.get('mapFingerprint')}, "
+        print(f"gm2 skirmish boot ok: mapFingerprint {hs.get('mapFingerprint')}, "
               f"pinned {pinned}, authority host={ha} client={ca}", flush=True)
         pre, ending = [], []
         staging = BER.stage_pvp_elimination(host, client, pre)
-        assert not pre, f"RP3 staging (BER.stage_pvp_elimination) failed: {pre} (staging={staging})"
+        assert not pre, f"staging (BER.stage_pvp_elimination) failed: {pre} (staging={staging})"
         closed = BER.end_pvp_elimination(host, client, ending)
-        assert not ending, f"RP3 ending (BER.end_pvp_elimination) failed: {ending} (ending={closed})"
+        assert not ending, f"ending (BER.end_pvp_elimination) failed: {ending} (ending={closed})"
 
         for gc, label in ((host, "host"), (client, "client")):
             gc.wait_for(f"{label} Skirmish debriefing",
