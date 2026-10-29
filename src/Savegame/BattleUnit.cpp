@@ -6086,6 +6086,11 @@ bool BattleUnit::hasCoopItem(const BattleItem* item)
 	if (connectionTCP::_coopCampaign != true)
 		return false;
 
+	// Separate is one host-owned world: a craft's items belong to its base owner
+	// and no two-world per-craft manifest says otherwise.
+	if (connectionTCP::isSeparateCampaignStatic())
+		return false;
+
 	auto* geo = getGeoscapeSoldier();
 	if (!geo)
 		return false;

@@ -1582,7 +1582,9 @@ void BattlescapeGenerator::autoEquip(std::vector<BattleUnit*> units, Mod* mod, s
 							add = false;
 
 							// coop
-							if (connectionTCP::getCoopStatic() == true && connectionTCP::_coopCampaign == true)
+							// (main's two-world craft manifest; Separate is one host-owned world)
+							if (connectionTCP::getCoopStatic() == true && connectionTCP::_coopCampaign == true
+								&& !connectionTCP::isSeparateCampaignStatic())
 							{
 
 								if (bu)

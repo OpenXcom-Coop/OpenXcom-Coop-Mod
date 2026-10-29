@@ -432,8 +432,11 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 
 		}
 		
-		// coop base
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == true)
+		// coop base (main's two-world craft item manifest). Separate is one host-owned
+		// world now: the items on a craft belong to the base owner, a soldier's own
+		// gear is its layout, and no per-craft manifest exists, so neither block runs.
+		const bool twoWorldManifest = !_game->getCoopMod()->isSeparateCampaign();
+		if (twoWorldManifest && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == true)
 		{
 
 			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
@@ -463,7 +466,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 		}
 
 		// coop base
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == false)
+		if (twoWorldManifest && _game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->coopInventory == false && _game->getCoopMod()->playerInsideCoopBase == false)
 		{
 
 			if (_battleGame->getSelectedUnit()->getGeoscapeSoldier())
