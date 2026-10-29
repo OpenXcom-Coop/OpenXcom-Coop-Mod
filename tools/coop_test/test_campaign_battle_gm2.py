@@ -2,31 +2,32 @@
 entry with the right seats, the alien player moves an alien, an X-COM win and an X-COM loss, and after each the alien player sees
 the host's debriefing and returns to its own geoscape with its alien-side role intact (no bases, stub budget 1000, no sim of its own).
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns.md, section (f) "test_campaign_battle_gm2.py", with orchestrator rulings
-R-D250-SA-2, R-D250-SB-1 and R-D250-SB-2 (owner D250; P7-6 VL3, D156, D180; QD-6..QD-8; F13087, F13791, F13792).
-TASK 0 pins: docs rewrite/d250u-task0/sb/CONSTANTS.md (SEED_B, MAP_FP_B, A, A_DEST and STUB on the unchanged build and on the
-TASK 0-only EB2 probe build; TITLE_WIN, SEED_B4, MAP_FP_B4, TITLE_LOSS and the return values on the probe build; each 2/2).
+The pinned values below (seeds, map fingerprints, the alien A and its destination, the stub base, the debriefing
+titles) were each measured on two boots.
 
-Boot B: gm2, lobby key 47938, dirs d250u_b_host / d250u_b_client. Bring-up: PF.start_pvp_campaign(alien_player="client"); crash
-baseline; geo.slow_clock. A bring-up or B1 landing step past its bound is a setup failure: ONE "CAPTURE B:" line, every row FAILs "boot".
-Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
-precondition was never reached, then each of its cells FAILs "blocked: <why>"):
-  B1 entry: squad of two, site, craft forced out, landing, host set_seed SEED_B, confirm_landing, both inBattle <= 180 s,
-     session.briefings_to_battlescape.
-     B1-gm (gamemode 2 on both, read at entry), B1-entry (the spine; turn 1 and MAP_FP_B on both), B1-seats (entry census: faction 0
-     seat 0, faction 1 seat 1 without AI, equal on both), B1-role (noBases client true / host false at entry), B1-walk (host END
-     TURN; the client walks A to A_DEST: one new host context {intent, walk, A}, A on A_DEST on both; client END TURN; side 0 turn 2).
-  B2 X-COM wins: host kill_unit_real every live alien, chain settled after each; host END TURN; the host's NextTurnState closed.
-     B2-host, B2-client, B2-return, B2-alien, B2-no994 (no CoopState 994 on the host after the client's OK, F13791 - never drained),
-     B2-hostok.
-  B3 three game days: B3-frozen.
-  B4 X-COM loses (second battle, SEED_B4): host kill_unit_real every live X-COM unit (the last kill ends the X-COM side by itself,
-     F13792: the wait stops at NextTurnState on both); host END TURN; NextTurnState closed.
-     B4-host, B4-client, B4-no994, B4-alien, B4-hostok.
-  Each row's <row>-common cell: event_state.desyncSeen false on both, 0 new crash files in the row, in a battle hash_now EQUAL.
-RED (the unchanged product, R-D250-SB-1): the gm2 alien client's noBases flips at the battle-blob load, its entry snapshot
-fails (CoopState 995 over its briefing) and its streamer floods crash logs, so the spine stops at the client's briefing:
-B1-gm and B1-seats PASS, every other cell FAILs. GREEN (EB2 + EB3): every cell PASSes.
+The boot: gm2, lobby key 47938, user dirs campaign_battle_gm2_host / campaign_battle_gm2_client. Bring-up:
+PF.start_pvp_campaign(alien_player="client"); crash baseline; geo.slow_clock. A bring-up or entry landing step past
+its bound is a setup failure: ONE "CAPTURE boot:" line, every row FAILs "boot".
+Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a
+failure unless its precondition was never reached, then each of its cells FAILs "blocked: <why>"):
+  entry: squad of two, site, craft forced out, landing, host set_seed SEED_WIN, confirm_landing, both inBattle
+     <= 180 s, session.briefings_to_battlescape.
+     entry-gamemode (gamemode 2 on both, read at entry), entry-reached (the spine; turn 1 and MAP_FP_WIN on both),
+     entry-seats (entry census: faction 0 seat 0, faction 1 seat 1 without AI, equal on both), entry-role (noBases
+     client true / host false at entry), entry-walk (host END TURN; the client walks A to A_DEST: one new host
+     context {intent, walk, A}, A on A_DEST on both; client END TURN; side 0 turn 2).
+  win, X-COM wins: host kill_unit_real every live alien, chain settled after each; host END TURN; the host's
+     NextTurnState closed. win-host, win-client, win-return, win-alien, win-no994 (no CoopState 994 on the host
+     after the client's OK; a 994 is never drained), win-hostok.
+  days, three game days pass: days-frozen.
+  loss, X-COM loses (a second battle, SEED_LOSS): host kill_unit_real every live X-COM unit (the last kill ends the
+     X-COM side by itself: the wait stops at NextTurnState on both); host END TURN; NextTurnState closed.
+     loss-host, loss-client, loss-no994, loss-alien, loss-hostok.
+  Each row's <row>-common cell: event_state.desyncSeen false on both, 0 new crash files in the row, in a battle
+     hash_now EQUAL.
+A failure looks like this: the gm2 alien client's noBases flips at the battle-blob load, its entry snapshot fails
+(CoopState 995 over its briefing) and its streamer floods crash logs, so the spine stops at the client's briefing:
+entry-gamemode and entry-seats PASS, every other cell FAILs.
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_gm2.py
@@ -48,17 +49,17 @@ import pvp_fixture as PF  # noqa: E402
 import test_battle_end_separate as BES  # noqa: E402
 import repro_atom_side_begin as RSB  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sb/CONSTANTS.md, 2/2 each) -----
+# ----- pinned values, each measured on two boots -----
 KEY = "47938"
-SEED_B = 1
-MAP_FP_B = 5.996615470105667e+18
-A_ID = 1000000                      # the lowest-id live alien at SEED_B
+SEED_WIN = 1
+MAP_FP_WIN = 5.996615470105667e+18
+A_ID = 1000000                      # the lowest-id live alien at SEED_WIN
 A_DEST = (3, 15, 1)                 # A's first free floor neighbour (N holds an object part)
 STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 8}]   # the gm2 alien client's real base
 STUB_FUNDS = 1000
 TITLE_WIN = "Aliens defeated"
-SEED_B4 = 1
-MAP_FP_B4 = -4.990271614617468e+18  # EVIDENCE only
+SEED_LOSS = 1
+MAP_FP_LOSS = -4.990271614617468e+18  # EVIDENCE only
 TITLE_LOSS = "Craft is lost"
 SQUAD = 2
 SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}
@@ -70,7 +71,7 @@ DEBRIEF_S = 60
 CLIENT_DEBRIEF_S = 20
 OK_S = 10
 DRAIN_S = 60
-WATCH994_S = 3.0      # the 994 showed 0.78 s / 1.14 s after the client's OK on the probe build
+WATCH994_S = 3.0      # a host 994, when one appeared, showed 0.78 s / 1.14 s after the client's OK
 KILL_S = 45
 REJECT_LINE = "rejected client progress blob"   # the host's log line before its 994 (TCP writeHostMapSaveProgressFile)
 
@@ -178,13 +179,13 @@ def capture_boot(err, host, client):
                             "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE B: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE boot: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
 def to_battle(host, client, lon_off, seed, ev, boot):
     """Squad of two, a site at b0 + lon_off, the Skyranger forced out to it, the landing wait, host set_seed, confirm_landing, both
-    inBattle. A miss: boot=True -> setup failure (CAPTURE B:), else Blocked. Returns the site id."""
+    inBattle. A miss: boot=True -> setup failure (CAPTURE boot:), else Blocked. Returns the site id."""
     def miss(err):
         if boot:
             capture_boot(err, host, client)
@@ -241,7 +242,7 @@ def spine(host, client, ev):
 
 def kill_all(host, client, faction, ev, key):
     """host kill_unit_real every live unit of `faction`; after each, wait (<= KILL_S) for the chain to settle (host idle, top
-    BattlescapeState, the client caught up, held 1 s) or for the side to end (F13792: NextTurnState on both, or the host's
+    BattlescapeState, the client caught up, held 1 s) or for the side to end (NextTurnState on both, or the host's
     DebriefingState)."""
     rows = []
     for uid in [u["id"] for u in battle_state(host).get("units", []) if u.get("faction") == faction and not u.get("isOut")]:
@@ -300,7 +301,7 @@ def drain_host(host, timeout=DRAIN_S, interval=0.4):
 
 
 def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
-    """The debriefings and both returns, shared by B2 and B4. Cells: <row>-host, <row>-client, the client's return cell(s),
+    """The debriefings and both returns, shared by win and loss. Cells: <row>-host, <row>-client, the client's return cell(s),
     <row>-no994, <row>-hostok."""
     ok, secs = BES.wait_until(lambda: "DebriefingState" in stack(host), DEBRIEF_S)
     hdeb = host.cmd({"cmd": "debrief_state"})
@@ -308,8 +309,8 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
     hbad = [] if ok else [f"no host DebriefingState within {DEBRIEF_S} s (stack {stack(host)})"]
     hbad += [f"debrief_state.{k}={hdeb.get(k)!r} (want {w!r})" for k, w in (("title", title), ("displayOnly", False))
              if hdeb.get(k) != w]
-    if row == "B2":
-        cell("B2-host", not hbad, "; ".join(hbad) or f"host DebriefingState {secs} s, title {title!r}, displayOnly false")
+    if row == "win":
+        cell("win-host", not hbad, "; ".join(hbad) or f"host DebriefingState {secs} s, title {title!r}, displayOnly false")
     cok, csecs = BES.wait_until(lambda: (lambda d: d.get("shown") is True and d.get("onTop") is True
                                          and d.get("displayOnly") is True)(client.cmd({"cmd": "debrief_state"})),
                                 CLIENT_DEBRIEF_S)
@@ -334,18 +335,18 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
         rbad.append(f"client OK {pk}")
     if not gok:
         rbad.append(f"client not geo_clean within {OK_S} s of its OK (stack {stack(client)})")
-    if row == "B2":
+    if row == "win":
         bad_sep = {k: (sep.get(k), w) for k, w in (("ownLoaded", 1), ("guestsApplied", 0), ("guestsMissing", 0))
                    if sep.get(k) != w}
         if bad_sep:
             rbad.append(f"sepReturn (got, want) {bad_sep}")
         if g["realBases"] != STUB:
             rbad.append(f"client real bases {g['realBases']} (want STUB {STUB})")
-        cell("B2-return", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; sepReturn ownLoaded 1, "
+        cell("win-return", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; sepReturn ownLoaded 1, "
              f"guestsApplied 0, guestsMissing 0; real bases == STUB")
         abad = [f"client noBases {c.get('noBases')!r} (want true)"] if c.get("noBases") is not True else []
         abad += [f"client funds {g['funds']!r} (want {STUB_FUNDS})"] if g["funds"] != STUB_FUNDS else []
-        cell("B2-alien", not abad, "; ".join(abad) or f"client noBases true, funds {STUB_FUNDS}")
+        cell("win-alien", not abad, "; ".join(abad) or f"client noBases true, funds {STUB_FUNDS}")
     else:
         if c.get("noBases") is not True:
             rbad.append(f"client noBases {c.get('noBases')!r} (want true)")
@@ -353,7 +354,7 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
             rbad.append(f"client funds {g['funds']!r} (want {STUB_FUNDS})")
         if g["realBases"] != STUB:
             rbad.append(f"client real bases {g['realBases']} (want STUB {STUB})")
-        cell("B4-alien", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; noBases true, funds "
+        cell("loss-alien", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; noBases true, funds "
              f"{STUB_FUNDS}, real bases == STUB")
     # watch the host, never drain a 994
     watch, tw = [], time.time()
@@ -378,20 +379,20 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
     ev["hostOk"] = {"ok": hk, "drain": hscreens, "stack": stack(host), "siteIds": hg.get("siteIds")}
     kbad = []
     if on994:
-        kbad.append("a CoopState 994 sits over the host's debriefing (never drained, R-D250-SB-2)")
+        kbad.append("a CoopState 994 sits over the host's debriefing (never drained)")
     elif not gok:
         kbad.append(f"host not geo_clean within {DRAIN_S} s of its OK (stack {stack(host)}, screens {hscreens})")
     if not any(s.get("resp") == "DebriefingState" for s in hscreens) and (hk.get("resp") or {}).get("handled") != "DebriefingState":
         kbad.append(f"the host's debriefing OK was never handled (press {hk}, screens {hscreens})")
     if gok and site_id in (hg.get("siteIds") or []):
         kbad.append(f"site {site_id} still in the host's missionSites {hg.get('siteIds')}")
-    if row == "B4":
+    if row == "loss":
         sol = host_soldiers(host) if gok else None
         ev["soldiers"] = [soldiers0, sol and len(sol)]
         if sol is None or soldiers0 is None or len(sol) != soldiers0 - SQUAD:
             hbad.append(f"host soldiers {soldiers0} -> {sol and len(sol)} (want down by {SQUAD})")
-        cell("B4-host", not hbad, "; ".join(hbad) or f"host DebriefingState, title {title!r}; soldiers {soldiers0} -> "
-             f"{soldiers0 - SQUAD}")
+        cell("loss-host", not hbad, "; ".join(hbad) or f"host DebriefingState, title {title!r}; soldiers {soldiers0} "
+             f"-> {soldiers0 - SQUAD}")
     cell(f"{row}-hostok", not kbad, "; ".join(kbad) or f"host geo_clean {gsecs} s after its OK; site {site_id} gone")
 
 
@@ -406,14 +407,14 @@ def run(host, client):
     geo.slow_clock(host, client)
     print(f"[bring-up] gamemode {gm}; client STUB {stub}", flush=True)
 
-    # ===== B1 =====
-    names = ["B1-gm", "B1-entry", "B1-seats", "B1-role", "B1-walk", "B1-common"]
+    # ===== entry =====
+    names = ["entry-gamemode", "entry-reached", "entry-seats", "entry-role", "entry-walk", "entry-common"]
     crash0, ev = crash_set(), {"stub": stub}
-    site1 = to_battle(host, client, 0.35, SEED_B, ev, boot=True)
+    site1 = to_battle(host, client, 0.35, SEED_WIN, ev, boot=True)
     ch, cc = coop(host), coop(client)
     hcen, ccen = census(host), census(client)
     ev.update(coopAtEntry={"host": ch, "client": cc}, censusHost=hcen, censusClient=ccen, stacksAtEntry=[stack(host), stack(client)])
-    cell("B1-gm", ch.get("gamemode") == 2 and cc.get("gamemode") == 2,
+    cell("entry-gamemode", ch.get("gamemode") == 2 and cc.get("gamemode") == 2,
          f"get_coop.gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 2 on both)")
     sp_ok, sp_detail = spine(host, client, ev)
     bh, bc = battle_state(host), battle_state(client)
@@ -421,8 +422,9 @@ def run(host, client):
     ev.update(turn=turn, mapFingerprint=fp)
     ebad = [] if sp_ok else [sp_detail]
     ebad += [f"turn {turn} (want [1, 1])"] if turn != [1, 1] else []
-    ebad += [f"mapFingerprint {fp} (want both {MAP_FP_B!r}, SEED_B {SEED_B})"] if fp != [MAP_FP_B, MAP_FP_B] else []
-    cell("B1-entry", not ebad, "; ".join(ebad) or f"turn 1 on both, mapFingerprint {MAP_FP_B!r} on both")
+    ebad += ([f"mapFingerprint {fp} (want both {MAP_FP_WIN!r}, SEED_WIN {SEED_WIN})"]
+             if fp != [MAP_FP_WIN, MAP_FP_WIN] else [])
+    cell("entry-reached", not ebad, "; ".join(ebad) or f"turn 1 on both, mapFingerprint {MAP_FP_WIN!r} on both")
     sbad = []
     for nm, cen in (("host", hcen), ("client", ccen)):
         live = [u for u in cen if not u.get("isOut")]
@@ -437,11 +439,11 @@ def run(host, client):
     key = lambda cen: sorted((u["id"], u.get("faction"), u.get("coop")) for u in cen)
     if key(hcen) != key(ccen):
         sbad.append(f"census (id, faction, seat) host {key(hcen)} != client {key(ccen)}")
-    cell("B1-seats", not sbad, "; ".join(sbad) or f"entry census equal on both: faction 0 seat 0, faction 1 seat 1 without AI "
+    cell("entry-seats", not sbad, "; ".join(sbad) or f"entry census equal on both: faction 0 seat 0, faction 1 seat 1 without AI "
          f"({len(hcen)} units)")
     rbad = [f"client noBases {cc.get('noBases')!r} (want true)"] if cc.get("noBases") is not True else []
     rbad += [f"host noBases {ch.get('noBases')!r} (want false)"] if ch.get("noBases") is not False else []
-    cell("B1-role", not rbad, "; ".join(rbad) or "noBases client true, host false at the battle entry")
+    cell("entry-role", not rbad, "; ".join(rbad) or "noBases client true, host false at the battle entry")
     in_battle = None
     if not ebad:
         try:
@@ -466,21 +468,21 @@ def run(host, client):
                 wbad.append(f"A {A_ID} at host/client {apos} (want {A_DEST} on both)")
             if ts != [(2, 0), (2, 0)]:
                 wbad.append(f"(turn, side) host/client {ts} (want (2, 0) on both)")
-            cell("B1-walk", not wbad, "; ".join(wbad) or f"one {{intent, walk, {A_ID}}} context; A on {A_DEST} on both; side 0 "
+            cell("entry-walk", not wbad, "; ".join(wbad) or f"one {{intent, walk, {A_ID}}} context; A on {A_DEST} on both; side 0 "
                  f"turn 2 on both")
         except Exception as e:  # noqa: BLE001
-            cell("B1-walk", False, f"{type(e).__name__}: {str(e)[:400]}")
+            cell("entry-walk", False, f"{type(e).__name__}: {str(e)[:400]}")
             in_battle = hash_ok(host, client)
     else:
-        block(["B1-walk"], "the entry spine did not reach turn 1 (B1-entry)")
-        ctx["blocked"] = "the battle entry stopped at the spine (B1-entry)"
+        block(["entry-walk"], "the entry spine did not reach turn 1 (entry-reached)")
+        ctx["blocked"] = "the battle entry stopped at the spine (entry-reached)"
         in_battle = (False, "turn 1 never reached")
-    common("B1", host, client, crash0, in_battle, ctx)
-    evidence("B1", ev)
-    row_verdict("B1", names)
+    common("entry", host, client, crash0, in_battle, ctx)
+    evidence("entry", ev)
+    row_verdict("entry", names)
 
-    # ===== B2 =====
-    names = ["B2-host", "B2-client", "B2-return", "B2-alien", "B2-no994", "B2-hostok", "B2-common"]
+    # ===== win =====
+    names = ["win-host", "win-client", "win-return", "win-alien", "win-no994", "win-hostok", "win-common"]
     if ctx["blocked"]:
         block(names, ctx["blocked"])
     else:
@@ -488,16 +490,16 @@ def run(host, client):
         kill_all(host, client, 1, ev, "kills")
         in_battle = hash_ok(host, client) if top(host) == "BattlescapeState" else (False, f"host top {top(host)}")
         end_and_debrief(host, client)
-        battle_end_cells("B2", host, client, TITLE_WIN, site1, ev)
-        common("B2", host, client, crash0, in_battle, ctx)
-        evidence("B2", ev)
-    row_verdict("B2", names)
+        battle_end_cells("win", host, client, TITLE_WIN, site1, ev)
+        common("win", host, client, crash0, in_battle, ctx)
+        evidence("win", ev)
+    row_verdict("win", names)
 
-    # ===== B3 =====
-    names = ["B3-frozen", "B3-common"]
+    # ===== days =====
+    names = ["days-frozen", "days-common"]
     clean = [BES.geo_clean(host), BES.geo_clean(client)]
     if ctx["blocked"] or clean != [True, True]:
-        ctx["blocked"] = ctx["blocked"] or f"not both on a clean geoscape after B2 (host/client {clean}: {stack(host)} / {stack(client)})"
+        ctx["blocked"] = ctx["blocked"] or f"not both on a clean geoscape after win (host/client {clean}: {stack(host)} / {stack(client)})"
         block(names, ctx["blocked"])
     else:
         crash0 = crash_set()
@@ -513,46 +515,47 @@ def run(host, client):
         fbad += [f"client own mission sites {g['ownSites']} (want none)"] if g["ownSites"] else []
         fbad += [f"host daysPassed {d0} -> {d1} (want >= +3)"] if not (isinstance(d0, int) and isinstance(d1, int) and d1 - d0 >= 3) else []
         fbad += [f"geo_clean host/client {clean} (stacks {stack(host)} / {stack(client)})"] if clean != [True, True] else []
-        cell("B3-frozen", not fbad, "; ".join(fbad) or f"client noBases true, funds {STUB_FUNDS}, 0 own UFOs / sites; host "
+        cell("days-frozen", not fbad, "; ".join(fbad) or f"client noBases true, funds {STUB_FUNDS}, 0 own UFOs / sites; host "
              f"days {d0} -> {d1}; both on a clean geoscape")
-        common("B3", host, client, crash0, None, ctx)
-        evidence("B3", ev)
+        common("days", host, client, crash0, None, ctx)
+        evidence("days", ev)
         if clean != [True, True]:
-            ctx["blocked"] = f"not both on a clean geoscape after B3 ({stack(host)} / {stack(client)})"
-    row_verdict("B3", names)
+            ctx["blocked"] = f"not both on a clean geoscape after days ({stack(host)} / {stack(client)})"
+    row_verdict("days", names)
 
-    # ===== B4 =====
-    names = ["B4-host", "B4-client", "B4-no994", "B4-alien", "B4-hostok", "B4-common"]
+    # ===== loss =====
+    names = ["loss-host", "loss-client", "loss-no994", "loss-alien", "loss-hostok", "loss-common"]
     if ctx["blocked"]:
         block(names, ctx["blocked"])
     else:
         crash0, ev = crash_set(), {}
         try:
             soldiers0 = len(host_soldiers(host))
-            site2 = to_battle(host, client, -0.35, SEED_B4, ev, boot=False)
+            site2 = to_battle(host, client, -0.35, SEED_LOSS, ev, boot=False)
             sp_ok, sp_detail = spine(host, client, ev)
             bh, bc = battle_state(host), battle_state(client)
             ev.update(turn=[bh.get("turn"), bc.get("turn")], mapFingerprint=[bh.get("mapFingerprint"), bc.get("mapFingerprint")],
-                      mapFpPin=MAP_FP_B4)
+                      mapFpPin=MAP_FP_LOSS)
             if not sp_ok or ev["turn"] != [1, 1]:
-                raise Blocked(f"B4 entry: {sp_detail}; turn {ev['turn']}")
+                raise Blocked(f"loss entry: {sp_detail}; turn {ev['turn']}")
             in_battle = hash_ok(host, client)
             kill_all(host, client, 0, ev, "kills")
             end_and_debrief(host, client)
-            battle_end_cells("B4", host, client, TITLE_LOSS, site2, ev, soldiers0=soldiers0)
-            common("B4", host, client, crash0, in_battle, ctx)
+            battle_end_cells("loss", host, client, TITLE_LOSS, site2, ev, soldiers0=soldiers0)
+            common("loss", host, client, crash0, in_battle, ctx)
         except Blocked as e:
             block([n for n in names if n not in {x[0] for x in RESULTS}], str(e))
-        evidence("B4", ev)
-    row_verdict("B4", names)
+        evidence("loss", ev)
+    row_verdict("loss", names)
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("d250u_b_host"))
-    client = GameClient("client", None, make_user_dir("d250u_b_client"))
-    all_cells = ["B1-gm", "B1-entry", "B1-seats", "B1-role", "B1-walk", "B1-common", "B2-host", "B2-client", "B2-return",
-                 "B2-alien", "B2-no994", "B2-hostok", "B2-common", "B3-frozen", "B3-common", "B4-host", "B4-client", "B4-no994",
-                 "B4-alien", "B4-hostok", "B4-common"]
+    host = GameClient("host", None, make_user_dir("campaign_battle_gm2_host"))
+    client = GameClient("client", None, make_user_dir("campaign_battle_gm2_client"))
+    all_cells = ["entry-gamemode", "entry-reached", "entry-seats", "entry-role", "entry-walk", "entry-common",
+                 "win-host", "win-client", "win-return", "win-alien", "win-no994", "win-hostok", "win-common",
+                 "days-frozen", "days-common",
+                 "loss-host", "loss-client", "loss-no994", "loss-alien", "loss-hostok", "loss-common"]
     t0 = time.time()
     try:
         run(host, client)
@@ -564,7 +567,7 @@ def main():
     finally:
         host.shutdown(); client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-B gm2 PvP campaign battle: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
+    print(f"\n==== test_campaign_battle_gm2: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
