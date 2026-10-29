@@ -4,7 +4,7 @@ weapon-use delay.
 
 Spec: docs repo rewrite/prompts/r5u3_pvp_rules.md section (f) test_pvp_rules.py, with its ORCHESTRATOR RULINGS
 R-U3-A-1 (A staged on A_D2_TILE before D2), R-U3-A-2 ("the bomb gone on both" is a D2-admit cell, D2-census is census
-equality) and R-U3-A-3 (D2 is C20's vanilla dive, two waypoints on LAUNCH_W, with lever-dropped gear inside the blast).
+equality) and R-U3-A-3 (D2 is vanilla's dive, two waypoints on LAUNCH_W, with lever-dropped gear inside the blast).
 Constants: rewrite/r5u3-task0/sa/CONSTANTS.md (TASK 0 boots Aa, abcap, Ac-Ag on the unchanged build).
 
 Boot A (key 48677): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's reactions 0, A morale 0.
@@ -235,7 +235,7 @@ def row_d2(host, client, crash0, st):
     seq0 = es(host, "lastSeqEmitted") or 0
     host.ok({"cmd": "set_seed", "seed": SEED_D2})
     req = shoot_req(A_ID, "launch", st["launcher"], st["bomb"], LAUNCH_W)
-    req["plan"]["waypoints"] = [jt(LAUNCH_W), jt(LAUNCH_W)]   # C20's vanilla dive
+    req["plan"]["waypoints"] = [jt(LAUNCH_W), jt(LAUNCH_W)]   # vanilla's dive (test_client_grenade's launcher_dive)
     notes = []
     sent = send_intent(host, client, req, notes, timeout=STEP_S)
     settle(host, client, ev)

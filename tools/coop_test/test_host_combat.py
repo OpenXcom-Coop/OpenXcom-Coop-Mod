@@ -689,7 +689,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
 # ===================== the effect records =====================
 # Spec rewrite/prompts/w2p6_display_two.md section 9 (S-E) and the P6b review's section 2 rows E1-E6, as ruled by
 # AMENDMENTS P6b-1..P6b-3. Shared by test_host_combat (E1 on C5), test_client_melee_psi (E1 on C21, E2 on
-# C22, the C23d rngSeed guard), test_psi (E2), test_client_items (E3), test_client_grenade (E4) and
+# C22, the C23d rngSeed guard), test_psi (E2), test_client_items (E3), test_client_grenade (prime_sounds) and
 # test_turn_cues (E5, E6). "All rows" (review section 2): the client's rngSeed unchanged across the row (V4), the
 # host's displayTwo and combatGhost all zero (the host plays vanilla's own), and completed + cut == enqueued per S-E
 # record kind on the client. No wall-clock duration is asserted: every schedule field equals the rule chain
@@ -917,7 +917,7 @@ def impact_row(tag, host, client, snap0, cues, weapon):
 
 
 def sound_row(tag, host, client, snap0, kind, wants, extra=None):
-    """Rows E3 (medikit), E4 (prime), E5 (panic) (review section 2; section 9 E-c/E-d/E-e): the client's
+    """Rows E3 (medikit), prime_sounds (prime), E5 (panic) (review section 2; section 9 E-c/E-d/E-e): the client's
     displayTwo.effects.<kind>.count +len(wants); per want ONE client record - matched by `match` (its seq) when the
     want has one, else the row's i-th new record in order (the prime aftermath has no seq) - whose `fields` equal
     the want's and whose sound is picked from `sounds` (-1 for an empty list, F1782); the host's count 0 (it plays

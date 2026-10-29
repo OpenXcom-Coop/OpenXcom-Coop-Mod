@@ -129,8 +129,9 @@ A2.2 precedent):
          false: buckets items/synced/saveBlob differ), so step 2 is not sent (a
          throw into that split latched the client's desync halt at the host's
          `shot` ev in T0-17's capture and would end every later row).
-         C23S3_TILE is 5 tiles north, not C19's 7: at HOME on C23S3_C_TILE,
-         C19's (12,20,0) projects to base (288,44), inside the SKILLS button, and
+         C23S3_TILE is 5 tiles north, not the 7 of test_client_grenade's
+         throw_end_turn: at HOME on C23S3_C_TILE, that throw tile (12,20,0)
+         projects to base (288,44), inside the SKILLS button, and
          the click opens the skill menu (T0-17).
   C23s2  skill stop. C stripped (both: removes C23s3's grenade, whose fuse the
          red build split), C TU max (both). Client: SKILLS; host defer_intents
@@ -306,9 +307,9 @@ SEED_C23S1 = 1                    # SEED_C17 (T0a); T0-17: shot -> hit -> bt_act
 C23S1_CHAIN = ["shot", "hit", "bt_action_end"]
 C23S1_TU_AFTER = C_TU_FULL - SKILL_TU   # 58: the follow-up snap pays the skill's cost (red: 48, the snap's 16)
 C23S1_CLIP_AFTER = 19
-C23S3_C_TILE, C23S3_C_DIR = (12, 27, 0), 2   # C19's thrower tile, facing east (the throw tile is north, F490)
-C23S3_TILE = (12, 22, 0)          # T0-17: base (256,60) at HOME; C19's (12,20,0) is (288,44), under SKILLS
-SEED_C23S3 = 2                    # SEED_C19; the rule stand-in's throw at this seed landed on C23S3_TILE
+C23S3_C_TILE, C23S3_C_DIR = (12, 27, 0), 2   # throw_end_turn's thrower tile, facing east (the throw tile is north)
+C23S3_TILE = (12, 22, 0)          # T0-17: base (256,60) at HOME; throw_end_turn's (12,20,0) is (288,44), under SKILLS
+SEED_C23S3 = 2                    # SEED_THROW; the rule stand-in's throw at this seed landed on C23S3_TILE
 C23S3_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
 C23S3_TU_AFTER = C_TU_FULL - SKILL_TU - 2   # 56: the skill's cost + two octants of pre-throw turn
 DEFER_C23S2_MS = 3000             # the in-window checks take ~0.3 s (T0-17); < coopIntentTimeoutSeconds 10 s

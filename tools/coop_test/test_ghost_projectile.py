@@ -168,7 +168,7 @@ from test_client_shoot import (top, units, ubrief, press, give_both, place, set_
                                   wait_seat_dial, aim_click, await_press, RHAND_CENTRE, TU_MAX, KEY_SNAP, KEY_AUTO,
                                   CURSOR_AIM)
 from test_client_grenade import (give_grenade, give_launcher, target_order, launch_order, KEY_THROW, CURSOR_THROW,
-                                    C20_W)
+                                    LAUNCH_W)
 
 # ----- bring-up (the roster-pinned terror boot of test_client_shoot.py) -----
 MISSION = "STR_TERROR_MISSION"
@@ -204,7 +204,7 @@ SEED_G3 = 1                               # a miss off the map: impact 5 at (-1,
 SEED_G4 = 1                               # floors at (778,409,1) / (512,396,1) / (518,415,1), trajLen 573/307/313
 G4_SHOTS = 3
 
-# ----- G5 (test_client_grenade C19 staging, unprimed grenade) -----
+# ----- G5 (test_client_grenade throw_end_turn staging, unprimed grenade) -----
 G5_C_TILE, G5_C_DIR = (12, 27, 0), 2      # faces east; the throw tile is due north
 G5_TARGET = (12, 20, 0)
 G5_ROWS = 2                               # an unprimed stock grenade: THROW + PRIME
@@ -217,9 +217,9 @@ G8_HOST_FIRE_DIAL = 1
 G8_LIVE_WAIT_S = 1.0                      # how long the client gets to show the ghost live after the apply
 G8_MIN_STEPS = 2                          # T0-7: TAB + right-hand box -> ActionMenuState 0.74 s, solo and K=2
 
-# ----- G6 (test_client_grenade C20 staging) -----
+# ----- G6 (test_client_grenade launcher_dive staging) -----
 G6_C_TILE, G6_C_DIR = (28, 25, 0), 6      # faces west, away from the waypoints
-G6_W = C20_W                              # (46, 25, 0): both waypoints (vanilla's dive; launch_order clicks it)
+G6_W = LAUNCH_W                           # (46, 25, 0): both waypoints (vanilla's dive; launch_order clicks it)
 SEED_G6 = 1                               # legs trajLen 287 / 12; the blast changes 285 census tiles (unmodded)
 G6_LEGS = 2
 
