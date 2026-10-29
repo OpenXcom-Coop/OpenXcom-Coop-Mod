@@ -1,62 +1,59 @@
 """test_host_combat_terrain.py: the host's own combat that
 changes TERRAIN runs as proper actions with cue events, and the second player
-ends every one of them with the host's exact state (spec
-rewrite/prompts/w2p2_delta_core.md section (f) "test_host_combat_terrain.py
-(S-D)", sections (b)10-14 and (b)16; amendments A1, A2 and the A4/A5
-SEQUENCING note; owner ruling D128 = (b)).
+ends every one of them with the host's exact state.
 
-Stage S-D is TEST-ONLY: the product is complete for these scenarios (S-A/S-B
-delta, S-C contexts + cues, S-L lighting). A scenario that fails here is a
-product finding, never a reason to change product code or this test.
+The scenarios exercise the delta sync, the host-local combat contexts and
+cues, and the light recompute together: a failure here points at the
+product, not at the staging.
 
-Three scenarios, ONE boot, in this order (the TASK 0a-2 one-boot order):
+Three scenarios, ONE boot, in this order (the one-boot item ids below assume
+it):
 
-  C2  aimed shot into a wall. H gets a rifle + clip (battle_give on BOTH, ids
-      equal), H -> C2_H_TILE facing C2_H_DIR (the fence north wall 4 tiles
-      south), H firing 120 (BOTH). Host: set_seed SEED_C2, battle_fire
-      {mode aimed, C2_WALL, tu max}. GREEN: the host event_log for the action
+  wall_shot  aimed shot into a wall. H gets a rifle + clip (battle_give on BOTH, ids
+      equal), H -> WALL_H_TILE facing WALL_H_DIR (the fence north wall 4 tiles
+      south), H firing 120 (BOTH). Host: set_seed SEED_WALL, battle_fire
+      {mode aimed, WALL_TILE, tu max}. Checks: the host event_log for the action
       is exactly shot -> hit -> bt_action_end (every one with `h`, the client
       log holds the same seqs/kinds/actionId); the `shot` payload's
-      impactVoxel lies on C2_WALL and its `impact` is the wall part's V_* code
-      (V_NORTHWALL); the `hit` payload names no unit; tile_info C2_WALL parts
+      impactVoxel lies on WALL_TILE and its `impact` is the wall part's V_* code
+      (V_NORTHWALL); the `hit` payload names no unit; tile_info WALL_TILE parts
       equal on both and changed from before on the host; the light census
       equal on both (below); the common asserts.
-  C3  grenade: prime, throw, explode at end of turn. H gets a grenade
-      (clear_hands, BOTH), H -> C3_H_TILE facing C3_H_DIR (AWAY from the throw
-      tile: a throw at a tile the thrower already faces was a no-op, F490),
+  endturn_grenade  grenade: prime, throw, explode at end of turn. H gets a grenade
+      (clear_hands, BOTH), H -> GRENADE_H_TILE facing GRENADE_H_DIR (AWAY from the throw
+      tile: a throw at a tile the thrower already faces was a no-op),
       H TU max (BOTH). Host real-UI prime: TAB-select H, the right-hand box
-      (clicked once more first while H is still in aim mode after C2's shot,
-      amendment A2.3 / F503), key 49 (PRIME), PrimeGrenadeState on top, key 48
-      (fuse 0). Then host set_seed SEED_C3, battle_fire {mode throw,
-      C3_THROW_TILE, tu max}. Then battle_drop a rifle clip on C3_ITEM_TILE on
-      BOTH, both press END TURN, full cycle back to the player side. GREEN:
+      (clicked once more first while H is still in aim mode after wall_shot's shot),
+      key 49 (PRIME), PrimeGrenadeState on top, key 48
+      (fuse 0). Then host set_seed SEED_GRENADE, battle_fire {mode throw,
+      THROW_TILE, tu max}. Then battle_drop a rifle clip on GRENADE_ITEM_TILE on
+      BOTH, both press END TURN, full cycle back to the player side. Checks:
       after the prime - the action is exactly prime -> bt_action_end, the
       `prime` payload has fuse 0 (host log and the client's lastCue), the
       grenade's fuse is 0 on both, no bucket differs; after the throw - the
       action is exactly shot -> bt_action_end, the `shot` payload has action
       `throw` and an `arc` (host log and the client's lastCue), the grenade
-      lies on C3_THROW_TILE on both with owner -1, no bucket differs; across
+      lies on THROW_TILE on both with owner -1, no bucket differs; across
       the cycle - an `explosion` cue whose centreVoxel lies on the landing
       tile, carrying the cycle's `endturn` action context id (in both logs;
-      host closedContexts origin endturn - W2-P3 S-A.2 re-point, spec
-      w2p3_nonplayer_origins.md (b)15 (ii)), that context's one
+      host closedContexts origin endturn), that context's one
       bt_action_end (no `final`) before the cycle's side_transition, the
       grenade and the clip absent on both, both machines on player turn N+1,
       the common asserts
       (battleInstantGrenade is false by default, Options.cpp:261).
-  C4  rocket + chained terrain explosion. H gets a rocket launcher +
+  rocket_chain  rocket + chained terrain explosion. H gets a rocket launcher +
       STR_SMALL_ROCKET (xcom1 has no STR_HE_ROCKET: battle_give returned
-      ammoId -1, F491), H -> C4_H_TILE facing C4_H_DIR, two rifle clips
-      dropped on C4_ITEM_TILE (BOTH), H firing 120 (BOTH). Host: set_seed
-      SEED_C4, battle_fire {mode aimed, C4_TARGET, tu max}. GREEN: the action
+      ammoId -1 for it), H -> ROCKET_H_TILE facing ROCKET_H_DIR, two rifle clips
+      dropped on ROCKET_ITEM_TILE (BOTH), H firing 120 (BOTH). Host: set_seed
+      SEED_ROCKET, battle_fire {mode aimed, ROCKET_TARGET, tu max}. Checks: the action
       starts with `shot` and ends with its `bt_action_end`, and holds >= 2
       `explosion` cues - one with chain 0 and one with chain >= 1 and
-      `terrain` true (the gas pump at C4_PUMP, 1 link, amendment A2.4 / F505);
+      `terrain` true (the gas pump at PUMP_TILE, 1 link);
       every ev of the action carries `h` and the client log holds the same
       seqs/kinds/actionId; every clip id the host destroyed (>= 1) is absent
       on both; the terrain inside the blast is equal on both (hash_now
       `terrain`, part of the common asserts); the light census equal on both;
-      the common asserts. The M1-B/M5/M6 probes (host deltaDiffUsMax,
+      the common asserts. The timing and size probes (host deltaDiffUsMax,
       hashUsMax, deltaBytesMax; client deltaApplyUsMax, lightUsMax over a
       window zeroed right before the shot with light_probe_reset) are printed
       in the EVIDENCE line.
@@ -67,55 +64,54 @@ last cue, so each payload is read from the host's own `[coop-cue] <kind> seq
 for every cue it sends) and, for the LAST cue of each step, compared with the
 client's lastCue (the payload the client applied).
 
-Light census on C2 and C4 (the A4/A5 SEQUENCING note; test_light_scope.py's
+Light census on wall_shot and rocket_chain (test_light_scope.py's
 light_census + staleness classifier, reused): after the staging both machines
 recompute their light (light_recompute) and the baseline census must be equal
 (identical synced state gives identical light); after the action the census
 must be equal on all four layers and shade. On a mismatch the classifier runs:
 CLIENT-stale (or BOTH-stale, or a difference that survives the recompute on
-both) fails the scenario; HOST-stale only is the spec's Q-L3 - printed as a
-`NOTE Q-L3` line with the classifier output, and the scenario is NOT failed on
-it alone.
+both) fails the scenario; HOST-stale only (vanilla's own history-dependent
+local recompute) is printed as a `NOTE host-stale light` line with the
+classifier output, and the scenario is NOT failed on it alone.
 
-Common asserts (spec (f), after the action settles with wait_host_idle):
+Common asserts (after the action settles with wait_host_idle):
 hash_now {full:true} - ALL buckets EQUAL on both machines (never a hard-coded
 count); desyncSeen false on both; client coopClientBStatePushes unchanged and
 host 0; client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
-deltaRemoveMissing and deltaAddExisting all 0 on both. The spec's C2/C3/C4
-rows name no lastDelta class counts: each action's delta is split over its
+deltaRemoveMissing and deltaAddExisting all 0 on both. The scenarios assert
+no lastDelta class counts: each action's delta is split over its
 cue envelopes, so which classes the LAST non-empty one holds depends on the
 split; the tile, item and hash asserts prove the halves instead.
 
-FIXTURE (deterministic, never searched here; W2-P2 TASK 0a-2 precalc,
-amendment A2). STR_TERROR_MISSION, map seed SEED_MAP 12 (the first terror map
+FIXTURE (deterministic, never searched here; the values were computed
+beforehand). STR_TERROR_MISSION, map seed SEED_MAP 12 (the first terror map
 seed with the URBAN #81 gas pump, the only explosive terrain part). The roster
-is pinned too: set_seed SEED_ROSTER on the HOST immediately before its
-open_new_battle (names and stats repeat, amendment A2.2 / F501; C3's throw
-distance depends on the throwing stat, F502) - a local bring-up helper - then
-session.drive_to_battlescape with the mission pin and set_seed SEED_MAP right
+is fixed too: set_seed SEED_ROSTER on the HOST immediately before its
+open_new_battle (names and stats repeat; endturn_grenade's throw
+distance depends on the throwing stat) - a local bring-up helper - then
+session.drive_to_battlescape with the mission and set_seed SEED_MAP right
 before newbattle_ok, the baked MAP_FP asserted on both, session.pin_ai_neutral.
-Every lever pair applies to the CLIENT first, then the HOST,
-with the responses asserted equal; every item a lever creates is created on
-both machines with ids asserted equal. set_seed on the HOST immediately before
-each action.
+Every staging command pair applies to the CLIENT first, then the HOST,
+with the responses asserted equal; every item a staging command creates is
+created on both machines with ids asserted equal. set_seed on the HOST
+immediately before each action.
 
-RED: S-D adds no product commit; its red evidence is the TASK 0b M3 table at
-the W2-P2 base (ledger `W2-P2 INTERIM - TASK 0b`): C2 froze the client on
+Without the delta sync each scenario froze the client: wall_shot on
 unitsStats at the shot's own `reveal` ev (north wall (2,15) on the host vs
-(2,13), clip 19 vs 20); C3 froze it at the prime/throw (grenade fuse 0 vs -1,
-on the tile vs in the hand; gone vs present after the cycle); C4 froze it the
+(2,13), clip 19 vs 20); endturn_grenade at the prime/throw (grenade fuse 0 vs -1,
+on the tile vs in the hand; gone vs present after the cycle); rocket_chain the
 same way (clips gone vs present, pump gone vs present, 47 tiles changed on the
-host only). GREEN = this file, ONE run, exit 0.
+host only).
 
 Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
-BEFORE its green conditions are checked; main() runs every scenario even
+BEFORE its checks run; main() runs every scenario even
 after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
 Every wait is bounded; a wait that times out is recorded in the EVIDENCE line
 and fails the scenario.
 
-one run is the result. No skip path, no second boot, no
+One run is the result. No skip path, no second boot, no
 alternative map or actor. Exit 0 only when all three scenarios pass, 2
-otherwise (a bring-up failure is also 2). run in the foreground to
+otherwise (a bring-up failure is also 2). Run in the foreground to
 completion.
 
 Run:  python tools/coop_test/test_host_combat_terrain.py
@@ -139,40 +135,40 @@ from test_host_combat import (cue_probes, evs_since, ev_tuples, chain_fails, cha
                                  open_hand_menu_host, press, combat_evs_view, cue_delta)
 import test_light_scope as ls
 
-# ----- common (test_host_combat.py and test_host_combat_terrain.py; TASK 0a-2) -----
+# ----- common (test_host_combat.py and test_host_combat_terrain.py) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 H_ID = 10                        # first host-seat soldier; with SEED_ROSTER 1 = "Henryk Kaminski",
                                  # tu 58, health 37, firing 46, throwing 73, melee 25, strength 45
 KEY_ITEM1, KEY_FUSE_0 = 49, 48   # PRIME (grenade menu item 1), fuse 0
 TU_MAX = 255                     # battle_set_unit_state / battle_fire tu: clamped to the unit's max TU
-FIRST_LEVER_ITEM_ID = 96         # 96 items at start on both maps (ids 0..95)
+FIRST_STAGED_ITEM_ID = 96        # 96 items at start on both maps (ids 0..95)
 
-# ----- test_host_combat_terrain.py (S-D): C2 + C3 + C4 -----
+# ----- test_host_combat_terrain.py: wall_shot + endturn_grenade + rocket_chain -----
 SEED_MAP = 12                    # first terror map seed with an explosive terrain part (URBAN09 gas station)
 MAP_FP = -2.6402710723327386e+18
-C2_H_TILE, C2_H_DIR = (4, 16, 0), 4    # open road, facing the fence 4 tiles south
-C2_WALL = (4, 20, 0)             # its NORTH wall: URBITS #13 (armor 8, die #15)
-C2_WALL_PARTS = ((2, 13), (2, 15))     # northwall (setId, id) before -> after
-SEED_C2 = 1                      # aimed battle_fire (firing 120): wall destroyed, clip 20 -> 19, H tu 58 -> 12
+WALL_H_TILE, WALL_H_DIR = (4, 16, 0), 4    # open road, facing the fence 4 tiles south
+WALL_TILE = (4, 20, 0)           # its NORTH wall: URBITS #13 (armor 8, die #15)
+WALL_PARTS = ((2, 13), (2, 15))  # northwall (setId, id) before -> after
+SEED_WALL = 1                    # aimed battle_fire (firing 120): wall destroyed, clip 20 -> 19, H tu 58 -> 12
                                  # (rifle 96, clip 97; 3/3 standalone + 3/3 one-boot)
-C3_H_TILE, C3_H_DIR = (5, 17, 0), 2    # faces east, AWAY from the throw tile
-C3_THROW_TILE = (5, 11, 0)       # 6 tiles north (outside the blast at H); floor URBITS #16
-C3_ITEM_TILE = (5, 11, 0)
-SEED_C3 = 1                      # real-UI prime (key 49, fuse key 48) + battle_fire throw: lands (5,11,0), fuse 0,
+GRENADE_H_TILE, GRENADE_H_DIR = (5, 17, 0), 2    # faces east, AWAY from the throw tile
+THROW_TILE = (5, 11, 0)          # 6 tiles north (outside the blast at H); floor URBITS #16
+GRENADE_ITEM_TILE = (5, 11, 0)
+SEED_GRENADE = 1                 # real-UI prime (key 49, fuse key 48) + battle_fire throw: lands (5,11,0), fuse 0,
                                  # owner -1, H tu 58 -> 42; END TURN cycle: grenade and clip gone, floor (2,16) ->
                                  # (2,22), host reaches turn 2 in 2.0 s, no unit hurt. Needs SEED_ROSTER.
                                  # one-boot ids: grenade 98, clip 99 (3/3 standalone + 3/3 one-boot)
-C4_H_TILE, C4_H_DIR = (22, 34, 0), 0
-C4_TARGET = (21, 26, 0)          # ROADS #0 floor beside the pump (20,26,0)
-C4_ITEM_TILE = (21, 26, 0)
-C4_PUMP = (20, 26, 0)            # object URBAN #81 (HE 46, armor 18, die 0) -> removed; floor (3,74) -> (3,75)
-C4_ROCKET = "STR_SMALL_ROCKET"
-SEED_C4 = 1                      # aimed battle_fire: both clips destroyed, pump destroyed and its explosive consumed
-                                 # (= 1 chained terrain explosion, F505), 47 tiles changed (z 0 and the z 1 canopy),
+ROCKET_H_TILE, ROCKET_H_DIR = (22, 34, 0), 0
+ROCKET_TARGET = (21, 26, 0)      # ROADS #0 floor beside the pump (20,26,0)
+ROCKET_ITEM_TILE = (21, 26, 0)
+PUMP_TILE = (20, 26, 0)          # object URBAN #81 (HE 46, armor 18, die 0) -> removed; floor (3,74) -> (3,75)
+ROCKET_ITEM = "STR_SMALL_ROCKET"
+SEED_ROCKET = 1                  # aimed battle_fire: both clips destroyed, pump destroyed and its explosive consumed
+                                 # (= 1 chained terrain explosion), 47 tiles changed (z 0 and the z 1 canopy),
                                  # only H changed (tu 58 -> 15); action 2.5 s. one-boot ids: launcher 100,
                                  # rocket 101, clips 102/103 (3/3 standalone + 3/3 one-boot)
-C4_CHAIN_LINKS = 1               # the next pump (20,23,0) survives: longest chain from this target = 1 link (M1-B)
+PUMP_CHAIN_LINKS = 1             # the next pump (20,23,0) survives: longest chain from this target = 1 link
 
 PORT = "48626"
 FACTION_PLAYER = 0
@@ -181,9 +177,9 @@ COOP_SEAT_0 = 0
 FIRING_120 = 120
 V_NORTHWALL = 2                  # src/Mod/MapData.h enum VoxelType
 VOXEL = (16, 16, 24)             # voxels per tile (x, y, z)
-C2_CHAIN = ["shot", "hit", "bt_action_end"]
-C3_PRIME_CHAIN = ["prime", "bt_action_end"]
-C3_THROW_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
+WALL_CHAIN = ["shot", "hit", "bt_action_end"]
+PRIME_CHAIN = ["prime", "bt_action_end"]
+THROW_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
 # coopEmitCue's host log line (connectionTCP.cpp): one per cue the host sends.
 CUE_RE = re.compile(r"\[coop-cue\] (\S+) seq (\d+) actionId (\d+): (\{.*\})\s*$", re.M)
 
@@ -272,7 +268,7 @@ def cue_view(cues, seqs):
     return [(s, (cues.get(s) or {}).get("kind"), (cues.get(s) or {}).get("payload")) for s in seqs]
 
 
-# ===================== light census (A4/A5 SEQUENCING note) =====================
+# ===================== light census =====================
 
 
 def light_baseline(host, client, tag):
@@ -297,14 +293,14 @@ def light_baseline(host, client, tag):
 
 def light_after(host, client, tag):
     """Census after the action with the staleness classifier on a mismatch.
-    Returns (fails, evidence, verdict). HOST-stale only (the spec's Q-L3) is
-    printed as a NOTE and does not fail."""
+    Returns (fails, evidence, verdict). HOST-stale only is printed as a NOTE
+    and does not fail."""
     ch, cc = ls.census(host, tag + "_after"), ls.census(client, tag + "_after")
     cfails, cev = ls.census_check(host, client, ch, cc, tag + "_after")
     verdict = (cev.get("classifier") or {}).get("verdict")
     if cfails and verdict == "HOST-stale only":
-        print(f"NOTE Q-L3 {tag}: light census differs after the action and the classifier says HOST-stale "
-              f"only (vanilla's own history-dependent local recompute, A4 note N5) - recorded, not failed; "
+        print(f"NOTE host-stale light {tag}: light census differs after the action and the classifier says HOST-stale "
+              f"only (vanilla's own history-dependent local recompute) - recorded, not failed; "
               f"census={cev}", flush=True)
         cfails = []
     return cfails, cev, verdict
@@ -313,23 +309,23 @@ def light_after(host, client, tag):
 # ===================== scenarios =====================
 
 
-def c2_wall(host, client, ctx):
+def row_wall_shot(host, client, ctx):
     notes = []
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_RIFLE", "ammo": "STR_RIFLE_CLIP",
                             "clear_hands": True}, ("weaponId", "ammoId"))
     rifle, clip = g["weaponId"], g["ammoId"]
-    tele_both(host, client, H_ID, C2_H_TILE, C2_H_DIR)
+    tele_both(host, client, H_ID, WALL_H_TILE, WALL_H_DIR)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": H_ID, "stat": "firing",
                         "value": FIRING_120}, ("tu",))
     staged_diff = diff_buckets(host, client)
-    w0 = {"host": tile(host, C2_WALL), "client": tile(client, C2_WALL)}
-    lbase, lberr = light_baseline(host, client, "C2")
+    w0 = {"host": tile(host, WALL_TILE), "client": tile(client, WALL_TILE)}
+    lbase, lberr = light_baseline(host, client, "wall_shot")
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_C2})
-    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": C2_WALL[0], "y": C2_WALL[1],
-                     "z": C2_WALL[2], "tu": TU_MAX})
+    host.ok({"cmd": "set_seed", "seed": SEED_WALL})
+    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": WALL_TILE[0], "y": WALL_TILE[1],
+                     "z": WALL_TILE[2], "tu": TU_MAX})
     if not fire.get("ok"):
         notes.append(f"battle_fire aimed refused: {fire}")
     settle_after_action(host, client, "aimed shot", notes)
@@ -340,26 +336,26 @@ def c2_wall(host, client, ctx):
     hev, cev = evs_since(host, seq0), evs_since(client, seq0)
     dsc = desync_record(client, pc["desyncSeen"])
     end_diff = diff_buckets(host, client)
-    w1 = {"host": tile(host, C2_WALL), "client": tile(client, C2_WALL)}
-    aid, chain, cfails = chain_fails(hev, cev, "shot", C2_CHAIN, seq0)
+    w1 = {"host": tile(host, WALL_TILE), "client": tile(client, WALL_TILE)}
+    aid, chain, cfails = chain_fails(hev, cev, "shot", WALL_CHAIN, seq0)
     cues = host_cues(host, [e["seq"] for e in chain if e["kind"] != "bt_action_end"])
     shot = cues.get(seq_of(chain, "shot")) or {}
     hit = cues.get(seq_of(chain, "hit")) or {}
     spl, hpl = shot.get("payload") or {}, hit.get("payload") or {}
-    lfails, lev, lverdict = light_after(host, client, "C2")
+    lfails, lev, lverdict = light_after(host, client, "wall_shot")
     clip1 = {"host": (ih.get(clip) or {}).get("qty"), "client": (ic.get(clip) or {}).get("qty")}
     idiff = item_diff(ih, ic)
-    print(f"EVIDENCE C2: staged rifle={rifle} clip={clip} H->{C2_H_TILE}/{C2_H_DIR} stagedDiff={staged_diff}; "
-          f"battle_fire={fire}; hostCombatContexts host {cb['host']['hostCombatContexts']}->"
+    print(f"EVIDENCE wall_shot: staged rifle={rifle} clip={clip} H->{WALL_H_TILE}/{WALL_H_DIR} "
+          f"stagedDiff={staged_diff}; battle_fire={fire}; hostCombatContexts host {cb['host']['hostCombatContexts']}->"
           f"{ca['host']['hostCombatContexts']}; host evs since seq {seq0}={ev_tuples(hev)} client evs="
           f"{ev_tuples(cev)} (seq, kind, actionId, h); combat evs={combat_evs_view(hev, cev)}; action={aid} chain="
           f"{[(e['seq'], e['kind'], e['actionId']) for e in chain]}; host cue payloads="
           f"{cue_view(cues, [e['seq'] for e in chain if e['kind'] != 'bt_action_end'])}; shot impactVoxel tile="
-          f"{voxel_tile(spl.get('impactVoxel'))} impact={spl.get('impact')} (want {C2_WALL}, V_NORTHWALL "
+          f"{voxel_tile(spl.get('impactVoxel'))} impact={spl.get('impact')} (want {WALL_TILE}, V_NORTHWALL "
           f"{V_NORTHWALL}); cueCounts delta host={cue_delta(cb['host']['cueCounts'], ca['host']['cueCounts'])} "
           f"client={cue_delta(cb['client']['cueCounts'], ca['client']['cueCounts'])}; lastCue client="
-          f"{ca['client']['lastCue']}; wall {C2_WALL} before={w0} after={w1} (northwall want "
-          f"{C2_WALL_PARTS[0]}->{C2_WALL_PARTS[1]}); clip {clip} qty={clip1}; H after host="
+          f"{ca['client']['lastCue']}; wall {WALL_TILE} before={w0} after={w1} (northwall want "
+          f"{WALL_PARTS[0]}->{WALL_PARTS[1]}); clip {clip} qty={clip1}; H after host="
           f"{unit_view(uh.get(H_ID))} tu={(uh.get(H_ID) or {}).get('tu')} client={unit_view(uc.get(H_ID))} "
           f"tu={(uc.get(H_ID) or {}).get('tu')}; items hostOnly={sorted(idiff['hostOnly'])} clientOnly="
           f"{sorted(idiff['clientOnly'])} differ={idiff['differ']}; light baseline={lbase} "
@@ -373,32 +369,32 @@ def c2_wall(host, client, ctx):
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
     if lberr:
         fails.append(lberr)
-    # spec (f) C2 GREEN: shot -> hit -> bt_action_end
+    # the action: shot -> hit -> bt_action_end
     fails += cfails
-    if voxel_tile(spl.get("impactVoxel")) != C2_WALL or spl.get("impact") != V_NORTHWALL:
+    if voxel_tile(spl.get("impactVoxel")) != WALL_TILE or spl.get("impact") != V_NORTHWALL:
         fails.append(f"shot payload impactVoxel tile={voxel_tile(spl.get('impactVoxel'))} impact="
-                     f"{spl.get('impact')} (want {C2_WALL}, V_NORTHWALL {V_NORTHWALL}); payload={spl}")
+                     f"{spl.get('impact')} (want {WALL_TILE}, V_NORTHWALL {V_NORTHWALL}); payload={spl}")
     if not hpl or "unit" in hpl:
         fails.append(f"hit payload {hpl or None} (want present, with no unit)")
     fails += last_cue_fails(ca["client"]["lastCue"], aid, seq_of(chain, "hit"), hit, "hit")
-    # tile_info C2_WALL parts equal on both and changed from before on the host
+    # tile_info WALL_TILE parts equal on both and changed from before on the host
     if not w1["host"] or not w1["client"] or w1["host"]["parts"] != w1["client"]["parts"]:
-        fails.append(f"wall {C2_WALL} parts host={(w1['host'] or {}).get('parts')} "
+        fails.append(f"wall {WALL_TILE} parts host={(w1['host'] or {}).get('parts')} "
                      f"client={(w1['client'] or {}).get('parts')} (want equal)")
     if not w0["host"] or not w1["host"] or w1["host"]["parts"] == w0["host"]["parts"]:
-        fails.append(f"wall {C2_WALL} parts on the host did not change: before={(w0['host'] or {}).get('parts')} "
+        fails.append(f"wall {WALL_TILE} parts on the host did not change: before={(w0['host'] or {}).get('parts')} "
                      f"after={(w1['host'] or {}).get('parts')}")
     fails += lfails
-    fails += common_fails(host, client, before, {}, "C2")
+    fails += common_fails(host, client, before, {}, "wall_shot")
     finish(fails)
 
 
-def c3_grenade(host, client, ctx):
+def row_endturn_grenade(host, client, ctx):
     notes = []
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_GRENADE", "clear_hands": True},
              ("weaponId", "ammoId"))
     gid = g["weaponId"]
-    tele_both(host, client, H_ID, C3_H_TILE, C3_H_DIR)
+    tele_both(host, client, H_ID, GRENADE_H_TILE, GRENADE_H_DIR)
     tu_both(host, client, H_ID)
     staged_diff = diff_buckets(host, client)
     before = {"host": probes(host), "client": probes(client)}
@@ -427,7 +423,7 @@ def c3_grenade(host, client, ctx):
     cp1 = {"host": cue_probes(host), "client": cue_probes(client)}
     hev_p, cev_p = evs_since(host, seq0), evs_since(client, seq0)
     diff_p = diff_buckets(host, client)
-    aid_p, chain_p, pfails = chain_fails(hev_p, cev_p, "prime", C3_PRIME_CHAIN, seq0)
+    aid_p, chain_p, pfails = chain_fails(hev_p, cev_p, "prime", PRIME_CHAIN, seq0)
     pcues = host_cues(host, [e["seq"] for e in chain_p if e["kind"] == "prime"])
     prime = pcues.get(seq_of(chain_p, "prime")) or {}
     ppl = prime.get("payload") or {}
@@ -435,10 +431,10 @@ def c3_grenade(host, client, ctx):
     lc_prime = cp1["client"]["lastCue"]
     seq1 = probes(host)["lastSeqEmitted"] or 0
 
-    # --- the throw: battle_fire throw (the thrower faces away, F490) ---
-    host.ok({"cmd": "set_seed", "seed": SEED_C3})
-    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "throw", "x": C3_THROW_TILE[0],
-                     "y": C3_THROW_TILE[1], "z": C3_THROW_TILE[2], "tu": TU_MAX})
+    # --- the throw: battle_fire throw (the thrower faces away) ---
+    host.ok({"cmd": "set_seed", "seed": SEED_GRENADE})
+    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "throw", "x": THROW_TILE[0],
+                     "y": THROW_TILE[1], "z": THROW_TILE[2], "tu": TU_MAX})
     if not fire.get("ok"):
         notes.append(f"battle_fire throw refused: {fire}")
     settle_after_action(host, client, "throw", notes)
@@ -446,7 +442,7 @@ def c3_grenade(host, client, ctx):
     cp2 = {"host": cue_probes(host), "client": cue_probes(client)}
     hev_t, cev_t = evs_since(host, seq1), evs_since(client, seq1)
     diff_t = diff_buckets(host, client)
-    aid_t, chain_t, tfails = chain_fails(hev_t, cev_t, "shot", C3_THROW_CHAIN, seq1)
+    aid_t, chain_t, tfails = chain_fails(hev_t, cev_t, "shot", THROW_CHAIN, seq1)
     tcues = host_cues(host, [e["seq"] for e in chain_t if e["kind"] == "shot"])
     shot = tcues.get(seq_of(chain_t, "shot")) or {}
     spl = shot.get("payload") or {}
@@ -455,10 +451,10 @@ def c3_grenade(host, client, ctx):
     lc_throw = cp2["client"]["lastCue"]
 
     # --- a clip on the landing tile (BOTH), then END TURN and the full cycle ---
-    clip = both(host, client, {"cmd": "battle_drop", "x": C3_ITEM_TILE[0], "y": C3_ITEM_TILE[1],
-                               "z": C3_ITEM_TILE[2], "item": "STR_RIFLE_CLIP"}, ("ids",))["ids"][0]
+    clip = both(host, client, {"cmd": "battle_drop", "x": GRENADE_ITEM_TILE[0], "y": GRENADE_ITEM_TILE[1],
+                               "z": GRENADE_ITEM_TILE[2], "item": "STR_RIFLE_CLIP"}, ("ids",))["ids"][0]
     seq2 = probes(host)["lastSeqEmitted"] or 0
-    t0 = {"host": tile(host, C3_THROW_TILE), "client": tile(client, C3_THROW_TILE)}
+    t0 = {"host": tile(host, THROW_TILE), "client": tile(client, THROW_TILE)}
     turn0 = end_turn_cycle(host, client, notes)
     hs, cs = battle_state(host), battle_state(client)
     ih, ic = items_by_id(host), items_by_id(client)
@@ -467,12 +463,13 @@ def c3_grenade(host, client, ctx):
     hev_c, cev_c = evs_since(host, seq2), evs_since(client, seq2)
     dsc = desync_record(client, pc["desyncSeen"])
     end_diff = diff_buckets(host, client)
-    t1 = {"host": tile(host, C3_THROW_TILE), "client": tile(client, C3_THROW_TILE)}
+    t1 = {"host": tile(host, THROW_TILE), "client": tile(client, THROW_TILE)}
     expl = [e for e in hev_c if e["kind"] == "explosion"]
     ecues = host_cues(host, [e["seq"] for e in expl])
     cmap = {e["seq"]: e for e in cev_c}
     idiff = item_diff(ih, ic)
-    print(f"EVIDENCE C3: staged grenade={gid} H->{C3_H_TILE}/{C3_H_DIR} stagedDiff={staged_diff}; "
+    print(f"EVIDENCE endturn_grenade: staged grenade={gid} H->{GRENADE_H_TILE}/{GRENADE_H_DIR} "
+          f"stagedDiff={staged_diff}; "
           f"PRIME: cursorType(before[, after the aim-cancel click])={cursor0} top after key 49={prime_top} "
           f"host evs since seq {seq0}={ev_tuples(hev_p)} client evs={ev_tuples(cev_p)} (seq, kind, actionId, h) "
           f"action={aid_p} chain={[(e['seq'], e['kind'], e['actionId']) for e in chain_p]} prime payload={ppl} "
@@ -488,7 +485,7 @@ def c3_grenade(host, client, ctx):
           f"{[(e['seq'], e['kind'], e['actionId']) for e in cev_c]}; explosion cues="
           f"{cue_view(ecues, [e['seq'] for e in expl])} centre tiles="
           f"{[voxel_tile(((ecues.get(e['seq']) or {}).get('payload') or {}).get('centreVoxel')) for e in expl]}; "
-          f"throw tile {C3_THROW_TILE} before={t0} after={t1}; grenade present host={gid in ih} "
+          f"throw tile {THROW_TILE} before={t0} after={t1}; grenade present host={gid in ih} "
           f"client={gid in ic}; clip present host={clip in ih} client={clip in ic}; items hostOnly="
           f"{sorted(idiff['hostOnly'])} clientOnly={sorted(idiff['clientOnly'])} differ={idiff['differ']}; "
           f"cueCounts delta host={cue_delta(cb['host']['cueCounts'], ca['host']['cueCounts'])} client="
@@ -510,19 +507,19 @@ def c3_grenade(host, client, ctx):
                      f"(want 0 on both)")
     if diff_p:
         fails.append(f"buckets differ after the prime: {diff_p} (want none)")
-    # after the throw: shot (action throw, arc) + bt_action_end, grenade on C3_THROW_TILE on both, owner -1
+    # after the throw: shot (action throw, arc) + bt_action_end, grenade on THROW_TILE on both, owner -1
     fails += [f"throw: {m}" for m in tfails]
     if spl.get("action") != "throw" or not isinstance(spl.get("arc"), dict):
         fails.append(f"throw shot payload {spl or None} (want action throw with an arc)")
     fails += [f"throw: {m}" for m in last_cue_fails(lc_throw, aid_t, seq_of(chain_t, "shot"), shot, "shot")]
     for name, it in g_t.items():
-        if not it or tile_of(it) != C3_THROW_TILE or it.get("owner") != -1:
-            fails.append(f"{name} grenade {gid} after the throw {it} (want on {C3_THROW_TILE}, owner -1)")
+        if not it or tile_of(it) != THROW_TILE or it.get("owner") != -1:
+            fails.append(f"{name} grenade {gid} after the throw {it} (want on {THROW_TILE}, owner -1)")
     if diff_t:
         fails.append(f"buckets differ after the throw: {diff_t} (want none)")
-    # across the cycle (W2-P3 S-A.2 re-point, spec w2p3_nonplayer_origins.md (b)15 (ii), chain rule A.10): the
-    # explosion (centre on the landing tile) carries the cycle's `endturn` context id (host closedContexts origin
-    # endturn), whose one bt_action_end (no `final`) precedes the cycle's side_transition; grenade and clip gone
+    # across the cycle: the explosion (centre on the landing tile) carries the cycle's `endturn` context id (host
+    # closedContexts origin endturn), whose one bt_action_end (no `final`) precedes the cycle's side_transition;
+    # grenade and clip gone
     closed = event_state(host).get("closedContexts") or []
     ectx = {c.get("actionId"): c for c in closed if c.get("origin") == "endturn"}
     good = [e for e in expl if e["actionId"] in ectx and landed is not None
@@ -553,12 +550,12 @@ def c3_grenade(host, client, ctx):
                                                                              turn0 + 1, FACTION_PLAYER):
         fails.append(f"not on player turn {turn0 + 1} on both: host=({hs.get('turn')},{hs.get('side')}) "
                      f"client=({cs.get('turn')},{cs.get('side')})")
-    fails += common_fails(host, client, before, {}, "C3")
+    fails += common_fails(host, client, before, {}, "endturn_grenade")
     finish(fails)
 
 
-def c4_chain_fails(host_evs, client_evs, seq0):
-    """Spec (f) C4 GREEN: the action (found through its first `shot`) starts
+def rocket_chain_fails(host_evs, client_evs, seq0):
+    """The rocket action's checks: the action (found through its first `shot`) starts
     with `shot`, ends with its `bt_action_end`, holds >= 2 `explosion` cues;
     every ev carries `h`; the client log holds the same seqs/kinds/actionId.
     Returns (actionId, chain, fails)."""
@@ -587,31 +584,31 @@ def c4_chain_fails(host_evs, client_evs, seq0):
     return aid, chain, fails
 
 
-def c4_rocket(host, client, ctx):
+def row_rocket_chain(host, client, ctx):
     notes = []
-    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_ROCKET_LAUNCHER", "ammo": C4_ROCKET,
+    g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_ROCKET_LAUNCHER", "ammo": ROCKET_ITEM,
                             "clear_hands": True}, ("weaponId", "ammoId"))
     launcher, rocket = g["weaponId"], g["ammoId"]
-    tele_both(host, client, H_ID, C4_H_TILE, C4_H_DIR)
-    clips = both(host, client, {"cmd": "battle_drop", "x": C4_ITEM_TILE[0], "y": C4_ITEM_TILE[1],
-                                "z": C4_ITEM_TILE[2], "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
+    tele_both(host, client, H_ID, ROCKET_H_TILE, ROCKET_H_DIR)
+    clips = both(host, client, {"cmd": "battle_drop", "x": ROCKET_ITEM_TILE[0], "y": ROCKET_ITEM_TILE[1],
+                                "z": ROCKET_ITEM_TILE[2], "item": "STR_RIFLE_CLIP", "count": 2}, ("ids",))["ids"]
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": H_ID, "stat": "firing",
                         "value": FIRING_120}, ("tu",))
     staged_diff = diff_buckets(host, client)
-    pump0 = {"host": tile(host, C4_PUMP), "client": tile(client, C4_PUMP)}
-    target0 = {"host": tile(host, C4_TARGET), "client": tile(client, C4_TARGET)}
-    lbase, lberr = light_baseline(host, client, "C4")
-    rr = client.cmd({"cmd": "light_probe_reset"})  # M6 window: the client's apply/light max over this action
+    pump0 = {"host": tile(host, PUMP_TILE), "client": tile(client, PUMP_TILE)}
+    target0 = {"host": tile(host, ROCKET_TARGET), "client": tile(client, ROCKET_TARGET)}
+    lbase, lberr = light_baseline(host, client, "rocket_chain")
+    rr = client.cmd({"cmd": "light_probe_reset"})  # the window of the client's apply/light max over this action
     if not rr.get("ok"):
         notes.append(f"light_probe_reset on the client: {rr}")
     before = {"host": probes(host), "client": probes(client)}
     cb = {"host": cue_probes(host), "client": cue_probes(client)}
     m0 = event_state(host)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    host.ok({"cmd": "set_seed", "seed": SEED_C4})
+    host.ok({"cmd": "set_seed", "seed": SEED_ROCKET})
     a0 = time.time()
-    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": C4_TARGET[0], "y": C4_TARGET[1],
-                     "z": C4_TARGET[2], "tu": TU_MAX})
+    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "aimed", "x": ROCKET_TARGET[0], "y": ROCKET_TARGET[1],
+                     "z": ROCKET_TARGET[2], "tu": TU_MAX})
     if not fire.get("ok"):
         notes.append(f"battle_fire aimed refused: {fire}")
     settle_after_action(host, client, "rocket shot", notes)
@@ -623,40 +620,41 @@ def c4_rocket(host, client, ctx):
     hev, cev = evs_since(host, seq0), evs_since(client, seq0)
     dsc = desync_record(client, pc["desyncSeen"])
     end_diff = diff_buckets(host, client)
-    aid, chain, cfails = c4_chain_fails(hev, cev, seq0)
+    aid, chain, cfails = rocket_chain_fails(hev, cev, seq0)
     cue_seqs = [e["seq"] for e in chain if e["kind"] != "bt_action_end"]
     cues = host_cues(host, cue_seqs)
     expl = [(e["seq"], (cues.get(e["seq"]) or {}).get("payload") or {}) for e in chain if e["kind"] == "explosion"]
     chains = [(s, p.get("chain"), p.get("terrain"), voxel_tile(p.get("centreVoxel")), p.get("radius"),
                p.get("power")) for s, p in expl]
     last_seq = cue_seqs[-1] if cue_seqs else None
-    pump1 = {"host": tile(host, C4_PUMP), "client": tile(client, C4_PUMP)}
-    target1 = {"host": tile(host, C4_TARGET), "client": tile(client, C4_TARGET)}
+    pump1 = {"host": tile(host, PUMP_TILE), "client": tile(client, PUMP_TILE)}
+    target1 = {"host": tile(host, ROCKET_TARGET), "client": tile(client, ROCKET_TARGET)}
     destroyed = [c for c in clips if c not in ih]
-    lfails, lev, lverdict = light_after(host, client, "C4")
+    lfails, lev, lverdict = light_after(host, client, "rocket_chain")
     idiff = item_diff(ih, ic)
     uh, uc = units(host), units(client)
-    m1b = {"host deltaDiffUs last/max": (mh.get("deltaDiffUsLast"), f"{m0.get('deltaDiffUsMax')}->"
-                                         f"{mh.get('deltaDiffUsMax')}"),
-           "host hashUs last/max": (mh.get("hashUsLast"), f"{m0.get('hashUsMax')}->{mh.get('hashUsMax')}"),
-           "host deltaBytes last/max": (mh.get("deltaBytesLast"), f"{m0.get('deltaBytesMax')}->"
-                                        f"{mh.get('deltaBytesMax')}"),
-           "client deltaApplyUs last/max(window)": (mc.get("deltaApplyUsLast"), mc.get("deltaApplyUsMax")),
-           "client lightUsMax(window)": mc.get("lightUsMax"), "light_probe_reset": rr}
-    print(f"EVIDENCE C4: staged launcher={launcher} rocket={rocket} clips={clips} H->{C4_H_TILE}/{C4_H_DIR} "
-          f"stagedDiff={staged_diff}; battle_fire={fire} action wall {secs}s; hostCombatContexts host "
+    perf_probes = {"host deltaDiffUs last/max": (mh.get("deltaDiffUsLast"), f"{m0.get('deltaDiffUsMax')}->"
+                                                 f"{mh.get('deltaDiffUsMax')}"),
+                   "host hashUs last/max": (mh.get("hashUsLast"), f"{m0.get('hashUsMax')}->{mh.get('hashUsMax')}"),
+                   "host deltaBytes last/max": (mh.get("deltaBytesLast"), f"{m0.get('deltaBytesMax')}->"
+                                                f"{mh.get('deltaBytesMax')}"),
+                   "client deltaApplyUs last/max(window)": (mc.get("deltaApplyUsLast"), mc.get("deltaApplyUsMax")),
+                   "client lightUsMax(window)": mc.get("lightUsMax"), "light_probe_reset": rr}
+    print(f"EVIDENCE rocket_chain: staged launcher={launcher} rocket={rocket} clips={clips} "
+          f"H->{ROCKET_H_TILE}/{ROCKET_H_DIR} stagedDiff={staged_diff}; battle_fire={fire} action wall {secs}s; "
+          f"hostCombatContexts host "
           f"{cb['host']['hostCombatContexts']}->{ca['host']['hostCombatContexts']}; host evs since seq {seq0}="
           f"{ev_tuples(hev)} client evs={ev_tuples(cev)} (seq, kind, actionId, h); action={aid} chain="
           f"{[(e['seq'], e['kind'], e['actionId']) for e in chain]}; host cue payloads={cue_view(cues, cue_seqs)}; "
           f"explosions (seq, chain, terrain, centre tile, radius, power)={chains}; cueCounts delta host="
           f"{cue_delta(cb['host']['cueCounts'], ca['host']['cueCounts'])} client="
           f"{cue_delta(cb['client']['cueCounts'], ca['client']['cueCounts'])}; lastCue client="
-          f"{ca['client']['lastCue']}; pump {C4_PUMP} before={pump0} after={pump1}; target {C4_TARGET} before="
+          f"{ca['client']['lastCue']}; pump {PUMP_TILE} before={pump0} after={pump1}; target {ROCKET_TARGET} before="
           f"{target0} after={target1}; clips destroyed on the host={destroyed} present host="
           f"{[c for c in clips if c in ih]} client={[c for c in clips if c in ic]}; H after host="
           f"{unit_view(uh.get(H_ID))} tu={(uh.get(H_ID) or {}).get('tu')} client={unit_view(uc.get(H_ID))} "
           f"tu={(uc.get(H_ID) or {}).get('tu')}; items hostOnly={sorted(idiff['hostOnly'])} clientOnly="
-          f"{sorted(idiff['clientOnly'])} differ={idiff['differ']}; M1-B/M5/M6={m1b}; light baseline={lbase} "
+          f"{sorted(idiff['clientOnly'])} differ={idiff['differ']}; perf={perf_probes}; light baseline={lbase} "
           f"err={lberr}; light after={lev} verdict={lverdict}; client desyncSeen={pc['desyncSeen']} "
           f"desync={dsc} host desyncSeen={ph['desyncSeen']}; diffAfterShot={end_diff}; host lastDelta="
           f"{ph['lastDelta']} client lastDelta={pc['lastDelta']}; host {delta_view(before['host'])}->"
@@ -666,10 +664,10 @@ def c4_rocket(host, client, ctx):
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
     if rocket is None or rocket < 0:
-        fails.append(f"battle_give gave no {C4_ROCKET} (ammoId {rocket}, F491)")
+        fails.append(f"battle_give gave no {ROCKET_ITEM} (ammoId {rocket})")
     if lberr:
         fails.append(lberr)
-    # spec (f) C4 GREEN: >= 2 explosion cues (chain 0 and chain >= 1 with terrain true) before bt_action_end
+    # the action: >= 2 explosion cues (chain 0 and chain >= 1 with terrain true) before bt_action_end
     fails += cfails
     if not any(c == 0 for _, c, _, _, _, _ in chains):
         fails.append(f"no explosion cue with chain 0 in the action: {chains}")
@@ -685,18 +683,19 @@ def c4_rocket(host, client, ctx):
         if c in ic:
             fails.append(f"clip {c} destroyed on the host but present on the client: {ic.get(c)}")
     fails += lfails
-    fails += common_fails(host, client, before, {}, "C4")
+    fails += common_fails(host, client, before, {}, "rocket_chain")
     finish(fails)
 
 
-SCENARIOS = (("C2", c2_wall), ("C3", c3_grenade), ("C4", c4_rocket))
+SCENARIOS = (("wall_shot", row_wall_shot), ("endturn_grenade", row_endturn_grenade),
+             ("rocket_chain", row_rocket_chain))
 
 
 # ===================== bring-up =====================
 
 
 def bring_up_lobby_roster_pinned(host, client, port):
-    """raw.bring_up_lobby with ONE added call (amendment A2.2): set_seed
+    """raw.bring_up_lobby with ONE added call: set_seed
     SEED_ROSTER on the HOST immediately before its open_new_battle, so the
     roster (names and stats) the NEW BATTLE screen generates repeats."""
     host.spawn(); host.connect()
@@ -721,25 +720,25 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p2-sd")
+    pinned = pin_ai_neutral(host, client, tag="host_combat_terrain")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     h_ids = sorted(u["id"] for u in hs["units"] if u.get("coop") == COOP_SEAT_0
                    and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
     assert h_ids and h_ids[0] == H_ID, f"first host-seat soldier {h_ids[:1]} (baked H={H_ID})"
     ub = session.units_by_id(hs)
-    n_items = len(items_by_id(host))  # evidence only (precalc: FIRST_LEVER_ITEM_ID items at start)
+    n_items = len(items_by_id(host))  # evidence only (expected: FIRST_STAGED_ITEM_ID items at start)
     for gc in (host, client):
         es = event_state(gc)
         assert (isinstance(es.get("hostCombatContexts"), int) and isinstance(es.get("cueCounts"), dict)
                 and "lastCue" in es), (
-            f"{gc.name} event_state lacks the S-C probes: hostCombatContexts={es.get('hostCombatContexts')!r} "
+            f"{gc.name} event_state lacks the host-combat probes: hostCombatContexts={es.get('hostCombatContexts')!r} "
             f"cueCounts={es.get('cueCounts')!r} lastCue present={'lastCue' in es}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
     ph = probes(host)
-    print(f"[w2p2-sd] boot ok: {MISSION} SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} H={H_ID} "
-          f"({(ub.get(H_ID) or {}).get('name')}) pinned={len(pinned)} items={n_items} (precalc "
-          f"{FIRST_LEVER_ITEM_ID}) host deltaArmed="
+    print(f"[host_combat_terrain] boot ok: {MISSION} SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} H={H_ID} "
+          f"({(ub.get(H_ID) or {}).get('name')}) pinned={len(pinned)} items={n_items} (expected "
+          f"{FIRST_STAGED_ITEM_ID}) host deltaArmed="
           f"{ph['deltaArmed']} deltaSeeds={ph['deltaSeeds']} probes host={cue_probes(host)} "
           f"client={cue_probes(client)}", flush=True)
     return {}
@@ -747,8 +746,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49848, make_user_dir("w2p2_host_combat_terrain_host"))
-    client = GameClient("client", 49849, make_user_dir("w2p2_host_combat_terrain_client"))
+    host = GameClient("host", 49848, make_user_dir("host_combat_terrain_host"))
+    client = GameClient("client", 49849, make_user_dir("host_combat_terrain_client"))
     results = {}
     try:
         try:
@@ -770,7 +769,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p2-sd] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[host_combat_terrain] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_host_combat_terrain: {len(passed)}/{len(SCENARIOS)} passed "
