@@ -2044,7 +2044,7 @@ bool connectionTCP::canGiftBattleUnit(const BattleUnit* unit) const
 	return unit->getFaction() == FACTION_PLAYER
 		&& !unit->isOut()
 		&& unit->getHealth() > 0
-		&& unit->getCoop() == localSeat();
+		&& unitSeat(unit) == localSeat();
 }
 
 void connectionTCP::refreshBattleGiftControlState()
@@ -2068,7 +2068,7 @@ void connectionTCP::refreshBattleGiftControlState()
 		if (unit->getFaction() == FACTION_PLAYER
 			&& !unit->isOut()
 			&& unit->getHealth() > 0
-			&& unit->getCoop() == localPlayerId)
+			&& unitSeat(unit) == localPlayerId)
 		{
 			firstLocalUnit = unit;
 			break;
@@ -2113,7 +2113,7 @@ void connectionTCP::refreshBattleGiftControlState()
 
 		// The final soldier was gifted during this player's own active turn.
 		// Clear the now-invalid active selection and enter spectator mode at once.
-		if (selected && selected->getCoop() != localPlayerId)
+		if (selected && unitSeat(selected) != localPlayerId)
 		{
 			battle->setSelectedUnit(nullptr);
 		}
@@ -2132,7 +2132,7 @@ void connectionTCP::refreshBattleGiftControlState()
 	// is selected only on our own turn or when restoring from spectator mode.
 	if ((localTurnActive || localWasSpectator)
 		&& (!selected || selected->isOut() || selected->getHealth() <= 0
-			|| selected->getCoop() != localPlayerId))
+			|| unitSeat(selected) != localPlayerId))
 	{
 		battle->setSelectedUnit(firstLocalUnit);
 
@@ -2203,8 +2203,8 @@ void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool broadc
 	// Skirmish-only units have no persistent Soldier object. Their gift is only
 	// a live Battlescape control transfer, but it follows the same ownership,
 	// stale-packet and notification rules as campaign soldiers.
-	const int previousOwner = unit->getCoop();
-	unit->setCoop(newOwnerId);
+	const int previousOwner = unitSeat(unit);
+	unit->setCoop(seatCoop(newOwnerId));
 	if (_giftSelectedBattleUnitId == unit->getId())
 	{
 		clearGiftSelectedBattleUnit();
@@ -2286,10 +2286,10 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 			return;
 		}
 
-		const int previousOwner = battleUnit->getCoop();
+		const int previousOwner = unitSeat(battleUnit);
 		soldier->setOwnerPlayerId(newOwnerId);
-		soldier->setCoop(newOwnerId);
-		battleUnit->setCoop(newOwnerId);
+		soldier->setCoop(seatCoop(newOwnerId));
+		battleUnit->setCoop(seatCoop(newOwnerId));
 		if (_giftSelectedBattleUnitId == battleUnit->getId())
 		{
 			clearGiftSelectedBattleUnit();
@@ -6450,21 +6450,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					Log(LOG_WARNING) << "[coop-gift] rejected giveUnit packet: invalid unit or owner";
 				}
-				else if (previousOwner >= 0 && matchedUnit->getCoop() != previousOwner)
+				else if (previousOwner >= 0 && unitSeat(matchedUnit) != previousOwner)
 				{
 					// Both players may transfer at the same time. A delayed packet is
 					// valid only while the unit still belongs to the sender recorded in
 					// the packet; otherwise it would overwrite a newer transfer.
 					Log(LOG_WARNING) << "[coop-gift] ignored stale giveUnit packet for unit " << unitId
-						<< ": expected owner " << previousOwner << ", actual " << matchedUnit->getCoop();
+						<< ": expected owner " << previousOwner << ", actual " << unitSeat(matchedUnit);
 				}
 				else
 				{
-					matchedUnit->setCoop(newOwner);
+					matchedUnit->setCoop(seatCoop(newOwner));
 					if (matchedUnit->getGeoscapeSoldier())
 					{
 						matchedUnit->getGeoscapeSoldier()->setOwnerPlayerId(newOwner);
-						matchedUnit->getGeoscapeSoldier()->setCoop(newOwner);
+						matchedUnit->getGeoscapeSoldier()->setCoop(seatCoop(newOwner));
 					}
 
 					if (newOwner == localSeat() && previousOwner != newOwner)
@@ -6807,20 +6807,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						{
 							Log(LOG_WARNING) << "[coop-gift] rejected battle gift packet: invalid unit or owner";
 						}
-						else if (previousOwner >= 0 && matchedUnit->getCoop() != previousOwner)
+						else if (previousOwner >= 0 && unitSeat(matchedUnit) != previousOwner)
 						{
 							Log(LOG_WARNING) << "[coop-gift] ignored stale battle gift for unit "
 								<< matchedUnit->getId() << ": expected owner " << previousOwner
-								<< ", actual " << matchedUnit->getCoop();
+								<< ", actual " << unitSeat(matchedUnit);
 						}
 						else
 						{
-							matchedUnit->setCoop(owner);
+							matchedUnit->setCoop(seatCoop(owner));
 							Soldier* matchedSoldier = matchedUnit->getGeoscapeSoldier();
 							if (matchedSoldier)
 							{
 								matchedSoldier->setOwnerPlayerId(owner);
-								matchedSoldier->setCoop(owner);
+								matchedSoldier->setCoop(seatCoop(owner));
 
 								// If a soldier returns to this machine during the battle, cancel
 								// any older pending transfer-away for the same object.
@@ -9962,6 +9962,18 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 									{
 										unit->setArmor(armorArr[side].asInt(), (UnitSide)side);
 									}
+								}
+								// coop: the victim's post-hit script tags (hit_unit is the sole
+								// carrier of what a mod's hitUnit/damageUnit script wrote).
+								if (obj.isMember("tags"))
+								{
+									const Json::Value& tagArr = obj["tags"];
+									std::vector<int> tags;
+									for (Json::ArrayIndex i = 0; i < tagArr.size(); ++i)
+									{
+										tags.push_back(tagArr[i].asInt());
+									}
+									unit->setScriptValuesCoop(tags);
 								}
 								// coop (kill-credit fix): murdererId/killedBy can change on the
 								// host AFTER a unit is down (e.g. a later blast catches the downed
@@ -14529,6 +14541,38 @@ int connectionTCP::localSeat()
 	return coop_save_owner_player_id > 0 ? coop_save_owner_player_id : 1;
 }
 
+// The seat that commands a battle unit. BattleUnit::_coop is NOT a seat: it counts
+// from the battle host (0 = the battle host's soldiers, 1 = the other player's),
+// which is how isSelectable, InventoryState and the classic turn selectors read
+// it. The server owner hosts most battles, so the two numberings agree there. In
+// a SEPARATE campaign the client hosts a battle its own craft started
+// ("changeHost"), so its soldiers carry 0 while its seat is 1; comparing _coop
+// with localSeat() then handed the client's soldiers to the host.
+//
+// getHost() is the battle-host flag the classic split reads; BattlescapeState
+// re-derives it at every coop turn hand-off. Two seats, like the transport.
+// Swapping 0 with the battle host's seat maps _coop to a seat and back.
+static int swapBattleHostSeat(int value)
+{
+	const int me = connectionTCP::localSeat();
+	const int hostSeat = connectionTCP::getHost() ? me : (me == 0 ? 1 : 0);
+	if (value == 0)
+		return hostSeat;
+	if (value == hostSeat)
+		return 0;
+	return value;
+}
+
+int connectionTCP::unitSeat(const BattleUnit* unit)
+{
+	return swapBattleHostSeat(unit->getCoop());
+}
+
+int connectionTCP::seatCoop(int seat)
+{
+	return swapBattleHostSeat(seat);
+}
+
 // coop (PRD-P6 pre-task): the receive gate's acquire/release. `completed` keeps
 // the pre-P6 bool call shape: false = "a chain started here" (acquire), true =
 // "that chain finished" (release). Depth 0 is the only state in which the hold
@@ -15625,7 +15669,7 @@ void connectionTCP::recomputeEndTurnAuto()
 		{
 			continue;
 		}
-		const int seat = u->getCoop();
+		const int seat = unitSeat(u);
 		if (seat >= 0 && seat < seats)
 		{
 			++live[static_cast<size_t>(seat)];

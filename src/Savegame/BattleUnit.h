@@ -219,6 +219,9 @@ public:
 	void stopCoopWalk();
 	const int* getFatalWoundsCoop() const;
 	void setFatalWoundCoop(int bodyPart, int value);
+	/// coop: the unit's script tag values, raw (index = tag - 1).
+	const std::vector<int>& getScriptValuesCoop() const { return _scriptValues.getValuesRaw(); }
+	void setScriptValuesCoop(const std::vector<int>& values);
 	bool _coop_mindcontrolled = false;
 	void setOriginalFaction(UnitFaction faction);
 	void setCoop(int coop);
