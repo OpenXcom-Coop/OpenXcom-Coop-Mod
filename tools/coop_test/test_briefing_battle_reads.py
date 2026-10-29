@@ -1,26 +1,29 @@
-"""W2-H21e (F9587 routed; spec rewrite/prompts/w2h21e_briefing_battle_reads.md (f), QH21e-2 a, QH21e-4 a, QH21e-5 a; TASK 0
-rewrite/w2h21e-task0/CONSTANTS.md): a real co-op battle exists before its battle screen does. The host's BattlescapeState is built only
-at its briefing's OK, so while the host reads its briefing SavedBattleGame::getBattleGame() reads a null BattlescapeState. Two co-op
-paths read it there: the chat box's camera line (ChatMenu::draw, F9633) and the host's COOP_READY_CLIENT answer after the second
-player adopts a streamed world (connectionTCP::onTCPMessage, F9634). Both kill the host (TASK 0 2/2 each).
-  Row H21e-C1 (named RED; F9633) skirmish, boots w2h21efc1..3 (GameClient host 49602 / client 49603, lobby port "46990"):
-    roster-pinned lobby + bring_up_to_briefings (seat_count 2); within W_BATTLE the client's BriefingState over its BattlescapeState;
-    host non-vacuity: top BriefingState, no BattlescapeState on its stack, isPreview false, has_battle true, chatMenuExists on both;
-    GUARD: the client's keyChat in its briefing (a live screen) -> chatActive true within W, alive HOLD s later, keyChat again ->
-    chatActive false; trigger: the host's keyChat (inject_input ok); effect: the host's chatActive true within W.
-  Row H21e-R1 (named RED; F9634) SHARED, boots w2h21efr1..3 (shared_fixture.bring_up ports 49606 / 49607 / 46992): the setup guard
-    (test_practice_rejoin.boot); bring_up_shared_mixed_battle(js, None, to_tactical=False); within W_BATTLE the client holds
-    BattlescapeState AND BriefingState and its CL has `battle_offer accepted`; host non-vacuity as C1; trigger: the client's
-    force_resync (role replica, sent true); HL `streaming authoritative world to client` and no `streamer busy` drop; effect: CL_ADOPT
-    in order within W. The client's fate after its re-adoption (alive, top; F9646) is recorded, never a cell.
-  Cells per row: G per boot (setup, both briefings, non-vacuity, trigger sent); GUARD in every C1 construction; non-vacuity: every
-    surviving host reached its effect; RED: no host death in N constructions (TASK 0: C1 2/2, the host died 50-51 ms after keyChat,
-    getBattleGame <- ChatMenu::draw; R1 2/2, 1.56-1.86 s after force_resync, getBattleGame <- onTCPMessage at connectionTCP.cpp :36892).
-W = 10 s at POLL 0.25 s, HOLD = 2 s, SETTLE 0.3 s before every key, N = 3 fresh boots per row, W_BATTLE = 90 s. alive(gc) = the
-process runs and `ping` answers. CRASH = new crashlogs/crash_*.log since the construction started (first 4 frames). HL / CL = the host's /
-client's openxcom.log. A machine that died on the RED trigger (and R1's client) is tolerated at shutdown. EVIDENCE before each verdict;
-a failed row prints ONE CAPTURE line per failed construction (both stacks, get_coop / world_state / battle_state on both, HL / CL tails,
-CRASH); every row runs after a failure; ONE run; exit 0 iff every row passes, else 2.
+"""test_briefing_battle_reads.py: a real co-op battle exists before its battle screen does. The host's BattlescapeState
+is built only at its briefing's OK, so while the host reads its briefing SavedBattleGame::getBattleGame() reads a null
+BattlescapeState. Two co-op paths read it there: the chat box's camera line (ChatMenu::draw) and the host's
+COOP_READY_CLIENT answer after the second player adopts a streamed world (connectionTCP::onTCPMessage). Neither may kill
+the host.
+  Row chat_key_in_host_briefing (skirmish, boots briefing_reads_chat1..3, GameClient host 49602 / client 49603, lobby
+    port "46990"): roster-pinned lobby + bring_up_to_briefings (seat_count 2); within W_BATTLE the client's
+    BriefingState over its BattlescapeState; host non-vacuity: top BriefingState, no BattlescapeState on its stack,
+    isPreview false, has_battle true, chatMenuExists on both; GUARD: the client's keyChat in its briefing (a live
+    screen) -> chatActive true within W, alive HOLD s later, keyChat again -> chatActive false; trigger: the host's
+    keyChat (inject_input ok); effect: the host's chatActive true within W.
+  Row resync_in_host_briefing (SHARED, boots briefing_reads_resync1..3, shared_fixture.bring_up ports 49606 / 49607 /
+    46992): the setup guard (test_practice_rejoin.boot); bring_up_shared_mixed_battle(js, None, to_tactical=False);
+    within W_BATTLE the client holds BattlescapeState AND BriefingState and its CL has `battle_offer accepted`; host
+    non-vacuity as in the chat row; trigger: the client's force_resync (role replica, sent true); HL `streaming
+    authoritative world to client` and no `streamer busy` drop; effect: CL_ADOPT in order within W. The client's fate
+    after its re-adoption (alive, top) is recorded, never a cell.
+  Cells per row: guard cells per boot (setup, both briefings, non-vacuity, trigger sent); GUARD in every chat row
+    construction; non-vacuity: every surviving host reached its effect; FIX: no host death in N constructions. Each
+    row's EVIDENCE baseline (CHAT_CRASH / RESYNC_CRASH) says what such a death looks like.
+W = 10 s at POLL 0.25 s, HOLD = 2 s, SETTLE 0.3 s before every key, N = 3 fresh boots per row, W_BATTLE = 90 s.
+alive(gc) = the process runs and `ping` answers. CRASH = new crashlogs/crash_*.log since the construction started (first
+4 frames). HL / CL = the host's / client's openxcom.log. A machine that died on the trigger (and the resync row's
+client) is tolerated at shutdown. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line per failed
+construction (both stacks, get_coop / world_state / battle_state on both, HL / CL tails, CRASH); every row runs after a
+failure; exit 0 iff every row passes, else 2.
 """
 
 import json
@@ -37,14 +40,15 @@ from harness import GameClient, make_user_dir  # noqa: E402
 
 W, POLL, HOLD, SETTLE, N, W_BATTLE = 10.0, 0.25, 2.0, 0.3, 3, 90.0
 BRF, BS = "BriefingState", "BattlescapeState"
-PORTS_C1, PORTS_R1 = (49602, 49603, "46990"), (49606, 49607, 46992)
+PORTS_CHAT, PORTS_RESYNC = (49602, 49603, "46990"), (49606, 49607, 46992)
 ACCEPT = "[coop-handshake] battle_offer accepted"
 STREAM, BUSY = "[coop-shared] streaming authoritative world to client", "[coop-shared] resync request dropped: streamer busy"
 pr, q, stack, wait_until, short = prj.pr, prj.q, prj.stack, prj.wait_until, prj.short
-RED_C1 = ("named red: TASK 0 2/2 the host died 50-51 ms after its keyChat in its briefing, BattlescapeState::getBattleGame <- "
-          "ChatMenu::draw (ChatMenu.cpp :245) <- Game::run")
-RED_R1 = ("named red: TASK 0 2/2 the host died 1.56-1.86 s after the client's force_resync in the host's briefing, "
-          "BattlescapeState::getBattleGame <- connectionTCP::onTCPMessage (connectionTCP.cpp :36892, COOP_READY_CLIENT) <- updateCoopTask")
+CHAT_CRASH = ("a failure looks like: the host dies 50-51 ms after its keyChat in its briefing, in "
+              "BattlescapeState::getBattleGame <- ChatMenu::draw <- Game::run")
+RESYNC_CRASH = ("a failure looks like: the host dies 1.56-1.86 s after the client's force_resync in the host's "
+                "briefing, in BattlescapeState::getBattleGame <- connectionTCP::onTCPMessage (COOP_READY_CLIENT) <- "
+                "updateCoopTask")
 
 
 class Row(pr.Row):
@@ -146,13 +150,13 @@ def boot_skirmish(r, x, rec, ports, pre_ok=None):
 def boot_shared(r, x, rec):
     """test_practice_rejoin.boot's SHARED bring-up + setup guard"""
     tmp = pr.Row("boot", None)
-    ok = prj.boot(tmp, x, PORTS_R1, False)
+    ok = prj.boot(tmp, x, PORTS_RESYNC, False)
     rec["setup"] = tmp.ev.get("setup " + x.tag)
     return ok or r.cell(f"guard: {x.tag} boot", False, [tmp.fails, tmp.cap])
 
 
-def c1(r, x, rec):
-    """C1 up to the trigger -> (trigger time, effect) or None"""
+def chat_until_trigger(r, x, rec):
+    """the chat row up to the trigger -> (trigger time, effect) or None"""
     h, c = x.host, x.client
     both = wait_until(lambda: BS in stack(c) and stack(c)[-1:] == [BRF], W_BATTLE, 0.5)
     rec["client"] = stack(c)
@@ -171,8 +175,8 @@ def c1(r, x, rec):
     return t1, lambda: chat_on(h) is True
 
 
-def r1(r, x, rec):
-    """R1 up to the trigger -> (trigger time, effect) or None"""
+def resync_until_trigger(r, x, rec):
+    """the resync row up to the trigger -> (trigger time, effect) or None"""
     h, c = x.host, x.client
     try:
         session.bring_up_shared_mixed_battle(x.js, None, to_tactical=False)
@@ -196,8 +200,8 @@ def r1(r, x, rec):
     return t1, lambda: pr.in_order(pr.log_lines(c, x.n_cl), sq.CL_ADOPT)
 
 
-def r1_after(r, x, rec):
-    """R1: the stream went out (no streamer-busy drop); the client's fate is recorded, never a cell"""
+def resync_after(r, x, rec):
+    """the resync row: the stream went out (no streamer-busy drop); the client's fate is recorded, never a cell"""
     hl = [ln.split("\t")[-1][:160] for ln in pr.log_lines(x.host, x.n_hl) if STREAM in ln or BUSY in ln]
     rec["CL_ADOPT"] = pr.in_order(pr.log_lines(x.client, x.n_cl), sq.CL_ADOPT)
     time.sleep(0.5)
@@ -253,9 +257,11 @@ def count_row(rid, base, baseline, boot, construct, watched, results, walls, aft
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    count_row("H21e-C1", "w2h21efc", RED_C1, lambda r, x, rec: boot_skirmish(r, x, rec, PORTS_C1), c1, "host", results, walls)
-    count_row("H21e-R1", "w2h21efr", RED_R1, boot_shared, r1, "host", results, walls, after=r1_after, always=("client",))
-    rows = ("H21e-C1", "H21e-R1")
+    count_row("chat_key_in_host_briefing", "briefing_reads_chat", CHAT_CRASH,
+              lambda r, x, rec: boot_skirmish(r, x, rec, PORTS_CHAT), chat_until_trigger, "host", results, walls)
+    count_row("resync_in_host_briefing", "briefing_reads_resync", RESYNC_CRASH, boot_shared, resync_until_trigger,
+              "host", results, walls, after=resync_after, always=("client",))
+    rows = ("chat_key_in_host_briefing", "resync_in_host_briefing")
     failed = [rid for rid in rows if not results.get(rid)]
     print(f"\ntest_briefing_battle_reads: {len(rows) - len(failed)}/{len(rows)} passed (fail={failed}) walls {json.dumps(walls)} "
           f"in {time.time() - t0:.1f}s", flush=True)
