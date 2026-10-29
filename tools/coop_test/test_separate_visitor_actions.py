@@ -22,9 +22,27 @@ Every row checks the AUTHORITATIVE host world, not only the visitor's screen:
               both machines end with the same new order
   V17 sort    sorting the Soldiers screen at the player's own base (and
               picking the original order again) goes through the host too
+  V19/V20 training  a name sort (and the original order) on the martial / psi
+              training screen sorts what the screen shows; both machines keep
+              the same roster order
+  V24/V25 training  putting a soldier into martial / psi training goes
+              through the host: the client's own soldier at its base (and the
+              host trains it), the visitor's own soldier at HostBase, the host's
+              own soldier; the partner's soldier stays refused and assign-all
+              changes only the player's own soldiers
+  V21 armor sort  the crew armor screen's name sort and original order at the
+              own base reorder both machines the same way
+  V22 armor visitor  the host sorts its soldiers at HostBase while the
+              visitor's crew armor screen is open there; the visitor's original
+              order then keeps both machines the same (RU8)
+  V23 crew    a move on the craft crew screen at the own base, then the
+              original order, brings the order back on both machines
   V16 transform  a soldier transformation runs on the host: its result and
-              cost reach both machines, the partner's soldier is refused, and a
-              visitor's attempt at the partner base leaves both machines agreeing
+              cost reach both machines and the partner's soldier is refused. A
+              visitor transforms its own soldier at the partner base (by
+              analogy with RU16): the visitor's wallet pays, required items come
+              from that base's stores, and the partner's soldier there stays
+              refused
   V7 order    moving a base in the mini strip goes through the host: both
               machines end with the same new order, and a buy sent right after
               the move still lands in the base it named
@@ -62,18 +80,27 @@ TRANSFORM = "STR_COOP_TEST_TRANSFORM"
 TRANSFORM_PAID = "STR_COOP_TEST_TRANSFORM_PAID"
 TRANSFORM_COST = 20000
 TRANSFORM_FIRING = 7
+TRANSFORM_KIT = "STR_COOP_TEST_TRANSFORM_KIT"
+KIT_ITEM = "STR_MEDI_KIT"
+KIT_COST = 30000
+KIT_FIRING = 3
 KEY_BASE_SELECT_2 = 50  # SDLK_2, the default keyBaseSelect2
 
 MOD_NAME = "coop_visitor_actions"
 METADATA = """\
 name: "Coop visitor actions test"
 version: 1.0
-description: "Test-only: a soldier transformation open to every live soldier."
+description: "Test-only: a soldier transformation open to every live soldier, and a gym and psi lab in every access lift."
 author: coop harness
 
 master: xcom1
 """
+TRAINING_STATS = ("tu", "stamina", "health", "firing", "throwing", "melee", "strength")
 RULESET = f"""\
+facilities:
+  - type: STR_ACCESS_LIFT
+    trainingRooms: 10
+    psiLabs: 10
 soldierTransformation:
   - name: {TRANSFORM}
     allowsLiveSoldiers: true
@@ -89,6 +116,17 @@ soldierTransformation:
     cost: {TRANSFORM_COST}
     flatOverallStatChange:
       firing: {TRANSFORM_FIRING}
+  - name: {TRANSFORM_KIT}
+    allowsLiveSoldiers: true
+    allowsWoundedSoldiers: true
+    keepSoldierArmor: true
+    allowedSoldierTypes:
+      - STR_SOLDIER
+    cost: {KIT_COST}
+    requiredItems:
+      {KIT_ITEM}: 1
+    flatOverallStatChange:
+      firing: {KIT_FIRING}
 """
 
 failures = []
@@ -498,6 +536,225 @@ def row_sort(host, client):
           f"host={ids_at(host, 'ClientBase')} client={ids_at(client, 'ClientBase')}")
 
 
+RENAMED = ["Coop Zulu", "Coop Mike", "Coop Alpha"]
+
+
+def settled_same(host, client, base, seconds=2.0):
+    """Both machines' full roster order after a short settle (a host-routed
+    order lands well inside it)."""
+    time.sleep(seconds)
+    return ids_at(host, base) == ids_at(client, base)
+
+
+def craft_at(gc, base):
+    return base_crafts(gc, base)[0]["id"]
+
+
+def row_training_sort(host, client, screen, row):
+    """V19/V20: a name sort on a training screen at the own base sorts what the
+    screen shows and leaves both machines with the same roster order."""
+    full = ids_at(host, "ClientBase")
+    assert full == ids_at(client, "ClientBase"), (full, ids_at(client, "ClientBase"))
+    client.ok({"cmd": "open_screen", "screen": screen, "base": "ClientBase"})
+    r = client.ok({"cmd": "roster_screen", "action": "sort", "sort": 2})
+    by_id = {s["id"]: s["name"] for s in soldiers_at(client, "ClientBase")}
+    names_shown = [by_id.get(i) for i in r["displayed"] if by_id.get(i) in RENAMED]
+    same = settled_same(host, client, "ClientBase")
+    check(f"{row} {screen}: a name sort leaves both machines with the same roster order",
+          same, f"host={ids_at(host, 'ClientBase')} client={ids_at(client, 'ClientBase')}")
+    check(f"{row} {screen}: the screen shows its soldiers in name order",
+          names_shown == sorted(RENAMED) and sorted(r["displayed"]) == sorted(full),
+          f"shown={r['displayed']} names={names_shown} roster={full}")
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    same = settled_same(host, client, "ClientBase")
+    client.ok({"cmd": "close_screens"})
+    check(f"{row} {screen}: the original order leaves both machines the same",
+          same, f"host={ids_at(host, 'ClientBase')} client={ids_at(client, 'ClientBase')}")
+
+
+def flag(gc, base, sid, key):
+    return (soldier(gc, base, sid) or {}).get(key)
+
+
+def trained_stats(gc, base, sid):
+    s = soldier(gc, base, sid) or {}
+    return sum(s.get(k, 0) for k in TRAINING_STATS)
+
+
+def row_host_trains(host, client, screen, row, flags):
+    """V24: the client puts its own soldiers at ClientBase into martial training
+    (assign-all) and the host trains them at midnight. One midnight only: the
+    clock jumps to 23:00 of the same day, so later rows see the same date."""
+    own = own_ids_at(host, "ClientBase", 1)
+    client.ok({"cmd": "open_screen", "screen": screen, "base": "ClientBase"})
+    client.ok({"cmd": "roster_screen", "action": "assign_all"})
+    on = poll(lambda: all(flag(gc, "ClientBase", s, "training") for gc in (host, client)
+                          for s in own) or None, timeout=10)
+    client.ok({"cmd": "close_screens"})
+    before = sum(trained_stats(host, "ClientBase", s) for s in own)
+    day = fixture.geo(host)["time"]["day"]
+    host.ok({"cmd": "set_geo_day", "day": day, "hour": 23})
+    geo.skip_ingame_time(host, client, minutes=90, speed_idx=2, real_timeout=60)
+    geo.slow_clock(host, client)
+    after = sum(trained_stats(host, "ClientBase", s) for s in own)
+    print(f"  {row} trained stats host {before}->{after}, "
+          f"client {sum(trained_stats(client, 'ClientBase', s) for s in own)}")
+    check(f"{row} {screen}: assign-all puts the client's own soldiers into training and "
+          f"the host trains them (their trained stats rise)",
+          bool(on) and after > before,
+          f"on={bool(on)} before={before} after={after} {flags('ClientBase', own[0])}")
+    client.ok({"cmd": "open_screen", "screen": screen, "base": "ClientBase"})
+    client.ok({"cmd": "roster_screen", "action": "deassign_all"})
+    off = poll(lambda: not any(flag(gc, "ClientBase", s, "training") for gc in (host, client)
+                               for s in own) or None, timeout=10)
+    client.ok({"cmd": "close_screens"})
+    check(f"{row} {screen}: de-assign-all takes them out of training on both machines",
+          bool(off), f"{[(s, flag(host, 'ClientBase', s, 'training'), flag(client, 'ClientBase', s, 'training')) for s in own]}")
+
+
+def row_training(host, client, guest, screen, key, row):
+    """V24/V25: the training screens change a soldier's training flag through
+    the host, and only for the player's own soldiers."""
+    def both(base, sid, want):
+        return all(flag(gc, base, sid, key) == want for gc in (host, client))
+
+    def flags(base, sid):
+        return f"host={flag(host, base, sid, key)} client={flag(client, base, sid, key)}"
+
+    def toggle(gc, base, sid, want):
+        gc.ok({"cmd": "open_screen", "screen": screen, "base": base})
+        r = gc.cmd({"cmd": "roster_screen", "action": "toggle", "soldier_id": sid})
+        ok = poll(lambda: both(base, sid, want) or None, timeout=10)
+        gc.ok({"cmd": "close_screens"})
+        return bool(ok) and r.get("ok"), r
+
+    own = own_ids_at(host, "ClientBase", 1)[0]
+    ok, r = toggle(client, "ClientBase", own, True)
+    check(f"{row} {screen}: the client's own soldier is in training on both machines",
+          ok, f"resp={r} {flags('ClientBase', own)}")
+    ok, r = toggle(client, "ClientBase", own, False)
+    check(f"{row} {screen}: the client takes its soldier out of training on both machines",
+          ok, f"resp={r} {flags('ClientBase', own)}")
+    if key == "training":
+        row_host_trains(host, client, screen, row, flags)
+
+    ok, r = toggle(client, "HostBase", guest, True)
+    check(f"{row} {screen}: the visitor's own soldier at HostBase is in training on both machines",
+          ok, f"resp={r} {flags('HostBase', guest)}")
+    partners = own_ids_at(host, "HostBase", 0)
+    ok, r = toggle(host, "HostBase", partners[0], True)
+    check(f"{row} {screen}: the host's own soldier at HostBase is in training on both machines",
+          ok, f"resp={r} {flags('HostBase', partners[0])}")
+    reset_stats(host, client)
+    client.ok({"cmd": "open_screen", "screen": screen, "base": "HostBase"})
+    client.cmd({"cmd": "roster_screen", "action": "toggle", "soldier_id": partners[0]})
+    refused, last = wait_refused(host, client, "STR_COOP_NOT_YOUR_SOLDIER")
+    check(f"{row} {screen}: the visitor's click on the partner's soldier is refused; it stays "
+          f"in training on both machines",
+          refused and both("HostBase", partners[0], True),
+          f"lastFail={last!r} {flags('HostBase', partners[0])}")
+
+    # Assign-all / de-assign-all at HostBase change only the visitor's soldiers.
+    client.ok({"cmd": "roster_screen", "action": "deassign_all"})
+    off = poll(lambda: both("HostBase", guest, False) or None, timeout=10)
+    client.ok({"cmd": "roster_screen", "action": "assign_all"})
+    on = poll(lambda: both("HostBase", guest, True) or None, timeout=10)
+    time.sleep(1.0)  # a stray change to a partner soldier would have landed by now
+    partner_flags = {gc.name: [flag(gc, "HostBase", p, key) for p in partners]
+                     for gc in (host, client)}
+    want = {gc.name: [True] + [False] * (len(partners) - 1) for gc in (host, client)}
+    check(f"{row} {screen}: de-assign-all and assign-all at HostBase change only the "
+          f"visitor's soldiers",
+          bool(off) and bool(on) and partner_flags == want,
+          f"off={bool(off)} on={bool(on)} {flags('HostBase', guest)} partners={partner_flags}")
+    client.ok({"cmd": "roster_screen", "action": "deassign_all"})
+    client.ok({"cmd": "close_screens"})
+    ok, r = toggle(host, "HostBase", partners[0], False)
+    settled = poll(lambda: both("HostBase", guest, False) or None, timeout=10)
+    check(f"{row} {screen}: both machines end with nobody in training at HostBase",
+          ok and bool(settled), f"guest {flags('HostBase', guest)} "
+          f"partner {flags('HostBase', partners[0])}")
+
+
+def row_armor_sort(host, client):
+    """V21: the crew armor screen's name sort and original order at the own
+    base go through the host."""
+    before = own_ids_at(host, "ClientBase", 1)
+    assert before == own_ids_at(client, "ClientBase", 1), \
+        (before, own_ids_at(client, "ClientBase", 1))
+    client.ok({"cmd": "open_screen", "screen": "craft_armor", "base": "ClientBase",
+               "craft_id": craft_at(client, "ClientBase")})
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 2})
+
+    def sorted_on(gc):
+        return [n for n in names_at(gc, "ClientBase", 1) if n in RENAMED] == sorted(RENAMED)
+    got = poll(lambda: (sorted_on(host) and ids_at(host, "ClientBase")
+                        == ids_at(client, "ClientBase")) or None, timeout=10)
+    check("V21 craft armor: a name sort at the own base reorders both machines the same way",
+          bool(got), f"before={before} host={names_at(host, 'ClientBase', 1)} "
+          f"client={names_at(client, 'ClientBase', 1)}")
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    got = poll(lambda: (own_ids_at(host, "ClientBase", 1) == before
+                        and own_ids_at(client, "ClientBase", 1) == before) or None, timeout=10)
+    client.ok({"cmd": "close_screens"})
+    check("V21 craft armor: the original order comes back on both machines",
+          bool(got) and ids_at(host, "ClientBase") == ids_at(client, "ClientBase"),
+          f"before={before} host={own_ids_at(host, 'ClientBase', 1)} "
+          f"client={own_ids_at(client, 'ClientBase', 1)}")
+
+
+def row_armor_foreign_original(host, client):
+    """V22: the host sorts its soldiers at HostBase while the visitor's crew
+    armor screen is open there; the visitor's original order then leaves the
+    host's roster order alone (RU8)."""
+    own = own_ids_at(host, "HostBase", 0)
+    assert len(own) >= 3, ("premise: three host soldiers at HostBase", own)
+    host_names = ["Host Zulu", "Host Mike", "Host Alpha"]
+    for sid, name in zip(own, host_names):
+        host.ok({"cmd": "soldier_rename", "base": "HostBase", "soldierId": sid, "name": name})
+    assert poll(lambda: all(n in names_at(gc, "HostBase", 0) for gc in (host, client)
+                            for n in host_names) or None), \
+        ("premise: host renames landed", names_at(client, "HostBase", 0))
+    client.ok({"cmd": "open_screen", "screen": "craft_armor", "base": "HostBase",
+               "craft_id": craft_at(client, "HostBase")})
+    host.ok({"cmd": "open_soldiers", "base": "HostBase"})
+    host.ok({"cmd": "soldiers_reorder", "action": "sort", "sort": 2})
+    moved = poll(lambda: ([n for n in names_at(client, "HostBase", 0) if n in host_names]
+                          == sorted(host_names)
+                          and ids_at(host, "HostBase") == ids_at(client, "HostBase")) or None)
+    host.ok({"cmd": "soldiers_ok"})
+    assert moved, ("premise: the host's sort reached both machines",
+                   names_at(host, "HostBase", 0), names_at(client, "HostBase", 0))
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    same = settled_same(host, client, "HostBase")
+    client.ok({"cmd": "close_screens"})
+    check("V22 craft armor: the visitor's original order leaves both machines the same",
+          same, f"host={names_at(host, 'HostBase', 0)} client={names_at(client, 'HostBase', 0)}")
+
+
+def row_crew_original(host, client):
+    """V23: a move on the craft crew screen at the own base, then the original
+    order, keeps both machines the same."""
+    before = own_ids_at(host, "ClientBase", 1)
+    assert len(before) >= 3, ("premise: three own soldiers at ClientBase", before)
+    client.ok({"cmd": "open_screen", "screen": "craft_soldiers", "base": "ClientBase",
+               "craft_id": craft_at(client, "ClientBase")})
+    client.ok({"cmd": "roster_screen", "action": "move_up", "row": 2})
+    want = [before[2]] + before[:2] + before[3:]
+    moved = poll(lambda: (own_ids_at(host, "ClientBase", 1) == want
+                          and own_ids_at(client, "ClientBase", 1) == want) or None)
+    assert moved, ("premise: the crew screen's move reached both machines", want,
+                   own_ids_at(host, "ClientBase", 1), own_ids_at(client, "ClientBase", 1))
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    got = poll(lambda: (own_ids_at(host, "ClientBase", 1) == before
+                        and own_ids_at(client, "ClientBase", 1) == before) or None, timeout=10)
+    same = settled_same(host, client, "ClientBase", 0.5)
+    client.ok({"cmd": "close_screens"})
+    check("V23 craft crew: the original order brings the screen's move back on both machines",
+          bool(got) and same, f"before={before} host={own_ids_at(host, 'ClientBase', 1)} "
+          f"client={own_ids_at(client, 'ClientBase', 1)}")
+
+
 def firing(gc, base, sid):
     return (soldier(gc, base, sid) or {}).get("firing")
 
@@ -571,20 +828,52 @@ def row_transform(host, client):
           f"lastFail={last!r} f0={f0} host={firing(host, 'ClientBase', psid)} "
           f"client={firing(client, 'ClientBase', psid)}")
 
-    # At the partner's base: whatever the host rules, both machines agree.
+    # At the partner's base (by analogy with RU16): the visitor transforms its
+    # own soldier there; the visitor's wallet pays, the required item comes
+    # from that base's stores, and the partner's soldier stays refused.
     guests = own_ids_at(host, "HostBase", 1)
     assert guests, ("premise: a visitor soldier at HostBase", soldiers_at(host, "HostBase"))
     gsid = guests[0]
+    for gc in (host, client):
+        gc.ok({"cmd": "give_items", "item": KIT_ITEM, "count": 2, "base": "HostBase"})
+    kits0 = stock(host, "HostBase", KIT_ITEM)
+    assert kits0 == stock(client, "HostBase", KIT_ITEM) and kits0 >= 1, \
+        (kits0, stock(client, "HostBase", KIT_ITEM))
+    f0 = firing(host, "HostBase", gsid)
+    visitor0 = owner_funds(host, "ClientBase")
+    partner0 = owner_funds(host, "HostBase")
     reset_stats(host, client)
     client.ok({"cmd": "soldier_transform", "base": "HostBase", "soldierId": gsid,
-               "rule": TRANSFORM_PAID})
-    poll(lambda: (stats(client)["failCount"] or stats(client)["applyCount"]) or None,
-         timeout=10)
+               "rule": TRANSFORM_KIT})
+    landed = transform_lands(host, client, "HostBase", gsid, f0 + KIT_FIRING)
+    last = stats(client)["lastFail"]
     dismiss_fail(client)
-    check("V16 transform: a visitor's transformation at the partner base leaves both machines agreeing",
-          firing(host, "HostBase", gsid) == firing(client, "HostBase", gsid),
-          f"host={firing(host, 'HostBase', gsid)} client={firing(client, 'HostBase', gsid)} "
-          f"lastFail={stats(client)['lastFail']!r}")
+    check("V16 transform: the visitor's transformation of its own soldier at the partner base "
+          "reaches both machines",
+          bool(landed), f"want={f0 + KIT_FIRING} host={firing(host, 'HostBase', gsid)} "
+          f"client={firing(client, 'HostBase', gsid)} lastFail={last!r}")
+    paid = poll(lambda: all(owner_funds(gc, "ClientBase") == visitor0 - KIT_COST
+                            and owner_funds(gc, "HostBase") == partner0
+                            for gc in (host, client)) or None, timeout=10)
+    check("V16 transform: the visitor's wallet pays at the partner base, the partner's does not",
+          bool(paid), f"visitor0={visitor0} partner0={partner0} "
+          f"visitor(host,client)=({owner_funds(host, 'ClientBase')},{owner_funds(client, 'ClientBase')}) "
+          f"partner(host,client)=({owner_funds(host, 'HostBase')},{owner_funds(client, 'HostBase')})")
+    kits = (stock(host, "HostBase", KIT_ITEM), stock(client, "HostBase", KIT_ITEM))
+    check("V16 transform: the required item comes from the partner base's stores on both machines",
+          kits == (kits0 - 1, kits0 - 1), f"before={kits0} after(host,client)={kits}")
+
+    psid = own_ids_at(host, "HostBase", 0)[0]
+    f0 = firing(host, "HostBase", psid)
+    reset_stats(host, client)
+    client.ok({"cmd": "soldier_transform", "base": "HostBase", "soldierId": psid,
+               "rule": TRANSFORM_KIT})
+    refused, last = wait_refused(host, client, "STR_COOP_NOT_YOUR_SOLDIER")
+    check("V16 transform: the partner's soldier at the partner base stays refused",
+          refused and firing(host, "HostBase", psid) == f0
+          and firing(client, "HostBase", psid) == f0,
+          f"lastFail={last!r} f0={f0} host={firing(host, 'HostBase', psid)} "
+          f"client={firing(client, 'HostBase', psid)}")
 
 
 def row_cydonia_key(host, client):
@@ -822,6 +1111,13 @@ def main():
             row_transfer_out(host, client, guests[2])
             row_own_roster(host, client)
             row_sort(host, client)
+            row_training_sort(host, client, "training", "V19")
+            row_training_sort(host, client, "psi_training", "V20")
+            row_training(host, client, guests[1], "training", "training", "V24")
+            row_training(host, client, guests[1], "psi_training", "psiTraining", "V25")
+            row_armor_sort(host, client)
+            row_armor_foreign_original(host, client)
+            row_crew_original(host, client)
             row_transform(host, client)
             row_base_order(host, client)
             row_cydonia_key(host, client)

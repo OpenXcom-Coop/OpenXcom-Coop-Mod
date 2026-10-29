@@ -272,13 +272,18 @@ void applyEventRewards(Game* game, const Json::Value& rewards);
 void hostFacilityDone(Game* game, int baseId, int x, int y,
                       const std::string& facilityType);
 
-/// Manufacture batch finished on the host (time1Hour): replica materializes the
-/// produced items/crafts, removes the Production (freeing engineers), and mirrors
-/// the completion popup. craftIds are the ids the host gave the crafts this
-/// production built, so the replica builds the same crafts.
+/// Manufacture units finished on the host (time1Hour): replica materializes the
+/// @a units this step made (items/crafts, stored, docked or shipped as the host
+/// did). When @a batchDone it also removes the Production (freeing engineers)
+/// and mirrors the completion popup. craftIds are the ids the host gave the
+/// crafts this step built, so the replica builds the same crafts; soldiers are
+/// the soldiers it spawned (spawnedPersonType), sent whole so the replica holds
+/// the host's soldiers.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell,
-                        const std::vector<int>& craftIds = std::vector<int>());
+                        const std::vector<int>& craftIds = std::vector<int>(),
+                        bool batchDone = true,
+                        const std::vector<Soldier*>& soldiers = std::vector<Soldier*>());
 
 /// Transfers delivered on the host (time1Hour): replica delivers the matching
 /// pending transfers (items/scientists/engineers/craft) and removes them.
@@ -340,6 +345,20 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// route this instead of doing it locally. Absolute end-state (which armor the
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
+
+/// A training screen's change to one soldier: whether it is in training, and
+/// (martial training only) whether it returns to training once healed.
+struct TrainingChange
+{
+	Soldier* soldier;
+	bool training;
+	bool queued;
+};
+/// SHARED and Separate: sends the training flags @a changes set at @a base (psi
+/// lab when @a psi, else martial training) to the host (soldier_training), which
+/// runs the training. Mutates nothing locally; the flags change when it lands.
+void submitSoldierTraining(Game* game, Base* base, bool psi,
+	const std::vector<TrainingChange>& changes);
 
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw

@@ -9,6 +9,18 @@ only, so the two machines' rosters drift apart. Both go through the host now:
                 the result and the shared funds pay once
   S3 transform  the host transforms its own soldier -> the client's replica
                 shows it
+  S4/S5 training  a name sort (and the original order) on the martial / psi
+                training screen sorts what the screen shows; both machines keep
+                the same roster order
+  S6 armor      the crew armor screen's name sort and original order reorder
+                both machines the same way
+  S7 crew       the host sorts its soldiers while the client's craft crew
+                screen is open; the client's original order then keeps both
+                machines the same
+  S8/S9 training  the client's martial / psi training screen puts its own
+                soldier and a host soldier into training (SHARED lets a player
+                change any soldier) through the host: both machines end with the
+                same flags
 
 Exit 0 = every row passed. Any other rc is a failure.
 """
@@ -30,12 +42,16 @@ MOD_NAME = "coop_shared_transform"
 METADATA = """\
 name: "Coop shared transformation test"
 version: 1.0
-description: "Test-only: a paid soldier transformation open to every live soldier."
+description: "Test-only: a paid soldier transformation open to every live soldier, and a gym and psi lab in every access lift."
 author: coop harness
 
 master: xcom1
 """
 RULESET = f"""\
+facilities:
+  - type: STR_ACCESS_LIFT
+    trainingRooms: 10
+    psiLabs: 10
 soldierTransformation:
   - name: {TRANSFORM}
     allowsLiveSoldiers: true
@@ -142,6 +158,118 @@ def row_sort(host, client, base):
           f"host={ids(host, base)} client={ids(client, base)} repairs={repairs(client)}")
 
 
+RENAMED = ["Coop Zulu", "Coop Mike", "Coop Alpha"]
+
+
+def settled_same(host, client, base, seconds=2.0):
+    """Both machines' full roster order after a short settle (a host-routed
+    order lands well inside it)."""
+    time.sleep(seconds)
+    return ids(host, base) == ids(client, base)
+
+
+def shown_names(gc, base, shown):
+    by_id = {s["id"]: s["name"] for s in roster(gc, base)}
+    return [by_id.get(i) for i in shown]
+
+
+def row_training_sort(host, client, base, screen, row):
+    """S4/S5: a name sort on a training screen sorts what the screen shows and
+    leaves both machines with the same roster order."""
+    full = ids(host, base)
+    assert full == ids(client, base), (full, ids(client, base))
+    client.ok({"cmd": "open_screen", "screen": screen, "base": base})
+    r = client.ok({"cmd": "roster_screen", "action": "sort", "sort": 2})
+    names_shown = [n for n in shown_names(client, base, r["displayed"]) if n in RENAMED]
+    same = settled_same(host, client, base)
+    check(f"{row} {screen}: a name sort leaves both machines with the same roster order",
+          same, f"host={ids(host, base)} client={ids(client, base)}")
+    check(f"{row} {screen}: the screen shows its soldiers in name order",
+          names_shown == sorted(RENAMED) and sorted(r["displayed"]) == sorted(full),
+          f"shown={r['displayed']} names={names_shown} roster={full}")
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    same = settled_same(host, client, base)
+    client.ok({"cmd": "close_screens"})
+    check(f"{row} {screen}: the original order leaves both machines the same",
+          same, f"host={ids(host, base)} client={ids(client, base)}")
+
+
+def row_training(host, client, screen, key, row):
+    """S8/S9: the client's training screen changes its own soldier's and a host
+    soldier's training flag through the host (SHARED: any soldier)."""
+    def flag(gc, base, sid):
+        return next((s[key] for s in roster(gc, base) if s["id"] == sid), None)
+
+    for base, owner in ((own_base(client, 1), 1), (own_base(client, 0), 0)):
+        sid = ids(host, base, owner)[0]
+        for want in (True, False):
+            client.ok({"cmd": "open_screen", "screen": screen, "base": base})
+            r = client.cmd({"cmd": "roster_screen", "action": "toggle", "soldier_id": sid})
+            got = poll(lambda: (flag(host, base, sid) == want
+                                and flag(client, base, sid) == want) or None, timeout=10)
+            client.ok({"cmd": "close_screens"})
+            check(f"{row} {screen}: the client sets {'its own' if owner else 'a host'} "
+                  f"soldier's training to {want} on both machines",
+                  bool(got) and r.get("ok"),
+                  f"resp={r} host={flag(host, base, sid)} client={flag(client, base, sid)}")
+
+
+def craft_id(gc, base):
+    return next(b for b in gc.ok({"cmd": "geo_state"})["bases"]
+                if b["name"] == base)["crafts"][0]["id"]
+
+
+def row_armor_sort(host, client, base):
+    """S6: the crew armor screen's name sort and original order go through the
+    host, so both machines hold the same order."""
+    before = ids(host, base, 1)
+    assert before == ids(client, base, 1), (before, ids(client, base, 1))
+    client.ok({"cmd": "open_screen", "screen": "craft_armor", "base": base,
+               "craft_id": craft_id(client, base)})
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 2})
+
+    def sorted_on(gc):
+        return [n for n in names(gc, base, 1) if n in RENAMED] == sorted(RENAMED)
+    got = poll(lambda: (sorted_on(host) and ids(host, base) == ids(client, base)) or None,
+               timeout=10)
+    check("S6 craft armor: a name sort reorders both machines the same way",
+          bool(got), f"before={before} host={names(host, base, 1)} client={names(client, base, 1)}")
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    got = poll(lambda: (ids(host, base, 1) == before and ids(client, base, 1) == before) or None,
+               timeout=10)
+    client.ok({"cmd": "close_screens"})
+    check("S6 craft armor: the original order comes back on both machines",
+          bool(got) and ids(host, base) == ids(client, base),
+          f"before={before} host={ids(host, base, 1)} client={ids(client, base, 1)}")
+
+
+def row_crew_original(host, client, base):
+    """S7: the partner sorts its own soldiers while the client's crew screen is
+    open; the client's original order then leaves the partner's order alone."""
+    own = ids(host, base, 0)
+    assert len(own) >= 3, ("premise: three host soldiers", own)
+    host_names = ["Host Zulu", "Host Mike", "Host Alpha"]
+    for sid, name in zip(own, host_names):
+        host.ok({"cmd": "soldier_rename", "soldierId": sid, "name": name})
+    assert poll(lambda: all(n in names(gc, base, 0) for gc in (host, client)
+                            for n in host_names) or None), \
+        ("premise: host renames landed", names(client, base, 0))
+    client.ok({"cmd": "open_screen", "screen": "craft_soldiers", "base": base,
+               "craft_id": craft_id(client, base)})
+    host.ok({"cmd": "open_soldiers", "base": base})
+    host.ok({"cmd": "soldiers_reorder", "action": "sort", "sort": 2})
+    moved = poll(lambda: ([n for n in names(client, base, 0) if n in host_names]
+                          == sorted(host_names) and ids(host, base) == ids(client, base)) or None)
+    host.ok({"cmd": "soldiers_ok"})
+    assert moved, ("premise: the host's sort reached both machines",
+                   names(host, base, 0), names(client, base, 0))
+    client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
+    same = settled_same(host, client, base)
+    client.ok({"cmd": "close_screens"})
+    check("S7 craft crew: the original order leaves both machines with the same roster order",
+          same, f"host={names(host, base, 0)} client={names(client, base, 0)}")
+
+
 def row_transform(host, client, gc, owner, row):
     base = own_base(host, owner)
     sid = ids(host, base, owner)[0]
@@ -174,6 +302,12 @@ def main():
             assert base, ("premise: a base with three client soldiers",
                           client.ok({"cmd": "get_soldiers"})["bases"])
             row_sort(host, client, base)
+            row_training_sort(host, client, base, "training", "S4")
+            row_training_sort(host, client, base, "psi_training", "S5")
+            row_training(host, client, "training", "training", "S8")
+            row_training(host, client, "psi_training", "psiTraining", "S9")
+            row_armor_sort(host, client, base)
+            row_crew_original(host, client, base)
             row_transform(host, client, client, 1, "S2")
             row_transform(host, client, host, 0, "S3")
         finally:

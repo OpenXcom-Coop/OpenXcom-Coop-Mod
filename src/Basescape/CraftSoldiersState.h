@@ -102,6 +102,8 @@ public:
 	std::string harnessUsedText() const;
 	/// Test automation: soldier ids the craft-crew screen displays (own-only in SHARED).
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation: picks sort option @a index through the real handler.
+	void harnessSort(size_t index);
 	/// Test automation (SHARED capacity): numeric shared-craft space, so a test can assert
 	/// both seats agree and the ship is NOT halved. used = combined (all owners aboard),
 	/// available = full max - used, max = the craft's real unit capacity.

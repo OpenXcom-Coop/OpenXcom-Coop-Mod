@@ -108,6 +108,8 @@ private:
 	void sharedBroadcastDogfights();
 	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
 	void sharedReconcileReplicaDogfights();
+	/// REPLICA: delete the UFOs the host no longer lists (marked by the position snapshot).
+	void replicaRemoveDespawnedUfos();
 
 	// PRD-J10 landing broker (HOST only). A craft another seat commanded reached a
 	// landable target: instead of popping ConfirmLandingState here, we ask THAT

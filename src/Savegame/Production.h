@@ -59,8 +59,12 @@ public:
 	/// same crafts instead of minting its own ids. Not saved: a resumed replica
 	/// already holds every craft built before the save.
 	const std::vector<int> &getCoopBuiltCraftIds() const { return _coopBuiltCraftIds; }
+	/// coop: ids of the soldiers this production spawned (spawnedPersonType) in
+	/// this session, in order, so the host can send a replica those soldiers.
+	const std::vector<int> &getCoopSpawnedSoldierIds() const { return _coopSpawnedSoldierIds; }
 private:
 	std::vector<int> _coopBuiltCraftIds;
+	std::vector<int> _coopSpawnedSoldierIds;
 	const RuleManufacture * _rules;
 	int _amount;
 	bool _infinite;

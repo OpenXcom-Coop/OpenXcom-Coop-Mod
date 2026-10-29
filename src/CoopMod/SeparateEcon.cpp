@@ -634,6 +634,33 @@ std::string baseWalletOwner(Game* game, const Base* base)
 	return base->getOwnerPlayerName();
 }
 
+std::vector<Soldier*> spawnedSoldiers(Game* game, Base* base, const std::vector<int>& ids)
+{
+	std::vector<Soldier*> out;
+	if (!game || !base || ids.empty()) return out;
+	for (int id : ids)
+		for (Transfer* t : *base->getTransfers())
+			if (t->getType() == TRANSFER_SOLDIER && t->getSoldier()
+				&& t->getSoldier()->getId() == id)
+			{
+				out.push_back(t->getSoldier());
+				break;
+			}
+	// Separate: the base owner's seat, as for an event's soldiers. Without it
+	// the soldier stays unowned (999) and no player's roster shows it.
+	SavedGame* save = game->getSavedGame();
+	if (save && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+		&& !base->getOwnerPlayerName().empty())
+	{
+		const std::vector<std::string>& players = save->getCoopPlayers();
+		auto seat = std::find(players.begin(), players.end(), base->getOwnerPlayerName());
+		if (seat != players.end())
+			for (Soldier* s : out)
+				s->setOwnerPlayerId((int)(seat - players.begin()));
+	}
+	return out;
+}
+
 bool showBaseNotification(Game* game, const Base* base)
 {
 	if (!game || !base || !game->getCoopMod()
@@ -693,11 +720,13 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	// Player-facing exceptions agreed for a foreign Separate base. Commands in
 	// the second group are host simulation results, never remote player requests.
 	// A visitor may buy, equip/crew with their own soldiers and vehicles, and
-	// sack, rename or re-armor their own soldier stationed there (the validators
-	// check the soldier's owner; armor comes from that base's stores, RU16).
+	// sack, rename, re-armor or train their own soldier stationed there (the
+	// validators check the soldier's owner; armor comes from that base's stores,
+	// RU16; training uses that base's gym and psi lab).
 	// Craft weapon rearm stays with the base owner (RU8).
 	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_assign"
-		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor")
+		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor"
+		|| cmd == "soldier_training")
 		return true;
 	return !remote && isHostSimulationResult(cmd);
 }
@@ -706,6 +735,12 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote,
 	const Json::Value& payload, const Base* base, int seat)
 {
 	if (allowsForeignBaseCommand(cmd, remote)) return true;
+	// By analogy with RU16: a visitor may transform their own soldier stationed
+	// at another player's base. The validator checks the soldier's owner, the
+	// cost comes from the visitor's wallet and the required items from that
+	// base's stores. A dead soldier is not stationed there: it stays refused.
+	if (cmd == "soldier_transform")
+		return !payload.get("dead", false).asBool();
 	// RU17: a visitor may transfer their own soldiers out of another player's
 	// base. Every entry must be one of the requester's soldiers there: items,
 	// crafts, staff and the partner's soldiers stay with the base owner.

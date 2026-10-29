@@ -18,6 +18,7 @@
  */
 #include "GeoscapeEventState.h"
 #include "GeoscapeState.h"
+#include <algorithm>
 #include <map>
 #include "../Basescape/SellState.h"
 #include "../CoopMod/SharedEcon.h"
@@ -255,6 +256,18 @@ void GeoscapeEventState::eventLogic()
 		save->setFunds(save->getFunds() + rule.getFunds());
 	}
 
+	// Separate: a soldier the event spawns belongs to the event's owner (their
+	// seat), as a hire belongs to its purchaser; without it the soldier stays
+	// unowned (999) and no player's roster shows it.
+	int spawnedSoldierOwner = -1;
+	if (_game->getCoopMod()->isSeparateCampaign() && !_ownerPlayerName.empty())
+	{
+		const std::vector<std::string>& players = save->getCoopPlayers();
+		auto seat = std::find(players.begin(), players.end(), _ownerPlayerName);
+		if (seat != players.end())
+			spawnedSoldierOwner = (int)(seat - players.begin());
+	}
+
 	// 3. spawn/transfer persons (soldiers, engineers, scientists, ...)
 	const std::string& spawnedPersonType = rule.getSpawnedPersonType();
 	if (rule.getSpawnedPersons() > 0 && !spawnedPersonType.empty())
@@ -294,6 +307,8 @@ void GeoscapeEventState::eventLogic()
 					{
 						s->genName();
 					}
+					if (spawnedSoldierOwner >= 0)
+						s->setOwnerPlayerId(spawnedSoldierOwner);
 					t->setSoldier(s);
 					hq->getTransfers()->push_back(t);
 				}
@@ -342,6 +357,8 @@ void GeoscapeEventState::eventLogic()
 					// reset what may have been loaded
 					s->genName();
 				}
+				if (spawnedSoldierOwner >= 0)
+					s->setOwnerPlayerId(spawnedSoldierOwner);
 				t->setSoldier(s);
 				hq->getTransfers()->push_back(t);
 			}
