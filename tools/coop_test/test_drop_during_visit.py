@@ -1,24 +1,26 @@
-"""W2-H73 DDV - tools/coop_test/test_drop_during_visit.py: a partner drop while the HOST views the partner's base (L-TR9-2).
+"""test_drop_during_visit.py: a partner drop while the HOST views the partner's base.
 
-In a SEPARATE co-op campaign the host who clicks the partner's base on the globe sees the partner's world as its live world (CoopState 55
-parks the host's own world in memory as "basehost"). When the partner's game drops during that view, the wait window 62 opens over the
-partner's base screen and the live world stays the view: SAVE & QUIT there writes the partner's base as the host's world, and a rejoin +
-RESUME leaves the host on the view under "Save failed (MEMORY)" (995) with no host base on the partner's globe. R-TR9-2 fix (m): the drop
-reloads "basehost" as the base screen's GEOSCAPE does and opens the 62 once the host's own world is back.
-Spec docs rewrite/prompts/w2h73_drop_during_visit.md (f) (QH73-1 .. QH73-5 (a), R-H73-1); pins docs rewrite/w2h73-task0/sa/CONSTANTS.md;
-capture rewrite/ltr9-2-cap.
-Row V (R-m + R-n; boot w2h73_v_*, reload pair w2h73_vr_*): the host's real globe click on the client's base (VISIT), read I, B, client.kill(),
-  READ D at the host's first top 62, the real SAVE & QUIT -> list -> NAME_V by key events -> SAVE GAME, the file, a reload pair. Cells
-  V-pre (GUARD: read I inside the view), V-stack (RED: [GeoscapeState, CoopState] 62), V-world (RED: exactly the own base, FUNDS, S0),
-  V-buttons (GUARD), V-log (RED: UNWIND 1, LGPUSH >= 1, OPEN 1), V-file (RED), V-reload (RED), V-common (GUARD).
-Row P (R-p, C2; boot w2h73_p_*, rejoin w2h73_p_client2): VISIT, B, kill, the 62, a fresh client joins as the recorded name, the host's real
-  RESUME, the host watched every 0.05 s for W_AFTER, the client's geo_state every 0.25 s for the host's marker (W_MARK). Cells P-pre
-  (GUARD), P-no995 (RED), P-home (RED), P-marker (RED), P-client (GUARD).
-Red today: V-stack, V-world, V-log, V-file, V-reload, P-no995, P-home, P-marker FAIL; every other cell PASS. Green (E1-E4): all PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
-row (later cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. Real presses only (globe click, SAVE & QUIT,
-list row, key events, SAVE GAME, OK, RESUME); staging: set_funds FUNDS. Helpers copied (never imported) from the capture's cap.py.
-ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+In a SEPARATE co-op campaign the host who clicks the partner's base on the globe sees the partner's world as its live
+world (CoopState 55 parks the host's own world in memory as "basehost"). If the wait window 62 opened over the
+partner's base screen with the view still the live world, SAVE & QUIT there would write the partner's base as the
+host's world, and a rejoin + RESUME would leave the host on the view under "Save failed (MEMORY)" (995) with no host
+base on the partner's globe. So the drop reloads "basehost" as the base screen's GEOSCAPE does and opens the 62 once
+the host's own world is back.
+Row save_reload (boot drop_visit_save_*, reload pair drop_visit_reload_*): the host's real globe click on the client's
+  base (VISIT), the inside read, the baseline, client.kill(), the drop read at the host's first top 62, the real
+  SAVE & QUIT -> list -> the save name by key events -> SAVE GAME, the file, a reload pair. Cells save_reload-pre
+  (GUARD: the inside read is inside the view), save_reload-stack (FIX: [GeoscapeState, CoopState] 62),
+  save_reload-world (FIX: exactly the own base, FUNDS, S0), save_reload-buttons (GUARD), save_reload-log (FIX: UNWIND
+  1, LGPUSH >= 1, OPEN 1), save_reload-file (FIX), save_reload-reload (FIX), save_reload-common (GUARD).
+Row rejoin_resume (boot drop_visit_rejoin_*, rejoin drop_visit_rejoin_client2): VISIT, the baseline, kill, the 62, a
+  fresh client joins as the recorded name, the host's real RESUME, the host watched every 0.05 s for W_AFTER, the
+  client's geo_state every 0.25 s for the host's marker (W_MARK). Cells rejoin_resume-pre (GUARD), rejoin_resume-no995
+  (FIX), rejoin_resume-home (FIX), rejoin_resume-marker (FIX), rejoin_resume-client (GUARD).
+A build that keeps the view live under the 62 fails every FIX cell; every GUARD cell passes either way.
+One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a
+precondition miss ends its row (later cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE
+line. Real presses only (globe click, SAVE & QUIT, list row, key events, SAVE GAME, OK, RESUME); staging: set_funds
+FUNDS. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_drop_during_visit.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
@@ -33,8 +35,8 @@ from harness import GameClient, make_user_dir  # noqa: E402
 KEY = "49265"
 HOST_POS = (0.90, -0.60)                       # rad; the host base on land, the client's marker clickable
 FUNDS_C = (4111111, 4222222, 4333333)          # FUNDS: the first that differs from the host's and the client's boot funds
-NAMES = {"V": "h73v"}                          # a taken name gets "x" appended
-QUICK, PROBE = "_quick_.asav", "w2h73_probe.sav"
+NAMES = {"save_reload": "visitdrop"}                          # a taken name gets "x" appended
+QUICK, PROBE = "_quick_.asav", "drop_visit_probe.sav"
 WAIT_LIST, STABLE_S, BOOT_S = 1.0, 2.0, 60.0
 W_62, W_UI, W_VISIT, W_SAVE, W_JOIN, W_AFTER, W_MARK = 10.0, 10.0, 60.0, 60.0, 120.0, 10.0, 15.0
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
@@ -44,15 +46,17 @@ NEEDLES = {"UNWIND": "[coop] the partner dropped while the host views its base",
            "OPEN": "[coop] the host's own world is back",
            "LGPUSH": "[coop-ui] push class OpenXcom::LoadGameState",
            "LISTPUSH": "[coop-ui] push class OpenXcom::ListSaveState"}
-CELLS = {"V": ["V-pre", "V-stack", "V-world", "V-buttons", "V-log", "V-file", "V-reload", "V-common"],
-         "P": ["P-pre", "P-no995", "P-home", "P-marker", "P-client"]}
+CELLS = {"save_reload": ["save_reload-pre", "save_reload-stack", "save_reload-world", "save_reload-buttons",
+                         "save_reload-log", "save_reload-file", "save_reload-reload", "save_reload-common"],
+         "rejoin_resume": ["rejoin_resume-pre", "rejoin_resume-no995", "rejoin_resume-home", "rejoin_resume-marker",
+                           "rejoin_resume-client"]}
 T0 = time.time()
 RESULTS = []
 
 class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
-# ----- probes (copied from docs rewrite/ltr9-2-cap/cap.py) -----
+# ----- probes -----
 def now(): return round(time.time() - T0, 2)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def js(v): return json.dumps(v, sort_keys=True, default=str)
@@ -83,7 +87,7 @@ def files(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = [os.path.getsize(p), os.stat(p).st_mtime_ns]
-        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def cpu():
@@ -123,7 +127,7 @@ def read_save(path):
     out["world"] = _world(w) if w else None
     return out
 
-# ----- real presses and the globe picker (cap.py) -----
+# ----- real presses and the globe picker -----
 def real_click(gc, text, timeout=15.0):
     t0, ws = time.time(), []
     while time.time() - t0 < timeout:
@@ -149,7 +153,8 @@ def read_globe(path):
         d = next((d for d in yaml.load_all(fh, Loader=loader) if isinstance(d, dict) and "bases" in d), {})
     return {k: d.get(k) for k in ("globeLon", "globeLat", "globeZoom")}
 def picker(x):
-    """cap.py picker: a quick save + a named probe save (the host's globe view), the window scale from a destination screen's CANCEL"""
+    """a quick save + a named probe save (the host's globe view), the window scale from a destination screen's
+    CANCEL"""
     h = x.host
     qpath, spath = (os.path.join(h.user_dir, "xcom1", f) for f in (QUICK, PROBE))
     tq = time.time()
@@ -223,22 +228,24 @@ def boot(x, tag):
     x.ev.update(HB=x.HB, CB=x.CB, S0=x.S0, SC=x.SC)
     picker(x)
 
-def read_i(x, r, name):
-    """read I (V-pre): host top BasescapeState, insideCoopBase, every live base coopBase, one named CB, funds != FUNDS"""
-    w = r.ev["readI"] = world(x.host)
+def read_inside(x, r, name):
+    """the inside read (save_reload-pre): host top BasescapeState, insideCoopBase, every live base coopBase, one named
+    CB, funds != FUNDS"""
+    w = r.ev["insideRead"] = world(x.host)
     ok = (w["stack"][-1:] == ["BasescapeState"] and w["coop"].get("insideCoopBase") is True and w["bases"]
           and all(b[1] for b in w["bases"]) and [b[0] for b in w["bases"]] == [x.CB] and w["funds"] != x.FUNDS)
-    r.cell(name, ok, "read I: stack %s, inside %s, bases %s, funds %s (want BasescapeState, true, [[%s, true, *]], != %s)"
+    r.cell(name, ok, "inside read: stack %s, inside %s, bases %s, funds %s "
+           "(want BasescapeState, true, [[%s, true, *]], != %s)"
            % (w["stack"], w["coop"].get("insideCoopBase"), w["bases"], w["funds"], x.CB, x.FUNDS))
     if not ok:
-        raise Stop("read I")
+        raise Stop("inside read")
 
 def baseline(x):
     x.n_h, x.crB, x.filesB = len(log(x.host)), crashes(), files(x.host)
     x.cname = coop(x.host).get("clientName")
 
 def drop_62(x):
-    """client.kill(); poll the host every 0.02 s; READ D at its first top CoopState 62"""
+    """client.kill(); poll the host every 0.02 s; the drop read at its first top CoopState 62"""
     h = x.host
     x.client.kill()
     t0, trace, last = time.time(), [], None
@@ -282,7 +289,7 @@ def save_quit(x, name):
         time.sleep(0.3)
         real_click(h, "SAVE GAME", 5)
     else:
-        x.slot = "SWAP list_save_confirm (the injected row click opened no edit)"
+        x.slot = "fallback list_save_confirm (the injected row click opened no edit)"
         q(h, {"cmd": "list_save_confirm", "name": name})
     p = os.path.join(h.user_dir, "xcom1", name + ".sav")
     v, x.mm_s = wait(lambda: not alive(h) or ("MainMenuState" in stack(h) and os.path.exists(p)), W_SAVE, 0.02)
@@ -295,7 +302,7 @@ def shut(gc):
         if alive(gc):
             gc.shutdown(expected_returncodes=RC_OK)
         return gc.proc.poll() if gc and gc.proc else None
-    except Exception as e:  # noqa: BLE001 - a failed shutdown is a value (V-common / P-client)
+    except Exception as e:  # noqa: BLE001 - a failed shutdown is a value (save_reload-common / rejoin_resume-client)
         return short(e, 200)
 
 # ----- rows -----
@@ -330,7 +337,7 @@ def reload_pair(r, src):
     y = SimpleNamespace(host=None, client=None)
     ev = r.ev["reload"] = {}
     try:
-        spawn_pair(y, "w2h73_vr", saves=(src,))
+        spawn_pair(y, "drop_visit_reload", saves=(src,))
         h, c = y.host, y.client
         q(h, {"cmd": "load_save_menu", "file": os.path.basename(src)})
         if not wait(lambda: not alive(h) or "HostMenu" in stack(h), 60, 0.25)[0] or not alive(h):
@@ -354,32 +361,35 @@ def reload_pair(r, src):
     finally:
         ev["rc"] = [shut(y.client), shut(y.host)]
 
-def row_v():
-    r = Row("V")
+def row_save_reload():
+    r = Row("save_reload")
     x = r.x
     try:
         try:
-            boot(x, "w2h73_v")
+            boot(x, "drop_visit_save")
             visit(x)
         except Exception as e:  # noqa: BLE001 - a boot miss
             r.capture(short(e))
-            r.cell("V-pre", False, "boot / VISIT: %s" % short(e))
+            r.cell("save_reload-pre", False, "boot / VISIT: %s" % short(e))
             raise Stop("boot")
         r.ev["visit"] = x.ev_visit
-        read_i(x, r, "V-pre")
+        read_inside(x, r, "save_reload-pre")
         baseline(x)
-        D = r.ev["readD"] = drop_62(x)
+        D = r.ev["dropRead"] = drop_62(x)
         d = D["dlg"] or {}
-        r.cell("V-stack", D["stack"] == ["GeoscapeState", "CoopState"] and d.get("code") == 62,
-               "READ D host stack %s, top code %s at %.3f s (want [GeoscapeState, CoopState], 62)" % (D["stack"], d.get("code"), D["t62"]))
+        r.cell("save_reload-stack", D["stack"] == ["GeoscapeState", "CoopState"] and d.get("code") == 62,
+               "drop read host stack %s, top code %s at %.3f s (want [GeoscapeState, CoopState], 62)"
+               % (D["stack"], d.get("code"), D["t62"]))
         ok, why = own_only(x, D)
-        r.cell("V-world", ok, "READ D: " + why)
-        r.cell("V-buttons", d.get("saveQuitVisible") is True and d.get("abandonVisible") is True and d.get("backVisible") is False,
+        r.cell("save_reload-world", ok, "drop read: " + why)
+        r.cell("save_reload-buttons", d.get("saveQuitVisible") is True and d.get("abandonVisible") is True
+               and d.get("backVisible") is False,
                "SAVE & QUIT %s, ABANDON %s, RESUME %s (want true, true, false)" % (d.get("saveQuitVisible"), d.get("abandonVisible"), d.get("backVisible")))
         n = D["needles"]
-        r.cell("V-log", n["UNWIND"] == 1 and n["LGPUSH"] >= 1 and n["OPEN"] == 1,
-               "host log since B: UNWIND %d, LGPUSH %d, OPEN %d (want 1, >= 1, 1)" % (n["UNWIND"], n["LGPUSH"], n["OPEN"]))
-        name = NAMES["V"]
+        r.cell("save_reload-log", n["UNWIND"] == 1 and n["LGPUSH"] >= 1 and n["OPEN"] == 1,
+               "host log since the baseline: UNWIND %d, LGPUSH %d, OPEN %d (want 1, >= 1, 1)"
+               % (n["UNWIND"], n["LGPUSH"], n["OPEN"]))
+        name = NAMES["save_reload"]
         while os.path.exists(os.path.join(x.host.user_dir, "xcom1", name + ".sav")):
             name += "x"
         p = save_quit(x, name)
@@ -388,17 +398,17 @@ def row_v():
             raise Stop("no %s.sav after SAVE GAME (main menu %s)" % (name, x.mm))
         f = r.ev["file"] = read_save(p)
         fw = f["world"] or {}
-        r.cell("V-file", fw.get("bases") == [[x.HB, x.S0]] and fw.get("funds") == x.FUNDS,
+        r.cell("save_reload-file", fw.get("bases") == [[x.HB, x.S0]] and fw.get("funds") == x.FUNDS,
                "%s.sav world bases %s, funds %s (want [[%s, %s]], %s; no %s)" % (name, fw.get("bases"), fw.get("funds"), x.HB, x.S0, x.FUNDS, x.CB))
-        r.ev["rcV"] = [shut(x.client), shut(x.host)]
+        r.ev["rc_save_reload"] = [shut(x.client), shut(x.host)]
         w = reload_pair(r, p)
         own = [b[0] for b in w["bases"] if not b[1] and not b[2]]
         sol = [b[2] for b in w["soldiers"] if b[0] == x.HB and not b[1]]
-        r.cell("V-reload", own == [x.HB] and sol == [x.S0] and w["funds"] == x.FUNDS,
+        r.cell("save_reload-reload", own == [x.HB] and sol == [x.S0] and w["funds"] == x.FUNDS,
                "reloaded host: own bases %s, soldiers on %s %s, funds %s (want [%s], %s, %s)" % (own, x.HB, sol, w["funds"], x.HB, x.S0, x.FUNDS))
         nc = sorted(crashes() - x.crB)
-        rcs = r.ev["rcV"][1:] + r.ev["reload"]["rc"]
-        r.cell("V-common", x.mm and all(rc in RC_OK for rc in rcs) and not nc,
+        rcs = r.ev["rc_save_reload"][1:] + r.ev["reload"]["rc"]
+        r.cell("save_reload-common", x.mm and all(rc in RC_OK for rc in rcs) and not nc,
                "MainMenuState %s in %s s; host / reload client / reload host exit %s; new crash files %s (want true <= %.0f s, %s, none)"
                % (x.mm, x.mm_s, rcs, nc, W_SAVE, list(RC_OK)))
         r.close("")
@@ -408,28 +418,28 @@ def row_v():
             r.capture(short(e))
         r.close(short(e))
     finally:
-        r.ev.setdefault("rcV", [shut(x.client), shut(x.host)])
+        r.ev.setdefault("rc_save_reload", [shut(x.client), shut(x.host)])
 
-def row_p():
-    r = Row("P")
+def row_rejoin_resume():
+    r = Row("rejoin_resume")
     x = r.x
     c2 = None
     try:
         try:
-            boot(x, "w2h73_p")
+            boot(x, "drop_visit_rejoin")
             visit(x)
         except Exception as e:  # noqa: BLE001 - a boot miss
             r.capture(short(e))
-            r.cell("P-pre", False, "boot / VISIT: %s" % short(e))
+            r.cell("rejoin_resume-pre", False, "boot / VISIT: %s" % short(e))
             raise Stop("boot")
         r.ev["visit"] = x.ev_visit
         baseline(x)
         h = x.host
-        D = r.ev["readD"] = drop_62(x)
+        D = r.ev["dropRead"] = drop_62(x)
         d62 = (D["dlg"] or {}).get("saveQuitVisible") is True
         if not d62:
             d62 = bool(wait(lambda: dlg(h).get("code") == 62 and dlg(h).get("saveQuitVisible"), W_62, 0.02)[0])
-        c2 = x.client = GameClient("client", None, make_user_dir("w2h73_p_client2"))
+        c2 = x.client = GameClient("client", None, make_user_dir("drop_visit_rejoin_client2"))
         c2.spawn()
         c2.connect()
         codes, tj = [], time.time()
@@ -453,10 +463,11 @@ def row_p():
                     tr = time.time() if real_click(h, dlg(h).get("backText") or "RESUME", 5).get("ok") else None
                 time.sleep(0.05)
         r.ev.update(ack=[bool(ack), ack_s], resumeAfterJoin=round(tr - tj, 3) if tr else None)
-        r.cell("P-pre", d62 and bool(ack) and tr is not None, "62 with SAVE & QUIT %s at %.3f s; resumeAck %s in %s s; RESUME clicked %s (want all true)"
+        r.cell("rejoin_resume-pre", d62 and bool(ack) and tr is not None,
+               "62 with SAVE & QUIT %s at %.3f s; resumeAck %s in %s s; RESUME clicked %s (want all true)"
                % (d62, D["t62"], bool(ack), ack_s, tr is not None))
         if tr is None:
-            raise Stop("P-pre")
+            raise Stop("rejoin_resume-pre")
         trace, last, marker, tcl = [], None, None, 0.0
         while True:
             el = time.time() - tr
@@ -475,17 +486,20 @@ def row_p():
             time.sleep(0.05)
         H, C = world(h), world(c2)
         r.ev.update(codes=codes, trace=trace, marker_s=marker, hostAfter=H, clientAfter=C)
-        r.cell("P-no995", 995 not in codes and H["stack"] == ["GeoscapeState"],
+        r.cell("rejoin_resume-no995", 995 not in codes and H["stack"] == ["GeoscapeState"],
                "host top codes from the join %s; stack at RESUME + %.0f s %s (want no 995, [GeoscapeState])" % (codes, W_AFTER, H["stack"]))
         sol = [b[2] for b in H["soldiers"] if b[0] == x.HB and not b[1]]
         home = H["coop"].get("insideCoopBase") is False and [x.HB, False, False] in H["bases"] and sol == [x.S0]
-        r.cell("P-home", home, "insideCoopBase %s, host bases %s, soldiers on %s %s (want false, own [%s, false, false], %s)"
+        r.cell("rejoin_resume-home", home, "insideCoopBase %s, host bases %s, soldiers on %s %s "
+               "(want false, own [%s, false, false], %s)"
                % (H["coop"].get("insideCoopBase"), H["bases"], x.HB, sol, x.HB, x.S0))
-        r.cell("P-marker", marker is not None, "the client's %s marker (coopIcon true) at %s s after the RESUME (want within %.0f s); client bases %s"
+        r.cell("rejoin_resume-marker", marker is not None,
+               "the client's %s marker (coopIcon true) at %s s after the RESUME (want within %.0f s); client bases %s"
                % (x.HB, marker, W_MARK, C["bases"]))
         csol = [b[2] for b in C["soldiers"] if b[0] == x.CB and not b[1]]
         nc = sorted(crashes() - x.crB)
-        r.cell("P-client", [x.CB, False, False] in C["bases"] and csol == [x.SC] and alive(h) and alive(c2) and not nc,
+        r.cell("rejoin_resume-client", [x.CB, False, False] in C["bases"] and csol == [x.SC] and alive(h) and alive(c2)
+               and not nc,
                "client own %s in %s, soldiers %s (want %s); host / client alive %s / %s; new crash files %s"
                % (x.CB, C["bases"], csol, x.SC, alive(h), alive(c2), nc))
         r.close("")
@@ -499,11 +513,13 @@ def row_p():
 
 def main():
     c0 = cpu()
-    print("==== W2-H73 DDV (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    for fn in (row_v, row_p):
+    print("==== test_drop_during_visit (slot %s, key %s, exe %s) CPU %s ===="
+          % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    for fn in (row_save_reload, row_rejoin_resume):
         fn()
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H73 DDV: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
+    print("\n==== test_drop_during_visit: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ===="
+          % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
           flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
