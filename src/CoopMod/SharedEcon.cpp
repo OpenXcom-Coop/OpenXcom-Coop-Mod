@@ -3338,6 +3338,11 @@ int baseIndex(Game* game, const Base* base)
 	return -1;
 }
 
+Base* resolveBaseReference(Game* game, int baseId, int baseKey)
+{
+	return resolveBaseRef(game, baseId, baseKey);
+}
+
 int baseMoveTarget(Game* game, const Base* base)
 {
 	const int from = baseIndex(game, base);

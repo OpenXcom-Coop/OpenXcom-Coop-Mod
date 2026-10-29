@@ -63,12 +63,14 @@ GeoscapeState* geo(Game* game)
 Craft* resolveCraft(Game* game, const Json::Value& obj)
 {
 	if (!game || !game->getSavedGame()) return nullptr;
-	auto* bases = game->getSavedGame()->getBases();
-	int bi = obj.get("baseId", -1).asInt();
-	if (bi < 0 || bi >= static_cast<int>(bases->size())) return nullptr;
+	// The base by its index and key: a base_move can land between the sender
+	// building the message and this machine reading it.
+	Base* base = SharedEcon::resolveBaseReference(game, obj.get("baseId", -1).asInt(),
+		obj.get("baseKey", 0).asInt());
+	if (!base) return nullptr;
 	int id = obj.get("craftId", -1).asInt();
 	std::string type = obj.get("craftType", "").asString();
-	for (Craft* craft : *bases->at(bi)->getCrafts())
+	for (Craft* craft : *base->getCrafts())
 		if (craft->getId() == id && craft->getRules()->getType() == type) return craft;
 	return nullptr;
 }
@@ -78,6 +80,7 @@ Json::Value craftMessage(const char* state, Game* game, Craft* craft)
 	Json::Value msg;
 	msg["state"] = state;
 	msg["baseId"] = findBaseIndex(game, craft ? craft->getBase() : nullptr);
+	msg["baseKey"] = craft && craft->getBase() ? craft->getBase()->_coop_base_id : 0;
 	msg["craftId"] = craft ? craft->getId() : -1;
 	msg["craftType"] = craft ? craft->getRules()->getType() : "";
 	return msg;

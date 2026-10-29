@@ -132,6 +132,11 @@ int lastApplySeat();
 
 /// Index of @a base in SavedGame::getBases() - the SHARED shared base key - or -1.
 int baseIndex(Game* game, const Base* base);
+/// The base a reference (@a baseId = index in the sender's list, @a baseKey = that
+/// base's _coop_base_id) names on this machine: the index while it still names the
+/// keyed base, else the one base holding the key; key 0 = the index alone. A
+/// base_move can reorder the list while a reference is on its way.
+Base* resolveBaseReference(Game* game, int baseId, int baseKey);
 /// Index of the base @a base swaps places with when the mini base strip moves it
 /// one place left (base_move), or -1 when it cannot move. Separate moves it past
 /// the previous base of the same owner; SHARED past the base before it.
