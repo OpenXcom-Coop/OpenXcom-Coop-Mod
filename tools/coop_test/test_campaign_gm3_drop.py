@@ -2,30 +2,29 @@
 while its landing waits and rejoins on the geoscape, the alien host leaves a borrowed battle, and the X-COM player drops during the
 borrowed battle's start.
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, AMENDMENT SC-3 (SC3-3 "Stage S-C3", SC3-5 file B, SC3-6 FX3-1 .. FX3-19) and its
-rulings: QC-13 (a), QC-15 (a), QC3-1 .. QC3-6 (a), R-D250-SC3-1 (FX3-11's last step and the client2 refusal baseline); owner D250, O1 (a);
-TASK 0 pins: docs rewrite/d250u-task0/sc3/CONSTANTS.md (boots Ga, Gb, Ha on the
-unchanged build; d250ucc-red): the H14 variant is `ab`, so F3-role is a red cell.
-
-Boot G: gm3, lobby key 48034, dirs d250uc3_g_host / d250uc3_g_client / d250uc3_g_client2. Boot H (after G): key 48034, dirs
-d250uc3_h_host / d250uc3_h_client. Bring-up in each (FX3-2): PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0; gamemode 3 on
-both, host noBases true and client noBases false are preconditions; geo.slow_clock. A bring-up or staging miss is a setup failure: ONE
-"CAPTURE G:" / "CAPTURE H:" line and every remaining cell of that boot FAILs "boot".
+Boot landing_boot: gm3, lobby key 48034, dirs campaign_gm3_drop_landing_host / _client / _client2. Boot start_boot
+(after landing_boot): key 48034, dirs campaign_gm3_drop_start_host / _client. Bring-up in each:
+PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0; gamemode 3 on both, host noBases true and client noBases
+false are preconditions; geo.slow_clock. A bring-up or staging miss is a setup failure: ONE "CAPTURE landing_boot:" /
+"CAPTURE start_boot:" line and every remaining cell of that boot FAILs "boot".
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; a row whose precondition was never reached
 FAILs each of its cells "blocked: <why>"):
-  F3 (boot G) the X-COM player drops while its landing waits, then rejoins: stage_to_prompt; host open_screen stores; client confirms;
-     host pvpBorrow pending + armed; R0; client.kill(); host dialog 62; P1; the geoscape rejoin (FX3-11 as ruled by R-D250-SC3-1: host
-     geo_clean, client2 without a CoopState / LoadGameState, its top GeoscapeState or its craft's arrival screen); P2; client2's landing
-     (FX3-19, refusals counted from client2's value right after its join_tcp).
-     F3-pending (P1: pending false, requestDropped 1), F3-role (P1 / P2: host gamemode 3, noBases true, funds / real bases == HOST0;
-     P2: client2 gamemode 3, noBases false), F3-land (client2's prompt without a refusal; its confirm borrows once; both in battle;
-     spine), F3-common (desyncSeen false, 0 new crash files, hash EQUAL after the spine when reached).
-  F4 (boot G, on F3-land's battle) the alien host leaves a borrowed battle: host disconnect_to_menu; CR3's recipe on client2.
-     F4-told, F4-menu, F4-common.
-  F6 (boot H) the X-COM player drops during the borrowed start: client hold_battle_ready; client confirms; Handshake; client.kill().
-     F6-unwind, F6-home, F6-common.
-RED (C3R, the unchanged product; TASK 0 boots Ga / Gb / Ha, variant ab): 3/10 - FAIL F3-pending, F3-role, F3-land, F4-told, F4-menu,
-F4-common (blocked), F6-home. GREEN (C3G): 10/10.
+  landing_drop (landing_boot) the X-COM player drops while its landing waits, then rejoins: stage_to_prompt; host
+     open_screen stores; client confirms; host pvpBorrow pending + armed; BORROW0; client.kill(); host dialog 62;
+     at_drop; the geoscape rejoin (host geo_clean, client2 without a CoopState / LoadGameState, its top GeoscapeState
+     or its craft's arrival screen); at_rejoin; client2's landing (refusals counted from client2's value right after
+     its join_tcp).
+     request_ended (at_drop: pending false, requestDropped 1), roles_kept (at_drop / at_rejoin: host gamemode 3,
+     noBases true, funds / real bases == HOST0; at_rejoin: client2 gamemode 3, noBases false), rejoined_landing
+     (client2's prompt without a refusal; its confirm borrows once; both in battle; spine), landing_drop_clean
+     (desyncSeen false, 0 new crash files, hash EQUAL after the spine when reached).
+  host_leaves (landing_boot, on rejoined_landing's battle) the alien host leaves a borrowed battle: host
+     disconnect_to_menu; then client2 must be told "Server connection lost" and reach the main menu, as in
+     test_campaign_rejoin's host-leaves row. client_told, both_at_menu, host_leaves_clean.
+  start_drop (start_boot) the X-COM player drops during the borrowed start: client hold_battle_ready; client confirms;
+     Handshake; client.kill(). start_unwound, host_home, start_drop_clean.
+A build without this drop handling passes 3/10: request_ended, roles_kept (the host reads gamemode 0 and noBases false
+after the drop), rejoined_landing, client_told, both_at_menu and host_home FAIL, and host_leaves_clean is blocked.
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_gm3_drop.py
@@ -50,13 +49,14 @@ import test_campaign_battle_gm3 as G3C1  # noqa: E402
 import test_campaign_battle_gm3_end as G3E  # noqa: E402
 import test_campaign_rejoin as CR  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sc3/CONSTANTS.md, boots Ga / Gb / Ha) -----
+# ----- fixture values -----
 KEY = "48034"
 SEED = 1                                     # set on the X-COM client right before each confirm_landing
-H14_VARIANT = "ab"                           # T0-4: host gamemode 0 and noBases false at every probe after the drop
-SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}   # FX3-4
-POINT = {"F3": (0.35, 0.10), "F6": (0.35, 0.10)}            # FX3-3: X + point (no swap needed, TASK 0)
-CRAFT_AT = {"F3": (0.34, 0.10), "F6": (0.34, 0.10)}         # FX3-5
+ROLE_BUG = "host gamemode 0 and noBases false after the drop"   # what roles_kept catches without the drop handling
+SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}
+# the mission site and the Skyranger's forced position: the X-COM base's (lon, lat) plus these offsets
+POINT = {"landing_drop": (0.35, 0.10), "start_drop": (0.35, 0.10)}
+CRAFT_AT = {"landing_drop": (0.34, 0.10), "start_drop": (0.34, 0.10)}
 SQUAD = 2
 ARRIVAL = ("ConfirmLandingState", "CraftErrorState")        # the screen client2's Skyranger's arrival pushes
 UNWIND = "failed battle start ("
@@ -67,7 +67,7 @@ PENDING_S = 10
 DIALOG62_S = 30
 REJOIN_S = 135
 GEO_S = 60
-PROMPT3_S, PROMPT3_FORCE_S = 60, 30          # FX3-19 (T0-4: client2's craft arrives 0.08 s after RESUME)
+CLIENT2_PROMPT_S, CLIENT2_FORCE_S = 60, 30   # client2's prompt, re-force (its craft arrived 0.08 s after RESUME)
 BOTH_IN_S = 60
 TOLD_S = 120
 HOLD8_S = 8.0
@@ -75,11 +75,12 @@ MENU_S = 60
 HOST_MENU_S = 30
 HANDSHAKE_S = 30
 W_S, W_POLL = 15.0, 0.2
-ROWS = {"F3": ["F3-pending", "F3-role", "F3-land", "F3-common"], "F4": ["F4-told", "F4-menu", "F4-common"],
-        "F6": ["F6-unwind", "F6-home", "F6-common"]}
-BOOT_CELLS = {"G": ROWS["F3"] + ROWS["F4"], "H": ROWS["F6"]}
-ALL_CELLS = BOOT_CELLS["G"] + BOOT_CELLS["H"]
-BOOT = {"tag": "G"}
+ROWS = {"landing_drop": ["request_ended", "roles_kept", "rejoined_landing", "landing_drop_clean"],
+        "host_leaves": ["client_told", "both_at_menu", "host_leaves_clean"],
+        "start_drop": ["start_unwound", "host_home", "start_drop_clean"]}
+BOOT_CELLS = {"landing_boot": ROWS["landing_drop"] + ROWS["host_leaves"], "start_boot": ROWS["start_drop"]}
+ALL_CELLS = BOOT_CELLS["landing_boot"] + BOOT_CELLS["start_boot"]
+BOOT = {"tag": "landing_boot"}
 
 
 class FixtureMiss(Exception):
@@ -149,7 +150,7 @@ def icons(gc):
 
 
 def bview(gc):
-    """battle_state's phase / inBattle / battleId (the W2-H24 C2 recipe: the host during and right after a battle start)."""
+    """phase / inBattle / battleId / peerAbsent from battle_state: the host during and right after a battle start."""
     r = gc.cmd({"cmd": "battle_state"})
     a = r.get("authority") or {}
     return {"phase": r.get("phase"), "inBattle": r.get("inBattle"), "battleId": a.get("battleId"), "peerAbsent": a.get("peerAbsent")}
@@ -171,7 +172,8 @@ def capture_boot(err, *machines):
             with open(os.path.join(gc.user_dir, "openxcom.log"), "rb") as fh:
                 tail = fh.read().decode("utf-8", errors="replace").splitlines()[-40:]
             cap[gc.name] = {"stack": stack(gc), "battle": {k: bs.get(k) for k in ("inBattle", "phase", "side", "turn")} if bs else
-                            "skipped (F10980)", "coop_dialog_info": gc.cmd({"cmd": "coop_dialog_info"}),
+                            "skipped (no BattlescapeState, a battle in the world)", "coop_dialog_info":
+                            gc.cmd({"cmd": "coop_dialog_info"}),
                             "get_coop": gc.cmd({"cmd": "get_coop"}), "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
@@ -180,7 +182,7 @@ def capture_boot(err, *machines):
 
 
 def bring_up(host, client, key, ev):
-    """G3E's bring_up (copied, the key as a parameter, no HOST_SQ0; FX3-2)."""
+    """G3E's bring_up (copied, the key as a parameter, no HOST_SQ0)."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, key, alien_player="host")
@@ -199,7 +201,7 @@ def bring_up(host, client, key, ev):
                "sky": sky and {"type": sky.get("type"), "id": sky.get("id")}, "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0, gamemode=[ch.get("gamemode"), cc.get("gamemode")])
     if not (ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False):
-        capture_boot(f"bring-up preconditions (FX3-2): gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
+        capture_boot(f"bring-up preconditions: gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
                      f"noBases host {ch.get('noBases')!r} client {cc.get('noBases')!r} (want true / false)", host, client)
     if not xb or not sky or len(sids) < SQUAD:
         capture_boot(f"the client has no real base / Skyranger / {SQUAD} soldiers (base {xb and xb.get('name')}, sky {sky}, "
@@ -209,7 +211,7 @@ def bring_up(host, client, key, ev):
 
 
 def stage_to_prompt(row, host, client, xb, client0, ev):
-    """G3E's stage_row up to, not including, set_seed / confirm_landing (FX3-3 .. FX3-7). Returns (site_id, point)."""
+    """G3E's stage_row up to, not including, set_seed / confirm_landing. Returns (site_id, point)."""
     geo.slow_clock(host, client)
     sky = client0["sky"]
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
@@ -218,7 +220,7 @@ def stage_to_prompt(row, host, client, xb, client0, ev):
     sq = [sid for sid in sids if recs[sid].get("where") == "base" and recs[sid].get("recovery") == 0][:SQUAD]
     if len(sq) < SQUAD:
         seen = {s: (recs[s].get("where"), recs[s].get("recovery")) for s in sids}
-        capture_boot(f"{row}: fewer than {SQUAD} client soldiers in base with recovery 0 (FX3-6): {seen}", host, client)
+        capture_boot(f"{row}: fewer than {SQUAD} client soldiers in base with recovery 0: {seen}", host, client)
     asg = [client.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": False}) for sid in sids]
     asg += [client.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": True}) for sid in sq]
     if not all(r.get("ok") for r in asg):
@@ -279,7 +281,7 @@ def wait(pred, timeout, interval=0.25):
 
 
 def rejoin_geoscape(host, x, ev):
-    """FX3-11: client2 joins; the host's 62 shows RESUME; RESUME; close_screens over a StoresState; then the host
+    """client2 joins; the host's 62 shows RESUME; RESUME; close_screens over a StoresState; then the host
     geo_clean and client2 without a CoopState / LoadGameState, its top GeoscapeState or its craft's arrival screen. Returns ref0."""
     host = x["host"]
     c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
@@ -298,11 +300,12 @@ def rejoin_geoscape(host, x, ev):
     ok, secs = wait(ready, REJOIN_S)
     ev.update(profileOk=pok, readyS=secs, afterJoin=dict(host_view(host), client2Gamemode=G3E.coop(c2).get("gamemode")))
     if not ok:
-        capture_boot(f"F3: the host's dialog 62 never showed RESUME within {REJOIN_S} s of client2's join (FX3-11)", host, c2)
+        capture_boot(f"landing_drop: the host's dialog 62 never showed RESUME within {REJOIN_S} s of client2's join",
+                     host, c2)
     try:
         ev["resume"] = session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
     except Exception as e:  # noqa: BLE001
-        capture_boot(f"F3: host RESUME (FX3-11): {str(e)[:300]}", host, c2)
+        capture_boot(f"landing_drop: host RESUME: {str(e)[:300]}", host, c2)
     if "StoresState" in stack(host):
         ev["closeScreens"] = host.cmd({"cmd": "close_screens"})
 
@@ -313,54 +316,55 @@ def rejoin_geoscape(host, x, ev):
     ok, secs = wait(rejoined, GEO_S)
     ev.update(rejoinedS=secs, stacksAfterRejoin=[stack(host), stack(c2)])
     if not ok:
-        capture_boot(f"F3: host geo_clean / client2 on its geoscape (top GeoscapeState or {list(ARRIVAL)}, no CoopState / "
-                     f"LoadGameState) not within {GEO_S} s (FX3-11, R-D250-SC3-1)", host, c2)
+        capture_boot(f"landing_drop: host geo_clean / client2 on its geoscape (top GeoscapeState or {list(ARRIVAL)}, no CoopState / "
+                     f"LoadGameState) not within {GEO_S} s", host, c2)
     return ref0
 
 
-def row_f3(host, client, x, xb, host0, client0, ctx, ev):
+def row_landing_drop(host, client, x, xb, host0, client0, ctx, ev):
     crash0 = crash_set()
     t_row = time.time()
-    _site, point = stage_to_prompt("F3", host, client, xb, client0, ev)
+    _site, point = stage_to_prompt("landing_drop", host, client, xb, client0, ev)
     ev["openScreen"] = host.cmd({"cmd": "open_screen", "screen": "stores"})
     if top(host) != "StoresState":
-        capture_boot(f"F3: host open_screen stores (FX3-8): {ev['openScreen']}, top {top(host)}", host, client)
-    confirm("F3", host, client)
+        capture_boot(f"landing_drop: host open_screen stores: {ev['openScreen']}, top {top(host)}", host, client)
+    confirm("landing_drop", host, client)
     ok, secs = wait(lambda: (lambda p: p.get("pending") is True and (p.get("armed") or 0) >= 1)(pvp(host)), PENDING_S)
     if not ok:
-        capture_boot(f"F3: host pvpBorrow pending + armed not within {PENDING_S} s: {pvp(host)}", host, client)
+        capture_boot(f"landing_drop: host pvpBorrow pending + armed not within {PENDING_S} s: {pvp(host)}",
+                     host, client)
     pv = pvp(host)
     r0 = {"requests": pv.get("requests") or 0, "borrowed": pv.get("borrowed") or 0}
-    ev.update(pendingS=secs, R0=r0)
+    ev.update(pendingS=secs, BORROW0=r0)
     client.kill()
     t_k = time.time()
     probes = {}
     ok, s62 = wait(lambda: top(host) == "CoopState" and dlg(host).get("code") == 62, DIALOG62_S)
     if not ok:
-        capture_boot(f"F3: host dialog 62 not on top within {DIALOG62_S} s of the drop (FX3-9)", host)
+        capture_boot(f"landing_drop: host dialog 62 not on top within {DIALOG62_S} s of the drop", host)
     p1 = host_view(host)
-    for mark in (2.0, 10.0):                    # the T0-4 probe points (EVIDENCE only)
+    for mark in (2.0, 10.0):                    # extra probe points, 2 s and 10 s after the drop (EVIDENCE only)
         time.sleep(max(0.0, mark - (time.time() - t_k)))
         probes[f"{mark:.0f}s"] = host_view(host)
-    ev.update(dialog62S=s62, P1=p1, probes=probes)
+    ev.update(dialog62S=s62, at_drop=p1, probes=probes)
     ref0 = rejoin_geoscape(host, x, ev)
     c2 = x["client2"]
     p2 = dict(host_view(host), client2={k: G3E.coop(c2).get(k) for k in ("gamemode", "noBases")})
-    ev["P2"] = p2
-    time.sleep(10.0)                            # T0-4's "10 s later" probe (EVIDENCE only)
+    ev["at_rejoin"] = p2
+    time.sleep(10.0)                            # a "10 s later" probe (EVIDENCE only)
     ev["after10s"] = dict(host_view(host), client2Stack=stack(c2))
     pend = p1["pvpBorrow"]
-    pbad = [f"P1 host pvpBorrow.pending {pend.get('pending')!r} (want false)"] if pend.get("pending") is not False else []
-    pbad += [f"P1 host pvpBorrow.requestDropped {pend.get('requestDropped')!r} (want 1)"] if pend.get("requestDropped") != 1 else []
-    cell("F3-pending", not pbad, "; ".join(pbad) or "P1: the waiting landing request ended with the drop (pending false, "
+    pbad = [f"at_drop host pvpBorrow.pending {pend.get('pending')!r} (want false)"] if pend.get("pending") is not False else []
+    pbad += [f"at_drop host pvpBorrow.requestDropped {pend.get('requestDropped')!r} (want 1)"] if pend.get("requestDropped") != 1 else []
+    cell("request_ended", not pbad, "; ".join(pbad) or "at_drop: the waiting landing request ended with the drop (pending false, "
          "requestDropped 1)")
     rbad = []
-    for nm, p in (("P1", p1), ("P2", p2)):
+    for nm, p in (("at_drop", p1), ("at_rejoin", p2)):
         rbad += [f"{nm} host {k} {p.get(k)!r} (want {w!r})" for k, w in (("gamemode", 3), ("noBases", True), ("funds", host0["funds"]),
                                                                        ("realBases", host0["realBases"])) if p.get(k) != w]
-    rbad += [f"P2 client2 {k} {p2['client2'].get(k)!r} (want {w!r})" for k, w in (("gamemode", 3), ("noBases", False))
-             if p2["client2"].get(k) != w]
-    cell("F3-role", not rbad, "; ".join(rbad) or "P1 / P2: host gamemode 3, noBases true, funds and real bases == HOST0; client2 "
+    rbad += [f"at_rejoin client2 {k} {p2['client2'].get(k)!r} (want {w!r})"
+             for k, w in (("gamemode", 3), ("noBases", False)) if p2["client2"].get(k) != w]
+    cell("roles_kept", not rbad, "; ".join(rbad) or "at_drop / at_rejoin: host gamemode 3, noBases true, funds and real bases == HOST0; client2 "
          "gamemode 3, noBases false")
     how, t_l = {}, time.time()
 
@@ -376,28 +380,29 @@ def row_f3(host, client, x, xb, host0, client0, ctx, ev):
             geo.drain_popups(gc, interest=geo.popup("ConfirmLandingState"))
             gc.cmd({"cmd": "geo_set_speed", "idx": 2})
         return None
-    ok, _s = wait(landing, PROMPT3_FORCE_S)
+    ok, _s = wait(landing, CLIENT2_FORCE_S)
     if not ok:
         mir = mirror(c2, point)
-        ev["forced"] = {"mirror": mir and mir.get("id"), "reply": force(c2, xb, client0, "F3", mir) if mir else None}
-        ok, _s = wait(landing, PROMPT3_S - PROMPT3_FORCE_S)
+        ev["forced"] = {"mirror": mir and mir.get("id"),
+                        "reply": force(c2, xb, client0, "landing_drop", mir) if mir else None}
+        ok, _s = wait(landing, CLIENT2_PROMPT_S - CLIENT2_FORCE_S)
     ev.update(landing=how.get("v"), landingS=round(time.time() - t_l, 2))
     lbad, spine = [], False
     if how.get("v") != "prompt":
-        lbad.append(f"no ConfirmLandingState on client2 within {PROMPT3_S} s ({how.get('v') or 'no prompt, no refusal'}; stack "
+        lbad.append(f"no ConfirmLandingState on client2 within {CLIENT2_PROMPT_S} s ({how.get('v') or 'no prompt, no refusal'}; stack "
                     f"{stack(c2)})")
     else:
         pre = pvp(host)
         ref1 = event_state(c2).get("coopClientBattleRefused")
         lbad += [f"client2 coopClientBattleRefused {ref1!r} (want unchanged {ref0!r})"] if ref1 != ref0 else []
-        lbad += [f"host pvpBorrow.borrowed {pre.get('borrowed')!r} before client2's confirm (want R0 {r0['borrowed']})"] \
+        lbad += [f"host pvpBorrow.borrowed {pre.get('borrowed')!r} before client2's confirm (want BORROW0 {r0['borrowed']})"] \
             if (pre.get("borrowed") or 0) != r0["borrowed"] else []
-        confirm("F3 client2", host, c2)
+        confirm("landing_drop client2", host, c2)
         both, bs = wait(lambda: G3C1.in_battle(host) and G3C1.in_battle(c2), BOTH_IN_S)
         post = pvp(host)
         ev.update(pvpBeforeConfirm=pre, pvpAfterConfirm=post, bothInS=bs)
-        lbad += [f"host pvpBorrow.{k} {post.get(k)!r} (want R0 + 1 = {r0[k] + 1})" for k in ("requests", "borrowed")
-                 if (post.get(k) or 0) != r0[k] + 1]
+        lbad += [f"host pvpBorrow.{k} {post.get(k)!r} (want BORROW0 + 1 = {r0[k] + 1})"
+                 for k in ("requests", "borrowed") if (post.get(k) or 0) != r0[k] + 1]
         lbad += [f"host pvpBorrow.targetKind {post.get('targetKind')!r} (want 'site')"] if post.get("targetKind") != "site" else []
         if not both:
             lbad.append(f"inBattle host/client2 {[G3C1.in_battle(host), G3C1.in_battle(c2)]} {bs} s after the confirm")
@@ -407,8 +412,8 @@ def row_f3(host, client, x, xb, host0, client0, ctx, ev):
                 spine = True
             except Exception as e:  # noqa: BLE001
                 lbad.append(f"session.briefings_to_battlescape raised: {str(e)[:300]}")
-    cell("F3-land", not lbad, "; ".join(lbad) or f"client2's prompt without a refusal; its confirm borrowed once (requests / borrowed "
-         f"R0 + 1, site); both inBattle; spine passed")
+    cell("rejoined_landing", not lbad, "; ".join(lbad) or f"client2's prompt without a refusal; its confirm borrowed once (requests / borrowed "
+         f"BORROW0 + 1, site); both inBattle; spine passed")
     eh, ec = event_state(host), event_state(c2)
     new = sorted(crash_set() - crash0)
     cbad = [f"desyncSeen host {eh.get('desyncSeen')!r} client2 {ec.get('desyncSeen')!r} (want false on both)"] \
@@ -419,17 +424,17 @@ def row_f3(host, client, x, xb, host0, client0, ctx, ev):
             session.assert_hash_clean(host, c2, full=True)
         except Exception as e:  # noqa: BLE001
             cbad.append(f"hash_now full: {str(e)[:400]}")
-    cell("F3-common", not cbad, "; ".join(cbad) or "desyncSeen false on host and client2, 0 new crash files"
+    cell("landing_drop_clean", not cbad, "; ".join(cbad) or "desyncSeen false on host and client2, 0 new crash files"
          + (", hash_now full EQUAL after the spine" if spine else " (no spine: no hash)"))
     ev.update(client2Stack=stack(c2), wall=round(time.time() - t_row, 1))
     ctx["battle"] = c2 if spine else None
 
 
-def row_f4(host, ctx, ev):
-    names = ROWS["F4"]
+def row_host_leaves(host, ctx, ev):
+    names = ROWS["host_leaves"]
     c2 = ctx.get("battle")
     if c2 is None:
-        block(names, "no borrowed battle after the rejoin (F3-land)")
+        block(names, "no borrowed battle after the rejoin (rejoined_landing)")
         return
     crash0 = crash_set()
     t_row = time.time()
@@ -452,7 +457,7 @@ def row_f4(host, ctx, ev):
         st8 = stack(c2)
         tbad += [f"client2 stack {st8} {HOLD8_S:.0f} s later (want top CoopState)"] if st8[-1:] != ["CoopState"] else []
         ev["stack8s"] = st8
-    cell("F4-told", not tbad, "; ".join(tbad) or f"client2 told 'Server connection lost' ({secs} s), backVisible, top CoopState, "
+    cell("client_told", not tbad, "; ".join(tbad) or f"client2 told 'Server connection lost' ({secs} s), backVisible, top CoopState, "
          f"still CoopState {HOLD8_S:.0f} s later")
     mbad = []
     if ok:
@@ -464,13 +469,13 @@ def row_f4(host, ctx, ev):
                                                    f"{MENU_S} s)"]
         mbad += [f"client2 world_state.has_save {ws.get('has_save')!r} (want false)"] if ws.get("has_save") is not False else []
     else:
-        mbad.append("client2 was never told (F4-told)")
+        mbad.append("client2 was never told (client_told)")
     hok, hs = wait(lambda: top(host) == "MainMenuState", HOST_MENU_S)
     hp, hco = pvp(host), G3E.coop(host)
     mbad += [] if hok else [f"host stack {stack(host)} (want top MainMenuState)"]
     mbad += [f"host pvpBorrow.{k} {hp.get(k)!r} (want {w!r})" for k, w in (("active", False), ("dropped", 1)) if hp.get(k) != w]
-    mbad += [f"host noBases {hco.get('noBases')!r} (want false, F15326)"] if hco.get("noBases") is not False else []
-    cell("F4-menu", not mbad, "; ".join(mbad) or "client2 MainMenuState without a save; host MainMenuState, pvpBorrow active false / "
+    mbad += [f"host noBases {hco.get('noBases')!r} (want false)"] if hco.get("noBases") is not False else []
+    cell("both_at_menu", not mbad, "; ".join(mbad) or "client2 MainMenuState without a save; host MainMenuState, pvpBorrow active false / "
          "dropped 1, noBases false")
     new = sorted(crash_set() - crash0)
     try:
@@ -479,26 +484,26 @@ def row_f4(host, ctx, ev):
         zd = str(e)[:300]
     fbad = [f"{len(new)} new crash file(s) since the row's start (first {os.path.basename(new[0])})"] if new else []
     fbad += [] if zd == "clean" else [f"client2 zero-disk: {zd}"]
-    cell("F4-common", not fbad, "; ".join(fbad) or "0 new crash files, client2 zero-disk")
+    cell("host_leaves_clean", not fbad, "; ".join(fbad) or "0 new crash files, client2 zero-disk")
     ev.update(hostPv=hp, hostMenuS=hs, wall=round(time.time() - t_row, 1))
 
 
-def row_f6(host, client, xb, host0, client0, ev):
+def row_start_drop(host, client, xb, host0, client0, ev):
     crash0 = crash_set()
     t_row = time.time()
-    stage_to_prompt("F6", host, client, xb, client0, ev)
+    stage_to_prompt("start_drop", host, client, xb, client0, ev)
     ev["ICON0"] = icons(host)
     hold = client.cmd({"cmd": "hold_battle_ready", "on": True})
     if hold.get("armed") is not True:
-        capture_boot(f"F6: client hold_battle_ready {hold}", host, client)
-    confirm("F6", host, client)
+        capture_boot(f"start_drop: client hold_battle_ready {hold}", host, client)
+    confirm("start_drop", host, client)
 
     def handshake():
         return pvp(host).get("borrowed") == 1 and bview(host).get("phase") == "Handshake" \
             and client.cmd({"cmd": "hold_battle_ready"}).get("held") is True
     ok, secs = wait(handshake, HANDSHAKE_S, 0.2)
     if not ok:
-        capture_boot(f"F6: host borrowed 1 + phase Handshake + client held not within {HANDSHAKE_S} s ({pvp(host)}, {bview(host)})",
+        capture_boot(f"start_drop: host borrowed 1 + phase Handshake + client held not within {HANDSHAKE_S} s ({pvp(host)}, {bview(host)})",
                      host, client)
     n_h = len(logl(host))
     client.kill()
@@ -519,7 +524,7 @@ def row_f6(host, client, xb, host0, client0, ev):
     ubad += [f"host stack {hst} holds a battle screen"] if "BriefingState" in hst or "BattlescapeState" in hst else []
     ubad += [f"host top {hst[-1:]} dialog {hd.get('code')} (want dialog 62 on top)"] if hst[-1:] != ["CoopState"] or hd.get("code") != 62 \
         else []
-    cell("F6-unwind", not ubad, "; ".join(ubad) or f"host UNWIND +1 ({why[0] if why else '?'}); inBattle false; no battle screen; "
+    cell("start_unwound", not ubad, "; ".join(ubad) or f"host UNWIND +1 ({why[0] if why else '?'}); inBattle false; no battle screen; "
          f"dialog 62 on top")
     hbad = [f"host stack {hst} (want it to end [GeoscapeState, CoopState])"] if hst[-2:] != ["GeoscapeState", "CoopState"] else []
     hbad += [f"host pvpBorrow.active {hp.get('active')!r} (want false)"] if hp.get("active") is not False else []
@@ -529,13 +534,13 @@ def row_f6(host, client, xb, host0, client0, ev):
     hbad += [f"host {k} {v!r} (want {w!r})" for k, v, w in (("noBases", hco.get("noBases"), True), ("gamemode", hco.get("gamemode"), 3),
                                                            ("funds", hg.get("funds"), host0["funds"]),
                                                            ("realBases", G3E.real_bases(hg), host0["realBases"])) if v != w]
-    cell("F6-home", not hbad, "; ".join(hbad) or "host on its own world: [GeoscapeState, CoopState], active false, swappedBack 1, no "
+    cell("host_home", not hbad, "; ".join(hbad) or "host on its own world: [GeoscapeState, CoopState], active false, swappedBack 1, no "
          "refusal sent, noBases true, gamemode 3, funds and real bases == HOST0")
     new = sorted(crash_set() - crash0)
     ds = event_state(host).get("desyncSeen")
     fbad = [f"{len(new)} new crash file(s) since the row's start (first {os.path.basename(new[0])})"] if new else []
     fbad += [f"host desyncSeen {ds!r} (want false)"] if ds is not False else []
-    cell("F6-common", not fbad, "; ".join(fbad) or "0 new crash files, host desyncSeen false")
+    cell("start_drop_clean", not fbad, "; ".join(fbad) or "0 new crash files, host desyncSeen false")
     ev.update(handshakeS=secs, lossPath=first, stacks=polls, UNWIND=unw, hostPv=hp, iconsAfter=icons(host),
               hostGeo={"funds": hg.get("funds"), "realBases": G3E.real_bases(hg)}, wall=round(time.time() - t_row, 1))
 
@@ -581,11 +586,14 @@ def run_boot(tag, label, rows):
 
 def main():
     t0 = time.time()
-    run_boot("d250uc3_g", "G", (("F3", row_f3),
-                                ("F4", lambda h, c, x, xb, h0, c0, ctx, ev: row_f4(h, ctx, ev))))
-    run_boot("d250uc3_h", "H", (("F6", lambda h, c, x, xb, h0, c0, ctx, ev: row_f6(h, c, xb, h0, c0, ev)),))
+    run_boot("campaign_gm3_drop_landing", "landing_boot",
+             (("landing_drop", row_landing_drop),
+              ("host_leaves", lambda h, c, x, xb, h0, c0, ctx, ev: row_host_leaves(h, ctx, ev))))
+    run_boot("campaign_gm3_drop_start", "start_boot",
+             (("start_drop", lambda h, c, x, xb, h0, c0, ctx, ev: row_start_drop(h, c, xb, h0, c0, ev)),))
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-C3 gm3 drops (variant {H14_VARIANT}): {len(RESULTS) - len(fails)}/{len(ALL_CELLS)} cells PASS, "
+    print(f"\n==== test_campaign_gm3_drop (roles_kept guards against {ROLE_BUG}): "
+          f"{len(RESULTS) - len(fails)}/{len(ALL_CELLS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
