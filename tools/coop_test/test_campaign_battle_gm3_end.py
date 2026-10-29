@@ -3,46 +3,44 @@ gm3 campaign a won, an aborted and a lost battle each end with both debriefings;
 results (missions, deaths, the craft's fate), the X-COM player's page 3 is live and the alien host's hidden, and the alien host is
 back in its exact parked world with the battle's mission site gone from both globes.
 
-Spec: docs rewrite/prompts/d250u_pvp_campaigns_sc.md, (d) "Stage S-C2" and (f) "test_campaign_battle_gm3_end.py" AS AMENDED by
-AMENDMENT SC-2 (SC2-6 test text, SC2-7 fixture rules FX2-1 .. FX2-13) and its ORCHESTRATOR RULINGS (QC2-A-1 (a): D1-alien compares
-pvpBorrow.home with pvpBorrow.parked; QC2-A-2 (a)); owner D250, O1 (a); D154, D155, D180, D181, D231; QC-9, QC-10, QC-11, QC-17 (a).
-TASK 0 pins: docs rewrite/d250u-task0/sc2/CONSTANTS.md (first dispatch d250ucb-red: bring-up, HOST0 / CLIENT0, HOST_SQ0 and every FX2
-value; RE-DISPATCH d250ucb-red2 on the W2-H37 base: TITLE_WIN / TITLE_ABORT / TITLE_LOSS and the debriefing values, each 2/2).
+The pinned values below (SEED, the debriefing titles in TITLE, the row points and craft offsets) were each measured on
+two boots; MAP_FP is EVIDENCE only.
 
-Boot D: gm3, lobby key 48013, dirs d250uc2_d_host / d250uc2_d_client. Bring-up: PF.start_pvp_campaign(alien_player="host"); HOST0 /
-CLIENT0; HOST_SQ0 (the host's soldier_record for every CLIENT0 soldier id); geo.slow_clock. gamemode 3 on both, host noBases true and
-client noBases false are bring-up preconditions (FX2-2). A bring-up, staging, entry or row-action miss is a setup failure: ONE
-"CAPTURE D:" line (both stacks, battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every
+The boot: gm3, lobby key 48013, user dirs campaign_battle_gm3_end_host / campaign_battle_gm3_end_client. Bring-up:
+PF.start_pvp_campaign(alien_player="host"); HOST0 / CLIENT0; HOST_SQ0 (the host's soldier_record for every CLIENT0
+soldier id); geo.slow_clock. gamemode 3 on both, host noBases true and client noBases false are bring-up
+preconditions. A bring-up, staging, entry or row-action miss is a setup failure: ONE "CAPTURE boot:" line (both
+stacks, battle_state phase / side / turn, coop_dialog_info, get_coop, the last 40 engine log lines) and every
 remaining cell FAILs "boot".
-Each row stages (FX2-3 .. FX2-7): a fresh host-real mission site at X + the row's point (X = the client's XcomBase), its mirror on the
-client, the squad SQ (the two lowest-id client soldiers in its base with recovery 0, re-seated each row), the client's Skyranger forced
-out to the mirror, the landing prompt (both drained, speed idx 2), client set_seed SEED then confirm_landing, both inBattle,
-session.briefings_to_battlescape, the hash.
+Each row stages: a fresh host-real mission site at X + the row's point (X = the client's XcomBase), its mirror on the
+client, the squad SQ (the two lowest-id client soldiers in its base with recovery 0, re-seated each row), the client's
+Skyranger forced out to the mirror, the landing prompt (both drained, speed idx 2), client set_seed SEED then
+confirm_landing, both inBattle, session.briefings_to_battlescape, the hash.
 Rows and cells (one PASS / FAIL line per cell, one EVIDENCE line and one ROW line per row; every row runs after a failure unless its
 precondition was never reached, then each of its cells FAILs "blocked: <why>"):
-  D1 X-COM wins (host kill_unit_real every live alien; client END TURN; the host's DebriefingState):
-     D1-host, D1-client, D1-page3, D1-return, D1-alien, D1-site, D1-common.
-  D2 abort (client ABORT, its AbortMissionState OK, the alien host's YES on the vote; the host's DebriefingState):
-     D2-host, D2-client, D2-alien, D2-site, D2-return, D2-common.
-  D3 X-COM loses (client END TURN; host kill_unit_real every live X-COM unit; host END TURN if needed; the host's DebriefingState):
-     D3-host, D3-client, D3-alien, D3-site, D3-return, D3-common.
+  win, X-COM wins (host kill_unit_real every live alien; client END TURN; the host's DebriefingState):
+     win-host, win-client, win-page3, win-return, win-alien, win-site, win-common.
+  abort (client ABORT, its AbortMissionState OK, the alien host's YES on the vote; the host's DebriefingState):
+     abort-host, abort-client, abort-alien, abort-site, abort-return, abort-common.
+  loss, X-COM loses (client END TURN; host kill_unit_real every live X-COM unit; host END TURN if needed; the host's
+     DebriefingState): loss-host, loss-client, loss-alien, loss-site, loss-return, loss-common.
   <row>-host: host DebriefingState <= 60 s, the row's title, displayOnly false; on page 3 Sell and Transfer hidden.
   <row>-client: the client's display-only DebriefingState <= 20 s; BES.debrief_view equal on BES.DEBRIEF_FIELDS.
-  D1-page3: the client's battleEnd.worldAdopted 1 <= 30 s; on page 3 the client's Sell shown.
-  <row>-return: the client's OK first -> geo_clean <= 10 s. D1: debriefOkBranch "campaign-client-borrowed", every SQ soldier in its
-     base with missions + 1, the Skyranger returning or at base, noBases false. D2: every SQ soldier in its base, the Skyranger
-     returning or at base. D3: every SQ soldier dead, the Skyranger gone, the host's records for the SQ ids == HOST_SQ0's.
-  <row>-alien: the host's OK -> geo_clean <= 60 s; host noBases true, funds and real bases == HOST0's, pvpBorrow.active false,
-     pvpBorrow.home == pvpBorrow.parked (QC2-A-1 (a); the live ids / daysPassed / monthsPassed are EVIDENCE).
-  <row>-site: the host-real site gone from the host's globe and its mirror from the client's <= 10 s; pvpBorrow.fate {kind "site",
-     action "deleted"}.
-  <row>-common: event_state.desyncSeen false on both, 0 new crash files in the row, assert_hash_clean(full=True) EQUAL before the
-     row's action.
-"Returning" = status STR_OUT with the craft's own base as its destination (TestServer destKind "base"; the engine has no STR_RETURNING
-status); "at base" = STR_READY, STR_REFUELLING, STR_REARMING or STR_REPAIRS (SC2-6 item 3; CONSTANTS.md RE-DISPATCH).
-RED (C2R on S-C1's green, base 58a185218 with W2-H37): 2/19 cells PASS (D1-client, D1-common); D1-host (the host's Sell shown),
-D1-page3, D1-return, D1-alien, D1-site FAIL; the 12 D2 / D3 cells FAIL "blocked: the alien host never went home (D1-alien)".
-GREEN (C2G): 19/19.
+  win-page3: the client's battleEnd.worldAdopted 1 <= 30 s; on page 3 the client's Sell shown.
+  <row>-return: the client's OK first -> geo_clean <= 10 s. win: debriefOkBranch "campaign-client-borrowed", every SQ
+     soldier in its base with missions + 1, the Skyranger returning or at base, noBases false. abort: every SQ soldier
+     in its base, the Skyranger returning or at base. loss: every SQ soldier dead, the Skyranger gone, the host's
+     records for the SQ ids == HOST_SQ0's.
+  <row>-alien: the host's OK -> geo_clean <= 60 s; host noBases true, funds and real bases == HOST0's, pvpBorrow.active
+     false, pvpBorrow.home == pvpBorrow.parked (the live ids / daysPassed / monthsPassed are EVIDENCE).
+  <row>-site: the host-real site gone from the host's globe and its mirror from the client's <= 10 s; pvpBorrow.fate
+     {kind "site", action "deleted"}.
+  <row>-common: event_state.desyncSeen false on both, 0 new crash files in the row, assert_hash_clean(full=True) EQUAL
+     before the row's action.
+"Returning" = status STR_OUT with the craft's own base as its destination (TestServer destKind "base"; the engine has no
+STR_RETURNING status); "at base" = STR_READY, STR_REFUELLING, STR_REARMING or STR_REPAIRS.
+A failure looks like this: win-client and win-common PASS; win-host (the host's Sell shown), win-page3, win-return,
+win-alien and win-site FAIL; the 12 abort / loss cells FAIL "blocked: the alien host never went home (win-alien)".
 
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_campaign_battle_gm3_end.py
@@ -66,17 +64,17 @@ import repro_atom_side_begin as RSB  # noqa: E402
 import test_campaign_battle_gm2 as G2F  # noqa: E402
 import test_shared_page3 as P3  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/d250u-task0/sc2/CONSTANTS.md; boots w / a / l / w2 and the RE-DISPATCH six, 2/2 each) -----
+# ----- pinned values, each measured on two boots -----
 KEY = "48013"
 SEED = 1                                     # set on the X-COM CLIENT right before each confirm_landing
-TITLE = {"D1": "Aliens defeated", "D2": "Terror continues", "D3": "Craft is lost"}   # TITLE_WIN / TITLE_ABORT / TITLE_LOSS
-MAP_FP = {"D1": 5.996615470105667e+18, "D2": -4.990271614617468e+18, "D3": -4.990271614617468e+18}   # EVIDENCE (STOP-IF 13)
-SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}   # FX2-4
-POINT = {"D1": (0.35, 0.10), "D2": (-0.35, 0.10), "D3": (0.10, 0.35)}          # FX2-3: X + point
-CRAFT_AT = {"D1": (0.34, 0.10), "D2": (-0.34, 0.10), "D3": (0.09, 0.35)}       # FX2-5: 0.01 rad short in longitude, toward X
+TITLE = {"win": "Aliens defeated", "abort": "Terror continues", "loss": "Craft is lost"}   # TITLE_WIN / TITLE_ABORT / TITLE_LOSS
+MAP_FP = {"win": 5.996615470105667e+18, "abort": -4.990271614617468e+18, "loss": -4.990271614617468e+18}  # EVIDENCE
+SITE = {"mission": "STR_ALIEN_RESEARCH", "deployment": "STR_MEDIUM_SCOUT", "race": "STR_SECTOID", "hours": 240}
+POINT = {"win": (0.35, 0.10), "abort": (-0.35, 0.10), "loss": (0.10, 0.35)}     # the row's site: X + point
+CRAFT_AT = {"win": (0.34, 0.10), "abort": (-0.34, 0.10), "loss": (0.09, 0.35)}  # 0.01 rad short in longitude, toward X
 SQUAD = 2
-AT_BASE = ("STR_READY", "STR_REFUELLING", "STR_REARMING", "STR_REPAIRS")       # SC2-6 item 3
-REC4 = ("where", "baseIndex", "name", "dead")                                  # SC2-6 item 2 (HOST_SQ0)
+AT_BASE = ("STR_READY", "STR_REFUELLING", "STR_REARMING", "STR_REPAIRS")        # the statuses of a craft at its base
+REC4 = ("where", "baseIndex", "name", "dead")                                   # soldier_record fields vs HOST_SQ0
 # ----- bounds -----
 MIRROR_S = 30
 LANDING_S = 180
@@ -89,10 +87,10 @@ OK_S = 10
 HOST_OK_S = 60
 SITE_S = 10
 STEP_S = 60
-ROWS = {"D1": ["D1-host", "D1-client", "D1-page3", "D1-return", "D1-alien", "D1-site", "D1-common"],
-        "D2": ["D2-host", "D2-client", "D2-alien", "D2-site", "D2-return", "D2-common"],
-        "D3": ["D3-host", "D3-client", "D3-alien", "D3-site", "D3-return", "D3-common"]}
-ALL_CELLS = ROWS["D1"] + ROWS["D2"] + ROWS["D3"]
+ROWS = {"win": ["win-host", "win-client", "win-page3", "win-return", "win-alien", "win-site", "win-common"],
+        "abort": ["abort-host", "abort-client", "abort-alien", "abort-site", "abort-return", "abort-common"],
+        "loss": ["loss-host", "loss-client", "loss-alien", "loss-site", "loss-return", "loss-common"]}
+ALL_CELLS = ROWS["win"] + ROWS["abort"] + ROWS["loss"]
 
 
 class FixtureMiss(Exception):
@@ -201,12 +199,12 @@ def capture_boot(err, host, client):
                             "log_tail": tail}
         except Exception as e:  # noqa: BLE001
             cap[gc.name] = f"probe failed: {e!r}"[:300]
-    print(f"CAPTURE D: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
+    print(f"CAPTURE boot: (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
     raise FixtureMiss(err)
 
 
 def bring_up(host, client, ev):
-    """Spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0 / HOST_SQ0, geo.slow_clock (FX2-2)."""
+    """Spawn, the gm3 campaign (the HOST on the Alien team), HOST0 / CLIENT0 / HOST_SQ0, geo.slow_clock."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, KEY, alien_player="host")
@@ -225,7 +223,7 @@ def bring_up(host, client, ev):
                "sky": sky and {"type": sky.get("type"), "id": sky.get("id")}, "soldiers": sids}
     ev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0, gamemode=[ch.get("gamemode"), cc.get("gamemode")])
     if not (ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False):
-        capture_boot(f"bring-up preconditions (FX2-2): gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
+        capture_boot(f"bring-up preconditions: gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
                      f"noBases host {ch.get('noBases')!r} client {cc.get('noBases')!r} (want true / false)", host, client)
     if not xb or not sky or len(sids) < SQUAD:
         capture_boot(f"the client has no real base / Skyranger / {SQUAD} soldiers (base {xb and xb.get('name')}, sky {sky}, "
@@ -237,8 +235,8 @@ def bring_up(host, client, ev):
 
 
 def stage_row(row, host, client, xb, client0, ev):
-    """FX2-3 .. FX2-7: SQ, the host site and its mirror, craft_force, the landing prompt, set_seed + confirm, both inBattle, the
-    spine. Returns (site_id, point, sq, missions0). A miss = setup failure."""
+    """Stages the row: SQ, the host site and its mirror, craft_force, the landing prompt, set_seed + confirm, both
+    inBattle, the spine. Returns (site_id, point, sq, missions0). A miss = setup failure."""
     geo.slow_clock(host, client)
     sky = client0["sky"]
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
@@ -247,7 +245,7 @@ def stage_row(row, host, client, xb, client0, ev):
     sq = [sid for sid in sids if recs[sid].get("where") == "base" and recs[sid].get("recovery") == 0][:SQUAD]
     if len(sq) < SQUAD:
         seen = {s: (recs[s].get("where"), recs[s].get("recovery")) for s in sids}
-        capture_boot(f"{row}: fewer than {SQUAD} client soldiers in base with recovery 0 (FX2-6): {seen}", host, client)
+        capture_boot(f"{row}: fewer than {SQUAD} client soldiers in base with recovery 0: {seen}", host, client)
     asg = [client.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": False}) for sid in sids]
     asg += [client.cmd({"cmd": "craft_assign", "craft_id": sky["id"], "soldier_id": sid, "on": True}) for sid in sq]
     if not all(r.get("ok") for r in asg):
@@ -309,34 +307,35 @@ def stage_row(row, host, client, xb, client0, ev):
 
 
 def act(row, host, client, ev):
-    """The row's end: FX2-8 (D1 win), FX2-9 (D2 abort), FX2-10 (D3 loss). A step miss = setup failure."""
+    """The row's end: win (every live alien killed), abort (the client's ABORT and the alien host's YES), loss (every
+    live X-COM unit killed). A step miss = setup failure."""
     a = {}
     ev["action"] = a
-    if row == "D1":
+    if row == "win":
         G2F.kill_all(host, client, 1, a, "kills")
         if "DebriefingState" not in stack(host):
             a["endTurn"] = client.cmd({"cmd": "battle_action", "action": "end_turn_button"})
             a["closeNext"] = BES.close_host_nextturn(host)
-    elif row == "D2":
+    elif row == "abort":
         a["abort"] = client.cmd({"cmd": "battle_action", "action": "abort"})
         ok, secs = BES.wait_until(lambda: (stack(client) or [None])[-1] == "AbortMissionState", ABORT_S)
         a["abortStateS"] = secs
         if not ok:
-            capture_boot(f"D2: no client AbortMissionState within {ABORT_S} s (stack {stack(client)})", host, client)
+            capture_boot(f"abort: no client AbortMissionState within {ABORT_S} s (stack {stack(client)})", host, client)
         d = client.cmd({"cmd": "dismiss_popup"})
         a["dismiss"] = d.get("handled")
         if d.get("handled") != "AbortMissionState":
-            capture_boot(f"D2: client dismiss_popup {d} (want handled AbortMissionState)", host, client)
+            capture_boot(f"abort: client dismiss_popup {d} (want handled AbortMissionState)", host, client)
         try:
             a["vote"] = session.abort_vote_yes(host, host)
         except Exception as e:  # noqa: BLE001
-            capture_boot(f"D2: session.abort_vote_yes(host, host): {str(e)[:300]}", host, client)
+            capture_boot(f"abort: session.abort_vote_yes(host, host): {str(e)[:300]}", host, client)
     else:
         a["endTurn"] = client.cmd({"cmd": "battle_action", "action": "end_turn_button"})
         try:
             RSB.drive_side_change(host, client, 1, timeout=STEP_S)
         except Exception as e:  # noqa: BLE001
-            capture_boot(f"D3: drive_side_change to side 1: {str(e)[:300]}", host, client)
+            capture_boot(f"loss: drive_side_change to side 1: {str(e)[:300]}", host, client)
         G2F.kill_all(host, client, 0, a, "kills")
         if "DebriefingState" not in stack(host):
             a["hostEndTurn"] = host.cmd({"cmd": "battle_action", "action": "end_turn_button"})
@@ -358,26 +357,26 @@ def common(row, host, client, crash0, hash_res):
 
 
 def return_bad(row, gok, crec, csq, csky, cco, sq, missions0, client):
-    """<row>-return's checks on the client after its OK (the D3 host-record check is added after the host's OK)."""
+    """<row>-return's checks on the client after its OK (the loss host-record check is added after the host's OK)."""
     bad = [] if gok else [f"client not on a clean GeoscapeState {OK_S} s after its OK (stack {stack(client)})"]
-    if row == "D1" and crec.get("debriefOkBranch") != "campaign-client-borrowed":
+    if row == "win" and crec.get("debriefOkBranch") != "campaign-client-borrowed":
         bad.append(f"battleEnd.debriefOkBranch {crec.get('debriefOkBranch')!r} (want 'campaign-client-borrowed')")
     for sid in sq:
         r = csq[sid]
-        if row == "D3":
+        if row == "loss":
             if r.get("where") != "dead":
-                bad.append(f"SQ {sid}: where {r.get('where')!r} (want 'dead', D181)")
+                bad.append(f"SQ {sid}: where {r.get('where')!r} (want 'dead')")
             continue
         want_m = missions0[sid] + 1 if isinstance(missions0[sid], int) else None
-        if r.get("where") != "base" or (row == "D1" and r.get("missions") != want_m):
+        if r.get("where") != "base" or (row == "win" and r.get("missions") != want_m):
             bad.append(f"SQ {sid}: where {r.get('where')!r} missions {r.get('missions')!r} (want 'base'"
-                       + (f", missions {want_m}" if row == "D1" else "") + ")")
-    if row == "D3":
+                       + (f", missions {want_m}" if row == "win" else "") + ")")
+    if row == "loss":
         if csky is not None:
             bad.append(f"client Skyranger still in its base: {csky} (want gone)")
     elif not returning_or_at_base(csky):
         bad.append(f"client Skyranger {csky} (want returning: STR_OUT to its own base, or at base {list(AT_BASE)})")
-    if row == "D1" and cco.get("noBases") is not False:
+    if row == "win" and cco.get("noBases") is not False:
         bad.append(f"client noBases {cco.get('noBases')!r} (want false)")
     return bad
 
@@ -400,7 +399,7 @@ def end_row(row, host, client, site_id, point, sq, missions0, host0, client0, ho
     hbad = [f"debrief_state.{k}={hdeb.get(k)!r} (want {w!r})" for k, w in (("title", title), ("displayOnly", False))
             if hdeb.get(k) != w]
     hbad += [f"page 3 not reached (page {hp3.get('page')}, onTop {hp3.get('onTop')})"] if hp3.get("page") != 2 else []
-    hbad += [f"page 3 {k} {hp3.get(k)!r} (want false: the alien host never works the X-COM base's page 3, D154)"
+    hbad += [f"page 3 {k} {hp3.get(k)!r} (want false: the alien host never works the X-COM base's page 3)"
              for k in ("sellVisible", "transferVisible") if hp3.get(k) is not False]
     cell(f"{row}-host", not hbad, "; ".join(hbad) or f"host DebriefingState {secs} s, title {title!r}, displayOnly false; page 3 "
          f"Sell and Transfer hidden")
@@ -412,7 +411,7 @@ def end_row(row, host, client, site_id, point, sq, missions0, host0, client0, ho
     cbad = [] if cok else [f"no client display-only DebriefingState within {CLIENT_DEBRIEF_S} s (stack {stack(client)})"]
     cbad += [f"client {k}={cv.get(k)!r} != host {hv.get(k)!r}" for k in BES.DEBRIEF_FIELDS if cok and cv.get(k) != hv.get(k)]
     cell(f"{row}-client", not cbad, "; ".join(cbad) or f"client display-only debriefing {csecs} s, equal on DEBRIEF_FIELDS")
-    if row == "D1":
+    if row == "win":
         aok, asecs = BES.wait_until(lambda: (BES.record(client).get("worldAdopted") or 0) >= 1, ADOPT_S)
         cflip = P3.to_page2(client)
         cp3 = page3(client)
@@ -421,9 +420,9 @@ def end_row(row, host, client, site_id, point, sq, missions0, host0, client0, ho
                                f"(want 1)"]
         pbad += [f"client page 3 not reached (page {cp3.get('page')})"] if cp3.get("page") != 2 else []
         if cp3.get("sellVisible") is not True:
-            pbad.append(f"client page 3 sellVisible {cp3.get('sellVisible')!r} (want true, D154)")
-        cell("D1-page3", not pbad, "; ".join(pbad) or f"client worldAdopted 1 ({asecs} s); page 3 Sell shown")
-    # the client's OK first (FX2-12)
+            pbad.append(f"client page 3 sellVisible {cp3.get('sellVisible')!r} (want true)")
+        cell("win-page3", not pbad, "; ".join(pbad) or f"client worldAdopted 1 ({asecs} s); page 3 Sell shown")
+    # the client's OK first
     t_ok = time.time()
     pk = BES.press_ok(client)
     _reached, cscreens = BES.drain(client, timeout=OK_S)
@@ -437,10 +436,10 @@ def end_row(row, host, client, site_id, point, sq, missions0, host0, client0, ho
                       "sq": {sid: {k: csq[sid].get(k) for k in ("where", "coop", "owner", "missions", "dead")} for sid in sq},
                       "ids": probe(client).get("ids"), "time": cg.get("time"), "battleEnd": crec}
     rbad = return_bad(row, gok, crec, csq, csky, cco, sq, missions0, client)
-    if row == "D1":
-        cell("D1-return", not rbad, "; ".join(rbad) or "client geo_clean; campaign-client-borrowed; every SQ soldier in base with "
+    if row == "win":
+        cell("win-return", not rbad, "; ".join(rbad) or "client geo_clean; campaign-client-borrowed; every SQ soldier in base with "
              f"missions + 1; Skyranger {csky}; noBases false")
-    # the host's OK (FX2-12): never drain a CoopState 994
+    # then the host's OK: never drain a CoopState 994
     hk = BES.press_ok(host)
     hreached, hscreens, on994 = G2F.drain_host(host)
     hgok, hgs = BES.wait_until(lambda: BES.geo_clean(host), HOST_OK_S) if hreached else (False, 0)
@@ -457,7 +456,7 @@ def end_row(row, host, client, site_id, point, sq, missions0, host0, client0, ho
     abad += [f"host real bases {real_bases(hg)} (want HOST0 {host0['realBases']})"] if real_bases(hg) != host0["realBases"] else []
     abad += [f"host pvpBorrow.active {pv.get('active')!r} (want false)"] if pv.get("active") is not False else []
     if "home" not in pv:
-        abad.append("host pvpBorrow.home absent (want == pvpBorrow.parked, QC2-A-1 (a))")
+        abad.append("host pvpBorrow.home absent (want == pvpBorrow.parked)")
     elif pv.get("home") != pv.get("parked"):
         abad.append(f"host pvpBorrow.home {pv.get('home')} != parked {pv.get('parked')}")
     cell(f"{row}-alien", not abad, "; ".join(abad) or f"host geo_clean ({hgs} s), noBases true, funds and real bases == HOST0, "
@@ -469,14 +468,14 @@ def end_row(row, host, client, site_id, point, sq, missions0, host0, client0, ho
     sbad += [f"host pvpBorrow.fate {pv.get('fate')!r} (want kind 'site', action 'deleted')"] \
         if fate.get("kind") != "site" or fate.get("action") != "deleted" else []
     cell(f"{row}-site", not sbad, "; ".join(sbad) or f"host site {site_id} and its mirror gone ({gone_s} s); fate {fate}")
-    if row == "D3":
+    if row == "loss":
         hsq = {sid: rec4(host, sid) for sid in sq}
         ev["hostSqAfter"] = hsq
         rbad += [f"host soldier_record {sid}: {hsq[sid]} != HOST_SQ0 {host_sq0.get(sid)}" for sid in sq
                  if hsq[sid] != host_sq0.get(sid)]
-    if row != "D1":
+    if row != "win":
         cell(f"{row}-return", not rbad, "; ".join(rbad) or (f"client geo_clean; every SQ soldier in base; Skyranger {csky}"
-             if row == "D2" else "client geo_clean; every SQ soldier dead; Skyranger gone; the host's SQ records == HOST_SQ0"))
+             if row == "abort" else "client geo_clean; every SQ soldier dead; Skyranger gone; the host's SQ records == HOST_SQ0"))
     ev["times"] = {"host": hg.get("time"), "client": client.ok({"cmd": "geo_state"}).get("time")}
     if not hgok or pv.get("active") is not False or hco.get("noBases") is not True:
         ctx["blocked"] = f"the alien host never went home ({row}-alien)"
@@ -509,8 +508,8 @@ def run_row(row, host, client, xb, host0, client0, host_sq0, ctx):
 
 
 def main():
-    host = GameClient("host", None, make_user_dir("d250uc2_d_host"))
-    client = GameClient("client", None, make_user_dir("d250uc2_d_client"))
+    host = GameClient("host", None, make_user_dir("campaign_battle_gm3_end_host"))
+    client = GameClient("client", None, make_user_dir("campaign_battle_gm3_end_client"))
     t0 = time.time()
     try:
         ev0 = {}
@@ -519,7 +518,7 @@ def main():
         finally:
             evidence("bring-up", ev0)
         ctx = {"blocked": None}
-        for row in ("D1", "D2", "D3"):
+        for row in ("win", "abort", "loss"):
             run_row(row, host, client, xb, host0, client0, host_sq0, ctx)
     except FixtureMiss as e:
         block(ALL_CELLS, f"boot ({str(e)[:200]})")
@@ -532,7 +531,7 @@ def main():
         finally:
             client.shutdown()
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== D250-U S-C2 gm3 PvP campaign battle end: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
+    print(f"\n==== test_campaign_battle_gm3_end: {len(RESULTS) - len(fails)}/{len(RESULTS)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}", flush=True)
