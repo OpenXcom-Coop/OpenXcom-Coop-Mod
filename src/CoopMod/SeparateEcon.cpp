@@ -13,6 +13,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/EquipmentLayoutItem.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
@@ -28,6 +29,7 @@
 #include "../Mod/RuleResearch.h"
 #include "../Mod/AlienDeployment.h"
 #include "../Mod/RuleItem.h"
+#include "../Mod/RuleInventory.h"
 #include "../Mod/Unit.h"
 #include "../Mod/Mod.h"
 #include "../Mod/Armor.h"
@@ -729,6 +731,10 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor"
 		|| cmd == "soldier_training" || cmd == "soldier_layout")
 		return true;
+	// A saved equipment template belongs to its player, not to a base: the
+	// command names no base, and no base's owner may refuse it.
+	if (cmd == "equipment_template")
+		return true;
 	return !remote && isHostSimulationResult(cmd);
 }
 
@@ -1011,6 +1017,371 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier,
 	submitLocalCmd(game, "soldier_armor", findBaseIndex(game, base), p);
 }
 
+namespace
+{
+/// The marker EquipmentLayoutItem writes for an empty slot in ammoItemSlots.
+const char* const EmptyAmmoSlot = "NONE";
+
+/// Only a Separate client sends its saved templates: the host's own set stays
+/// in its world's template slots.
+bool sendsOwnTemplates(Game* game)
+{
+	return game && game->getSavedGame() && game->getCoopMod()
+		&& game->getCoopMod()->isSeparateCampaign()
+		&& game->getCoopMod()->isCampaignReplica();
+}
+
+LayoutTemplate layoutTemplateFromJson(const Json::Value& payload)
+{
+	LayoutTemplate slot;
+	slot.name = payload.get("name", "").asString();
+	slot.armor = payload.get("armor", "").asString();
+	for (const Json::Value& entry : payload["items"])
+	{
+		LayoutTemplateItem item;
+		item.itemType = entry.get("itemType", "").asString();
+		item.slot = entry.get("slot", "").asString();
+		item.slotX = entry.get("slotX", 0).asInt();
+		item.slotY = entry.get("slotY", 0).asInt();
+		for (const Json::Value& ammo : entry["ammo"])
+			item.ammo.push_back(ammo.asString());
+		item.fuseTimer = entry.get("fuseTimer", -1).asInt();
+		item.fixed = entry.get("fixed", false).asBool();
+		slot.items.push_back(item);
+	}
+	return slot;
+}
+
+CraftLoadoutTemplate craftTemplateFromJson(const Json::Value& payload)
+{
+	CraftLoadoutTemplate slot;
+	slot.name = payload.get("name", "").asString();
+	const Json::Value& items = payload["items"];
+	if (items.isObject())
+		for (const std::string& type : items.getMemberNames())
+			if (items[type].asInt() > 0)
+				slot.items[type] = items[type].asInt();
+	return slot;
+}
+}
+
+void submitLayoutTemplate(Game* game, int index)
+{
+	if (!sendsOwnTemplates(game) || index < 0
+		|| index >= SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES)
+		return;
+	SavedGame* save = game->getSavedGame();
+	Json::Value p;
+	p["kind"] = "layout";
+	p["index"] = index;
+	p["name"] = save->getGlobalEquipmentLayoutName(index);
+	p["armor"] = save->getGlobalEquipmentLayoutArmor(index);
+	Json::Value items(Json::arrayValue);
+	for (const EquipmentLayoutItem* layoutItem : *save->getGlobalEquipmentLayout(index))
+	{
+		Json::Value entry;
+		entry["itemType"] = layoutItem->getItemType()->getType();
+		entry["slot"] = layoutItem->getSlot()->getId();
+		entry["slotX"] = layoutItem->getSlotX();
+		entry["slotY"] = layoutItem->getSlotY();
+		int used = 0;
+		for (int a = 0; a < RuleItem::AmmoSlotMax; ++a)
+			if (layoutItem->getAmmoItemForSlot(a)) used = a + 1;
+		Json::Value ammo(Json::arrayValue);
+		for (int a = 0; a < used; ++a)
+			ammo.append(layoutItem->getAmmoItemForSlot(a)
+				? layoutItem->getAmmoItemForSlot(a)->getType() : std::string());
+		entry["ammo"] = ammo;
+		entry["fuseTimer"] = layoutItem->getFuseTimer();
+		entry["fixed"] = layoutItem->isFixed();
+		items.append(entry);
+	}
+	p["items"] = items;
+	// No base: a template belongs to the player, not to a base.
+	submitLocalCmd(game, "equipment_template", -1, p);
+}
+
+void submitCraftLoadoutTemplate(Game* game, int index)
+{
+	if (!sendsOwnTemplates(game) || index < 0
+		|| index >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
+		return;
+	SavedGame* save = game->getSavedGame();
+	Json::Value p;
+	p["kind"] = "craft";
+	p["index"] = index;
+	p["name"] = save->getGlobalCraftLoadoutName(index);
+	Json::Value items(Json::objectValue);
+	for (const auto& entry : *save->getGlobalCraftLoadout(index)->getContents())
+		if (entry.first && entry.second > 0)
+			items[entry.first->getType()] = entry.second;
+	p["items"] = items;
+	submitLocalCmd(game, "equipment_template", -1, p);
+}
+
+bool validateEquipmentTemplate(Game* game, const Json::Value& payload, Base* /*base*/,
+	int seat, int64_t& /*cost*/, std::string& failReason)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	const Mod* mod = game ? game->getMod() : nullptr;
+	if (!save || !mod || !save->isSeparateCoopCampaign())
+	{
+		failReason = "Equipment templates are kept per player only in a Separate campaign.";
+		return false;
+	}
+	// Seat 0 is the host's player, whose templates are the world's own slots.
+	if (seat <= 0 || connectionTCP::seatName(seat).empty())
+	{
+		failReason = "Equipment template from an unknown player.";
+		return false;
+	}
+	if (!payload.isObject() || !payload.get("kind", "").isString()
+		|| !payload.get("index", -1).isInt() || !payload.get("name", "").isString()
+		|| !payload.get("armor", "").isString())
+	{
+		failReason = "Malformed equipment template.";
+		return false;
+	}
+	const std::string kind = payload.get("kind", "").asString();
+	const int index = payload.get("index", -1).asInt();
+	if (kind == "layout")
+	{
+		if (index < 0 || index >= SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES)
+		{
+			failReason = "Equipment template slot out of range.";
+			return false;
+		}
+		const std::string armor = payload.get("armor", "").asString();
+		if (!armor.empty() && !mod->getArmor(armor, false))
+		{
+			failReason = "Equipment template with an unknown armor: " + armor;
+			return false;
+		}
+		const Json::Value& items = payload["items"];
+		if (!items.isNull() && !items.isArray())
+		{
+			failReason = "Equipment template without an item list.";
+			return false;
+		}
+		for (const Json::Value& entry : items)
+		{
+			if (!entry.isObject() || !entry.get("itemType", "").isString()
+				|| !entry.get("slot", "").isString()
+				|| (!entry["ammo"].isNull() && !entry["ammo"].isArray()))
+			{
+				failReason = "Equipment template with a malformed item.";
+				return false;
+			}
+			const std::string type = entry.get("itemType", "").asString();
+			const std::string slot = entry.get("slot", "").asString();
+			if (!mod->getItem(type, false) || !mod->getInventory(slot, false))
+			{
+				failReason = "Equipment template with an unknown item or slot: " + type + " / " + slot;
+				return false;
+			}
+			for (const Json::Value& ammo : entry["ammo"])
+				if (!ammo.isString() || (!ammo.asString().empty() && !mod->getItem(ammo.asString(), false)))
+				{
+					failReason = "Equipment template with an unknown ammo: " + ammo.asString();
+					return false;
+				}
+		}
+		return true;
+	}
+	if (kind == "craft")
+	{
+		if (index < 0 || index >= SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES)
+		{
+			failReason = "Craft loadout template slot out of range.";
+			return false;
+		}
+		const Json::Value& items = payload["items"];
+		if (!items.isNull() && !items.isObject())
+		{
+			failReason = "Craft loadout template without an item list.";
+			return false;
+		}
+		if (items.isObject())
+			for (const std::string& type : items.getMemberNames())
+				if (!mod->getItem(type, false) || !items[type].isInt())
+				{
+					failReason = "Craft loadout template with an unknown item: " + type;
+					return false;
+				}
+		return true;
+	}
+	failReason = "Unknown equipment template kind: " + kind;
+	return false;
+}
+
+void applyEquipmentTemplate(Game* game, Json::Value& payload, Base* /*base*/, int seat)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	const std::string player = connectionTCP::seatName(seat);
+	if (!save || player.empty())
+		return;
+	CampaignData& campaign = save->getSeparateCampaign();
+	campaign.ensurePlayers(std::vector<std::string>{ player });
+	CampaignData::PlayerState* profile = campaign.getPlayer(player);
+	if (!profile)
+		return;
+	EquipmentTemplates& templates = profile->equipmentTemplates;
+	const std::string kind = payload.get("kind", "").asString();
+	const int index = payload.get("index", -1).asInt();
+	if (kind == "layout")
+	{
+		LayoutTemplate slot = layoutTemplateFromJson(payload);
+		if (slot.empty())
+			templates.layouts.erase(index);
+		else
+			templates.layouts[index] = slot;
+	}
+	else if (kind == "craft")
+	{
+		CraftLoadoutTemplate slot = craftTemplateFromJson(payload);
+		if (slot.empty())
+			templates.craftLoadouts.erase(index);
+		else
+			templates.craftLoadouts[index] = slot;
+	}
+}
+
+void setStartingTemplates(Game* game, const std::string& playerName, int difficulty)
+{
+	SavedGame* save = game ? game->getSavedGame() : nullptr;
+	Mod* mod = game ? game->getMod() : nullptr;
+	if (!save || !mod || playerName.empty())
+		return;
+	const YAML::YamlRootNodeReader startingBase(
+		mod->getStartingBase(static_cast<GameDifficulty>(difficulty)), "(starting base template)");
+	EquipmentTemplates templates;
+	templates.load(startingBase["globalTemplates"]);
+	CampaignData& campaign = save->getSeparateCampaign();
+	campaign.ensurePlayers(std::vector<std::string>{ playerName });
+	if (CampaignData::PlayerState* profile = campaign.getPlayer(playerName))
+		profile->equipmentTemplates = templates;
+}
+
+void EquipmentTemplates::load(const YAML::YamlNodeReader& reader)
+{
+	layouts.clear();
+	craftLoadouts.clear();
+	if (!reader)
+		return;
+	for (int j = 0; j < SavedGame::MAX_EQUIPMENT_LAYOUT_TEMPLATES; ++j)
+	{
+		const std::string n = std::to_string(j);
+		LayoutTemplate slot;
+		for (const auto& entry : reader[ryml::to_csubstr("globalEquipmentLayout" + n)].children())
+		{
+			LayoutTemplateItem item;
+			item.itemType = entry["itemType"].readVal<std::string>("");
+			item.slot = entry["slot"].readVal<std::string>("");
+			item.slotX = entry["slotX"].readVal(0);
+			item.slotY = entry["slotY"].readVal(0);
+			if (const auto& ammoSlots = entry["ammoItemSlots"])
+			{
+				for (const auto& ammo : ammoSlots.children())
+				{
+					const std::string type = ammo.readVal<std::string>("");
+					item.ammo.push_back(type == EmptyAmmoSlot ? std::string() : type);
+				}
+			}
+			else if (const auto& ammo = entry["ammoItem"])
+			{
+				item.ammo.push_back(ammo.readVal<std::string>(""));
+			}
+			item.fuseTimer = entry["fuseTimer"].readVal(-1);
+			item.fixed = entry["fixed"].readVal(false);
+			slot.items.push_back(item);
+		}
+		if (const auto& name = reader[ryml::to_csubstr("globalEquipmentLayoutName" + n)])
+			slot.name = name.readVal<std::string>("");
+		if (const auto& armor = reader[ryml::to_csubstr("globalEquipmentLayoutArmor" + n)])
+			slot.armor = armor.readVal<std::string>("");
+		if (!slot.empty())
+			layouts[j] = slot;
+	}
+	for (int j = 0; j < SavedGame::MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		const std::string n = std::to_string(j);
+		CraftLoadoutTemplate slot;
+		if (const auto& loadout = reader[ryml::to_csubstr("globalCraftLoadout" + n)])
+			for (const auto& item : loadout.children())
+			{
+				const int qty = item.readVal<int>(0);
+				if (qty > 0)
+					slot.items[item.readKey<std::string>()] = qty;
+			}
+		if (const auto& name = reader[ryml::to_csubstr("globalCraftLoadoutName" + n)])
+			slot.name = name.readVal<std::string>("");
+		if (!slot.empty())
+			craftLoadouts[j] = slot;
+	}
+}
+
+void EquipmentTemplates::save(YAML::YamlNodeWriter writer) const
+{
+	writer.setAsMap();
+	for (const auto& entry : layouts)
+	{
+		const std::string n = std::to_string(entry.first);
+		const LayoutTemplate& slot = entry.second;
+		if (!slot.items.empty())
+		{
+			YAML::YamlNodeWriter list = writer[writer.saveString("globalEquipmentLayout" + n)];
+			list.setAsSeq();
+			for (const LayoutTemplateItem& item : slot.items)
+			{
+				// The same shape EquipmentLayoutItem::save writes.
+				YAML::YamlNodeWriter itemWriter = list.write();
+				itemWriter.setAsMap();
+				itemWriter.setFlowStyle();
+				itemWriter.write("itemType", item.itemType);
+				itemWriter.write("slot", item.slot);
+				if (item.slotX != 0)
+					itemWriter.write("slotX", item.slotX);
+				if (item.slotY != 0)
+					itemWriter.write("slotY", item.slotY);
+				if (!item.ammo.empty() && !item.ammo[0].empty())
+					itemWriter.write("ammoItem", item.ammo[0]);
+				size_t used = item.ammo.size();
+				while (used > 0 && item.ammo[used - 1].empty())
+					--used;
+				if (used > 0)
+				{
+					YAML::YamlNodeWriter ammoWriter = itemWriter["ammoItemSlots"];
+					ammoWriter.setAsSeq();
+					for (size_t a = 0; a < used; ++a)
+						ammoWriter.write(item.ammo[a].empty() ? std::string(EmptyAmmoSlot) : item.ammo[a]);
+				}
+				if (item.fuseTimer >= 0)
+					itemWriter.write("fuseTimer", item.fuseTimer);
+				if (item.fixed)
+					itemWriter.write("fixed", item.fixed);
+			}
+		}
+		if (!slot.name.empty())
+			writer.write(writer.saveString("globalEquipmentLayoutName" + n), slot.name);
+		if (!slot.armor.empty())
+			writer.write(writer.saveString("globalEquipmentLayoutArmor" + n), slot.armor);
+	}
+	for (const auto& entry : craftLoadouts)
+	{
+		const std::string n = std::to_string(entry.first);
+		const CraftLoadoutTemplate& slot = entry.second;
+		if (!slot.items.empty())
+		{
+			YAML::YamlNodeWriter items = writer[writer.saveString("globalCraftLoadout" + n)];
+			items.setAsMap();
+			for (const auto& item : slot.items)
+				items.write(items.saveString(item.first), item.second);
+		}
+		if (!slot.name.empty())
+			writer.write(writer.saveString("globalCraftLoadoutName" + n), slot.name);
+	}
+}
+
 void hostBaseDamaged(Game* game, Base* base, const Ufo* ufo)
 {
 	if (!game || !base || !game->getCoopMod()
@@ -1220,6 +1591,7 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 		playerReader["missionRuns"].tryReadVal(player.missionRuns);
 		playerReader["missionMarkers"].tryReadVal(player.missionMarkers);
 		playerReader["ufopediaRuleStatus"].tryReadVal(player.ufopediaRuleStatus);
+		player.equipmentTemplates.load(playerReader["equipmentTemplates"]);
 	}
 }
 
@@ -1273,6 +1645,8 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 			playerWriter.write("missionMarkers", entry.second.missionMarkers);
 		if (!entry.second.ufopediaRuleStatus.empty())
 			playerWriter.write("ufopediaRuleStatus", entry.second.ufopediaRuleStatus);
+		if (!entry.second.equipmentTemplates.empty())
+			entry.second.equipmentTemplates.save(playerWriter["equipmentTemplates"]);
 	}
 }
 

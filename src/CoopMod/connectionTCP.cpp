@@ -17470,6 +17470,10 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 
 		if (!alreadyMerged)
 		{
+			// The joining player's saved templates start as a new world's do:
+			// the starting base's templates for that player's difficulty. The
+			// bootstrap world's own template slots are not read.
+			SeparateEcon::setStartingTemplates(_game, owner, clientDifficulty);
 			auto* source = coopFile->getBases();
 			for (auto it = source->begin(); it != source->end(); )
 			{

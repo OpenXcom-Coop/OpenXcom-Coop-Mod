@@ -4082,6 +4082,10 @@ void init()
 	// machine (the mini base strip move and the roster screens' move up / down).
 	registerCmd("base_move",      &baseMoveValidate,     &baseMoveApply);
 	registerCmd("soldier_order",  &soldierOrderValidate, &soldierOrderApply);
+	// Separate: a client's saved soldier layout or craft loadout slot, kept in
+	// that player's profile on the host.
+	registerCmd("equipment_template", &SeparateEcon::validateEquipmentTemplate,
+		&SeparateEcon::applyEquipmentTemplate);
 	// PRD-DF01 shared/replicated dogfights: host-originated membership broadcast
 	// (df_open, full set + epoch each change; replica reconciles its render-only
 	// windows). df_state (per-tick render frames) rides the SNAP_DOGFIGHT conflation

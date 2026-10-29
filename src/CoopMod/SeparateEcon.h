@@ -28,6 +28,52 @@ struct GeoscapeEventDisplay;
  */
 namespace SeparateEcon
 {
+/// One item of a saved soldier equipment layout: the fields a world saves for
+/// each EquipmentLayoutItem of its own layout templates.
+struct LayoutTemplateItem
+{
+	std::string itemType;
+	std::string slot;
+	int slotX = 0;
+	int slotY = 0;
+	/// The ammo type in each ammo slot; an empty string is an empty slot.
+	std::vector<std::string> ammo;
+	int fuseTimer = -1;
+	bool fixed = false;
+};
+
+/// A saved soldier equipment layout slot: its name, its armor (empty = none)
+/// and its items.
+struct LayoutTemplate
+{
+	std::string name;
+	std::string armor;
+	std::vector<LayoutTemplateItem> items;
+	bool empty() const { return name.empty() && armor.empty() && items.empty(); }
+};
+
+/// A saved craft loadout slot: its name and its item counts by type.
+struct CraftLoadoutTemplate
+{
+	std::string name;
+	std::map<std::string, int> items;
+	bool empty() const { return name.empty() && items.empty(); }
+};
+
+/// One player's saved soldier layouts and craft loadouts by slot index; a slot
+/// missing from a map is empty. Read and written in the keys a world uses for
+/// its own templates (globalEquipmentLayoutN, globalEquipmentLayoutNameN,
+/// globalEquipmentLayoutArmorN, globalCraftLoadoutN, globalCraftLoadoutNameN),
+/// so SavedGame::loadTemplates reads the same node.
+struct EquipmentTemplates
+{
+	std::map<int, LayoutTemplate> layouts;
+	std::map<int, CraftLoadoutTemplate> craftLoadouts;
+	bool empty() const { return layouts.empty() && craftLoadouts.empty(); }
+	void load(const YAML::YamlNodeReader& reader);
+	void save(YAML::YamlNodeWriter writer) const;
+};
+
 /** Persisted player-scoped state for the one-world Separate campaign. */
 class CampaignData
 {
@@ -45,6 +91,10 @@ public:
 		std::map<std::string, int> missionRuns;
 		std::map<std::string, int> missionMarkers;
 		std::map<std::string, int> ufopediaRuleStatus;
+		/// This player's saved soldier layouts and craft loadouts. The host's
+		/// player keeps its own in the world's template slots instead, so its
+		/// profile holds none.
+		EquipmentTemplates equipmentTemplates;
 	};
 private:
 	std::map<std::string, PlayerState> _players;
@@ -218,6 +268,24 @@ void submitCraftRearm(Game* game, Craft* craft, int slot,
 void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier,
 	const std::string& armorType);
+/// Client: send the host soldier layout slot @a index just saved on this
+/// machine (name, armor and items together), so the host keeps it in this
+/// player's profile. Does nothing outside a Separate client.
+void submitLayoutTemplate(Game* game, int index);
+/// Client: the same for craft loadout slot @a index.
+void submitCraftLoadoutTemplate(Game* game, int index);
+/// Host check of an equipment_template command: a Separate campaign, a
+/// non-host player, a template kind and slot in range, and known item, slot
+/// and armor types.
+bool validateEquipmentTemplate(Game* game, const Json::Value& payload, Base* base,
+	int seat, int64_t& cost, std::string& failReason);
+/// Store the template slot an equipment_template command carries in the
+/// sending player's profile (never in the world's own template slots).
+void applyEquipmentTemplate(Game* game, Json::Value& payload, Base* base, int seat);
+/// New campaign: a joining player's templates start as the starting base's
+/// global templates for that player's @a difficulty, as Mod::newSave gives
+/// a new world's own slots.
+void setStartingTemplates(Game* game, const std::string& playerName, int difficulty);
 /// Broadcast the host-authoritative post-bombardment facility layout.
 void hostBaseDamaged(Game* game, Base* base, const Ufo* ufo);
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade);

@@ -1255,6 +1255,10 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 			tmpl->addItem(item, cQty);
 		}
 	}
+
+	// Separate: the host keeps a client's templates in its player profile
+	// (the slot's name is already set, so name and contents travel together).
+	SeparateEcon::submitCraftLoadoutTemplate(_game, index);
 }
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)

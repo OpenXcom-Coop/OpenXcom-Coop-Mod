@@ -77,7 +77,7 @@ void copyScalarSequence(ryml::NodeRef destinationMap, ryml::csubstr destinationK
 	}
 }
 
-void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::NodeRef sourceBody)
+ryml::NodeRef appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::NodeRef sourceBody)
 {
 	ryml::NodeRef player = players.append_child();
 	player |= ryml::MAP;
@@ -111,6 +111,34 @@ void appendPlayerFunds(ryml::NodeRef players, const std::string& name, ryml::Nod
 		const size_t copy = player.tree()->duplicate(
 			pediaStatus.tree(), pediaStatus.id(), player.id(), pediaAfter);
 		internalizeStrings(player.tree()->ref(copy));
+	}
+	return player;
+}
+
+/// A schema-2 world kept its player's saved soldier layouts and craft loadouts
+/// in its own template keys. Schema 3 has one world, whose template keys are
+/// the host's: a client world's keys move into that player's profile, under
+/// equipmentTemplates, in the same keys.
+void copyTemplateKeys(ryml::NodeRef player, ryml::NodeRef sourceBody)
+{
+	if (!sourceBody.is_map())
+		return;
+	ryml::NodeRef templates;
+	for (ryml::NodeRef child : sourceBody.children())
+	{
+		if (!child.has_key())
+			continue;
+		const ryml::csubstr key = child.key();
+		if (!key.begins_with("globalEquipmentLayout") && !key.begins_with("globalCraftLoadout"))
+			continue;
+		if (templates.invalid())
+		{
+			templates = yamlutil::mapChild(player, "equipmentTemplates");
+			templates |= ryml::MAP;
+		}
+		const size_t after = templates.num_children() ? templates.last_child().id() : ryml::NONE;
+		const size_t copy = templates.tree()->duplicate(child.tree(), child.id(), templates.id(), after);
+		internalizeStrings(templates.tree()->ref(copy));
 	}
 }
 
@@ -479,7 +507,8 @@ public:
 			const int owner = rosterSeat(set, client, i + 1);
 			const std::string ownerName = owner >= 0 && static_cast<size_t>(owner) < set.roster.size()
 				? set.roster[owner] : client.name;
-			appendPlayerFunds(players, ownerName, client.world.body());
+			ryml::NodeRef player = appendPlayerFunds(players, ownerName, client.world.body());
+			copyTemplateKeys(player, client.world.body());
 		}
 
 		removeKey(hostBody, "coopClientSaves");

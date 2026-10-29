@@ -263,6 +263,18 @@ void LoadGameState::think()
 				throw Exception("This is a SHARED co-op campaign save and cannot be opened as a single-player game.");
 			}
 
+			// Separate: a client's saved templates are its own. When the host
+			// replaces the client's campaign world (a restream, a battle, the
+			// world after a battle, a rejoin while the world is still held),
+			// keep the set the client already has. A client without a campaign
+			// world took its set from its player profile in the stream.
+			if (!_coopKey.empty() && !_game->getCoopMod()->getServerOwner()
+				&& s->isSeparateCoopCampaign()
+				&& _game->getSavedGame() && _game->getSavedGame()->isSeparateCoopCampaign())
+			{
+				s->copyTemplatesFrom(*_game->getSavedGame());
+			}
+
 			_game->setSavedGame(s);
 
 			// Separate Research sharing is a negotiated session policy, not save

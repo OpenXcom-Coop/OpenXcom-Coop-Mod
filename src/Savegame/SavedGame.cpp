@@ -662,7 +662,22 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 
-	loadTemplates(reader, mod);
+	// Separate: every player keeps their own saved templates. The world's
+	// template slots are the host's own set; a client takes its set from its
+	// player profile (LoadGameState carries a client's set over instead when it
+	// already holds a campaign world).
+	if (isSeparateCoopCampaign() && !connectionTCP::getServerOwner())
+	{
+		const int seat = connectionTCP::localSeat();
+		const SeparateEcon::CampaignData::PlayerState* profile =
+			(seat >= 0 && static_cast<size_t>(seat) < _coopPlayers.size())
+			? _separateCampaign.getPlayer(_coopPlayers[seat]) : nullptr;
+		setTemplates(profile ? profile->equipmentTemplates : SeparateEcon::EquipmentTemplates(), mod);
+	}
+	else
+	{
+		loadTemplates(reader, mod);
+	}
 
 	for (const auto& missionStats : reader["missionStatistics"].children())
 	{
@@ -1281,6 +1296,57 @@ void SavedGame::loadTemplates(const YAML::YamlNodeReader& reader, const Mod* mod
 		if (const auto& loadoutName = reader[ryml::to_csubstr("globalCraftLoadoutName" + std::to_string(j))])
 			_globalCraftLoadoutName[j] = loadoutName.readVal<std::string>();
 	}
+}
+
+void SavedGame::clearTemplates()
+{
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		for (auto* entry : _globalEquipmentLayout[j])
+		{
+			delete entry;
+		}
+		_globalEquipmentLayout[j].clear();
+		_globalEquipmentLayoutName[j].clear();
+		_globalEquipmentLayoutArmor[j].clear();
+	}
+	for (int j = 0; j < MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		_globalCraftLoadout[j]->clear();
+		_globalCraftLoadoutName[j].clear();
+	}
+}
+
+void SavedGame::copyTemplatesFrom(const SavedGame& other)
+{
+	clearTemplates();
+	for (int j = 0; j < Options::oxceMaxEquipmentLayoutTemplates; ++j)
+	{
+		for (const auto* entry : other._globalEquipmentLayout[j])
+		{
+			_globalEquipmentLayout[j].push_back(new EquipmentLayoutItem(*entry));
+		}
+		_globalEquipmentLayoutName[j] = other._globalEquipmentLayoutName[j];
+		_globalEquipmentLayoutArmor[j] = other._globalEquipmentLayoutArmor[j];
+	}
+	for (int j = 0; j < MAX_CRAFT_LOADOUT_TEMPLATES; ++j)
+	{
+		*_globalCraftLoadout[j] = *other._globalCraftLoadout[j];
+		_globalCraftLoadoutName[j] = other._globalCraftLoadoutName[j];
+	}
+}
+
+void SavedGame::setTemplates(const SeparateEcon::EquipmentTemplates& templates, const Mod* mod)
+{
+	clearTemplates();
+	if (templates.empty())
+		return;
+	// The profile set is kept in the same keys as the world's own slots, so
+	// loadTemplates reads it, with the same handling of unknown types.
+	YAML::YamlRootNodeWriter writer;
+	templates.save(writer);
+	const YAML::YamlRootNodeReader reader(writer.emit(), "(player templates)", false);
+	loadTemplates(reader, mod);
 }
 
 void SavedGame::loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader)

@@ -259,6 +259,14 @@ private:
 	/// Loads a saved game from YAML.
 	void load(const std::string &filename, Mod *mod, Language *lang);
 	void loadTemplates(const YAML::YamlNodeReader& reader, const Mod* mod);
+	/// Empties every saved soldier layout and craft loadout slot.
+	void clearTemplates();
+	/// Replaces every saved soldier layout and craft loadout slot with a copy
+	/// of @a other's.
+	void copyTemplatesFrom(const SavedGame& other);
+	/// Replaces every saved soldier layout and craft loadout slot with a
+	/// player's profile set.
+	void setTemplates(const SeparateEcon::EquipmentTemplates& templates, const Mod* mod);
 	void loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader);
 	/// Saves a saved game to YAML.
 	void saveCoopToMemory(const std::string& filename, Mod* mod, const std::string& key) const;

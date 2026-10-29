@@ -61,6 +61,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/EquipmentLayoutItem.h"
 
 namespace OpenXcom
@@ -1174,6 +1175,10 @@ void InventoryState::saveGlobalLayout(int index, bool includingArmor)
 	{
 		_game->getSavedGame()->setGlobalEquipmentLayoutArmor(index, std::string());
 	}
+
+	// Separate: the host keeps a client's templates in its player profile
+	// (the slot's name is already set, so name and contents travel together).
+	SeparateEcon::submitLayoutTemplate(_game, index);
 }
 
 void InventoryState::loadGlobalLayout(int index)
