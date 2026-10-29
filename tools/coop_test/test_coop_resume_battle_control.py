@@ -12,7 +12,8 @@ This test proves it end to end:
 
   1. SEPARATE campaign; assemble a MIXED-ownership squad on the host's craft -
      the host's own soldiers (become coop==0 in battle) plus one CLIENT-owned
-     guest seated on the host craft (becomes coop==1 via the two-world merge).
+     guest transferred to the host base and seated on the host craft (coop==1,
+     counted from the battle host).
   2. Enter the battle live (coop_mission_start) and reach the battlescape.
   3. SANITY: the LIVE split works - _battleInit true on both, exactly one machine
      has coopTurn==2, and the two machines' selectable sets are disjoint and each
@@ -180,6 +181,24 @@ def assert_split(host, client, phase):
 
 # ---- battle bring-up (mixed-ownership squad, live SEPARATE battle) ---------
 
+def soldiers_at(gc, base_name):
+    return next(b["soldiers"] for b in gc.ok({"cmd": "get_soldiers"})["bases"]
+                if b["name"] == base_name)
+
+
+def seat(gc, base_name, craft_id, sid, on):
+    """Separate craft_assign is a host command (async on both machines): send it
+    from the soldier's owner, then wait for the host world to show the result."""
+    r = gc.ok({"cmd": "craft_assign", "base": base_name, "craft_id": craft_id,
+               "craft_type": "STR_SKYRANGER", "soldier_id": sid, "on": on})
+    gc.wait_for(
+        f"soldier {sid} {'seated on' if on else 'off'} craft {craft_id} at {base_name}",
+        lambda: any(s["id"] == sid and (s["craftId"] == craft_id) == on
+                    for s in soldiers_at(gc, base_name)) or None,
+        timeout=30, interval=0.3)
+    return r
+
+
 def bring_up_mixed_battle(host, client):
     session.new_campaign(host, client, port=PORT)
 
@@ -190,34 +209,44 @@ def bring_up_mixed_battle(host, client):
     # seat three of the host's own soldiers on the host craft (unassign-all first)
     rh = sorted(s["id"] for s in hb["soldiers"])
     for sid in rh:
-        host.cmd({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": False})
+        seat(host, host_base_name, cid, sid, False)
     host_squad = rh[:3]
     for sid in host_squad:
-        r = host.cmd({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
-        assert r.get("seated"), f"host soldier {sid} not seated: {r}"
+        seat(host, host_base_name, cid, sid, True)
 
     # a CLIENT-owned guest, transferred to the host base and seated on the host
-    # craft -> the two-world merge stamps it coop==1 in the battle.
+    # craft -> it is coop==1 in the battle (unit coop counts from the battle host).
+    # Separate is one host world: the transfer is a real timed transfer that the
+    # host delivers, and the client seats its own soldier on the host's craft.
     cb = own_base(client)
-    spare = next(s for s in cb["soldiers"] if not s.get("craft"))["name"]
-    client.ok({"cmd": "rename_soldier", "name": spare, "newName": "Guest Zzz"})
-    tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest", "toBase": host_base_name})
+    spare = next(s for s in cb["soldiers"] if s.get("craftId", -1) == -1)
+    client.ok({"cmd": "soldier_rename", "soldierId": spare["id"], "name": "Guest Zzz",
+               "base": cb["name"]})
+    host.wait_for("guest rename reaches the host",
+                  lambda: any(s["id"] == spare["id"] and s["name"] == "Guest Zzz"
+                              for s in soldiers_at(host, cb["name"])) or None,
+                  timeout=30, interval=0.3)
+    tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest Zzz", "toBase": host_base_name})
     assert tr.get("transferred"), f"guest transfer failed: {tr}"
-    client.ok({"cmd": "visit_coop_base", "base": host_base_name})
-    client.wait_for("client inside host base",
-                    lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-    rep = client.wait_for(
-        "guest visible at host base",
-        lambda: (lambda r: r if any("Guest" in s["name"] for s in r["soldiers"]) else None)(
-            client.ok({"cmd": "base_report", "coop": True})), timeout=40)
-    guest_id = next(s for s in rep["soldiers"] if "Guest" in s["name"])["id"]
-    peer_craft = next(c for c in rep["crafts"] if "SKYRANGER" in c["type"])["id"]
-    client.ok({"cmd": "craft_assign", "soldier_id": guest_id, "craft_id": peer_craft,
-               "coop": True, "on": True})
-    client.ok({"cmd": "open_soldiers", "base": host_base_name})
-    client.wait_for("client soldiers screen", lambda: has(client, "SoldiersState") or None, timeout=30)
-    client.ok({"cmd": "soldiers_ok"})
-    session.leave_base(client)
+    host.wait_for("guest transfer en route",
+                  lambda: (host.ok({"cmd": "incoming_transfers",
+                                    "base": host_base_name})["soldiers"] == 1) or None,
+                  timeout=30, interval=0.3)
+    arrived = host.ok({"cmd": "force_transfer_arrivals", "base": host_base_name})
+    # rows counts the host's own arrival-popup rows; the guest is the client's.
+    assert arrived["advanced"] > 0 and arrived["remaining"] == 0, \
+        f"guest transfer did not arrive: {arrived}"
+    for gc in (host, client):
+        gc.wait_for(f"guest at host base on {gc.name}",
+                    lambda gc=gc: any(s["name"] == "Guest Zzz"
+                                      for s in soldiers_at(gc, host_base_name)) or None,
+                    timeout=30, interval=0.3)
+    guest_id = next(s for s in soldiers_at(host, host_base_name) if s["name"] == "Guest Zzz")["id"]
+    seat(client, host_base_name, cid, guest_id, True)
+    host.wait_for("guest seated in the host world",
+                  lambda: any(s["id"] == guest_id and s["craftId"] == cid
+                              for s in soldiers_at(host, host_base_name)) or None,
+                  timeout=30, interval=0.3)
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest {guest_id} (coop==1)")
 
     # settle the host (the guest transfer popped a notice), spawn a site, fly there
@@ -229,18 +258,22 @@ def bring_up_mixed_battle(host, client):
     site_id = site["site_id"]
     host.wait_for("site on host",
                   lambda: any(s["id"] == site_id for s in geo(host)["missionSites"]) or None, timeout=30)
-    host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
+    host.ok({"cmd": "craft_force", "base": host_base_name, "craft_id": cid,
+             "craft_type": "STR_SKYRANGER", "status": "STR_OUT",
              "lon": b0["lon"] + 0.34, "lat": b0["lat"] + 0.10, "dest": f"site:{site_id}",
              "fuel": 999999, "lowFuel": False})
 
     def landing_prompt():
         if has(host, "ConfirmLandingState"):
             return True
-        top = states(host)[-1]
-        if "CoopState" in top:
-            host.cmd({"cmd": "coop_dialog_back"})
-        elif "GeoscapeState" not in top:
-            host.cmd({"cmd": "dismiss_popup"})
+        # Separate time runs only while both players are on the geoscape, so the
+        # client's guest-arrival notice must be closed too.
+        for gc in (host, client):
+            top = states(gc)[-1]
+            if "CoopState" in top:
+                gc.cmd({"cmd": "coop_dialog_back"})
+            elif "GeoscapeState" not in top:
+                gc.cmd({"cmd": "dismiss_popup"})
         host.cmd({"cmd": "geo_set_speed", "idx": 2})
         return None
 
