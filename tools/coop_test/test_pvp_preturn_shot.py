@@ -103,9 +103,9 @@ def catch_up(host, client, ev):
     ev["catchUp"] = [ok, secs]
 
 
-def skip_cell(sk0, sk1, red):
+def skip_cell(sk0, sk1, unfixed):
     d = None if None in (sk0, sk1) else sk1 - sk0
-    return (d == 0, f"host projectileSkips {sk0} -> {sk1}: delta {d} (want 0; without the fix: {red})")
+    return (d == 0, f"host projectileSkips {sk0} -> {sk1}: delta {d} (want 0; without the fix: {unfixed})")
 
 
 def client_snap(host, client, shooter, weapon, tile, seed, ev):
@@ -146,7 +146,7 @@ def order_cell(new, sent, kinds, actor, want_turn, pre):
 # ===================== rows =====================
 
 
-def row_shot(row, host, client, crash0, shooter, item, tile, seed, want_dir, want_turn, red, need_empty):
+def row_shot(row, host, client, crash0, shooter, item, tile, seed, want_dir, want_turn, unfixed, need_empty):
     ev, cells = {}, {}
     g = RM.give_both(host, client, shooter, item[0], item[1])
     weapon = (g.get("weaponId"), g.get("ammoId"))
@@ -162,7 +162,7 @@ def row_shot(row, host, client, crash0, shooter, item, tile, seed, want_dir, wan
     new, sent, kinds, sk = client_snap(host, client, shooter, weapon, tile, seed, ev)
     ev["dirAfter"] = dirs(host, client, shooter)
     cells[f"{row}-order"] = order_cell(new, sent, kinds, shooter, want_turn, pre)
-    cells[f"{row}-skip"] = skip_cell(sk[0], sk[1], red)
+    cells[f"{row}-skip"] = skip_cell(sk[0], sk[1], unfixed)
     cells[f"{row}-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
