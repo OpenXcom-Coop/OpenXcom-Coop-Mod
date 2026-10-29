@@ -1,23 +1,31 @@
-"""W2-H61 stage S-A (spec rewrite/prompts/w2h61_drop_dialog_first_frame.md (f); TASK 0 rewrite/w2h61-task0/sa/CONSTANTS.md; lead
-L-H56G-1, ruling R-H61-0, QH61-1..QH61-4 (a); F18629, F18680-F18696, F18880-F18888): when the second player drops in a co-op campaign,
-disconnectTCP()'s host arm pushes the waiting window 62 BEFORE CoopSession::onClientDrop() clears resumeAck and clientInLobby; the 62 reads
-its state once in its constructor and then only on a 500 ms gate that every CoopState shares, so for ~0.2-0.3 s it reads "All players
-connected" with RESUME and no SAVE & QUIT / ABANDON GAME. A 62 already up and ready keeps RESUME the same way after a drop.
-The reading: a poll thread on the host, started right before each kill, runs get_coop THEN coop_dialog_info every POLL_S. A 62
-read is fresh when "to reconnect" is in the title, RESUME is hidden and SAVE & QUIT and ABANDON GAME are shown; any other 62 read is stale. R
-counts a read only when its get_coop returned resumeAck false. Needles count from the host log's line count read just before the kill.
-  Row K (SEPARATE; key "49203", dirs w2h61_K_*): session.new_campaign; the poll; client.kill(); TRAIL_S. Cells K-seen GUARD, K-first FIX,
-  K-stale FIX, K-late GUARD, K-log GUARD (FREEZE +1, DROP +1).
-  Row R (continues K's host): N_CYCLES x a fresh client (w2h61_R<c>_client) join_tcp (KEY, "ClientPlayer") -> its 68 within HOLD_S -> the
-  host acks it, its join Profile is dismissed (profile_ok, as test_reconnect_dialog; only the top state thinks) -> the host's 62 ready within
-  READY_S; the poll; the kill; TRAIL_S. Cells R-ready GUARD, R-stale FIX, R-late GUARD, R-log GUARD (SUPP +1, DROP +1, FREEZE +0 per cycle).
-  Row H (SHARED; dirs w2h61_H_*): as K, but the kill right after the host's BEGIN press (a copy of new_campaign's body, CONSTANTS.md KILL_AT:
-  after new_campaign returns the gate was 570 ms old). Cells H-seen, H-first FIX, H-stale FIX, H-late, H-log.
-  Row Q (quiet control, SEPARATE; dirs w2h61_Q_*): as K, after QUIET_S with coop_dialog_info.present false at every 0.1 s check (the gate is
-  open). Cells Q-seen, Q-first, Q-log (GUARDs: fresh on both builds).
-Red (commit R1): exit 2, RED exactly on K-first, K-stale, R-stale, H-first, H-stale. Nothing is clicked on the 62. A precondition miss ends
-its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per row, one PASS / FAIL line per
-cell, the row verdict; exit 0 only when every cell passes, else 2. one foreground run per invocation.
+"""test_drop_dialog_first_frame.py: when the second player drops in a co-op campaign, disconnectTCP()'s host arm pushes
+the waiting window 62 BEFORE CoopSession::onClientDrop() clears resumeAck and clientInLobby. A 62 that read its state
+once in its constructor and then only on the 500 ms gate every CoopState shares would read "All players connected"
+with RESUME and no SAVE & QUIT / ABANDON GAME for ~0.2-0.3 s, and a 62 already up and ready would keep RESUME the same
+way after a drop. These rows check that the host's 62 reads fresh from its first read on.
+The reading: a poll thread on the host, started right before each kill, runs get_coop THEN coop_dialog_info every
+POLL_S. A 62 read is fresh when "to reconnect" is in the title, RESUME is hidden and SAVE & QUIT and ABANDON GAME are
+shown; any other 62 read is stale. rejoin_drop counts a read only when its get_coop returned resumeAck false. Needles
+count from the host log's line count read just before the kill.
+  separate_drop (SEPARATE; key "49203", dirs drop_dialog_separate_drop_*): session.new_campaign; the poll;
+  client.kill(); TRAIL_S. Cells separate_drop-seen GUARD, separate_drop-first FIX, separate_drop-stale FIX,
+  separate_drop-late GUARD, separate_drop-log GUARD (FREEZE +1, DROP +1).
+  rejoin_drop (continues separate_drop's host): N_CYCLES x a fresh client (drop_dialog_rejoin<c>_client) join_tcp
+  (KEY, "ClientPlayer") -> its 68 within HOLD_S -> the host acks it, its join Profile is dismissed (profile_ok, as
+  test_reconnect_dialog; only the top state thinks) -> the host's 62 ready within READY_S; the poll; the kill;
+  TRAIL_S. Cells rejoin_drop-ready GUARD, rejoin_drop-stale FIX, rejoin_drop-late GUARD, rejoin_drop-log GUARD (SUPP
+  +1, DROP +1, FREEZE +0 per cycle).
+  shared_begin_drop (SHARED; dirs drop_dialog_shared_begin_drop_*): as separate_drop, but the kill right after the
+  host's BEGIN press (a copy of new_campaign's body: once new_campaign returns, the gate is already ~570 ms old).
+  Cells shared_begin_drop-seen, -first FIX, -stale FIX, -late, -log.
+  quiet_drop (quiet control, SEPARATE; dirs drop_dialog_quiet_drop_*): as separate_drop, after QUIET_S with
+  coop_dialog_info.present false at every 0.1 s check (the gate is open). Cells quiet_drop-seen, -first, -log
+  (GUARDs: fresh on any build).
+A build whose 62 shows stale reads after a drop exits 2 and fails exactly separate_drop-first, separate_drop-stale,
+rejoin_drop-stale, shared_begin_drop-first and shared_begin_drop-stale. Nothing is clicked on the 62. A precondition
+miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
+row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. One foreground run per
+invocation.
 Run: python tools/coop_test/test_drop_dialog_first_frame.py
 """
 import json, os, sys, threading, time  # noqa: E401
@@ -86,8 +94,9 @@ def short_read(r):
     return [r["t"], r.get("ack"), r.get("code"), r.get("title"), r.get("back"), r.get("sq"), r.get("ab")]
 
 def poll_kill(host, client, booked):
-    """the pair poll: a thread on the host started right before client.kill(); get_coop THEN coop_dialog_info every POLL_S, until
-    TRAIL_S / LATE_S after the first 62 read (K, H, Q) or after the first read the drop is booked for (R, booked=True); SEEN_S without"""
+    """the pair poll: a thread on the host started right before client.kill(); get_coop THEN coop_dialog_info every
+    POLL_S, until TRAIL_S / LATE_S after the first 62 read (separate_drop, shared_begin_drop, quiet_drop) or after the
+    first read the drop is booked for (rejoin_drop, booked=True); SEEN_S without"""
     trail, t0 = [], [None]
 
     def run():
@@ -114,7 +123,7 @@ def poll_kill(host, client, booked):
     return trail, killed
 
 def reading(trail, booked):
-    """first / stale / late over the 62 reads (R: only the counted ones, resumeAck false)"""
+    """first / stale / late over the 62 reads (rejoin_drop: only the counted ones, resumeAck false)"""
     s62 = [r for r in trail if r.get("code") == 62 and (r.get("ack") is False or not booked)]
     late = [r for r in s62 if r["t"] >= s62[0]["t"] + LATE_S] if s62 else []
     return {"first": s62[0] if s62 else None, "stale": sum(1 for r in s62 if not fresh(r)), "reads": len(s62),
@@ -163,7 +172,7 @@ class Row:
         self.end(results, walls)
 
 def campaign_to_begin(host, client):
-    """KILL_AT (CONSTANTS.md): a copy of session.new_campaign's body (SHARED, tcp; no session.py edit) ending at the host's BEGIN press"""
+    """the kill point: a copy of session.new_campaign's body (SHARED, tcp) ending at the host's BEGIN press"""
     host.ok({"cmd": "open_new_game", "mode": "shared"})
     host.wait_for("difficulty", lambda: session.has_state(host, "NewGameState"))
     host.ok({"cmd": "newgame_ok"})
@@ -184,11 +193,12 @@ def campaign_to_begin(host, client):
     session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))
 
 def boot(rid, mode, quiet):
-    """host + client (dirs w2h61_<rid>_*), the campaign up to the kill point; Q: QUIET_S with no CoopState on the host (else x.err)"""
+    """host + client (dirs drop_dialog_<rid>_*), the campaign up to the kill point; quiet_drop: QUIET_S with no
+    CoopState on the host (else x.err)"""
     x = SimpleNamespace(rid=rid, host=None, client=None, err=None, cpu=cpu())
     try:
-        x.host = GameClient("host", None, make_user_dir("w2h61_%s_host" % rid))
-        x.client = GameClient("client", None, make_user_dir("w2h61_%s_client" % rid))
+        x.host = GameClient("host", None, make_user_dir("drop_dialog_%s_host" % rid))
+        x.client = GameClient("client", None, make_user_dir("drop_dialog_%s_client" % rid))
         x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
         if mode == "shared":
             campaign_to_begin(x.host, x.client)
@@ -201,7 +211,8 @@ def boot(rid, mode, quiet):
                 time.sleep(0.1)
             x.quiet = "%d checks, present true %d" % (len(seen), sum(1 for v in seen if v is not False))
             if any(v is not False for v in seen):
-                raise Stop("Q: coop_dialog_info.present not false at every 0.1 s check for %.0f s (%s)" % (QUIET_S, x.quiet))
+                raise Stop("quiet_drop: coop_dialog_info.present not false at every 0.1 s check for %.0f s (%s)"
+                           % (QUIET_S, x.quiet))
     except Exception as e:
         x.err = short(e, 600)
         cap = {n: {"stack": stack(gc), "coop_dialog_info": dlg(gc), "get_coop": coop(gc)} for n, gc in (("host", x.host), ("client", x.client))
@@ -210,13 +221,13 @@ def boot(rid, mode, quiet):
     return x
 
 def row_kill(x, rid, cells, results, walls):
-    """K / H / Q: the pair poll, the kill, the cells"""
+    """separate_drop / shared_begin_drop / quiet_drop: the pair poll, the kill, the cells"""
     r = Row(rid, [rid + "-" + c for c in cells])
     if x.err:
         return r.boot_miss(x, results, walls)
     h, ev = x.host, r.ev
     r.host, r.client = h, x.client
-    try:  # KILL_AT: no probe between the kill point and the kill (each costs ~50 ms of the shared gate's 500, CONSTANTS.md)
+    try:  # no probe between the kill point and the kill (each costs ~50 ms of the shared gate's 500)
         r.cr0, r.n_h = session._crash_log_snapshot(), len(log(h))
         trail, killed = poll_kill(h, x.client, False)
         rd = reading(trail, False)
@@ -230,12 +241,13 @@ def row_kill(x, rid, cells, results, walls):
         r.cell(rid + "-seen", "GUARD", "a 62 read within %.0f s of the kill" % SEEN_S, rd["first"] is not None and rd["first"]["t"] <= SEEN_S)
         if rd["first"] is None:
             raise Stop("%s-seen: no 62 read" % rid)
-        kind = "GUARD" if rid == "Q" else "FIX"
-        r.cell(rid + "-first", kind, "the first 62 read is fresh (\"%s\", RESUME hidden, SAVE & QUIT and ABANDON GAME shown; red today: \"%s\" + "
-               "RESUME, F18629)" % (WAITING, READY) if kind == "FIX" else "the first 62 read is fresh (the gate is open: no CoopState for "
-               "%.0f s)" % QUIET_S, fresh(rd["first"]))
+        kind = "GUARD" if rid == "quiet_drop" else "FIX"
+        r.cell(rid + "-first", kind, "the first 62 read is fresh (\"%s\", RESUME hidden, SAVE & QUIT and ABANDON GAME "
+               "shown; a stale read shows \"%s\" + RESUME)" % (WAITING, READY) if kind == "FIX"
+               else "the first 62 read is fresh (the gate is open: no CoopState for %.0f s)" % QUIET_S,
+               fresh(rd["first"]))
         if "stale" in cells:
-            r.cell(rid + "-stale", "FIX", "0 stale reads in the trail (red today: >= 1)", rd["stale"] == 0)
+            r.cell(rid + "-stale", "FIX", "0 stale reads in the trail", rd["stale"] == 0)
         if "late" in cells:
             r.cell(rid + "-late", "GUARD", "the read at %.1f s after the first 62 read is fresh" % LATE_S, rd["late"] is not None and fresh(rd["late"]))
         n = ev["needles"]
@@ -244,11 +256,11 @@ def row_kill(x, rid, cells, results, walls):
         r.stop(e)
     r.end(results, walls)
 
-def row_r(x, results, walls, extra):
-    """R: N_CYCLES rejoin-then-kill cycles on K's host"""
-    r = Row("R", ["R-ready", "R-stale", "R-late", "R-log"])
+def row_rejoin_drop(x, results, walls, extra):
+    """rejoin_drop: N_CYCLES rejoin-then-kill cycles on separate_drop's host"""
+    r = Row("rejoin_drop", ["rejoin_drop-ready", "rejoin_drop-stale", "rejoin_drop-late", "rejoin_drop-log"])
     if x.err or not alive(x.host):
-        x.err = x.err or "K's host is not running"
+        x.err = x.err or "separate_drop's host is not running"
         return r.boot_miss(x, results, walls)
     h, ev = x.host, r.ev
     r.host, ev["cpu"], ev["cycles"] = h, cpu(), []
@@ -256,7 +268,7 @@ def row_r(x, results, walls, extra):
         for c in range(1, N_CYCLES + 1):
             cy = {"cycle": c}
             ev["cycles"].append(cy)
-            cl = GameClient("client", None, make_user_dir("w2h61_R%d_client" % c))
+            cl = GameClient("client", None, make_user_dir("drop_dialog_rejoin%d_client" % c))
             extra.append(cl)
             r.client = cl
             try:
@@ -272,9 +284,10 @@ def row_r(x, results, walls, extra):
             except Exception as e:
                 cy["stop"] = short(e, 300)
                 r.evidence()
-                r.cell("R-ready", "GUARD", "cycle %d: the rejoiner's 68 within %.0f s, the host's 62 ready (\"%s\", RESUME) within %.0f s"
+                r.cell("rejoin_drop-ready", "GUARD", "cycle %d: the rejoiner's 68 within %.0f s, the host's 62 ready "
+                       "(\"%s\", RESUME) within %.0f s"
                        % (c, HOLD_S, READY, READY_S), False)
-                raise Stop("R-ready: cycle %d: %s" % (c, cy["stop"]))
+                raise Stop("rejoin_drop-ready: cycle %d: %s" % (c, cy["stop"]))
             r.n_h = len(log(h))
             trail, cy["kill returned s"] = poll_kill(h, cl, True)
             rd = reading(trail, True)
@@ -285,11 +298,13 @@ def row_r(x, results, walls, extra):
         ev["host stack after"], ev["new crash"] = stack(h), sorted(session._crash_log_snapshot() - r.cr0)
         r.evidence()
         cys = ev["cycles"]
-        r.cell("R-ready", "GUARD", "each cycle: the rejoiner's 68, the host's 62 ready (\"%s\", RESUME) before the kill" % READY, True)
-        r.cell("R-stale", "FIX", "0 stale counted reads (resumeAck false) over the %d cycles (red today: >= 1)" % N_CYCLES,
+        r.cell("rejoin_drop-ready", "GUARD", "each cycle: the rejoiner's 68, the host's 62 ready (\"%s\", RESUME) "
+               "before the kill" % READY, True)
+        r.cell("rejoin_drop-stale", "FIX", "0 stale counted reads (resumeAck false) over the %d cycles" % N_CYCLES,
                sum(cy["_stale"] for cy in cys) == 0)
-        r.cell("R-late", "GUARD", "each cycle: fresh at %.1f s after the drop is booked" % LATE_S, all(cy["_late"] for cy in cys))
-        r.cell("R-log", "GUARD", "each cycle: SUPP +1, DROP +1, FREEZE +0",
+        r.cell("rejoin_drop-late", "GUARD", "each cycle: fresh at %.1f s after the drop is booked" % LATE_S,
+               all(cy["_late"] for cy in cys))
+        r.cell("rejoin_drop-log", "GUARD", "each cycle: SUPP +1, DROP +1, FREEZE +0",
                all((cy["needles"]["SUPP"], cy["needles"]["DROP"], cy["needles"]["FREEZE"]) == (1, 1, 0) for cy in cys))
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
@@ -310,14 +325,15 @@ def shut(*gcs):
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
     tb = time.time()
-    x = boot("K", "coop", False)
-    walls["K boot"], extra = round(time.time() - tb, 1), []
+    x = boot("separate_drop", "coop", False)
+    walls["separate_drop boot"], extra = round(time.time() - tb, 1), []
     try:
-        row_kill(x, "K", ["seen", "first", "stale", "late", "log"], results, walls)
-        row_r(x, results, walls, extra)
+        row_kill(x, "separate_drop", ["seen", "first", "stale", "late", "log"], results, walls)
+        row_rejoin_drop(x, results, walls, extra)
     finally:
         failed += shut(x.client, *extra) + shut(x.host)
-    for rid, mode, quiet, cells in (("H", "shared", False, ["seen", "first", "stale", "late", "log"]), ("Q", "coop", True, ["seen", "first", "log"])):
+    for rid, mode, quiet, cells in (("shared_begin_drop", "shared", False, ["seen", "first", "stale", "late", "log"]),
+                                    ("quiet_drop", "coop", True, ["seen", "first", "log"])):
         tb = time.time()
         x = boot(rid, mode, quiet)
         walls[rid + " boot"] = round(time.time() - tb, 1)
