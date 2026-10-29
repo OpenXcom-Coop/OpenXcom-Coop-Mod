@@ -38,7 +38,8 @@ def test_campaign_battle(fails, alien_player, expect_mode):
         client.wait_for('x',lambda:_has(client,'LobbyMenu'),timeout=120)
         for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'Profile'));g.ok({"cmd":"profile_ok"})
         host.wait_for('x',lambda:host.cmd({"cmd":"lobby_state"}).get("startEligible"))
-        host.wait_for('START CAMPAIGN shown (D250-U A1)',lambda:host.cmd({"cmd":"lobby_state"}).get("buttonVisible") or None,timeout=10)
+        host.wait_for('START CAMPAIGN shown',
+                      lambda:host.cmd({"cmd":"lobby_state"}).get("buttonVisible") or None,timeout=10)
         ls=host.cmd({"cmd":"lobby_state"})
         want='ClientPlayer' if alien_player=='client' else 'HostPlayer'
         for i,n in enumerate(ls.get('players',[])):
@@ -47,11 +48,11 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 
         session.start_campaign_via_button(host)
         xcom_gc=client if alien_player=='host' else host
-        xcom_gc.wait_for('XCOM base placement screen (D250-U S-A)', lambda: _has(xcom_gc, 'BuildNewBaseState') or None, timeout=60)
+        xcom_gc.wait_for('XCOM base placement screen', lambda: _has(xcom_gc, 'BuildNewBaseState') or None, timeout=60)
         if _has(xcom_gc,'BuildNewBaseState'):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XB"})
         time.sleep(2)
-        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # D250-U S-A (R-U7d-1)
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # once the wait dialog shows its button
         for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'GeoscapeState')and not _has(g,'CoopState'),timeout=120)
         print(f"PASS {tag}: both on geoscape")
 
@@ -113,8 +114,8 @@ def test_campaign_battle(fails, alien_player, expect_mode):
                         timeout=180, interval=1.0)
             print(f"    {gc.name} battle_state.inBattle=True")
 
-        # D250-U S-A (W2-P8b spine; owner D210 b, D215 a, D206 c): both briefings at once, each seat equips its
-        # own soldiers (the PvP alien seat has nothing to equip and holds on the Turn-1 screen), turn 1 on both.
+        # Both briefings at once, each seat equips its own soldiers (the PvP alien seat has nothing to equip and
+        # holds on the Turn-1 screen), turn 1 on both.
         session.briefings_to_battlescape(host, client)
         for gc in (host, client):
             gc.wait_for("tactical", lambda gc=gc: _has(gc, "BattlescapeState") or None,
@@ -130,7 +131,7 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 def main():
     fails=[]
     test_campaign_battle(fails, "client", 2)
-    test_campaign_battle(fails, "host", 3)  # the gm3 leg runs live
+    test_campaign_battle(fails, "host", 3)  # gm3: the host plays the aliens
     print("\n==== PvP campaign battle summary ====")
     if fails:
         for f in fails:print(f"  FAIL {f}")
