@@ -2466,6 +2466,70 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
+// soldier_training payload: { kind: "martial" | "psi", soldiers: [{ id, training,
+// queued }] }. baseId = the soldiers' base. The training screens send the flags a
+// click or assign-all / de-assign-all sets; the host runs the training, so the
+// flags live in its world. SHARED: any soldier, as the screen allows today.
+// Separate: only the requester's own soldiers, also at another player's base.
+// The checks are the screen's: no training for a fully trained soldier, a
+// wounded one is only queued (martial), and the base must have the room.
+bool soldierTrainingValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                             int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	const std::string kind = payload.get("kind", "").asString();
+	if (kind != "martial" && kind != "psi") { failReason = "unknown training"; return false; }
+	const bool psi = kind == "psi";
+	const Json::Value& soldiers = payload["soldiers"];
+	if (!soldiers.isArray() || soldiers.empty()) { failReason = "no soldiers"; return false; }
+	int added = 0;
+	int removed = 0;
+	for (const auto& entry : soldiers)
+	{
+		Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
+		if (!s) { failReason = "soldier not found"; return false; }
+		if (!separateSoldierOwnerOk(game, s, seat))
+			{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+		const bool training = entry.get("training", false).asBool();
+		const bool now = psi ? s->isInPsiTraining() : s->isInTraining();
+		if (training && !now)
+		{
+			const bool trainable = psi
+				? s->getRules()->getTrainingStatCaps().psiSkill > 0 && !s->isFullyPsiTrained()
+				: !s->isFullyTrained() && !s->isWounded();
+			if (!trainable) { failReason = "soldier cannot train"; return false; }
+			++added;
+		}
+		else if (!training && now) ++removed;
+		if (!psi && entry.get("queued", false).asBool() && s->isFullyTrained())
+			{ failReason = "soldier cannot train"; return false; }
+	}
+	const int used = psi ? base->getUsedPsiLabs() : base->getUsedTraining();
+	const int room = psi ? base->getAvailablePsiLabs() : base->getAvailableTraining();
+	if (added > 0 && used - removed + added > room)
+		{ failReason = "no free training space"; return false; }
+	return true;
+}
+
+void soldierTrainingApply(Game* /*game*/, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base) return;
+	const bool psi = payload.get("kind", "").asString() == "psi";
+	for (const auto& entry : payload["soldiers"])
+	{
+		Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
+		if (!s) continue;
+		if (psi)
+			s->setPsiTraining(entry.get("training", false).asBool());
+		else
+		{
+			s->setTraining(entry.get("training", false).asBool());
+			s->setReturnToTrainingWhenHealed(entry.get("queued", false).asBool());
+		}
+	}
+}
+
 // base_move payload: {}. baseId = the base the mini base strip moves one place
 // left (main's right-click). Commands name bases by index, so the move is a host
 // command that every machine applies at the same point in the apply order.
@@ -3592,6 +3656,8 @@ void init()
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
+	// The training screens' flags (martial and psi): the host runs the training.
+	registerCmd("soldier_training", &soldierTrainingValidate, &soldierTrainingApply);
 	// The base list order and a player's roster order, kept the same on every
 	// machine (the mini base strip move and the roster screens' move up / down).
 	registerCmd("base_move",      &baseMoveValidate,     &baseMoveApply);
@@ -4156,6 +4222,25 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::str
 	p["soldierId"] = soldier->getId();
 	p["armor"] = armorType;
 	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
+}
+
+void submitSoldierTraining(Game* game, Base* base, bool psi,
+	const std::vector<TrainingChange>& changes)
+{
+	if (!game || !base || changes.empty()) return;
+	Json::Value soldiers(Json::arrayValue);
+	for (const TrainingChange& change : changes)
+	{
+		Json::Value s;
+		s["id"] = change.soldier->getId();
+		s["training"] = change.training;
+		if (!psi) s["queued"] = change.queued;
+		soldiers.append(s);
+	}
+	Json::Value p;
+	p["kind"] = psi ? "psi" : "martial";
+	p["soldiers"] = soldiers;
+	submitLocalCmd(game, "soldier_training", baseIndex(game, base), p);
 }
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)

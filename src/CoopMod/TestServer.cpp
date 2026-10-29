@@ -710,6 +710,17 @@ static Json::Value soldierToJson(Soldier* s)
 	j["reactions"] = s->getCurrentStats()->reactions;
 	j["bravery"] = s->getCurrentStats()->bravery;
 	j["dogfightXp"] = s->getDailyDogfightExperienceCache()->firing;
+	// Training: the flags the training screens set, and the stats martial
+	// training raises (firing above), so a test can see the host train.
+	j["training"] = s->isInTraining();
+	j["trainingQueued"] = s->getReturnToTrainingWhenHealed();
+	j["psiTraining"] = s->isInPsiTraining();
+	j["tu"] = s->getCurrentStats()->tu;
+	j["stamina"] = s->getCurrentStats()->stamina;
+	j["health"] = s->getCurrentStats()->health;
+	j["throwing"] = s->getCurrentStats()->throwing;
+	j["melee"] = s->getCurrentStats()->melee;
+	j["strength"] = s->getCurrentStats()->strength;
 	return j;
 }
 
@@ -9237,7 +9248,33 @@ std::string TestServer::execute(const std::string& line)
 				else if (action != "view") known = false;
 				shown = st->harnessDisplayedSoldierIds();
 			};
-			if (auto* t = dynamic_cast<AllocateTrainingState*>(top)) drive(t, "training");
+			// "toggle" (soldier_id) / "assign_all" / "deassign_all": the training
+			// screens' real click and assign-all / de-assign-all key handlers.
+			const bool trainingAction = action == "toggle" || action == "assign_all"
+				|| action == "deassign_all";
+			const int soldierId = req.get("soldier_id", -1).asInt();
+			if (trainingAction && dynamic_cast<AllocateTrainingState*>(top))
+			{
+				auto* t = dynamic_cast<AllocateTrainingState*>(top);
+				resp["screen"] = "training";
+				known = t->harnessTraining(action, soldierId);
+				shown = t->harnessDisplayedSoldierIds();
+				if (!known) resp["error"] = "soldier not on the training screen";
+			}
+			else if (trainingAction && dynamic_cast<AllocatePsiTrainingState*>(top))
+			{
+				auto* p = dynamic_cast<AllocatePsiTrainingState*>(top);
+				resp["screen"] = "psi_training";
+				known = p->harnessTraining(action, soldierId);
+				shown = p->harnessDisplayedSoldierIds();
+				if (!known) resp["error"] = "soldier not on the psi training screen";
+			}
+			else if (trainingAction)
+			{
+				resp["error"] = "no training screen on top";
+				known = false;
+			}
+			else if (auto* t = dynamic_cast<AllocateTrainingState*>(top)) drive(t, "training");
 			else if (auto* p = dynamic_cast<AllocatePsiTrainingState*>(top)) drive(p, "psi_training");
 			else if (auto* a = dynamic_cast<CraftArmorState*>(top)) drive(a, "craft_armor");
 			else if (auto* c = dynamic_cast<CraftSoldiersState*>(top)) drive(c, "craft_soldiers");

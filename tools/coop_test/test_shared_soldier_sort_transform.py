@@ -17,6 +17,10 @@ only, so the two machines' rosters drift apart. Both go through the host now:
   S7 crew       the host sorts its soldiers while the client's craft crew
                 screen is open; the client's original order then keeps both
                 machines the same
+  S8/S9 training  the client's martial / psi training screen puts its own
+                soldier and a host soldier into training (SHARED lets a player
+                change any soldier) through the host: both machines end with the
+                same flags
 
 Exit 0 = every row passed. Any other rc is a failure.
 """
@@ -38,12 +42,16 @@ MOD_NAME = "coop_shared_transform"
 METADATA = """\
 name: "Coop shared transformation test"
 version: 1.0
-description: "Test-only: a paid soldier transformation open to every live soldier."
+description: "Test-only: a paid soldier transformation open to every live soldier, and a gym and psi lab in every access lift."
 author: coop harness
 
 master: xcom1
 """
 RULESET = f"""\
+facilities:
+  - type: STR_ACCESS_LIFT
+    trainingRooms: 10
+    psiLabs: 10
 soldierTransformation:
   - name: {TRANSFORM}
     allowsLiveSoldiers: true
@@ -186,6 +194,26 @@ def row_training_sort(host, client, base, screen, row):
           same, f"host={ids(host, base)} client={ids(client, base)}")
 
 
+def row_training(host, client, screen, key, row):
+    """S8/S9: the client's training screen changes its own soldier's and a host
+    soldier's training flag through the host (SHARED: any soldier)."""
+    def flag(gc, base, sid):
+        return next((s[key] for s in roster(gc, base) if s["id"] == sid), None)
+
+    for base, owner in ((own_base(client, 1), 1), (own_base(client, 0), 0)):
+        sid = ids(host, base, owner)[0]
+        for want in (True, False):
+            client.ok({"cmd": "open_screen", "screen": screen, "base": base})
+            r = client.cmd({"cmd": "roster_screen", "action": "toggle", "soldier_id": sid})
+            got = poll(lambda: (flag(host, base, sid) == want
+                                and flag(client, base, sid) == want) or None, timeout=10)
+            client.ok({"cmd": "close_screens"})
+            check(f"{row} {screen}: the client sets {'its own' if owner else 'a host'} "
+                  f"soldier's training to {want} on both machines",
+                  bool(got) and r.get("ok"),
+                  f"resp={r} host={flag(host, base, sid)} client={flag(client, base, sid)}")
+
+
 def craft_id(gc, base):
     return next(b for b in gc.ok({"cmd": "geo_state"})["bases"]
                 if b["name"] == base)["crafts"][0]["id"]
@@ -276,6 +304,8 @@ def main():
             row_sort(host, client, base)
             row_training_sort(host, client, base, "training", "S4")
             row_training_sort(host, client, base, "psi_training", "S5")
+            row_training(host, client, "training", "training", "S8")
+            row_training(host, client, "psi_training", "psiTraining", "S9")
             row_armor_sort(host, client, base)
             row_crew_original(host, client, base)
             row_transform(host, client, client, 1, "S2")

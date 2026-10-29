@@ -190,6 +190,7 @@ AllocatePsiTrainingState::AllocatePsiTrainingState(Base *base) : _sel(0), _base(
  */
 AllocatePsiTrainingState::~AllocatePsiTrainingState()
 {
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -328,6 +329,7 @@ void AllocatePsiTrainingState::btnPlusClick(Action *action)
 void AllocatePsiTrainingState::init()
 {
 	State::init();
+	_sharedRefresh.bind(_game, this, _base);
 
 	// coming back from SoldierInfoState
 	if (_doNotReset)
@@ -336,8 +338,68 @@ void AllocatePsiTrainingState::init()
 		return;
 	}
 
+	if (_coopView) refreshSpace();
 	_base->prepareSoldierStatsWithBonuses(); // refresh stats for sorting
 	initList(0);
+}
+
+/**
+ * Redraws the list (and the free space) when a host result for this base
+ * lands, e.g. this screen's own training change.
+ */
+void AllocatePsiTrainingState::think()
+{
+	State::think();
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		refreshSpace();
+		initList(_lstSoldiers->getScroll());
+	}
+}
+
+/**
+ * Sets a soldier's psi training flag. In the one-world co-op campaigns the
+ * host runs the training, so the change goes to the host instead
+ * (sendTraining) and the list redraws when it lands.
+ * @return True when the flag changed here.
+ */
+bool AllocatePsiTrainingState::changePsiTraining(Soldier* soldier, bool training)
+{
+	if (!_coopView)
+	{
+		soldier->setPsiTraining(training);
+		return true;
+	}
+	if (training != soldier->isInPsiTraining())
+		_pending.push_back({ soldier, training, false });
+	return false;
+}
+
+void AllocatePsiTrainingState::sendTraining()
+{
+	SharedEcon::submitSoldierTraining(_game, _base, true, _pending);
+	_pending.clear();
+}
+
+/**
+ * Assign-all, de-assign-all and the list's clean-up change only the soldiers
+ * the player may train: in Separate their own (the partner's soldiers at the
+ * same base are theirs).
+ */
+bool AllocatePsiTrainingState::mayChange(const Soldier* soldier) const
+{
+	return !_game->getCoopMod()->isSeparateCampaign() || SharedEcon::ownsSoldier(_game, soldier);
+}
+
+void AllocatePsiTrainingState::refreshSpace()
+{
+	_labSpace = _base->getAvailablePsiLabs() - _base->getUsedPsiLabs();
+	_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
 }
 
 /**
@@ -376,20 +438,24 @@ void AllocatePsiTrainingState::initList(size_t scrl)
 		{
 			_lstSoldiers->addRow(4, soldier->getName(true).c_str(), ssStr.str().c_str(), ssSkl.str().c_str(), tr("STR_NO_WOUNDED").c_str());
 			_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
-			if (soldier->isInPsiTraining())
+			// co-op: asked of the host once per screen, for the player's own soldiers
+			if (soldier->isInPsiTraining() && mayChange(soldier)
+				&& (!_coopView || _clearSent.insert(soldier->getId()).second)
+				&& changePsiTraining(soldier, false))
 			{
 				_labSpace++;
-				soldier->setPsiTraining(false);
 			}
 		}
 		else if (soldier->isFullyPsiTrained())
 		{
 			_lstSoldiers->addRow(4, soldier->getName(true).c_str(), ssStr.str().c_str(), ssSkl.str().c_str(), tr("STR_NO_DONE").c_str());
 			_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
-			if (soldier->isInPsiTraining())
+			// co-op: asked of the host once per screen, for the player's own soldiers
+			if (soldier->isInPsiTraining() && mayChange(soldier)
+				&& (!_coopView || _clearSent.insert(soldier->getId()).second)
+				&& changePsiTraining(soldier, false))
 			{
 				_labSpace++;
-				soldier->setPsiTraining(false);
 			}
 		}
 		else if (soldier->isInPsiTraining())
@@ -404,6 +470,7 @@ void AllocatePsiTrainingState::initList(size_t scrl)
 		}
 		row++;
 	}
+	sendTraining();
 	_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
 	if (scrl)
 		_lstSoldiers->scrollTo(scrl);
@@ -536,40 +603,50 @@ void AllocatePsiTrainingState::lstSoldiersClick(Action *action)
 	_sel = _lstSoldiers->getSelectedRow();
 	if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
 	{
-		auto* s = shown()->at(_sel);
-		if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
-		{
-			// noop
-		}
-		else if (s->isFullyPsiTrained())
-		{
-			// can't put fully psi-trained soldiers back into psi training
-		}
-		else if (!s->isInPsiTraining())
-		{
-			if (_base->getUsedPsiLabs() < _base->getAvailablePsiLabs())
-			{
-				_lstSoldiers->setCellText(_sel, 3, tr("STR_YES"));
-				_lstSoldiers->setRowColor(_sel, _lstSoldiers->getSecondaryColor());
-				_labSpace--;
-				_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
-				s->setPsiTraining(true);
-			}
-		}
-		else
-		{
-			_lstSoldiers->setCellText(_sel, 3, tr("STR_NO"));
-			_lstSoldiers->setRowColor(_sel, _lstSoldiers->getColor());
-			_labSpace++;
-			_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
-			s->setPsiTraining(false);
-		}
+		toggleRow(_sel);
 	}
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
 	{
 		_doNotReset = true;
 		_game->pushState(new SoldierInfoState(_base, rosterIndex(_sel), true, true));
 	}
+}
+
+/**
+ * Assigns / removes the soldier of a shown row from Psi Training.
+ * @param row Shown row.
+ */
+void AllocatePsiTrainingState::toggleRow(size_t row)
+{
+	_sel = row;
+	auto* s = shown()->at(_sel);
+	if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
+	{
+		// noop
+	}
+	else if (s->isFullyPsiTrained())
+	{
+		// can't put fully psi-trained soldiers back into psi training
+	}
+	else if (!s->isInPsiTraining())
+	{
+		if (_base->getUsedPsiLabs() < _base->getAvailablePsiLabs()
+			&& changePsiTraining(s, true))
+		{
+			_lstSoldiers->setCellText(_sel, 3, tr("STR_YES"));
+			_lstSoldiers->setRowColor(_sel, _lstSoldiers->getSecondaryColor());
+			_labSpace--;
+			_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
+		}
+	}
+	else if (changePsiTraining(s, false))
+	{
+		_lstSoldiers->setCellText(_sel, 3, tr("STR_NO"));
+		_lstSoldiers->setRowColor(_sel, _lstSoldiers->getColor());
+		_labSpace++;
+		_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
+	}
+	sendTraining();
 }
 
 /**
@@ -613,24 +690,26 @@ void AllocatePsiTrainingState::btnDeassignAllSoldiersClick(Action* action)
 	int row = 0;
 	for (auto* s : *shown())
 	{
-		s->setPsiTraining(false);
-		if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
+		if (mayChange(s) && changePsiTraining(s, false))
 		{
-			_lstSoldiers->setCellText(row, 3, tr("STR_NO_WOUNDED"));
+			if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
+			{
+				_lstSoldiers->setCellText(row, 3, tr("STR_NO_WOUNDED"));
+			}
+			else if (s->isFullyPsiTrained())
+			{
+				_lstSoldiers->setCellText(row, 3, tr("STR_NO_DONE"));
+			}
+			else
+			{
+				_lstSoldiers->setCellText(row, 3, tr("STR_NO"));
+			}
+			_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
 		}
-		else if (s->isFullyPsiTrained())
-		{
-			_lstSoldiers->setCellText(row, 3, tr("STR_NO_DONE"));
-		}
-		else
-		{
-			_lstSoldiers->setCellText(row, 3, tr("STR_NO"));
-		}
-		_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
 		row++;
 	}
-	_labSpace = _base->getAvailablePsiLabs() - _base->getUsedPsiLabs();
-	_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
+	sendTraining();
+	refreshSpace();
 }
 
 /**
@@ -643,7 +722,11 @@ void AllocatePsiTrainingState::btnAssignAllSoldiersClick(Action* action)
 	int row = 0;
 	for (auto* s : *shown())
 	{
-		if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
+		if (!mayChange(s))
+		{
+			// Separate: the partner's soldier at this base is theirs to train
+		}
+		else if (s->getRules()->getTrainingStatCaps().psiSkill <= 0)
 		{
 			// noop
 		}
@@ -653,13 +736,16 @@ void AllocatePsiTrainingState::btnAssignAllSoldiersClick(Action* action)
 		}
 		else if (_labSpace > 0 && !s->isInPsiTraining())
 		{
-			_lstSoldiers->setCellText(row, 3, tr("STR_YES"));
-			_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
 			_labSpace--;
-			s->setPsiTraining(true);
+			if (changePsiTraining(s, true))
+			{
+				_lstSoldiers->setCellText(row, 3, tr("STR_YES"));
+				_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
+			}
 		}
 		row++;
 	}
+	sendTraining();
 	_txtRemaining->setText(tr("STR_REMAINING_PSI_LAB_CAPACITY").arg(_labSpace));
 }
 
@@ -675,6 +761,22 @@ std::vector<int> AllocatePsiTrainingState::harnessDisplayedSoldierIds() const
 	for (const auto* s : _coopView ? _shown : *_base->getSoldiers())
 		ids.push_back(s->getId());
 	return ids;
+}
+
+bool AllocatePsiTrainingState::harnessTraining(const std::string& action, int soldierId)
+{
+	syncShown();
+	if (action == "assign_all") btnAssignAllSoldiersClick(nullptr);
+	else if (action == "deassign_all") btnDeassignAllSoldiersClick(nullptr);
+	else if (action != "toggle") return false;
+	else
+	{
+		auto it = std::find_if(shown()->begin(), shown()->end(),
+			[&](const Soldier* s) { return s->getId() == soldierId; });
+		if (it == shown()->end()) return false;
+		toggleRow((size_t)(it - shown()->begin()));
+	}
+	return true;
 }
 
 }

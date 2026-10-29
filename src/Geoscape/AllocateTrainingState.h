@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/State.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 
 namespace OpenXcom
@@ -65,6 +66,21 @@ private:
 	void syncShown();
 	/// The base roster index of shown row @a row.
 	size_t rosterIndex(size_t row);
+	/// Assigns / removes / queues the soldier of shown row @a row (a left click).
+	void toggleRow(size_t row);
+	/// One-world co-op campaigns: the host runs the training, so the screen
+	/// sends its changes there and redraws when they land.
+	SharedEcon::ScreenRefresh _sharedRefresh;
+	std::vector<SharedEcon::TrainingChange> _pending;
+	/// Sets @a soldier's training flags here and returns true; in a one-world
+	/// co-op campaign adds them to the change for the host and returns false.
+	bool changeTraining(Soldier* soldier, bool training, bool queued);
+	/// Sends the pending changes to the host.
+	void sendTraining();
+	/// Assign-all and de-assign-all change this soldier (Separate: own soldiers).
+	bool mayChange(const Soldier* soldier) const;
+	/// Recounts the free training space from the base.
+	void refreshSpace();
 
 	///initializes the display list
 	void initList(size_t scrl);
@@ -77,6 +93,8 @@ public:
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier info.
 	void init() override;
+	/// Redraws the list when a host result for this base lands.
+	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);
 	/// Moves a soldier up.
@@ -101,6 +119,9 @@ public:
 	void harnessSort(size_t index);
 	/// Test automation: the soldier ids the list shows, in its order.
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation: "toggle" clicks soldier @a soldierId's row, "assign_all" /
+	/// "deassign_all" press those keys. False for an unknown action or soldier.
+	bool harnessTraining(const std::string& action, int soldierId);
 };
 
 }

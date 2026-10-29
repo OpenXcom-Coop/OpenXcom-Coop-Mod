@@ -343,6 +343,20 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
+/// A training screen's change to one soldier: whether it is in training, and
+/// (martial training only) whether it returns to training once healed.
+struct TrainingChange
+{
+	Soldier* soldier;
+	bool training;
+	bool queued;
+};
+/// SHARED and Separate: sends the training flags @a changes set at @a base (psi
+/// lab when @a psi, else martial training) to the host (soldier_training), which
+/// runs the training. Mutates nothing locally; the flags change when it lands.
+void submitSoldierTraining(Game* game, Base* base, bool psi,
+	const std::vector<TrainingChange>& changes);
+
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw
 /// top-level message, not the shared_apply lane). Epoch-guarded + fanned to the
