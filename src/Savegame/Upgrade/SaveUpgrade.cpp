@@ -276,12 +276,13 @@ std::string joinLines(const std::vector<std::string>& v, const std::string& sep)
 	return out;
 }
 
-std::vector<const SchemaStep*> buildChain(int from)
+// The steps from schema `from` up to `target`, the schema of the save's game mode.
+std::vector<const SchemaStep*> buildChain(int from, int target)
 {
 	std::vector<const SchemaStep*> chain;
 	int cur = from;
 	// Guard against a malformed registry that could otherwise loop forever.
-	for (int guard = 0; cur < SAVE_SCHEMA_CURRENT && guard < 64; ++guard)
+	for (int guard = 0; cur < target && guard < 64; ++guard)
 	{
 		const SchemaStep* next = nullptr;
 		for (const SchemaStep* s : getSchemaSteps())
@@ -436,15 +437,19 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			why = "host header missing coopPlayers";
 			return false;
 		}
-		if (yamlutil::getInt(header, "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
-		{
-			why = "host header saveSchema is not current";
-			return false;
-		}
 		const long long campaignType = yamlutil::getInt(header, "coopCampaignType", -1);
 		if (campaignType != 0 && campaignType != 1)
 		{
 			why = "host header has an invalid coopCampaignType";
+			return false;
+		}
+		const long long gamemode = yamlutil::getInt(body, "coop_gamemode", 0);
+		// Every world in the save carries its game mode's schema: 3 for a
+		// Separate campaign, 2 for SHARED and for PvP and its embedded worlds.
+		const int modeSchema = schemaForMode(true, static_cast<int>(campaignType), static_cast<int>(gamemode));
+		if (yamlutil::getInt(header, "saveSchema", 0) != modeSchema)
+		{
+			why = "host header saveSchema is not the schema of its game mode";
 			return false;
 		}
 		if (yamlutil::getInt(body, "coop_save_owner_player_id", -1) != 0)
@@ -458,7 +463,6 @@ bool postflightVerify(const std::string& stream, std::string& why)
 			return false;
 		}
 		ryml::ConstNodeRef seq = body.find_child("coopClientSaves");
-		const long long gamemode = yamlutil::getInt(body, "coop_gamemode", 0);
 		const bool separateWorld = campaignType == 0 && gamemode != 2 && gamemode != 3;
 		if (separateWorld && !seq.invalid() && seq.num_children() != 0)
 		{
@@ -501,9 +505,9 @@ bool postflightVerify(const std::string& stream, std::string& why)
 				}
 				auto cht = yamlutil::parseMap(ch);
 				auto cbt = yamlutil::parseMap(cb);
-				if (yamlutil::getInt(cht->crootref(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT)
+				if (yamlutil::getInt(cht->crootref(), "saveSchema", 0) != modeSchema)
 				{
-					why = "client header saveSchema is not current";
+					why = "client header saveSchema is not the schema of its game mode";
 					return false;
 				}
 				if (yamlutil::getInt(cht->crootref(), "coopCampaignType", -1) != 0)
@@ -665,6 +669,11 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 {
 	DetectedSchema d;
 	d.gamemode = body["coop_gamemode"].readVal<int>(0);
+	// The schema an upgrade of this save ends at. Only a co-op save is ever
+	// upgraded (every Legacy kind below is co-op by its own signal), so the
+	// target is the co-op mode's schema: 3 for a Separate campaign, 2 for
+	// SHARED and PvP.
+	d.target = schemaForMode(true, header["coopCampaignType"].readVal<int>(0), d.gamemode);
 
 	// Detector v2.3 (PRD 3.1): a save is CO-OP iff a POSITIVE signal holds. There is
 	// no ambiguous/weak tier and no bare coop_gamemode/saveID rule - the fork build
@@ -696,16 +705,22 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		if (s == 2 && (gamemode == 2 || gamemode == 3))
 		{
 			d.kind = DetectedSchema::Current;
-			d.schema = SAVE_SCHEMA_CURRENT;
 			return d;
 		}
-		// SHARED already is one world: 2->3 only restamps it. A schema-2
-		// SHARED save loads straight to the host window, so it must not
-		// stop at the upgrade dialog.
+		// SHARED already is one world and is still written at schema 2. A
+		// schema-2 SHARED save loads straight to the host window, so it must
+		// not stop at the upgrade dialog.
 		if (s == 2 && header["coopCampaignType"].readVal<int>(0) == 1)
 		{
 			d.kind = DetectedSchema::Current;
-			d.schema = SAVE_SCHEMA_CURRENT;
+			return d;
+		}
+		// Solo games are written at schema 2 by this build and the previous
+		// release alike, and every stamped co-op save carries coop:true. A
+		// schema-2 save without it is a solo game and loads as it is.
+		if (s == 2 && !header["coop"].readVal(false))
+		{
+			d.kind = DetectedSchema::Solo;
 			return d;
 		}
 	}
@@ -723,8 +738,15 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		{
 			if (entry["blob"])
 			{
-				d.kind = DetectedSchema::Legacy;
 				d.schema = 2;
+				// PvP still keeps one embedded world per player at schema 2:
+				// that is its own layout, so there is nothing to upgrade.
+				if (d.schema >= d.target)
+				{
+					d.kind = DetectedSchema::Current;
+					return d;
+				}
+				d.kind = DetectedSchema::Legacy;
 				d.variant = SchemaVariant::Embed;
 				return d;
 			}
@@ -878,7 +900,7 @@ std::vector<InputRequest> UpgradeRunner::requiredInputs()
 	SaveSet probe;
 	probe.schema = d.schema;
 	probe.variant = d.variant;
-	for (const SchemaStep* step : buildChain(d.schema))
+	for (const SchemaStep* step : buildChain(d.schema, d.target))
 	{
 		std::vector<InputRequest> si = step->requiredInputs(probe);
 		reqs.insert(reqs.end(), si.begin(), si.end());
@@ -904,8 +926,8 @@ PreflightResult UpgradeRunner::preflight(const UpgradeInputs& in)
 	if (!d.needsUpgrade())
 		return r; // current / solo: nothing to do
 
-	std::vector<const SchemaStep*> chain = buildChain(d.schema);
-	if (chain.empty() || chain.back()->toSchema() != SAVE_SCHEMA_CURRENT)
+	std::vector<const SchemaStep*> chain = buildChain(d.schema, d.target);
+	if (chain.empty() || chain.back()->toSchema() != d.target)
 	{
 		r.errors.push_back("This build cannot upgrade schema " + std::to_string(d.schema) + ".");
 		return r;
@@ -940,8 +962,8 @@ ExecuteResult UpgradeRunner::execute(const UpgradeInputs& in)
 		res.errorMessage = "Save does not need upgrading.";
 		return res;
 	}
-	std::vector<const SchemaStep*> chain = buildChain(d.schema);
-	if (chain.empty() || chain.back()->toSchema() != SAVE_SCHEMA_CURRENT)
+	std::vector<const SchemaStep*> chain = buildChain(d.schema, d.target);
+	if (chain.empty() || chain.back()->toSchema() != d.target)
 	{
 		res.errorMessage = "This build cannot upgrade schema " + std::to_string(d.schema) + ".";
 		return res;

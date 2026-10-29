@@ -108,6 +108,15 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
 	return find != vec.end();
 }
 
+/// The saveSchema stamp for a world of this game mode. Only a cooperative
+/// Separate campaign is written at the newest schema; solo, SHARED, PvP and
+/// skirmish worlds keep the schema the previous release reads.
+int saveSchemaStamp(const SavedGame& save)
+{
+	return SaveUpgrade::schemaForMode(save.isCoopSave(),
+		static_cast<int>(save.getCampaignType()), connectionTCP::_coopGamemode);
+}
+
 }
 
 /**
@@ -1399,10 +1408,10 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 		git_sha.erase(0, 1);
 	headerWriter.write("build", git_sha);
 	// Schema stamp: every save (the host .sav AND every embedded client blob, which
-	// are full 2-doc saves) carries the current co-op save schema so the load gate
+	// are full 2-doc saves) carries its game mode's save schema so the load gate
 	// can classify old saves. Unstamped schema-2 saves gain this on their next save.
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
-	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
 	if (_battleGame != 0)
 	{
@@ -1673,7 +1682,7 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	if (!git_sha.empty() && git_sha[0] == '.')
 		git_sha.erase(0, 1);
 	headerWriter.write("build", git_sha);
-	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
 	// P4: the stub is a pure GEOSCAPE world - never a battle. A mid-battle resume
 	// loads this stub as its phase-one geoscape and streams the real battle on top
@@ -1888,10 +1897,10 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		git_sha.erase(0, 1);
 	headerWriter.write("build", git_sha);
 	// Schema stamp: every save (the host .sav AND every embedded client blob, which
-	// are full 2-doc saves) carries the current co-op save schema so the load gate
+	// are full 2-doc saves) carries its game mode's save schema so the load gate
 	// can classify old saves. Unstamped schema-2 saves gain this on their next save.
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
-	headerWriter.write("saveSchema", (int)SAVE_SCHEMA_CURRENT);
+	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
 	if (_battleGame != 0)
 	{

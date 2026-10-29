@@ -52,6 +52,19 @@ class YamlNodeReader;
 namespace SaveUpgrade
 {
 
+/// The schema a save of the given game mode is written at, and the schema an
+/// upgrade of such a save ends at. Only the cooperative Separate campaign
+/// moved to the one-world layout of SAVE_SCHEMA_CURRENT; solo, SHARED and PvP
+/// saves (PvP's embedded player worlds included) keep SAVE_SCHEMA_OTHER_MODES.
+/// coop is the header "coop" flag, campaignType the header coopCampaignType
+/// (0 Separate, 1 SHARED) and gamemode the body coop_gamemode (2/3 = PvP).
+inline int schemaForMode(bool coop, int campaignType, int gamemode)
+{
+	const bool separateCampaign = coop && campaignType == 0
+		&& gamemode != 2 && gamemode != 3;
+	return separateCampaign ? SAVE_SCHEMA_CURRENT : SAVE_SCHEMA_OTHER_MODES;
+}
+
 /// Which schema-1 sub-variant a legacy save is - i.e. WHERE the client world
 /// comes from. All three feed the same 1->2 transform; only ingestion differs.
 enum class SchemaVariant
@@ -67,7 +80,7 @@ struct DetectedSchema
 {
 	enum Kind
 	{
-		Current,        // schema == SAVE_SCHEMA_CURRENT (stamped, or unstamped coop:true)
+		Current,        // at its game mode's schema or SAVE_SCHEMA_CURRENT (stamped, or unstamped coop:true)
 		Solo,           // ordinary single-player save, no co-op trace - loads normally
 		Legacy,         // an older co-op schema that must be upgraded to play
 		UnknownFuture,  // saveSchema > SAVE_SCHEMA_CURRENT (made by a newer build)
@@ -76,6 +89,7 @@ struct DetectedSchema
 
 	Kind kind = Solo;
 	int schema = SAVE_SCHEMA_CURRENT;              // detected schema number
+	int target = SAVE_SCHEMA_CURRENT;              // schema of the save's game mode; an upgrade ends here
 	SchemaVariant variant = SchemaVariant::None;   // meaningful when kind == Legacy
 	int gamemode = 0;                              // body coop_gamemode (2/3 = PvP)
 
