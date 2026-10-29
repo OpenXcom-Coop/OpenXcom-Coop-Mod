@@ -1,55 +1,63 @@
-"""R5-U2 S-D rows PS1, PN1, DM1, PP1, DM2 (boot D2, gm2: the client plays the aliens, seat 1; the host the seven X-COM
-soldiers, seat 0; both instances with noAlienPanicMessages ON): in PvP each player sees vanilla's battle messages for its
-own units only, and its own unit's death sets its dying flag.
+"""PvP battle messages in gm2 (the client plays the aliens, seat 1; the host the seven X-COM soldiers, seat 0; both
+instances with noAlienPanicMessages ON): in PvP each player sees vanilla's battle messages for its own units only, and
+its own unit's death sets its dying flag.
 
-Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_pvp_messages.py, AMENDMENT U2-1 (U2-1.6: row
-PP1, QU2-A1-4 (a)) and the orchestrator ruling R-U2-SD-1 (a second alien B before DM2, so A's bleed-out does not end the
-battle and the death message can be read).
-Constants: rewrite/r5u2-task0/sd/CONSTANTS.md (TASK 0 boots Da, Db, Dbw, D2a, D2b on the unchanged build; every pin equal).
-
-Boot D2 (key 48889, dirs r5u2_d2_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live unit's
-reactions 0, RM.TILES with every X-COM unit facing 4 (A unseen; A sees 8, 9, 10, 11), the host's END TURN -> side 1 turn
-1. Host boxes are closed host-only (test_messages idiom), the client's OK boxes by their OK button. RING(gc) = the new
-`messages` ring records on gc since the row's start {unit, key, owner, presenter}. Seeds are set on the host right before
-the action they govern.
-  PS1  the alien player's panic attack gets vanilla's attacker message: the amp on A, A psiSkill 100, W (11) psiStrength
-       0, A's TU; the client's real-UI PANIC by A on W (the right-hand box, key 50, HOME, host set_seed SEED_PS1, one
-       click).
-       PS1-psi     one new host context {intent, psi, A}; its psi cue {actor A, unit W, action panic, success true}
-       PS1-msg     RING(client) holds {key STR_MORALE_ATTACK_SUCCESSFUL, owner own}                     (RED: none)
-       PS1-host    RING(host) holds no STR_MORALE / STR_MIND key (guard)
-  PN1  its own alien's panic gets its message with the option ON: A morale 0 (both); the client's END TURN -> side 0 turn
-       2; host set_seed SEED_PN1 right before its END TURN -> side 1 turn 2.
-       PN1-roll    the host's panic ev for A; A status 8 at the roll on both (precondition)
-       PN1-msg     RING(client) holds {A, STR_HAS_PANICKED, own} (SEED_PN1's mode flee)               (RED: none)
-       PN1-cam     the client's camera.moves since the row's start hold a panic_centre for A           (RED: none)
-       PN1-host    RING(host) has no STR_HAS_PANICKED for A (guard: A unseen, option ON)
-  DM1  no message for the opponent's fatal-wound death: S (12) health 1 + STAGE_WOUNDS (both); the client's END TURN ->
-       side 0 turn 3.
-       DM1-dead    S DEAD on both; RING(host) holds {S, STR_HAS_DIED_FROM_A_FATAL_WOUND, own} (precondition / guard)
-       DM1-client  RING(client) holds no entry for S                            (RED: {S, the same key, other, okbox})
-  PP1  the X-COM host's psi PANIC on the alien gives the alien player no attacker's message (side 0 turn 3): the amp on
-       PP (8), PP psiSkill 100, A psiStrength 0, PP's TU; tab_select(host, PP); while A is not in PP's host visibleUnits,
-       the host's real-UI turn (HOME, map_tile_click_pos on A's tile verified, ONE right click); the host's real-UI
-       PANIC by PP on A (host set_seed SEED_PP1).
-       PP1-seen    A in PP's host visibleUnits before the press (precondition)
-       PP1-psi     one new host context {host, psi, PP}; its psi cue {actor PP, unit A, action panic, success true}
-       PP1-client  RING(client) holds no STR_MORALE_ATTACK_SUCCESSFUL entry                  (RED: one, attacker PP)
-       PP1-host    RING(host) holds {PP, STR_MORALE_ATTACK_SUCCESSFUL, own} (guard)
-  B staging: the rifle on 13 and its TU, 14's spawn staging (STR_SECTOID_SOLDIER, faction 1, both), host
-       set_seed SEED_B right before the host-local lever snap of 13 at FLOOR_B: one spawn {B, convert, from 14}, B on
-       14's tile and facing on both (alien side), 14 dead; B reactions 0. One EVIDENCE line; a failure FAILs DM2 "staging".
-  DM2  (last) its own alien's fatal-wound death: A health 1 + STAGE_WOUNDS (both); the host's END TURN -> side 1 turn 3.
-       DM2-dead    A DEAD on both (precondition)
-       DM2-msg     RING(client) holds {A, STR_HAS_DIED_FROM_A_FATAL_WOUND, own}                          (RED: none)
-       DM2-dying   the client's displayTwo death record for A has unitDyingSet true                       (RED: false)
-Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
-RED at D1: PS1-msg, PN1-msg, PN1-cam, DM1-client, PP1-client, DM2-msg, DM2-dying; every other cell PASS. One EVIDENCE line
-per row (both rings, the client's warningText), one PASS/FAIL line per cell, then the row verdict; every row runs after a
-failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound fails
-the rows that need it "staging". Lever pairs go to the client first; ids come from lever replies (S25). run
-in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
-passes, else 2.
+Boot (key 48889, dirs pvp_messages_host / _client): BER.boot_pvp (STR_SMALL_SCOUT, map seed 1, gamemode 2), every live
+unit's reactions 0, RM.TILES with every X-COM unit facing 4 (A unseen; A sees 8, 9, 10, 11), the host's END TURN ->
+side 1 turn 1. Host boxes are closed host-only (test_messages idiom), the client's OK boxes by their OK button.
+RING(gc) = the new `messages` ring records on gc since the row's start {unit, key, owner, presenter}. Seeds are set on
+the host right before the action they govern. The ids, tiles and TUs below were measured equal on five boots without
+the fix.
+  alien_panic_attack  the alien player's panic attack gets vanilla's attacker message: the amp on A, A psiSkill 100,
+       W (11) psiStrength 0, A's TU; the client's real-UI PANIC by A on W (the right-hand box, key 50, HOME, host
+       set_seed ALIEN_PSI_SEED, one click).
+       alien_panic_attack-psi     one new host context {intent, psi, A}; its psi cue {actor A, unit W, action panic,
+                                  success true}
+       alien_panic_attack-msg     RING(client) holds {key STR_MORALE_ATTACK_SUCCESSFUL, owner own}
+                                  (without the fix: none)
+       alien_panic_attack-host    RING(host) holds no STR_MORALE / STR_MIND key (guard)
+  own_alien_panics  its own alien's panic gets its message with the option ON: A morale 0 (both); the client's END
+       TURN -> side 0 turn 2; host set_seed PANIC_ROLL_SEED right before its END TURN -> side 1 turn 2.
+       own_alien_panics-roll      the host's panic ev for A; A status 8 at the roll on both (precondition)
+       own_alien_panics-msg       RING(client) holds {A, STR_HAS_PANICKED, own} (PANIC_ROLL_SEED's mode flee)
+                                  (without the fix: none)
+       own_alien_panics-cam       the client's camera.moves since the row's start hold a panic_centre for A
+                                  (without the fix: none)
+       own_alien_panics-host      RING(host) has no STR_HAS_PANICKED for A (guard: A unseen, option ON)
+  opponent_death  no message for the opponent's fatal-wound death: S (12) health 1 + STAGE_WOUNDS (both); the client's
+       END TURN -> side 0 turn 3.
+       opponent_death-dead        S DEAD on both; RING(host) holds {S, STR_HAS_DIED_FROM_A_FATAL_WOUND, own}
+                                  (precondition / guard)
+       opponent_death-client      RING(client) holds no entry for S (without the fix: {S, the same key, other, okbox})
+  xcom_panic_attack  the X-COM host's psi PANIC on the alien gives the alien player no attacker's message (side 0
+       turn 3): the amp on PP (8), PP psiSkill 100, A psiStrength 0, PP's TU; tab_select(host, PP); while A is not in
+       PP's host visibleUnits, the host's real-UI turn (HOME, map_tile_click_pos on A's tile verified, ONE right
+       click); the host's real-UI PANIC by PP on A (host set_seed XCOM_PSI_SEED).
+       xcom_panic_attack-seen     A in PP's host visibleUnits before the press (precondition)
+       xcom_panic_attack-psi      one new host context {host, psi, PP}; its psi cue {actor PP, unit A, action panic,
+                                  success true}
+       xcom_panic_attack-client   RING(client) holds no STR_MORALE_ATTACK_SUCCESSFUL entry
+                                  (without the fix: one, attacker PP)
+       xcom_panic_attack-host     RING(host) holds {PP, STR_MORALE_ATTACK_SUCCESSFUL, own} (guard)
+  B staging: a second alien B keeps the battle going after A's bleed-out in own_alien_death, so the death message can
+       be read. The rifle on 13 and its TU, 14's spawn staging (STR_SECTOID_SOLDIER, faction 1, both), host set_seed
+       SEED_B right before the host-local snap shot of 13 at FLOOR_B (a test command): one spawn {B, convert, from 14},
+       B on 14's tile and facing on both (alien side), 14 dead; B reactions 0. One EVIDENCE line; a failure FAILs
+       own_alien_death "staging".
+  own_alien_death  (last) its own alien's fatal-wound death: A health 1 + STAGE_WOUNDS (both); the host's END TURN ->
+       side 1 turn 3.
+       own_alien_death-dead       A DEAD on both (precondition)
+       own_alien_death-msg        RING(client) holds {A, STR_HAS_DIED_FROM_A_FATAL_WOUND, own} (without the fix: none)
+       own_alien_death-dying      the client's displayTwo death record for A has unitDyingSet true
+                                  (without the fix: false)
+Common cell (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in this harness slot's crash
+folder.
+Without the fix, alien_panic_attack-msg, own_alien_panics-msg, own_alien_panics-cam, opponent_death-client,
+xcom_panic_attack-client, own_alien_death-msg and own_alien_death-dying FAIL; every other cell passes. One EVIDENCE line
+per row (both rings, the client's warningText), one PASS/FAIL line per cell, then the row verdict; every row runs after
+a failure. A boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a staging step past its bound
+fails the rows that need it "staging". Test-command pairs go to the client first; item ids come from the command
+replies. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_pvp_messages.py
 """
@@ -72,27 +80,31 @@ from test_seat_pacing import tab_select, SDLK_HOME  # noqa: E402
 from test_client_shoot import new_contexts, set_tu_both, RHAND_CENTRE  # noqa: E402
 
 KEY = "48889"
-OPTS = {"noAlienPanicMessages": True}   # spec (f): both instances
+OPTS = {"noAlienPanicMessages": True}   # both instances
 A_ID = RM.A_ID                    # 1000000: the only alien at bring-up (STR_SECTOID_SOLDIER), the client's seat 1
-W_ID, S_ID, PP_ID = 11, 12, 8     # PS1's target, the DM1 bleed-out, PP1's attacker (U2-1.6 item 5; no swap)
+W_ID, S_ID, PP_ID = 11, 12, 8     # the panic target, the bleed-out (opponent_death), the X-COM attacker
 SHOOTER_B, VICTIM_B = 13, 14      # no row uses them; both outside A's sight
 FACE = 4                          # every X-COM unit: A outside its view sector, A still sees 8..11
 TILES = {u: (t, d if u == A_ID else FACE) for u, (t, d) in RM.TILES.items()}
-FLOOR_B = (37, 37, 0)             # R5-U4's FLOOR rule from 13 on (33,33,0): k 4, d 3 on both censuses
+FLOOR_B = (37, 37, 0)             # test_ownerless_units' FLOOR rule from 13 on (33,33,0): k 4, d 3 on both censuses
 B_TYPE = "STR_SECTOID_SOLDIER"
 TU = {A_ID: 54, PP_ID: 64, SHOOTER_B: 61}   # bring-up TUs
-SEED_PS1 = SEED_PN1 = SEED_PP1 = SEED_B = 1
+ALIEN_PSI_SEED = PANIC_ROLL_SEED = XCOM_PSI_SEED = SEED_B = 1
 KEY_PANIC, CT_PSI, PSI_ROWS = 50, 3, 3      # the amp's PANIC key, its cursor, its menu rows
 K_MORALE, K_MIND = "STR_MORALE_ATTACK_SUCCESSFUL", "STR_MIND_CONTROL_SUCCESSFUL"
 K_UNDER, K_PANICKED, K_FATAL = "STR_IS_UNDER_ALIEN_CONTROL", "STR_HAS_PANICKED", "STR_HAS_DIED_FROM_A_FATAL_WOUND"
 STATUS_DEAD, STATUS_PANICKING = 6, 8
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 STEP_S, PANIC_S = 30, 15
-ROWS = (("PS1", ("PS1-psi", "PS1-msg", "PS1-host", "PS1-common")),
-        ("PN1", ("PN1-roll", "PN1-msg", "PN1-cam", "PN1-host", "PN1-common")),
-        ("DM1", ("DM1-dead", "DM1-client", "DM1-common")),
-        ("PP1", ("PP1-seen", "PP1-psi", "PP1-client", "PP1-host", "PP1-common")),
-        ("DM2", ("DM2-dead", "DM2-msg", "DM2-dying", "DM2-common")))
+ROWS = (("alien_panic_attack", ("alien_panic_attack-psi", "alien_panic_attack-msg", "alien_panic_attack-host",
+                                "alien_panic_attack-common")),
+        ("own_alien_panics", ("own_alien_panics-roll", "own_alien_panics-msg", "own_alien_panics-cam",
+                              "own_alien_panics-host", "own_alien_panics-common")),
+        ("opponent_death", ("opponent_death-dead", "opponent_death-client", "opponent_death-common")),
+        ("xcom_panic_attack", ("xcom_panic_attack-seen", "xcom_panic_attack-psi", "xcom_panic_attack-client",
+                               "xcom_panic_attack-host", "xcom_panic_attack-common")),
+        ("own_alien_death", ("own_alien_death-dead", "own_alien_death-msg", "own_alien_death-dying",
+                             "own_alien_death-common")))
 
 units, pos, es, ctxs, cv = G3F.units, G3F.pos, RM.es, RM.ctxs, RM.cv
 
@@ -295,7 +307,7 @@ def dead_cell(host, client, uid, ev):
 
 
 def host_drained(host, client, where):
-    """cap-battle (F23981, Y1-exposed read): S's bleed-out runs in the host's UnitDieBState after side_change()'s settle()
+    """S's bleed-out runs in the host's UnitDieBState after side_change()'s settle()
     went quiet (quiet() does not read the host's BState queue); vanilla pushes the fatal-wound box, and with it the host's
     ring record, when that state pops (UnitDieBState.cpp, _extraFrame 2), about 0.2 s after S reads DEAD. Bounded (STEP_S):
     the host's BState queue empty (battle_state pendingStates 0, isBusy false), then settle() (that box closed host-only,
@@ -314,7 +326,9 @@ def death_records(client, uid):
 
 
 def convert_b(host, client, crash0, coop):
-    """R-U2-SD-1 B staging (R5-U1 U1-2's conversion lever, the R5-U4 C12a shape): returns B's id or None."""
+    """Stages the second alien B, which keeps the battle going after A's bleed-out in own_alien_death: 14 set to
+    respawn as B_TYPE (the spawnUnit test command), then 13's snap shot at FLOOR_B converts it. Returns B's id or
+    None."""
     ev = {}
     try:
         g = RM.give_both(host, client, SHOOTER_B, "STR_RIFLE", "STR_RIFLE_CLIP")
@@ -377,7 +391,7 @@ def own_death(host, client, presser, ev):
 # ===================== rows =====================
 
 
-def row_ps1(host, client, crash0):
+def row_alien_panic_attack(host, client, crash0):
     ev, cells = {}, {}
     ev["amp"] = RM.give_both(host, client, A_ID, RM.PSI_AMP)["weaponId"]
     RM.stat_both(host, client, A_ID, "psiSkill", 100)
@@ -387,29 +401,30 @@ def row_ps1(host, client, crash0):
     ui = ev["ui"] = {}
     try:
         ui["tab"] = tab_select(client, A_ID)
-        psi_press(client, host, RM.TILES[W_ID][0], SEED_PS1, ui)
+        psi_press(client, host, RM.TILES[W_ID][0], ALIEN_PSI_SEED, ui)
     except Exception as e:
         ui["pressError"] = str(e)[:300]
     new = psi_after(host, client, ctx0, W_ID, ui)
     cancel_aim(client, ui)
     rg = ring(s0, host, client)
     evidence(ev, host, client, rg)
-    cells["PS1-psi"] = psi_cell(host, client, new, seq0, "intent", A_ID,
-                                {"actor": A_ID, "unit": W_ID, "action": "panic", "success": True}, ev)
-    cells["PS1-msg"] = (bool(has(rg["client"], key=K_MORALE, owner="own")),
-                        f"RING(client) {rg['client']} (want one {{key {K_MORALE}, owner own}})")
+    cells["alien_panic_attack-psi"] = psi_cell(host, client, new, seq0, "intent", A_ID,
+                                               {"actor": A_ID, "unit": W_ID, "action": "panic", "success": True}, ev)
+    cells["alien_panic_attack-msg"] = (bool(has(rg["client"], key=K_MORALE, owner="own")),
+                                       f"RING(client) {rg['client']} (want one {{key {K_MORALE}, owner own}})")
     bad = [r for r in rg["host"] if r.get("key") in (K_MORALE, K_MIND)]
-    cells["PS1-host"] = (not bad, f"RING(host) {rg['host']} (want no {K_MORALE} / {K_MIND} key)")
-    cells["PS1-common"] = G3F.common(host, client, crash0)
+    cells["alien_panic_attack-host"] = (not bad, f"RING(host) {rg['host']} (want no {K_MORALE} / {K_MIND} key)")
+    cells["alien_panic_attack-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_pn1(host, client, crash0):
+def row_own_alien_panics(host, client, crash0):
     ev, cells = {}, {}
     ev["morale"] = morale0(host, client, A_ID)
     s0, seq0 = snap(host, client), es(host, "lastSeqEmitted") or 0
-    ev["a"] = side_change(host, client, client, FACTION_PLAYER, 2, "PN1 client END TURN")
-    ev["b"] = side_change(host, client, host, FACTION_HOSTILE, 2, "PN1 host END TURN", seed=SEED_PN1,
+    ev["a"] = side_change(host, client, client, FACTION_PLAYER, 2, "own_alien_panics client END TURN")
+    ev["b"] = side_change(host, client, host, FACTION_HOSTILE, 2, "own_alien_panics host END TURN",
+                          seed=PANIC_ROLL_SEED,
                           at_roll=lambda: statuses(host, client, A_ID))
     panics = panic_wait(host, client, seq0, ev)
     cam = HC.cam_moves(HC.camera_of(client), seq0)
@@ -418,38 +433,41 @@ def row_pn1(host, client, crash0):
     ev.update(panics=panics, camMoves=[{k: m.get(k) for k in ("seq", "reason", "unit")} for m in cam],
               A=[uv(host, A_ID), uv(client, A_ID)])
     roll = ev["b"].get("roll")
-    cells["PN1-roll"] = ([p.get("unit") for p in panics] == [A_ID] and roll == [STATUS_PANICKING] * 2,
-                         f"host panic payloads {panics} (want one for unit {A_ID}); A status at the roll host/client "
-                         f"{roll} (want {STATUS_PANICKING} on both)")
-    cells["PN1-msg"] = (bool(has(rg["client"], unit=A_ID, key=K_PANICKED, owner="own")),
-                        f"RING(client) {rg['client']} (want {{unit {A_ID}, key {K_PANICKED}, owner own}})")
+    cells["own_alien_panics-roll"] = ([p.get("unit") for p in panics] == [A_ID] and roll == [STATUS_PANICKING] * 2,
+                                      f"host panic payloads {panics} (want one for unit {A_ID}); A status at the roll "
+                                      f"host/client {roll} (want {STATUS_PANICKING} on both)")
+    cells["own_alien_panics-msg"] = (bool(has(rg["client"], unit=A_ID, key=K_PANICKED, owner="own")),
+                                     f"RING(client) {rg['client']} (want {{unit {A_ID}, key {K_PANICKED}, owner own}})")
     pc = [m for m in cam if m.get("reason") == "panic_centre" and m.get("unit") == A_ID]
-    cells["PN1-cam"] = (bool(pc), f"client camera.moves since seq {seq0}: {ev['camMoves']} (want a panic_centre for "
-                                  f"{A_ID})")
-    cells["PN1-host"] = (not has(rg["host"], unit=A_ID, key=K_PANICKED),
-                         f"RING(host) {rg['host']} (want no {K_PANICKED} for {A_ID})")
-    cells["PN1-common"] = G3F.common(host, client, crash0)
+    cells["own_alien_panics-cam"] = (bool(pc),
+                                     f"client camera.moves since seq {seq0}: {ev['camMoves']} (want a panic_centre for "
+                                     f"{A_ID})")
+    cells["own_alien_panics-host"] = (not has(rg["host"], unit=A_ID, key=K_PANICKED),
+                                      f"RING(host) {rg['host']} (want no {K_PANICKED} for {A_ID})")
+    cells["own_alien_panics-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_dm1(host, client, crash0):
+def row_opponent_death(host, client, crash0):
     ev, cells = {}, {}
     ev["staged"] = fatal(host, client, S_ID)
     s0 = snap(host, client)
-    ev["side"] = side_change(host, client, client, FACTION_PLAYER, 3, "DM1 client END TURN")
+    ev["side"] = side_change(host, client, client, FACTION_PLAYER, 3, "opponent_death client END TURN")
     dead = dead_cell(host, client, S_ID, ev)
-    ev["drain"], ev["after"] = host_drained(host, client, "DM1 after")   # cap-battle
+    ev["drain"], ev["after"] = host_drained(host, client, "opponent_death after")
     rg = ring(s0, host, client)
     evidence(ev, host, client, rg)
     hr = has(rg["host"], unit=S_ID, key=K_FATAL, owner="own")
-    cells["DM1-dead"] = (dead[0] and bool(hr), f"{dead[1]}; RING(host) {rg['host']} (want {{unit {S_ID}, key {K_FATAL}, "
-                                               f"owner own}})")
-    cells["DM1-client"] = (not has(rg["client"], unit=S_ID), f"RING(client) {rg['client']} (want no entry for {S_ID})")
-    cells["DM1-common"] = G3F.common(host, client, crash0)
+    cells["opponent_death-dead"] = (dead[0] and bool(hr),
+                                    f"{dead[1]}; RING(host) {rg['host']} (want {{unit {S_ID}, key {K_FATAL}, "
+                                    f"owner own}})")
+    cells["opponent_death-client"] = (not has(rg["client"], unit=S_ID),
+                                      f"RING(client) {rg['client']} (want no entry for {S_ID})")
+    cells["opponent_death-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_pp1(host, client, crash0):
+def row_xcom_panic_attack(host, client, crash0):
     ev, cells = {}, {}
     ev["amp"] = RM.give_both(host, client, PP_ID, RM.PSI_AMP)["weaponId"]
     RM.stat_both(host, client, PP_ID, "psiSkill", 100)
@@ -472,43 +490,45 @@ def row_pp1(host, client, crash0):
     except Exception as e:
         turn["error"] = str(e)[:300]
     sees = vis(host, PP_ID)
-    cells["PP1-seen"] = (A_ID in sees, f"PP {PP_ID}'s host visibleUnits {sees} before the press (want {A_ID} in it)")
+    cells["xcom_panic_attack-seen"] = (A_ID in sees,
+                                       f"PP {PP_ID}'s host visibleUnits {sees} before the press (want {A_ID} in it)")
     s0, ctx0, seq0 = snap(host, client), ctxs(host), es(host, "lastSeqEmitted") or 0
     ui = ev["ui"] = {}
     try:
-        psi_press(host, host, G3F.pos(host, A_ID), SEED_PP1, ui)
+        psi_press(host, host, G3F.pos(host, A_ID), XCOM_PSI_SEED, ui)
     except Exception as e:
         ui["pressError"] = str(e)[:300]
     new = psi_after(host, client, ctx0, A_ID, ui)
     cancel_aim(host, ui)
     rg = ring(s0, host, client)
     evidence(ev, host, client, rg)
-    cells["PP1-psi"] = psi_cell(host, client, new, seq0, "host", PP_ID,
-                                {"actor": PP_ID, "unit": A_ID, "action": "panic", "success": True}, ev)
-    cells["PP1-client"] = (not has(rg["client"], key=K_MORALE),
-                           f"RING(client) {rg['client']} (want no {K_MORALE} entry)")
-    cells["PP1-host"] = (bool(has(rg["host"], unit=PP_ID, key=K_MORALE, owner="own")),
-                         f"RING(host) {rg['host']} (want {{unit {PP_ID}, key {K_MORALE}, owner own}})")
-    cells["PP1-common"] = G3F.common(host, client, crash0)
+    cells["xcom_panic_attack-psi"] = psi_cell(host, client, new, seq0, "host", PP_ID,
+                                              {"actor": PP_ID, "unit": A_ID, "action": "panic", "success": True}, ev)
+    cells["xcom_panic_attack-client"] = (not has(rg["client"], key=K_MORALE),
+                                         f"RING(client) {rg['client']} (want no {K_MORALE} entry)")
+    cells["xcom_panic_attack-host"] = (bool(has(rg["host"], unit=PP_ID, key=K_MORALE, owner="own")),
+                                       f"RING(host) {rg['host']} (want {{unit {PP_ID}, key {K_MORALE}, owner own}})")
+    cells["xcom_panic_attack-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_dm2(host, client, crash0):
+def row_own_alien_death(host, client, crash0):
     ev, cells = {}, {}
     rg, dead = own_death(host, client, host, ev)
     recs = death_records(client, A_ID)
     evidence(ev, host, client, rg)
     ev["deathRecords"] = recs
-    cells["DM2-dead"] = dead
-    cells["DM2-msg"] = (bool(has(rg["client"], unit=A_ID, key=K_FATAL, owner="own")),
-                        f"RING(client) {rg['client']} (want {{unit {A_ID}, key {K_FATAL}, owner own}})")
-    cells["DM2-dying"] = (len(recs) == 1 and recs[0].get("unitDyingSet") is True,
-                          f"the client's displayTwo death records for {A_ID}: {recs} (want one with unitDyingSet true)")
-    cells["DM2-common"] = G3F.common(host, client, crash0)
+    cells["own_alien_death-dead"] = dead
+    cells["own_alien_death-msg"] = (bool(has(rg["client"], unit=A_ID, key=K_FATAL, owner="own")),
+                                    f"RING(client) {rg['client']} (want {{unit {A_ID}, key {K_FATAL}, owner own}})")
+    cells["own_alien_death-dying"] = (len(recs) == 1 and recs[0].get("unitDyingSet") is True,
+                                      f"the client's displayTwo death records for {A_ID}: {recs} (want one with "
+                                      f"unitDyingSet true)")
+    cells["own_alien_death-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-# ===================== boot D2 =====================
+# ===================== boot =====================
 
 
 def stage(host, client, presser):
@@ -523,30 +543,35 @@ def stage(host, client, presser):
     return ev
 
 
-def boot_d2():
-    host = GameClient("host", None, make_user_dir("r5u2_d2_host", options=OPTS))
-    client = GameClient("client", None, make_user_dir("r5u2_d2_client", options=OPTS))
+def run_boot():
+    host = GameClient("host", None, make_user_dir("pvp_messages_host", options=OPTS))
+    client = GameClient("client", None, make_user_dir("pvp_messages_client", options=OPTS))
     m = (host, client)
     try:
         try:
-            G3F.guarded("D2", lambda: BER.boot_pvp(host, client, KEY), m)
+            G3F.guarded("boot", lambda: BER.boot_pvp(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
-            G3F.guarded("D2", lambda: G3F.reactions_zero(host, client), m)
+            G3F.guarded("boot", lambda: G3F.reactions_zero(host, client), m)
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE D2 line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         try:
             stage(host, client, host)
         except G3F.Miss:
             return G3F.fail_all(ROWS, "staging (see the CAPTURE staging line)")
         rows = dict(ROWS)
-        fails = G3F.run_row("PS1", rows["PS1"], lambda: row_ps1(host, client, crash0))
-        fails += G3F.run_row("PN1", rows["PN1"], lambda: row_pn1(host, client, crash0))
-        fails += G3F.run_row("DM1", rows["DM1"], lambda: row_dm1(host, client, crash0))
-        fails += G3F.run_row("PP1", rows["PP1"], lambda: row_pp1(host, client, crash0))
+        fails = G3F.run_row("alien_panic_attack", rows["alien_panic_attack"],
+                            lambda: row_alien_panic_attack(host, client, crash0))
+        fails += G3F.run_row("own_alien_panics", rows["own_alien_panics"],
+                             lambda: row_own_alien_panics(host, client, crash0))
+        fails += G3F.run_row("opponent_death", rows["opponent_death"], lambda: row_opponent_death(host, client, crash0))
+        fails += G3F.run_row("xcom_panic_attack", rows["xcom_panic_attack"],
+                             lambda: row_xcom_panic_attack(host, client, crash0))
         if convert_b(host, client, crash0, 1) is None:
-            fails += G3F.fail_all((("DM2", rows["DM2"]),), "staging (see the CAPTURE B staging line)")
+            fails += G3F.fail_all((("own_alien_death", rows["own_alien_death"]),),
+                                  "staging (see the CAPTURE B staging line)")
         else:
-            fails += G3F.run_row("DM2", rows["DM2"], lambda: row_dm2(host, client, crash0))
+            fails += G3F.run_row("own_alien_death", rows["own_alien_death"],
+                                 lambda: row_own_alien_death(host, client, crash0))
         return fails
     finally:
         G3F.shut(host, client)
@@ -554,7 +579,7 @@ def boot_d2():
 
 def main():
     t0 = time.time()
-    fails = boot_d2()
+    fails = run_boot()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_pvp_messages: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
