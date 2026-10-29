@@ -78,6 +78,8 @@
 #include "../Savegame/Country.h"
 #include "../Savegame/WeightedOptions.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/EquipmentLayoutItem.h"
+#include "../Engine/Collections.h"
 #include "../Savegame/BattleItem.h"
 #include "../Savegame/BattleUnit.h"
 // PRD-I0: the sync-check sweep reads tiles (terrain/fire/smoke), inventory slot
@@ -2429,6 +2431,67 @@ void soldierArmorApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	if (save) save->setLastSelectedArmor(next->getType());
 }
 
+// soldier_layout payload: { soldiers:[{ soldierId, soldierOwner, layout, personal,
+// personalArmor }] }, baseId = the base whose inventory screen closed. layout and
+// personal are serializeLayout() texts, each the soldier's ABSOLUTE end state
+// (last-write-wins), so every machine adopts the same layouts. Without it a layout
+// set on a replica never reached the host, which builds every battle.
+// Separate Campaign: a player sets only their own soldiers' layouts, also at the
+// other player's base, where the equipment comes from that base's stores. With the
+// alternate craft equipment management the gear follows the layout between the
+// soldier's craft and the stores, as vanilla's unseat / re-seat around the
+// inventory screen moves it; the host's option decides and travels in the
+// payload, so every machine moves the same items.
+bool soldierLayoutValidate(Game* game, const Json::Value& payload, Base* base, int seat,
+                           int64_t& cost, std::string& failReason)
+{
+	cost = 0;
+	if (!base) { failReason = "base not found"; return false; }
+	const Json::Value& list = payload["soldiers"];
+	if (!list.isArray() || list.empty()) { failReason = "no soldiers"; return false; }
+	for (const auto& entry : list)
+	{
+		Soldier* s = findSoldierAtBase(base, entry.get("soldierId", -1).asInt(),
+			entry.get("soldierOwner", -1).asInt());
+		if (!s) { failReason = "soldier not found"; return false; }
+		if (!separateSoldierOwnerOk(game, s, seat))
+			{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+	}
+	return true;
+}
+
+void soldierLayoutApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
+{
+	if (!base || !game->getSavedGame()) return;
+	SavedGame* save = game->getSavedGame();
+	if (isHost())
+		payload["moveGear"] = save->isSeparateCoopCampaign()
+			&& Options::oxceAlternateCraftEquipmentManagement
+			&& save->getMonthsPassed() != -1;
+	const bool moveGear = payload.get("moveGear", false).asBool();
+	for (const auto& entry : payload["soldiers"])
+	{
+		Soldier* s = findSoldierAtBase(base, entry.get("soldierId", -1).asInt(),
+			entry.get("soldierOwner", -1).asInt());
+		if (!s) continue;
+		std::vector<EquipmentLayoutItem*> layout =
+			deserializeLayout(game, entry.get("layout", "").asString());
+		const Craft* craft = s->getCraft();
+		const bool atHome = craft && craft->getStatus() != "STR_OUT" && craft->getBase() == base;
+		s->replaceEquipmentLayout(layout, moveGear && atHome ? base : nullptr);
+		if (entry.isMember("personal"))
+		{
+			std::vector<EquipmentLayoutItem*> personal =
+				deserializeLayout(game, entry.get("personal", "").asString());
+			Collections::deleteAll(*s->getPersonalEquipmentLayout());
+			s->getPersonalEquipmentLayout()->swap(personal);
+			const std::string armor = entry.get("personalArmor", "").asString();
+			s->setPersonalEquipmentArmor(armor.empty() ? nullptr
+				: game->getMod()->getArmor(armor, false));
+		}
+	}
+}
+
 // base_move payload: {}. baseId = the base the mini base strip moves one place
 // left (main's right-click). Commands name bases by index, so the move is a host
 // command that every machine applies at the same point in the apply order.
@@ -3501,6 +3564,9 @@ void init()
 	// weapon; change a soldier's armor - SoldierArmorState + CraftArmorState).
 	registerCmd("craft_rearm",    &craftRearmValidate,  &craftRearmApply);
 	registerCmd("soldier_armor",  &soldierArmorValidate, &soldierArmorApply);
+	// The equipment layouts an inventory screen at a base produced (the host builds
+	// every battle from them).
+	registerCmd("soldier_layout", &soldierLayoutValidate, &soldierLayoutApply);
 	// The base list order and a player's roster order, kept the same on every
 	// machine (the mini base strip move and the roster screens' move up / down).
 	registerCmd("base_move",      &baseMoveValidate,     &baseMoveApply);
@@ -4050,6 +4116,43 @@ void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::str
 	p["soldierId"] = soldier->getId();
 	p["armor"] = armorType;
 	submitLocalCmd(game, "soldier_armor", baseIndex(game, base), p);
+}
+
+void submitSoldierLayouts(Game* game, Base* base, const Json::Value& soldiers)
+{
+	if (!game || !base || !soldiers.isArray() || soldiers.empty()) return;
+	Json::Value p;
+	p["soldiers"] = soldiers;
+	submitLocalCmd(game, "soldier_layout", baseIndex(game, base), p);
+}
+
+std::string serializeLayout(const std::vector<EquipmentLayoutItem*>& layout)
+{
+	YAML::YamlRootNodeWriter writer;
+	writer.setAsMap();
+	writer.write("layout", layout,
+		[](YAML::YamlNodeWriter& w, EquipmentLayoutItem* i)
+		{ i->save(w.write()); });
+	return writer.emit().yaml;
+}
+
+std::vector<EquipmentLayoutItem*> deserializeLayout(Game* game, const std::string& text)
+{
+	std::vector<EquipmentLayoutItem*> out;
+	if (!game || text.empty()) return out;
+	YAML::YamlRootNodeReader reader(YAML::YamlString{text}, "soldierLayout");
+	for (const auto& entry : reader["layout"].children())
+	{
+		try
+		{
+			out.push_back(new EquipmentLayoutItem(entry, game->getMod()));
+		}
+		catch (Exception&)
+		{
+			// an item this machine's mod does not know: skip it, as Soldier::load does
+		}
+	}
+	return out;
 }
 
 void hostLandingPrompt(Game* game, Craft* craft, int seat, int shade)

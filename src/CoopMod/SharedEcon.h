@@ -38,6 +38,7 @@ class Target;
 class Soldier;
 class AlienBase;
 class BattleItem;
+class EquipmentLayoutItem;
 class SavedBattleGame;
 class RuleResearch;
 
@@ -338,6 +339,17 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// route this instead of doing it locally. Absolute end-state (which armor the
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
+
+/// One-world campaigns (SHARED and Separate): the equipment layouts an inventory
+/// screen at @a base produced. @a soldiers = [{ soldierId, soldierOwner, layout,
+/// personal, personalArmor }], layout/personal being serializeLayout() texts, each
+/// the ABSOLUTE end state (last-write-wins). Submits soldier_layout; the host
+/// validates the owner (Separate) and every machine adopts the same layouts.
+void submitSoldierLayouts(Game* game, Base* base, const Json::Value& soldiers);
+/// The wire form of a soldier's equipment-layout entries (EquipmentLayoutItem::save).
+std::string serializeLayout(const std::vector<EquipmentLayoutItem*>& layout);
+/// Rebuilds layout entries from serializeLayout() text; unknown items are skipped.
+std::vector<EquipmentLayoutItem*> deserializeLayout(Game* game, const std::string& text);
 
 // ---- PRD-DF01: shared/replicated dogfights -----------------------------------
 /// REPLICA: route a df_state frame set here (SNAP_DOGFIGHT conflation slot, a raw

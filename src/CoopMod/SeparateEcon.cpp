@@ -611,10 +611,12 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	// the second group are host simulation results, never remote player requests.
 	// A visitor may buy, equip/crew with their own soldiers and vehicles, and
 	// sack, rename or re-armor their own soldier stationed there (the validators
-	// check the soldier's owner; armor comes from that base's stores, RU16).
+	// check the soldier's owner; armor comes from that base's stores, RU16), and
+	// equip their own soldiers there from that base's stores (soldier_layout).
 	// Craft weapon rearm stays with the base owner (RU8).
 	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_assign"
-		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor")
+		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor"
+		|| cmd == "soldier_layout")
 		return true;
 	return !remote && isHostSimulationResult(cmd);
 }
