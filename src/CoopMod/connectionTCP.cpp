@@ -14443,7 +14443,8 @@ void connectionTCP::streamSharedWorldToClient()
 // restream and every other, so there is nothing to arm here.
 void connectionTCP::sharedResyncStream()
 {
-	if (!getServerOwner() || !isSharedCampaign() || !_game->getSavedGame())
+	if (!getServerOwner() || (!isSharedCampaign() && !isSeparateCampaign())
+		|| !_game->getSavedGame())
 	{
 		return;
 	}

@@ -2089,8 +2089,9 @@ void GeoscapeState::think()
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
 			// time heartbeat. The replica logs a warning on mismatch; full desync
-			// repair is PRD-J10.
-			if (_game->getCoopMod()->isSharedCampaign())
+			// repair is PRD-J10. Separate stamps every player's wallet and
+			// private research count instead of the host's own wallet.
+			if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 				SharedEcon::attachWorldChecksum(_game, root);
 
 		}

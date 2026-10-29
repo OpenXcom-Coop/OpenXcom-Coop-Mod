@@ -3219,7 +3219,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 		g_failQ.push_back(reason);
 		return true;
 	}
-	if (state == "shared_resync_request")
+	if (state == "shared_resync_request" || state == "separate_resync_request")
 	{
 		// PRD-J10: a replica's world checksum diverged from ours. Only the host
 		// can answer; queue it for the main-thread pump (the restream serializes
@@ -3289,7 +3289,8 @@ void update(Game* game)
 		}
 		if (!have) break;
 		connectionTCP* coop = game->getCoopMod();
-		if (!coop || !coop->getServerOwner() || !coop->isSharedCampaign()) continue;
+		if (!coop || !coop->getServerOwner()
+			|| (!coop->isSharedCampaign() && !coop->isSeparateCampaign())) continue;
 		++g_resyncReqN;
 		Log(LOG_WARNING) << "[SHARED] resync requested by the replica; re-streaming"
 			<< " the authoritative world";
@@ -3825,6 +3826,53 @@ void worldAggregates(SavedGame* save, int64_t& items, int64_t& soldiers,
 		transfers += (int64_t)base->getTransfers()->size();
 		productions += (int64_t)base->getProductions().size();
 	}
+}
+
+// Separate's one world keeps each player's wallet and private research in that
+// player's profile. getFunds() reads the LOCAL player's wallet, which differs by
+// machine, so the Separate checksum stamps every profile instead: one wallet and
+// one completed-research count per player name, plus the sum of the wallets as
+// the machine-independent chkFunds. Stamp and verify both call this.
+bool separateChecksumTerms(SavedGame* save, Json::Value& funds, Json::Value& research,
+	int64_t& totalFunds)
+{
+	funds = Json::Value(Json::objectValue);
+	research = Json::Value(Json::objectValue);
+	totalFunds = 0;
+	if (!save || !save->isSeparateCoopCampaign()) return false;
+	for (const auto& player : save->getSeparateCampaign().getPlayers())
+	{
+		const int64_t wallet = player.second.funds.empty() ? 0 : player.second.funds.back();
+		funds[player.first] = Json::Value::Int64(wallet);
+		research[player.first] = (int)player.second.completedResearch.size();
+		totalFunds += wallet;
+	}
+	return true;
+}
+
+// Name-keyed integer maps compared by value (a parsed and a locally built
+// Json::Value may differ in integer type).
+bool sameNamedTerms(const Json::Value& a, const Json::Value& b)
+{
+	if (!a.isObject() || !b.isObject() || a.size() != b.size()) return false;
+	for (const std::string& name : a.getMemberNames())
+		if (!b.isMember(name) || a[name].asInt64() != b[name].asInt64()) return false;
+	return true;
+}
+
+std::string namedTermsText(const Json::Value& terms)
+{
+	std::ostringstream ss;
+	ss << "{";
+	bool first = true;
+	if (terms.isObject())
+		for (const std::string& name : terms.getMemberNames())
+		{
+			ss << (first ? "" : ", ") << name << "=" << terms[name].asInt64();
+			first = false;
+		}
+	ss << "}";
+	return ss.str();
 }
 } // namespace
 
@@ -7125,9 +7173,18 @@ void attachWorldChecksum(Game* game, Json::Value& msg)
 {
 	if (!game || !game->getSavedGame()) return;
 	SavedGame* save = game->getSavedGame();
-	msg["chkFunds"] = Json::Value::Int64(save->getFunds());
+	Json::Value playerFunds, playerResearch;
+	int64_t totalFunds = 0;
+	const bool separate = separateChecksumTerms(save, playerFunds, playerResearch, totalFunds);
+	msg["chkFunds"] = Json::Value::Int64(separate ? totalFunds : save->getFunds());
 	msg["chkBases"] = (int)save->getBases()->size();
 	msg["chkResearch"] = (int)save->getDiscoveredResearch().size();
+	if (separate)
+	{
+		// Separate: every player's wallet and private research count, by name.
+		msg["chkPlayerFunds"] = playerFunds;
+		msg["chkPlayerResearch"] = playerResearch;
+	}
 
 	// GAP-4: widen past funds/bases/research so store, roster, transfer and
 	// production drift can no longer hide from the auto-repair (funds is the only
@@ -7161,7 +7218,9 @@ bool requestResync(Game* game, const std::string& why, bool force)
 		<< (force ? ", forced)" : ")");
 
 	Json::Value req;
-	req["state"] = "shared_resync_request";
+	// Separate keeps its own wire namespace (SeparateEcon.h).
+	req["state"] = game->getCoopMod()->isSeparateCampaign()
+		? "separate_resync_request" : "shared_resync_request";
 	game->getCoopMod()->sendTCPPacketData(req.toStyledString());
 	return true;
 }
@@ -7177,12 +7236,13 @@ void notifyWorldAdopted()
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)
 {
-	// Separate has one authoritative world but player-specific wallet views, so
-	// Shared's exact-funds checksum is invalid there. Separate synchronization
-	// uses its own command/world-stream protocol and must never enter this repair.
+	// Both single-world campaigns repair here. Separate's wallets are views of
+	// the local player, so its funds and research terms are every player's
+	// profile (separateChecksumTerms), never this machine's own wallet. PvP keeps
+	// two worlds and is not a replica.
 	if (!game || !game->getSavedGame() || !game->getCoopMod()
 		|| !game->getCoopMod()->isSharedReplica()) return;
-	if (!msg.isMember("chkFunds")) return; // older/non-SHARED host
+	if (!msg.isMember("chkFunds")) return; // older/non-single-world host
 	// PRD-P2 3a: the battle terms are compared on their OWN path and are deliberately
 	// NOT folded into the world condition below - that condition's repair is
 	// sharedResyncStream, and a mid-battle world restream tears down the live battle.
@@ -7200,13 +7260,25 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	int64_t hostTransfers = msg.get("chkTransfers", -1).asInt64();
 	int64_t hostProductions = msg.get("chkProduction", -1).asInt64();
 	int hostSites = msg.get("chkSites", -1).asInt(); // issue #78; -1 = old host
-	int64_t myFunds = save->getFunds();
+	Json::Value myPlayerFunds, myPlayerResearch;
+	int64_t myTotalFunds = 0;
+	const bool separate = separateChecksumTerms(save, myPlayerFunds, myPlayerResearch,
+		myTotalFunds);
+	int64_t myFunds = separate ? myTotalFunds : save->getFunds();
 	int myBases = (int)save->getBases()->size();
 	int myResearch = (int)save->getDiscoveredResearch().size();
 	int mySites = (int)save->getMissionSites()->size();
 	int64_t myItems, mySoldiers, myTransfers, myProductions;
 	worldAggregates(save, myItems, mySoldiers, myTransfers, myProductions);
+	// Separate per-player terms; absent from a host that predates them.
+	const Json::Value& hostPlayerFunds = msg["chkPlayerFunds"];
+	const Json::Value& hostPlayerResearch = msg["chkPlayerResearch"];
+	const bool playersAgree = !separate
+		|| ((hostPlayerFunds.isNull() || sameNamedTerms(hostPlayerFunds, myPlayerFunds))
+			&& (hostPlayerResearch.isNull()
+				|| sameNamedTerms(hostPlayerResearch, myPlayerResearch)));
 	if (hostFunds == myFunds && hostBases == myBases && hostResearch == myResearch
+		&& playersAgree
 		&& (hostItems < 0 || hostItems == myItems)
 		&& (hostSoldiers < 0 || hostSoldiers == mySoldiers)
 		&& (hostTransfers < 0 || hostTransfers == myTransfers)
@@ -7252,6 +7324,11 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 			<< ", transfers host=" << hostTransfers << " replica=" << myTransfers
 			<< ", production host=" << hostProductions << " replica=" << myProductions
 			<< ", sites host=" << hostSites << " replica=" << mySites;
+		if (separate)
+			Log(LOG_WARNING) << "[SHARED] Separate player terms: wallets host="
+				<< namedTermsText(hostPlayerFunds) << " replica=" << namedTermsText(myPlayerFunds)
+				<< ", research host=" << namedTermsText(hostPlayerResearch)
+				<< " replica=" << namedTermsText(myPlayerResearch);
 	}
 
 	const int64_t now = gameMinutes(save);
