@@ -16,7 +16,7 @@ the rewrite spine and is expected to PASS on the unchanged product:
   LC3   a host inventory drop after the alien's shot (legacy test_coop_inventory_item_theft)
         LC3-pre  V holds exactly [its launcher] on both    LC3-drop  M's launcher owner -1, STR_GROUND, M's tile
         LC3-victim  V's launcher unchanged, V holds exactly [it]    LC3-census  census equal
-  LC5   a proximity blast spares the peer's floor litter (legacy test_coop_proximity_item_sweep; RP C11's staging)
+  LC5   a proximity blast spares the peer's floor litter (legacy test_coop_proximity_item_sweep; RP.MINE_* staging)
         LC5-fired  one prox context {actorId 8} with a prox_trigger {item G}; the walk halted `prox` on both
         LC5-gone  G absent on both    LC5-symmetric  pre-existing ids gone: host == client    LC5-control  kept
   LC2   an alien's blaster blast at the squad (legacy test_coop_blast_item_damage; last row: it kills): the launch
@@ -76,7 +76,7 @@ LC1 = {"LC1R": {"A": (13, 33, 0), "A_DIR": 2, "T": (25, 34, 0), "T_DIR": 6, "slo
 LC1_A_TU = 54                       # the smallest of 54 / 80 / 120 the launch accepts
 FIRE_SEED = 1                       # host set_seed right before each launch (R-RV5-SA-1 (3), R-RV5-SA-4 (a))
 FAR = 12
-# LC5: RP C11's pins; litter around the trigger step (4,34,0) at the legacy offsets, a non-open tile swapped to the
+# LC5: RP.MINE_* pins; litter around the trigger step (4,34,0) at the legacy offsets, a non-open tile swapped to the
 # nearest open tile on the same row away from G (TASK 0: grenade (4,33) -> (3,33), flare (3,35) -> (2,35))
 LC5_LITTER = ((PISTOL, (3, 33, 0)), ("STR_GRENADE", (3, 33, 0)), ("STR_MEDI_KIT", (5, 34, 0)),
               ("STR_ELECTRO_FLARE", (2, 35, 0)))
@@ -376,15 +376,15 @@ def row_lc5(host, client, crash0):
     ev = {"rule": guarded(tag, lambda: check_open(host, client, tiles), m)}
     guarded(tag, lambda: both(host, client, {"cmd": "battle_set_unit_state", "unit": C_ID, "health": RP.C_MAX_HEALTH,
                                              "tu": RP.TU_MAX}, ("health", "tu")), m)
-    guarded(tag, lambda: place(host, client, C_ID, RP.C11_C_TILE, RP.C11_C_DIR), m)
-    g = guarded(tag, lambda: drop(host, client, RP.C11_PROX_TILE, "STR_PROXIMITY_GRENADE", prime=True, fuse=0), m)
+    guarded(tag, lambda: place(host, client, C_ID, RP.MINE_C_TILE, RP.MINE_C_DIR), m)
+    g = guarded(tag, lambda: drop(host, client, RP.MINE_TILE, "STR_PROXIMITY_GRENADE", prime=True, fuse=0), m)
     gid = g[0] if g else None
     lit = {it + "@" + str(t): guarded(tag, lambda: drop(host, client, t, it), m)[0] for it, t in LC5_LITTER}
     ctrl = guarded(tag, lambda: drop(host, client, LC5_CONTROL[1], LC5_CONTROL[0]), m)[0]
     pre_h, pre_c = census(host), census(client)
     guarded(tag, lambda: need(pre_h == pre_c and len(g) == 1, f"census differs or grenade ids {g}"), m)
     notes = []
-    rec = RP.client_walk(host, client, RP.SEED_C11, RP.C11_DEST, notes)
+    rec = RP.client_walk(host, client, RP.MINE_SEED, RP.MINE_DEST, notes)
     ev["settle"] = settle(host, client)
     post_h, post_c = census(host), census(client)
     gone_h, gone_c = sorted(set(pre_h) - set(post_h)), sorted(set(pre_c) - set(post_c))
@@ -407,7 +407,7 @@ def row_lc5(host, client, crash0):
 
 def row_lc2(host, client, crash0):
     m, tag, h = (host, client), "LC2 staging", H_IDS
-    lc5 = [RP.C11_C_TILE, RP.C11_PROX_TILE, RP.C11_DEST, (4, 34, 0)] + [t for _, t in LC5_LITTER]
+    lc5 = [RP.MINE_C_TILE, RP.MINE_TILE, RP.MINE_DEST, (4, 34, 0)] + [t for _, t in LC5_LITTER]
     path = [(p[0], p[1], 0) for p in line_tiles(LC2_A, LC2_S[0])]
     ev = {"rule": guarded(tag, lambda: check_open(host, client, sorted(set(path) | set(LC2_S)), tuple(h) + (A_ID,)),
                           m)}

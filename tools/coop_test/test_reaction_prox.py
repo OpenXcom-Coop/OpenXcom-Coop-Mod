@@ -1,134 +1,84 @@
-"""test_reaction_prox.py: reaction fire at the second player's
-walking soldier, and a proximity mine going off under that walker, each run as
-its own named action NESTED inside the walk (spec
-rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_reaction_prox.py
-(S-B)", sections (b)2-3 nesting and (b)8 latches, amendments B1 (RQ4, RQ5,
-RQ8, RQ15) and B3; D139).
+"""test_reaction_prox.py: reaction fire at the second player's walking soldier, and a proximity mine going off under
+that walker, each run as its own named action NESTED inside the walk.
 
-Before S-B, on the W2-P3 base, the host cancels every reaction shot aimed at a
-client soldier (ProjectileFlyBState::init compares the target with the HOST's
-selected unit, F810) while the reaction check still stops the walk, so the
-second player's soldier halts with "path blocked" and the alien never fires.
-A proximity mine under the walker explodes inside the walk's action with no
-`prox_trigger` cue, and the walk also reports "path blocked".
+Without the fix the host cancels every reaction shot aimed at a client soldier (ProjectileFlyBState::init compares the
+target with the HOST's selected unit) while the reaction check still stops the walk, so the second player's soldier
+halts with "path blocked" and the alien never fires. A proximity mine under the walker explodes inside the walk's
+action with no `prox_trigger` cue, and the walk also reports "path blocked". With the fix the host compares the
+reaction target with the triggering unit, and the reaction and the mine each run as a context nested in the walk.
 
-Three scenarios, ONE boot, in this order (TASK 0a / 0c one-boot order):
+Three scenarios, ONE boot, in this order:
 
-  C8   reaction fire halts the client's walk (revisit row 6). A (the only
-       alien) on HALTED_WALK_A_TILE facing HALTED_WALK_A_DIR, C on
-       HALTED_WALK_C_TILE facing A; one END TURN cycle (no seed) so the
-       player-side FOV puts A in C's
-       spottedThisTurn (no new-spot halt at walk start); A reactions 100 + tu
-       A_TU refilled (BOTH); the client TAB-selects C, the host set_seed
-       HALTED_WALK_SEED, the client clicks HALTED_WALK_DEST (real UI, 3 planned steps).
-       GREEN (B3 + (f)): A's reaction shots happen and run under the
-       walk W - inside ONE `reaction` context R {actorId A, nestedIn W}: R's
-       evs are shot (actor A) -> hit(s) -> R's one bt_action_end, before W's
-       end; every A shot/hit carries R; W {origin intent, kind walk, actorId
-       C} halts after C8_EXECUTED with reason "reaction" on both machines; the
-       client banner reads BANNER_UNDER_FIRE; C's outcome per the seed (health
-       C8_C_HEALTH, not out) equal on both; A tu equal on both.
-       RED (TASK 0d / F810): (walk_step W)(bt_action_end W) only - no shot,
-       no hit, A tu A_TU -> A_TU, halted "blocked", path C8_EXECUTED, banner
-       "Move stopped - path blocked".
-       W2-P6a S-C row KR2 (spec rewrite/prompts/w2p6_display_two.md P6a
-       review section 2, pinned stage text (c), AMENDMENTS P6-5 section 4 and
-       P6-6 section 5; owner D131, D171 (a)): the host camera is staged on
-       K_HOSTFAR (view level 1) before the click. GREEN: host
-       camera.suppressed follow == R's shot count and walkLevel == 2 x W's
-       walk_step count (ruling SC-3 (a): UnitWalkBState's off-screen step
-       writes the view level twice, F4143), the host offset still the staged
-       one, view level 1;
-       client camera.moves hold {reaction_follow} per R shot, {restore} at R's
-       bt_action_end whose `after` equals the offset at R's first shot, and
-       {own_walker_level} per W step. RED (commit S-C.1): counters 0, the host
-       offset and view level moved, no client move. One "EVIDENCE KR2:" line.
-       W2-P6b S-L row L5 (spec rewrite/prompts/w2p6_display_two.md AMENDMENT
-       P6-5 section 6, ruling SL-1; owner D172 (a)): the hit log, both
-       machines in English. At the quiescent point after the prep END TURN
-       cycle (before the staging) the host holds one pending entry (the
-       cycle's NEW_TURN, F4239) and both logs render equal; after the walk the
-       client's hitLog text and diary == the host's, the host's text holds
-       "Reaction fire...", the host sent L5_ENTRIES since the quiescent point
-       (T0L-1, per entry) and the client applied every entry the host sent.
-       RED (commit S-L.1): the two logs differ after the walk (the client
-       keeps its own "New Turn"), the mirror counters stay 0. One
-       "EVIDENCE L5:" line.
-  C8k  the kneeling walker (B1 RQ4 (a)). A reactions 0 (BOTH); C health
-       C_MAX_HEALTH + tu TU_MAX (BOTH); C and A back on the C8 tiles (BOTH);
-       the client kneels C (real SDLK_k); A reactions 100 + tu A_TU refilled
-       (BOTH); host set_seed SEED_C8K; the client clicks HALTED_WALK_DEST. The walk
-       stands C up first (kneel() runs the reaction check for the stand-up).
-       GREEN: the stand-up `kneel` ev and every walk_step carry W (hooks owned
-       by the base chain read the walk's own id); >= 1 `reaction` context
-       nested in W (actorId A), one of them with no `shot` cue - the stand-up
-       reaction, aimed at C's old tile and cancelled; every A shot/hit
-       carries a `reaction` context nested in W, never W itself; W halts after
-       C8K_EXECUTED with reason "reaction" (resolved in the catch-all) on both;
-       banner BANNER_UNDER_FIRE; C's outcome per the seed (health
-       C8K_C_HEALTH, not out) equal on both; A tu equal on both.
-       RED (TASK 0d): (kneel W)(walk_step W)(bt_action_end W), no shot,
-       halted "blocked".
-  C11  proximity mine under the walker. C health + tu (BOTH), C on
-       C11_C_TILE (BOTH, out of A's view); a primed fuse-0
-       STR_PROXIMITY_GRENADE G on C11_PROX_TILE beside the path (battle_drop,
-       BOTH, equal ids); host set_seed SEED_C11; the client clicks C11_DEST.
-       The step adjacent to G (step 2) triggers it.
-       GREEN: ONE `prox` context P {actorId C, nestedIn W}: prox_trigger
-       {unit C, item G, pos C11_PROX_TILE} -> explosion -> ... -> P's one
-       bt_action_end, before W's end; every explosion carries P; W halts after
-       C11_EXECUTED with reason "prox" on both; G absent on both; the client
-       shows NO halt banner (RQ8 + D139: a proximity-mine halt has no
-       message).
-       RED (TASK 0d): (walk_step W)(walk_step W)(explosion W)(bt_action_end
-       W), no prox_trigger, halted "blocked", banner "Move stopped - path
-       blocked".
+  reaction_fire   reaction fire halts the client's walk. A (the only alien) on HALTED_WALK_A_TILE facing
+       HALTED_WALK_A_DIR, C on HALTED_WALK_C_TILE facing A; one END TURN cycle (no seed) so the player-side FOV puts A
+       in C's spottedThisTurn (no new-spot halt at walk start); A reactions 100 + tu A_TU refilled (BOTH); the client
+       TAB-selects C, the host set_seed HALTED_WALK_SEED, the client clicks HALTED_WALK_DEST (real UI, 3 planned steps).
+       PASS: A's reaction shots happen and run under the walk W - inside ONE `reaction` context R {actorId A,
+       nestedIn W}: R's evs are shot (actor A) -> hit(s) -> R's one bt_action_end, before W's end; every A shot/hit
+       carries R; W {origin intent, kind walk, actorId C} halts after HALTED_WALK_EXECUTED with reason "reaction" on
+       both machines; the client banner reads BANNER_UNDER_FIRE; C's outcome per the seed (health
+       HALTED_WALK_C_HEALTH, not out) equal on both; A tu equal on both.
+       Without the fix: (walk_step W)(bt_action_end W) only - no shot, no hit, A tu A_TU -> A_TU, halted "blocked",
+       path HALTED_WALK_EXECUTED, banner "Move stopped - path blocked".
+       The reaction_camera check: the host camera is staged on HOST_FAR_TILE (view level 1) before the click. PASS:
+       host camera.suppressed follow == R's shot count and walkLevel == 2 x W's walk_step count (UnitWalkBState's
+       off-screen step writes the view level twice), the host offset still the staged one, view level 1; client
+       camera.moves hold {reaction_follow} per R shot, {restore} at R's bt_action_end whose `after` equals the offset
+       at R's first shot, and {own_walker_level} per W step. Without the camera fix: counters 0, the host offset and
+       view level moved, no client move. One "EVIDENCE reaction_camera:" line.
+       The hit_log_mirror check: the hit log, both machines in English. At the quiescent point after the prep END
+       TURN cycle (before the staging) the host holds one pending entry (the cycle's NEW_TURN) and both logs render
+       equal; after the walk the client's hitLog text and diary == the host's, the host's text holds
+       "Reaction fire...", the host sent HIT_LOG_ENTRIES since the quiescent point (counted per entry) and the client
+       applied every entry the host sent. Without the hit-log mirror: the two logs differ after the walk (the client
+       keeps its own "New Turn"), the mirror counters stay 0. One "EVIDENCE hit_log_mirror:" line.
+  kneeled_walker   the kneeling walker. A reactions 0 (BOTH); C health C_MAX_HEALTH + tu TU_MAX (BOTH); C and A back
+       on the reaction_fire tiles (BOTH); the client kneels C (real SDLK_k); A reactions 100 + tu A_TU refilled
+       (BOTH); host set_seed KNEEL_SEED; the client clicks HALTED_WALK_DEST. The walk stands C up first (kneel() runs
+       the reaction check for the stand-up).
+       PASS: the stand-up `kneel` ev and every walk_step carry W (hooks owned by the base chain read the walk's own
+       id); >= 1 `reaction` context nested in W (actorId A), one of them with no `shot` cue - the stand-up reaction,
+       aimed at C's old tile and cancelled; every A shot/hit carries a `reaction` context nested in W, never W
+       itself; W halts after KNEEL_EXECUTED with reason "reaction" (resolved in the catch-all) on both; banner
+       BANNER_UNDER_FIRE; C's outcome per the seed (health KNEEL_C_HEALTH, not out) equal on both; A tu equal on
+       both.
+       Without the fix: (kneel W)(walk_step W)(bt_action_end W), no shot, halted "blocked".
+  proximity_mine   a proximity mine under the walker. C health + tu (BOTH), C on MINE_C_TILE (BOTH, out of A's
+       view); a primed fuse-0 STR_PROXIMITY_GRENADE G on MINE_TILE beside the path (battle_drop, BOTH, equal ids);
+       host set_seed MINE_SEED; the client clicks MINE_DEST. The step adjacent to G (step 2) triggers it.
+       PASS: ONE `prox` context P {actorId C, nestedIn W}: prox_trigger {unit C, item G, pos MINE_TILE} ->
+       explosion -> ... -> P's one bt_action_end, before W's end; every explosion carries P; W halts after
+       MINE_EXECUTED with reason "prox" on both; G absent on both; the client shows NO halt banner (a proximity-mine
+       halt has no message, as in vanilla).
+       Without the fix: (walk_step W)(walk_step W)(explosion W)(bt_action_end W), no prox_trigger, halted "blocked",
+       banner "Move stopped - path blocked".
 
-Common asserts (spec (f) as amended by B1 RQ5; each walk settled with
-wait_walk_settled + wait_host_idle): W2-P2's common asserts (hash_now
-{full:true} ALL buckets EQUAL; desyncSeen false on both; client
-coopClientBStatePushes unchanged and host 0; client deltaEvsApplied increased;
-deltaUnresolved, deltaUnsupported, deltaRemoveMissing, deltaAddExisting 0 on
-both); host contextBeginRefused 0; contextsClosedAtEndTurn is a DIAGNOSTIC
-(printed, never asserted, RQ5); every chain ev of the scenario carries the id
-of a context the scenario closed; every context has exactly one
-bt_action_end, its last ev, recorded in closedContexts (endSeq = that ev's
-seq); a nested context's end precedes its base's end; no `sync` inside a
-context; contextsOpened grew by exactly the number of contexts closed; the
-client log holds the host's seqs/kinds/actionIds. armingDeferrals is printed,
-never asserted.
+Common checks (each walk settled with wait_walk_settled + wait_host_idle): common_fails from test_delta_core (hash_now
+{full:true} ALL buckets EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and host 0; client
+deltaEvsApplied increased; deltaUnresolved, deltaUnsupported, deltaRemoveMissing, deltaAddExisting 0 on both); host
+contextBeginRefused 0; contextsClosedAtEndTurn is a DIAGNOSTIC (printed, never asserted); every chain ev of the
+scenario carries the id of a context the scenario closed; every context has exactly one bt_action_end, its last ev,
+recorded in closedContexts (endSeq = that ev's seq); a nested context's end precedes its base's end; no `sync` inside
+a context; contextsOpened grew by exactly the number of contexts closed; the client log holds the host's
+seqs/kinds/actionIds. armingDeferrals is printed, never asserted.
 
-Probes (all exist at S-A 5e1326c19): event_state contextsOpened,
-closedContexts {actionId, origin, kind, actorId, nestedIn, endSeq, hasFinal},
-contextsClosedAtEndTurn, contextBeginRefused, lastWalk {actionId, executed,
-restate {path, halted, reason}} on both machines; event_log (seq, kind,
-actionId); the host's `[coop-cue] <kind> seq <n> actionId <id>: <payload>`
-log line (coopEmitCue) for cue payloads; battle_state units and the client's
-coopWaitText banner; battle_items.
+Probes: event_state contextsOpened, closedContexts {actionId, origin, kind, actorId, nestedIn, endSeq, hasFinal},
+contextsClosedAtEndTurn, contextBeginRefused, lastWalk {actionId, executed, restate {path, halted, reason}} on both
+machines; event_log (seq, kind, actionId); the host's `[coop-cue] <kind> seq <n> actionId <id>: <payload>` log line
+(coopEmitCue) for cue payloads; battle_state units and the client's coopWaitText banner; battle_items.
 
-Bring-up (deterministic, never searched here; ledger `## W2-P3 TASK 0a` and
-`## W2-P3 TASK 0c`, scratch w2p3/T0a and w2p3/T0c constants.md): set_seed
-SEED_ROSTER on the HOST right before its open_new_battle; the DEFAULT NEW
-BATTLE map with set_seed SEED_MAP right before newbattle_ok, seat_count=2,
-MAP_FP asserted on both; session.pin_ai_neutral (pins A); RQ15: every live
-player unit's reactions 0 on BOTH. Every lever pair applies to the CLIENT
-first, then the HOST, responses asserted equal. The seeds were found
-with the host-selection stand-in (host `battle_action select` of C, F880);
-this test does NOT use it - the product fix is what GREEN tests.
+Bring-up (deterministic, never searched here): set_seed SEED_ROSTER on the HOST right before its open_new_battle; the
+DEFAULT NEW BATTLE map with set_seed SEED_MAP right before newbattle_ok, seat_count=2, MAP_FP asserted on both;
+session.pin_ai_neutral (pins A); every live player unit's reactions 0 on BOTH. Every test command pair applies to the
+CLIENT first, then the HOST, responses asserted equal. The seeds were found with the host selecting C (host
+`battle_action select`), which hides the bug; this test does NOT select C on the host, so only the fix makes it pass.
 
-RED-THEN-GREEN (spec (d) row S-B). Commit S-B.1 (this file; product
-unchanged) is run ONCE and every scenario must FAIL with the RED above; commit
-S-B.2 (nested reaction/prox contexts + the D145 fix) is run ONCE and every
-scenario must PASS. Each scenario prints ONE "EVIDENCE <id>:" line with both
-machines' fields BEFORE its green conditions are checked; main() runs every
-scenario even after an earlier one failed and prints "PASS <id>" /
-"FAIL <id>: <message>". Every wait is bounded; a wait that times out is
-recorded in the EVIDENCE line and fails the scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its pass conditions are checked;
+main() runs every scenario even after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every
+wait is bounded; a wait that times out is recorded in the EVIDENCE line and fails the scenario.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when all three scenarios pass, 2
-otherwise (a bring-up failure is also 2). run in the foreground to
-completion.
+One run is the result. No skip path, no second boot, no alternative map or actor. Exit 0 only when all three
+scenarios pass, 2 otherwise (a bring-up failure is also 2). Run in the foreground to completion.
 
 Run:  python tools/coop_test/test_reaction_prox.py
 """
@@ -151,7 +101,7 @@ from test_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta
                                 CHAIN_KINDS, end_turn_cycle, bring_up_lobby_roster_pinned)
 from test_hit_log import hl_snap, hl_view, hl_count, hl_delta, STRINGS_EN
 
-# ----- bring-up (W2-P3 TASK 0a, ledger `## W2-P3 TASK 0a`) -----
+# ----- bring-up -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
@@ -167,36 +117,37 @@ SDLK_K = 107                     # Options::keyBattleKneel default (repro_atom_k
 PORT = "48629"
 FACTION_PLAYER = 0
 
-# ----- C8 (ledger `## W2-P3 TASK 0c`, T0c constants.md "C8") -----
+# ----- reaction_fire -----
 HALTED_WALK_A_TILE, HALTED_WALK_A_DIR = (15, 2, 0), 4    # A faces south, C on its axis
 HALTED_WALK_C_TILE, HALTED_WALK_C_DIR = (15, 7, 0), 0    # C faces A
 HALTED_WALK_DEST = (18, 7, 0)                   # planned (16,7) (17,7) (18,7): every tile in A's view sector
 HALTED_WALK_SEED = 3                            # host set_seed right before the client's click
-C8_EXECUTED = [(16, 7, 0)]             # halted after step 1 (C8_REACT_STEP 1)
-C8_C_HEALTH = 21                       # C8_C_HEALTH_AFTER: two of A's three snaps hit C (40 -> 21), C standing
-# W2-P6a S-C row KR2 (P6a pinned stage text (c); AMENDMENTS P6-5 section 4, P6-6 section 5): T0a-4's host staging
-K_HOSTFAR = (38, 38, 1)                # the host camera at view level 1, > 1 screen from A, C and the walk (map 40x40x4)
-KR2_WALKLEVEL_PER_STEP = 2             # ruling SC-3 (a), F4143: with the host camera staged far the walker is off screen,
-                                       # so UnitWalkBState runs keepWalking(..., false) (end = 2) and writes the view level
-                                       # (:204) on both calls of each step - traced over 4 steps (C8, C8k, C11); the guard
-                                       # counts every write it suppresses (no dedupe)
-# W2-P6b S-L row L5: TASK 0 T0L-1
-L5_ENTRIES = 10                        # from the quiescent point after C8's END TURN cycle to the walk's end the host
-                                       # sends the cycle's pending NEW_TURN + 9 chain entries (REACTION_FIRE x4,
-                                       # NEW_SHOT, NEW_SHOT, BIG_DAMAGE, NEW_SHOT, NO_DAMAGE) on 6 evs, counted per entry
-L5_PENDING_AT_QUIET = 1                # SL-1: the cycle's NEW_TURN waits for the host's next emit
+HALTED_WALK_EXECUTED = [(16, 7, 0)]             # halted after step 1
+HALTED_WALK_C_HEALTH = 21                       # two of A's three snaps hit C (40 -> 21), C standing
+# reaction_camera: the host camera's staging
+HOST_FAR_TILE = (38, 38, 1)            # the host camera at view level 1, > 1 screen from A, C and the walk (40x40x4)
+WALK_LEVEL_WRITES_PER_STEP = 2         # with the host camera staged far the walker is off screen, so UnitWalkBState
+                                       # runs keepWalking(..., false) (end = 2) and writes the view level (:204) on both
+                                       # calls of each step (traced over the 4 steps of the three scenarios); the
+                                       # guard counts every write it suppresses (no dedupe)
+# hit_log_mirror (measured)
+HIT_LOG_ENTRIES = 10                   # from the quiescent point after reaction_fire's END TURN cycle to the walk's end
+                                       # the host sends the cycle's pending NEW_TURN + 9 chain entries (REACTION_FIRE
+                                       # x4, NEW_SHOT, NEW_SHOT, BIG_DAMAGE, NEW_SHOT, NO_DAMAGE) on 6 evs, counted per
+                                       # entry
+HIT_LOG_PENDING_AT_QUIET = 1           # the cycle's NEW_TURN waits for the host's next emit
 
-# ----- C8k (T0c constants.md "C8k") -----
-SEED_C8K = 2                           # host set_seed right before the client's click
-C8K_EXECUTED = [(16, 7, 0)]            # halted after step 1
-C8K_C_HEALTH = 40                      # C8K_C_HEALTH_AFTER: A's three snaps land on terrain
+# ----- kneeled_walker -----
+KNEEL_SEED = 2                         # host set_seed right before the client's click
+KNEEL_EXECUTED = [(16, 7, 0)]          # halted after step 1
+KNEEL_C_HEALTH = 40                    # A's three snaps land on terrain
 
-# ----- C11 (ledger `## W2-P3 TASK 0a`, T0a constants.md "C11") -----
-C11_C_TILE, C11_C_DIR = (2, 34, 0), 2  # SW field, > 20 tiles from A (out of A's view)
-C11_PROX_TILE = (5, 35, 0)             # battle_drop STR_PROXIMITY_GRENADE {prime, fuse 0}, beside the path
-C11_DEST = (6, 34, 0)                  # planned (3,34) (4,34) (5,34) (6,34); step 2 (4,34) is adjacent to G
-SEED_C11 = 5                           # host set_seed right before the client's click
-C11_EXECUTED = [(3, 34, 0), (4, 34, 0)]
+# ----- proximity_mine -----
+MINE_C_TILE, MINE_C_DIR = (2, 34, 0), 2   # SW field, > 20 tiles from A (out of A's view)
+MINE_TILE = (5, 35, 0)                 # battle_drop STR_PROXIMITY_GRENADE {prime, fuse 0}, beside the path
+MINE_DEST = (6, 34, 0)                 # planned (3,34) (4,34) (5,34) (6,34); step 2 (4,34) is adjacent to G
+MINE_SEED = 5                          # host set_seed right before the client's click
+MINE_EXECUTED = [(3, 34, 0), (4, 34, 0)]
 
 # The client's halt banners (connectionTCP.cpp showWalkHalt's table, rendered en-US).
 BANNER_UNDER_FIRE = "Order cancelled - unit under fire"   # STR_COOP_CANCEL_UNIT_UNDER_FIRE (reason `reaction`)
@@ -331,8 +282,8 @@ def walk_evidence(rec, what):
 
 
 def context_fails(rec, what):
-    """Spec (f) common asserts on the context side (B1 RQ5), over the host evs
-    of one scenario: contextBeginRefused 0 on the host; contextsOpened grew by
+    """The common checks on the context side, over the host evs of one
+    scenario: contextBeginRefused 0 on the host; contextsOpened grew by
     exactly the number of contexts closed; every chain ev carries the id of a
     context this scenario closed; every actionId has exactly one
     bt_action_end, its last ev, recorded in closedContexts with endSeq = its
@@ -480,7 +431,7 @@ def reaction_fails(rec, what):
 
 
 def outcome_fails(rec, health, what):
-    """C's outcome per the seed (B3): health `health`, not out, on both."""
+    """C's outcome per the seed: health `health`, not out, on both."""
     fails = []
     for name, u in (("host", rec["uh"].get(C_ID) or {}), ("client", rec["uc"].get(C_ID) or {})):
         if u.get("health") != health or u.get("isOut"):
@@ -488,13 +439,13 @@ def outcome_fails(rec, health, what):
     return fails
 
 
-def kr2_fails(rec, staged, cam0, cam1):
-    """W2-P6a S-C row KR2 (P6a review section 2; owner D131, D171 (a); Q9 (a) as pinned by OR4 (a)): reaction fire
-    at the client's walker. HOST (the walk W is the partner's order, R is nested in it): camera.suppressed.follow ==
-    R's `shot` count, suppressed.walkLevel == KR2_WALKLEVEL_PER_STEP x W's `walk_step` count, the
-    offset still the staged one and the view level 1. CLIENT: {reaction_follow} at each R shot seq; {restore} at R's bt_action_end seq whose `after` equals
-    the `before` of the reaction_follow record at R's first shot (the offset K2 stores there); {own_walker_level} at
-    each W walk_step seq. Prints one "EVIDENCE KR2:" line."""
+def camera_fails(rec, staged, cam0, cam1):
+    """reaction_camera: reaction fire at the client's walker. HOST (the walk W is the partner's order, R is nested
+    in it): camera.suppressed.follow == R's `shot` count, suppressed.walkLevel == WALK_LEVEL_WRITES_PER_STEP x W's
+    `walk_step` count, the offset still the staged one and the view level 1. CLIENT: {reaction_follow} at each R
+    shot seq; {restore} at R's bt_action_end seq whose `after` equals the `before` of the reaction_follow record at
+    R's first shot (the offset saved for the restore); {own_walker_level} at each W walk_step seq. Prints one
+    "EVIDENCE reaction_camera:" line."""
     w = rec["W"]
     rctx = [c for c in nested_in(rec, w) if c.get("origin") == "reaction"]
     r = rctx[0].get("actionId") if len(rctx) == 1 else None
@@ -504,103 +455,105 @@ def kr2_fails(rec, staged, cam0, cam1):
     w_steps = [e["seq"] for e in rec["hev"] if e["kind"] == "walk_step" and w and e["actionId"] == w]
     sup = cam_suppressed_delta(cam0["host"], cam1["host"])
     moves = cam_moves(cam1["client"], rec["seq0"])
-    print(f"EVIDENCE KR2: R={r} shot seqs={r_shots} end={r_end}; W={w} walk_step seqs={w_steps}; host staged="
-          f"{cam_offset(staged)} before={cam_view(cam0['host'])} after={cam_view(cam1['host'])} suppressed delta={sup}; "
-          f"client before={cam_view(cam0['client'], rec['seq0'])} after={cam_view(cam1['client'], rec['seq0'])}",
-          flush=True)
+    print(f"EVIDENCE reaction_camera: R={r} shot seqs={r_shots} end={r_end}; W={w} walk_step seqs={w_steps}; host "
+          f"staged={cam_offset(staged)} before={cam_view(cam0['host'])} after={cam_view(cam1['host'])} suppressed "
+          f"delta={sup}; client before={cam_view(cam0['client'], rec['seq0'])} "
+          f"after={cam_view(cam1['client'], rec['seq0'])}", flush=True)
     fails = []
     if r is None or not r_shots or len(r_end) != 1 or not w_steps:
-        fails.append(f"KR2: precondition: R {r} shots {r_shots} end {r_end}, W {w} steps {w_steps} (want one reaction "
-                     f"context with >= 1 shot and its bt_action_end, and >= 1 walk_step of W)")
-    if (sup["follow"], sup["walkLevel"]) != (len(r_shots), KR2_WALKLEVEL_PER_STEP * len(w_steps)):
-        fails.append(f"KR2: host camera.suppressed delta follow {sup['follow']} walkLevel {sup['walkLevel']} (want "
-                     f"{len(r_shots)} = R's shots, {KR2_WALKLEVEL_PER_STEP * len(w_steps)} = {KR2_WALKLEVEL_PER_STEP} "
-                     f"x W's {len(w_steps)} steps, SC-3 / F4143)")
-    if cam_offset(cam1["host"]) != cam_offset(staged) or cam1["host"].get("viewLevel") != K_HOSTFAR[2]:
-        fails.append(f"KR2: host camera offset {cam_offset(cam1['host'])} viewLevel {cam1['host'].get('viewLevel')} "
-                     f"after the walk (want the staged {cam_offset(staged)}, view level {K_HOSTFAR[2]}: the partner's "
-                     f"walk and the reaction inside it never move the host's camera)")
+        fails.append(f"reaction_camera: precondition: R {r} shots {r_shots} end {r_end}, W {w} steps {w_steps} (want "
+                     f"one reaction context with >= 1 shot and its bt_action_end, and >= 1 walk_step of W)")
+    if (sup["follow"], sup["walkLevel"]) != (len(r_shots), WALK_LEVEL_WRITES_PER_STEP * len(w_steps)):
+        fails.append(f"reaction_camera: host camera.suppressed delta follow {sup['follow']} walkLevel "
+                     f"{sup['walkLevel']} (want {len(r_shots)} = R's shots, "
+                     f"{WALK_LEVEL_WRITES_PER_STEP * len(w_steps)} = {WALK_LEVEL_WRITES_PER_STEP} x W's {len(w_steps)} "
+                     f"steps)")
+    if cam_offset(cam1["host"]) != cam_offset(staged) or cam1["host"].get("viewLevel") != HOST_FAR_TILE[2]:
+        fails.append(f"reaction_camera: host camera offset {cam_offset(cam1['host'])} viewLevel "
+                     f"{cam1['host'].get('viewLevel')} after the walk (want the staged {cam_offset(staged)}, view "
+                     f"level {HOST_FAR_TILE[2]}: the partner's walk and the reaction inside it never move the host's "
+                     f"camera)")
     got = [mv(m) for m in moves]
     need = [(s, "reaction_follow") for s in r_shots] + [(s, "restore") for s in r_end] +         [(s, "own_walker_level") for s in w_steps]
     missing = [x for x in need if x not in got]
     if missing:
-        fails.append(f"KR2: client camera.moves lack {missing} (want {need}; moves {got})")
+        fails.append(f"reaction_camera: client camera.moves lack {missing} (want {need}; moves {got})")
     rf = [m for m in moves if r_shots and mv(m) == (r_shots[0], "reaction_follow")]
     rs = [m for m in moves if r_end and mv(m) == (r_end[0], "restore")]
     if rf and rs and rs[0].get("after") != rf[0].get("before"):
-        fails.append(f"KR2: client restore after={rs[0].get('after')} (want the offset at R's first shot "
+        fails.append(f"reaction_camera: client restore after={rs[0].get('after')} (want the offset at R's first shot "
                      f"{rf[0].get('before')})")
     return fails
 
 
-def l5_fails(hl_a, hl_q, hl_b):
-    """W2-P6b S-L row L5: the reaction fire at the client's
-    walker in the hit log, both machines in English. At the quiescent point after C8's END TURN cycle (before C8's
-    staging): the host holds exactly L5_PENDING_AT_QUIET pending entry (the cycle's NEW_TURN, SL-1 / F4239) and both
-    logs render equal (L-S1). After the walk: the client's hitLog text and diary == the host's, the host's text holds
-    "Reaction fire...", the host sent L5_ENTRIES entries since the quiescent point (T0L-1, per entry), nothing is
-    pending and the client applied every entry the host sent (applied == sent). Prints one "EVIDENCE L5:" line."""
+def hit_log_fails(hl_a, hl_q, hl_b):
+    """hit_log_mirror: the reaction fire at the client's walker in the hit log, both machines in English. At the
+    quiescent point after reaction_fire's END TURN cycle (before its staging): the host holds exactly
+    HIT_LOG_PENDING_AT_QUIET pending entry (the cycle's NEW_TURN) and both logs render equal. After the walk: the
+    client's hitLog text and diary == the host's, the host's text holds "Reaction fire...", the host sent
+    HIT_LOG_ENTRIES entries since the quiescent point (counted per entry), nothing is pending and the client applied
+    every entry the host sent (applied == sent). Prints one "EVIDENCE hit_log_mirror:" line."""
     hq, cq = hl_q["host"], hl_q["client"]
     hb, cb = hl_b["host"], hl_b["client"]
     sent = hl_delta(hl_q, hl_b, "host", "sent")
-    print(f"EVIDENCE L5: before the cycle {hl_view(hl_a)}; quiescent point {hl_view(hl_q)}; after the walk "
+    print(f"EVIDENCE hit_log_mirror: before the cycle {hl_view(hl_a)}; quiescent point {hl_view(hl_q)}; after the walk "
           f"{hl_view(hl_b)}", flush=True)
     fails = []
     if cb["log"] != hb["log"]:
-        fails.append(f"L5: client hitLog {cb['log']} != host {hb['log']} after the walk (want the same text and diary: "
-                     f"the host's log mirrored)")
+        fails.append(f"hit_log_mirror: client hitLog {cb['log']} != host {hb['log']} after the walk (want the same "
+                     f"text and diary: the host's log mirrored)")
     if STRINGS_EN["REACTION_FIRE"] not in (hb["log"].get("text") or ""):
-        fails.append(f"L5: host hitLog text {hb['log'].get('text')!r} (want it to hold "
+        fails.append(f"hit_log_mirror: host hitLog text {hb['log'].get('text')!r} (want it to hold "
                      f"{STRINGS_EN['REACTION_FIRE']!r})")
-    if hl_count(hq["mirror"], "pending") != L5_PENDING_AT_QUIET:
-        fails.append(f"L5: the host's pending entries at the quiescent point after the cycle "
-                     f"{hl_count(hq['mirror'], 'pending')} (want {L5_PENDING_AT_QUIET}: the cycle's NEW_TURN, SL-1)")
+    if hl_count(hq["mirror"], "pending") != HIT_LOG_PENDING_AT_QUIET:
+        fails.append(f"hit_log_mirror: the host's pending entries at the quiescent point after the cycle "
+                     f"{hl_count(hq['mirror'], 'pending')} (want {HIT_LOG_PENDING_AT_QUIET}: the cycle's NEW_TURN)")
     if cq["log"] != hq["log"]:
-        fails.append(f"L5: client hitLog {cq['log']} != host {hq['log']} at the quiescent point after the cycle (want "
-                     f"equal renders, L-S1)")
-    if sent != L5_ENTRIES or hl_count(hb["mirror"], "pending"):
-        fails.append(f"L5: the host sent +{sent} entries from the quiescent point to the walk's end, pending "
-                     f"{hl_count(hb['mirror'], 'pending')} (want +{L5_ENTRIES}, 0: T0L-1)")
+        fails.append(f"hit_log_mirror: client hitLog {cq['log']} != host {hq['log']} at the quiescent point after the "
+                     f"cycle (want equal renders)")
+    if sent != HIT_LOG_ENTRIES or hl_count(hb["mirror"], "pending"):
+        fails.append(f"hit_log_mirror: the host sent +{sent} entries from the quiescent point to the walk's end, "
+                     f"pending {hl_count(hb['mirror'], 'pending')} (want +{HIT_LOG_ENTRIES}, 0)")
     if hl_count(cb["mirror"], "applied") != hl_count(hb["mirror"], "sent"):
-        fails.append(f"L5: client applied {hl_count(cb['mirror'], 'applied')} != host sent "
-                     f"{hl_count(hb['mirror'], 'sent')} after the walk (want equal, SL-1)")
+        fails.append(f"hit_log_mirror: client applied {hl_count(cb['mirror'], 'applied')} != host sent "
+                     f"{hl_count(hb['mirror'], 'sent')} after the walk (want equal)")
     return fails
 
 
 # ===================== scenarios =====================
 
 
-def c8_reaction(host, client, ctx):
+def run_reaction_fire(host, client, ctx):
     notes = []
     # prep: A and C face each other; one END TURN cycle (no seed) so the player-side FOV
     # recalculation puts A in C's spottedThisTurn (a teleport skips calculateFOV).
     tele_both(host, client, A_ID, HALTED_WALK_A_TILE, HALTED_WALK_A_DIR)
     tele_both(host, client, C_ID, HALTED_WALK_C_TILE, HALTED_WALK_C_DIR)
-    hl_a = hl_snap(host, client)   # W2-P6b S-L row L5: before the prep cycle
+    hl_a = hl_snap(host, client)   # hit_log_mirror: before the prep cycle
     turn0 = end_turn_cycle(host, client, None, notes)
     hs, cs = battle_state(host), battle_state(client)
     spotted = (units(host).get(C_ID) or {}).get("spottedThisTurn")
     prep_diff = diff_buckets(host, client)
     ctx["prep"] = {"turn": (turn0, hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")),
                    "spotted": spotted, "diff": prep_diff}
-    hl_q = hl_snap(host, client)   # W2-P6b S-L row L5 (SL-1): the quiescent point after the cycle, before the staging
-    # C8 staging
+    hl_q = hl_snap(host, client)   # hit_log_mirror: the quiescent point after the cycle, before the staging
+    # reaction_fire staging
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "reactions",
                         "value": A_REACTIONS}, ("tu",))
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": A_TU,
                         "refill": True}, ("tu",))
     staged_diff = diff_buckets(host, client)
-    kr2_staged = stage_camera(host, K_HOSTFAR)   # W2-P6a S-C row KR2 (T0a-4): the host camera far, view level 1
+    camera_staged = stage_camera(host, HOST_FAR_TILE)   # reaction_camera: the host camera far, view level 1
     cam0 = cam_snap(host, client)
     rec = client_walk(host, client, HALTED_WALK_SEED, HALTED_WALK_DEST, notes)
     cam1 = cam_snap(host, client)
-    hl_b = hl_snap(host, client)   # W2-P6b S-L row L5: after the walk
+    hl_b = hl_snap(host, client)   # hit_log_mirror: after the walk
     w = rec["W"]
-    print(f"EVIDENCE C8: prep {ctx['prep']}; A {HALTED_WALK_A_TILE}/{HALTED_WALK_A_DIR} "
+    print(f"EVIDENCE reaction_fire: prep {ctx['prep']}; A {HALTED_WALK_A_TILE}/{HALTED_WALK_A_DIR} "
           f"C {HALTED_WALK_C_TILE}/{HALTED_WALK_C_DIR} dest {HALTED_WALK_DEST} "
-          f"stagedDiff={staged_diff}; {walk_evidence(rec, 'C8')}", flush=True)
-    kr2 = kr2_fails(rec, kr2_staged, cam0, cam1)
-    l5 = l5_fails(hl_a, hl_q, hl_b)
+          f"stagedDiff={staged_diff}; {walk_evidence(rec, 'reaction_fire')}", flush=True)
+    camera_checks = camera_fails(rec, camera_staged, cam0, cam1)
+    hit_log_checks = hit_log_fails(hl_a, hl_q, hl_b)
     fails = list(notes)
     if (hs.get("turn"), hs.get("side"), cs.get("turn"), cs.get("side")) != (turn0 + 1, FACTION_PLAYER, turn0 + 1,
                                                                            FACTION_PLAYER):
@@ -609,35 +562,35 @@ def c8_reaction(host, client, ctx):
         fails.append(f"prep cycle: host C spottedThisTurn={spotted} (want A {A_ID} in it: no new-spot halt)")
     if prep_diff or staged_diff:
         fails.append(f"buckets differ after the staging: prep={prep_diff} staged={staged_diff} (want none)")
-    fails += walk_context_fails(rec, C8_EXECUTED, "C8")
-    rf, rctx = reaction_fails(rec, "C8")
+    fails += walk_context_fails(rec, HALTED_WALK_EXECUTED, "reaction_fire")
+    rf, rctx = reaction_fails(rec, "reaction_fire")
     fails += rf
     nested = nested_in(rec, w)
     if len(nested) != 1 or len(rctx) != 1:
-        fails.append(f"C8: contexts nested in W {w} = {[ctx_view(c) for c in nested]} (want exactly one: R {{origin "
-                     f"reaction, actorId {A_ID}, nestedIn {w}}})")
+        fails.append(f"reaction_fire: contexts nested in W {w} = {[ctx_view(c) for c in nested]} (want exactly one: R "
+                     f"{{origin reaction, actorId {A_ID}, nestedIn {w}}})")
     if rctx:
         r = rctx[0]
         rk = [e["kind"] for e in evs_of(rec, r.get("actionId"))]
         if (not rk or rk[0] != "shot" or rk[-1] != "bt_action_end" or "hit" not in rk
                 or any(k not in ("shot", "hit") for k in rk[:-1])):
-            fails.append(f"C8: R {r.get('actionId')} evs {sv(evs_of(rec, r.get('actionId')))} (want shot (actor A) -> "
-                         f"hit(s) -> bt_action_end)")
-    fails += halt_fails(rec, "reaction", C8_EXECUTED, "C8")
+            fails.append(f"reaction_fire: R {r.get('actionId')} evs {sv(evs_of(rec, r.get('actionId')))} (want shot "
+                         f"(actor A) -> hit(s) -> bt_action_end)")
+    fails += halt_fails(rec, "reaction", HALTED_WALK_EXECUTED, "reaction_fire")
     if rec["banner"] != BANNER_UNDER_FIRE:
-        fails.append(f"C8: client banner {rec['banner']!r} (want {BANNER_UNDER_FIRE!r})")
-    fails += outcome_fails(rec, C8_C_HEALTH, "C8")
-    fails += equal_fails(rec, "C8")
-    fails += context_fails(rec, "C8")
-    fails += common_fails(host, client, rec["before"], {}, "C8")
-    fails += kr2
-    fails += l5
+        fails.append(f"reaction_fire: client banner {rec['banner']!r} (want {BANNER_UNDER_FIRE!r})")
+    fails += outcome_fails(rec, HALTED_WALK_C_HEALTH, "reaction_fire")
+    fails += equal_fails(rec, "reaction_fire")
+    fails += context_fails(rec, "reaction_fire")
+    fails += common_fails(host, client, rec["before"], {}, "reaction_fire")
+    fails += camera_checks
+    fails += hit_log_checks
     finish(fails)
 
 
-def c8k_kneeled(host, client, ctx):
+def run_kneeled_walker(host, client, ctx):
     notes = []
-    # re-stage: A quiet, C healed, both back on the C8 tiles, C kneels (real UI)
+    # re-stage: A quiet, C healed, both back on the reaction_fire tiles, C kneels (real UI)
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "reactions",
                         "value": 0}, ("tu",))
     both(host, client, {"cmd": "battle_set_unit_state", "unit": C_ID, "health": C_MAX_HEALTH, "tu": TU_MAX},
@@ -664,53 +617,54 @@ def c8k_kneeled(host, client, ctx):
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": A_TU,
                         "refill": True}, ("tu",))
     staged_diff = diff_buckets(host, client)
-    rec = client_walk(host, client, SEED_C8K, HALTED_WALK_DEST, notes)
+    rec = client_walk(host, client, KNEEL_SEED, HALTED_WALK_DEST, notes)
     w = rec["W"]
     kneels = [e for e in rec["hev"] if e["kind"] == "kneel"]
     steps = [e for e in rec["hev"] if e["kind"] == "walk_step"]
-    print(f"EVIDENCE C8k: kneel staging evs={kneel_evs} kneeled host/client={kneeled} stagedDiff={staged_diff}; "
-          f"{walk_evidence(rec, 'C8k')}", flush=True)
+    print(f"EVIDENCE kneeled_walker: kneel staging evs={kneel_evs} kneeled host/client={kneeled} "
+          f"stagedDiff={staged_diff}; {walk_evidence(rec, 'kneeled_walker')}", flush=True)
     fails = list(notes)
     if kneeled != (True, True):
-        fails.append(f"C8k staging: C kneeled host/client={kneeled} before the walk (want True on both)")
+        fails.append(f"kneeled_walker staging: C kneeled host/client={kneeled} before the walk (want True on both)")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    fails += walk_context_fails(rec, C8K_EXECUTED, "C8k")
+    fails += walk_context_fails(rec, KNEEL_EXECUTED, "kneeled_walker")
     if len(kneels) != 1 or kneels[0]["actionId"] != w or not steps or kneels[0]["seq"] > steps[0]["seq"]:
-        fails.append(f"C8k: the stand-up kneel evs {sv(kneels)} (want exactly one, carrying W {w}, before the first "
-                     f"walk_step {sv(steps[:1])})")
-    rf, rctx = reaction_fails(rec, "C8k")
+        fails.append(f"kneeled_walker: the stand-up kneel evs {sv(kneels)} (want exactly one, carrying W {w}, before "
+                     f"the first walk_step {sv(steps[:1])})")
+    rf, rctx = reaction_fails(rec, "kneeled_walker")
     fails += rf
     nested = nested_in(rec, w)
     other = [c for c in nested if c.get("origin") != "reaction"]
     if other:
-        fails.append(f"C8k: non-reaction contexts nested in W {w}: {[ctx_view(c) for c in other]} (want none)")
+        fails.append(f"kneeled_walker: non-reaction contexts nested in W {w}: {[ctx_view(c) for c in other]} "
+                     f"(want none)")
     shot_ids = {e["actionId"] for e in rec["hev"] if e["kind"] == "shot"}
     quiet = [c for c in rctx if c.get("actionId") not in shot_ids]
     if not quiet:
-        fails.append(f"C8k: no `reaction` context nested in W {w} without a `shot` cue (want the stand-up reaction, "
-                     f"cancelled, F881; reaction contexts {[ctx_view(c) for c in rctx]})")
-    fails += halt_fails(rec, "reaction", C8K_EXECUTED, "C8k")
+        fails.append(f"kneeled_walker: no `reaction` context nested in W {w} without a `shot` cue (want the stand-up "
+                     f"reaction, cancelled; reaction contexts {[ctx_view(c) for c in rctx]})")
+    fails += halt_fails(rec, "reaction", KNEEL_EXECUTED, "kneeled_walker")
     if rec["banner"] != BANNER_UNDER_FIRE:
-        fails.append(f"C8k: client banner {rec['banner']!r} (want {BANNER_UNDER_FIRE!r})")
-    fails += outcome_fails(rec, C8K_C_HEALTH, "C8k")
-    fails += equal_fails(rec, "C8k")
-    fails += context_fails(rec, "C8k")
-    fails += common_fails(host, client, rec["before"], {}, "C8k")
+        fails.append(f"kneeled_walker: client banner {rec['banner']!r} (want {BANNER_UNDER_FIRE!r})")
+    fails += outcome_fails(rec, KNEEL_C_HEALTH, "kneeled_walker")
+    fails += equal_fails(rec, "kneeled_walker")
+    fails += context_fails(rec, "kneeled_walker")
+    fails += common_fails(host, client, rec["before"], {}, "kneeled_walker")
     finish(fails)
 
 
-def c11_prox(host, client, ctx):
+def run_proximity_mine(host, client, ctx):
     notes = []
     both(host, client, {"cmd": "battle_set_unit_state", "unit": C_ID, "health": C_MAX_HEALTH, "tu": TU_MAX},
          ("health", "stun", "status", "tu"))
-    tele_both(host, client, C_ID, C11_C_TILE, C11_C_DIR)
-    g = both(host, client, {"cmd": "battle_drop", "x": C11_PROX_TILE[0], "y": C11_PROX_TILE[1],
-                            "z": C11_PROX_TILE[2], "item": "STR_PROXIMITY_GRENADE", "prime": True, "fuse": 0},
+    tele_both(host, client, C_ID, MINE_C_TILE, MINE_C_DIR)
+    g = both(host, client, {"cmd": "battle_drop", "x": MINE_TILE[0], "y": MINE_TILE[1],
+                            "z": MINE_TILE[2], "item": "STR_PROXIMITY_GRENADE", "prime": True, "fuse": 0},
              ("ids",))["ids"]
     gid = g[0] if g else None
     staged_diff = diff_buckets(host, client)
-    rec = client_walk(host, client, SEED_C11, C11_DEST, notes)
+    rec = client_walk(host, client, MINE_SEED, MINE_DEST, notes)
     w = rec["W"]
     ih, ic = items_by_id(host), items_by_id(client)
     g_gone = {"host": gid not in ih, "client": gid not in ic}
@@ -720,51 +674,52 @@ def c11_prox(host, client, ctx):
     pevs = evs_of(rec, p.get("actionId")) if p else []
     trig = [e for e in rec["hev"] if e["kind"] == "prox_trigger"]
     expl = [e for e in rec["hev"] if e["kind"] == "explosion"]
-    print(f"EVIDENCE C11: grenade G={g} on {C11_PROX_TILE} C {C11_C_TILE}/{C11_C_DIR} dest {C11_DEST} stagedDiff="
-          f"{staged_diff}; prox context={ctx_view(p)} its evs={sv(pevs)}; prox_trigger evs="
+    print(f"EVIDENCE proximity_mine: grenade G={g} on {MINE_TILE} C {MINE_C_TILE}/{MINE_C_DIR} dest {MINE_DEST} "
+          f"stagedDiff={staged_diff}; prox context={ctx_view(p)} its evs={sv(pevs)}; prox_trigger evs="
           f"{[(e['seq'], e['actionId'], payload(rec, e)) for e in trig]}; G gone={g_gone}; "
-          f"{walk_evidence(rec, 'C11')}", flush=True)
+          f"{walk_evidence(rec, 'proximity_mine')}", flush=True)
     fails = list(notes)
     if len(g) != 1:
         fails.append(f"battle_drop returned ids {g} (want exactly one grenade)")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    fails += walk_context_fails(rec, C11_EXECUTED, "C11")
+    fails += walk_context_fails(rec, MINE_EXECUTED, "proximity_mine")
     if len(nested) != 1 or not p or (p.get("origin"), p.get("actorId")) != ("prox", C_ID):
-        fails.append(f"C11: contexts nested in W {w} = {[ctx_view(c) for c in nested]} (want exactly one: P {{origin "
-                     f"prox, actorId {C_ID}, nestedIn {w}}})")
+        fails.append(f"proximity_mine: contexts nested in W {w} = {[ctx_view(c) for c in nested]} (want exactly one: "
+                     f"P {{origin prox, actorId {C_ID}, nestedIn {w}}})")
     if len(trig) != 1:
-        fails.append(f"C11: prox_trigger evs {sv(trig)} (want exactly one)")
+        fails.append(f"proximity_mine: prox_trigger evs {sv(trig)} (want exactly one)")
     if p:
         pk = [e["kind"] for e in pevs]
         if len(pk) < 3 or pk[0] != "prox_trigger" or pk[1] != "explosion" or pk[-1] != "bt_action_end":
-            fails.append(f"C11: P {p.get('actionId')} evs {sv(pevs)} (want prox_trigger -> explosion -> ... -> "
-                         f"bt_action_end)")
+            fails.append(f"proximity_mine: P {p.get('actionId')} evs {sv(pevs)} (want prox_trigger -> explosion -> "
+                         f"... -> bt_action_end)")
         if pevs and pevs[0]["kind"] == "prox_trigger":
             tp = payload(rec, pevs[0])
-            if (tp.get("unit"), tp.get("item"), xyz(tp.get("pos"))) != (C_ID, gid, C11_PROX_TILE):
-                fails.append(f"C11: prox_trigger payload {tp or None} (want unit {C_ID}, item {gid}, pos "
-                             f"{C11_PROX_TILE})")
+            if (tp.get("unit"), tp.get("item"), xyz(tp.get("pos"))) != (C_ID, gid, MINE_TILE):
+                fails.append(f"proximity_mine: prox_trigger payload {tp or None} (want unit {C_ID}, item {gid}, pos "
+                             f"{MINE_TILE})")
     if not expl:
-        fails.append(f"C11: no `explosion` ev in the scenario (host evs {sv(rec['hev'])})")
+        fails.append(f"proximity_mine: no `explosion` ev in the scenario (host evs {sv(rec['hev'])})")
     for e in expl:
         if not p or e["actionId"] != p.get("actionId"):
-            fails.append(f"C11: explosion seq {e['seq']} carries actionId {e['actionId']} (W is {w}; want the `prox` "
-                         f"context {p and p.get('actionId')})")
-    fails += halt_fails(rec, "prox", C11_EXECUTED, "C11")
+            fails.append(f"proximity_mine: explosion seq {e['seq']} carries actionId {e['actionId']} (W is {w}; want "
+                         f"the `prox` context {p and p.get('actionId')})")
+    fails += halt_fails(rec, "prox", MINE_EXECUTED, "proximity_mine")
     if rec["banner"] in HALT_BANNERS:
-        fails.append(f"C11: client banner {rec['banner']!r} (want no halt banner - a proximity-mine halt shows no "
-                     f"message, RQ8 / D139)")
+        fails.append(f"proximity_mine: client banner {rec['banner']!r} (want no halt banner - a proximity-mine halt "
+                     f"shows no message)")
     if not g_gone["host"] or not g_gone["client"]:
-        fails.append(f"C11: grenade {gid} present after the walk host={not g_gone['host']} client="
+        fails.append(f"proximity_mine: grenade {gid} present after the walk host={not g_gone['host']} client="
                      f"{not g_gone['client']} (want absent on both)")
-    fails += equal_fails(rec, "C11")
-    fails += context_fails(rec, "C11")
-    fails += common_fails(host, client, rec["before"], {}, "C11")
+    fails += equal_fails(rec, "proximity_mine")
+    fails += context_fails(rec, "proximity_mine")
+    fails += common_fails(host, client, rec["before"], {}, "proximity_mine")
     finish(fails)
 
 
-SCENARIOS = (("C8", c8_reaction), ("C8k", c8k_kneeled), ("C11", c11_prox))
+SCENARIOS = (("reaction_fire", run_reaction_fire), ("kneeled_walker", run_kneeled_walker),
+             ("proximity_mine", run_proximity_mine))
 
 
 # ===================== bring-up =====================
@@ -780,12 +735,12 @@ def boot(host, client):
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, baked "
         f"MAP_FP={MAP_FP!r} (default NEW BATTLE, SEED_MAP {SEED_MAP})")
     assert seated.get("soldierIds") == SEATED, f"seated {seated.get('soldierIds')} (baked {SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="w2p3-sb")
+    pinned = pin_ai_neutral(host, client, tag="reaction_prox")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (baked [{A_ID}])"
     uh, uc = session.units_by_id(hs), session.units_by_id(cs)
     types = ((uh.get(A_ID) or {}).get("type"), (uc.get(A_ID) or {}).get("type"))
     assert types == (A_TYPE, A_TYPE), f"A {A_ID} battle_state type host/client={types} (want {A_TYPE})"
-    # RQ15: every live player unit's reactions 0 on BOTH machines (A's reactions are the scenarios' own staging)
+    # every live player unit's reactions 0 on BOTH machines (A's reactions are the scenarios' own staging)
     rz = []
     for uid, u in sorted(uh.items()):
         if u.get("faction") == FACTION_PLAYER and not u.get("isOut"):
@@ -803,7 +758,7 @@ def boot(host, client):
             f"{es.get('contextsClosedAtEndTurn')!r} contextBeginRefused={es.get('contextBeginRefused')!r}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2p3-sb] boot ok: SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={SEATED} "
+    print(f"[reaction_prox] boot ok: SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={SEATED} "
           f"pinned={pinned} A type={types[0]} reactions 0 (both) for {rz} probes host={ctx_probes(host)} "
           f"client={ctx_probes(client)}", flush=True)
     return {}
@@ -811,8 +766,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49854, make_user_dir("w2p3_reaction_prox_host"))
-    client = GameClient("client", 49855, make_user_dir("w2p3_reaction_prox_client"))
+    host = GameClient("host", 49854, make_user_dir("reaction_prox_host"))
+    client = GameClient("client", 49855, make_user_dir("reaction_prox_client"))
     results = {}
     try:
         try:
@@ -834,7 +789,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p3-sb] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[reaction_prox] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_reaction_prox: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "
