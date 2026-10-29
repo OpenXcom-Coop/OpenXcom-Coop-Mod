@@ -10955,6 +10955,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						if (jc.isMember("fuel")) craft->setFuel(jc["fuel"].asInt());
 						if (jc.isMember("damage")) craft->setDamage(jc["damage"].asInt());
 						if (jc.isMember("shield")) craft->setShield(jc["shield"].asInt());
+						// Separate: show the host's status string (sent only there).
+						if (jc.isMember("geoStatus") && isSeparateCampaign())
+							craft->setHostGeoStatus(jc["geoStatus"].asString());
 						break;
 					}
 				}

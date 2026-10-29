@@ -1979,6 +1979,7 @@ void GeoscapeState::think()
 
 				Json::Value jcrafts(Json::arrayValue);
 				auto& jbases = *_game->getSavedGame()->getBases();
+				const bool separateWorld = _game->getCoopMod()->isSeparateCampaign();
 				for (size_t bi = 0; bi < jbases.size(); ++bi)
 				{
 					for (auto* craft : *jbases[bi]->getCrafts())
@@ -1996,6 +1997,11 @@ void GeoscapeState::think()
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
 						jc["shield"] = craft->getShield();
+						// Separate: the airborne status string, as main's Separate
+						// snapshot sends it for a peer's craft. The replica holds no
+						// destination, dogfight or fuel simulation to derive it from.
+						if (separateWorld)
+							jc["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
 						jcrafts.append(jc);
 					}
 				}
