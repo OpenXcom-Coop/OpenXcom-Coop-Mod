@@ -1,6 +1,7 @@
-"""Regression test: an equipment layout set on a base inventory screen, and the
-Select Squad screen's de-assign buttons, reach the host, which builds every
-battle, in both one-world campaigns (PR #213).
+"""Regression test: an equipment layout set on a base inventory screen, the
+Select Squad screen's de-assign buttons, and the craft armor screen's ctrl-click
+seat reach the host, which builds every battle, in both one-world campaigns
+(PR #213).
 
 Before the fix, closing the base inventory wrote each soldier's layout on the
 machine that showed the screen only. A layout the client set never reached the
@@ -22,10 +23,21 @@ Every row drags an item for real (Inventory::moveItem) and closes the screen:
        "de-assign craft soldiers" there: the client's own soldiers leave the
        craft, the host's stays (a player unseats only their own soldiers), and
        ClientBase is identical on both machines (the gear moved with the seats).
+    6. the client ctrl-clicks its own soldier on the craft armor screen of its
+       Skyranger: seated on both machines, ClientBase identical; a second
+       ctrl-click takes it off on both.
   SHARED
     4. client at the shared base: the host's report shows the client's layout.
     5. client presses "de-assign all soldiers": every soldier leaves the craft
        on both machines (SHARED keeps main's any-soldier rule).
+    7. the client's craft armor ctrl-click seats its soldier on the shared
+       Skyranger and takes it off again, on both machines.
+
+Red: with the ctrl-click's local seat (rows 6 and 7) the host never saw the
+soldier on the craft.
+
+Each part (SEPARATE, SHARED) runs even when the other fails; rc 0 = every row
+passed.
 
 Run:  python tools/coop_test/test_coop_equip_layout_sync.py
 """
@@ -33,6 +45,7 @@ Run:  python tools/coop_test/test_coop_equip_layout_sync.py
 import os
 import sys
 import time
+import traceback
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
@@ -103,6 +116,29 @@ def wait_layout_has(gcs, base, sid, item, before, label, timeout=30):
             raise AssertionError(f"{label}: soldier {sid}'s layout on {gc.name} is "
                                  f"{layout_of(gc, base, sid)} (before {before}); the {item} "
                                  f"dragged on the screen never reached it")
+
+
+def wait_seat(gcs, base, sid, want, label, timeout=30):
+    """Soldier @sid at @base sits on craft id @want (-1 = none) on every machine
+    in @gcs, the host first."""
+    for gc in gcs:
+        try:
+            gc.wait_for(f"{gc.name}: {label}",
+                        lambda gc=gc: ((T.soldier_at(gc, base, sid) or {}).get("craft") == want)
+                        or None, timeout=timeout, interval=0.3)
+        except TimeoutError:
+            seen = {m.name: (T.soldier_at(m, base, sid) or {}).get("craft") for m in gcs}
+            raise AssertionError(f"{label}: soldier {sid}'s craft per machine is {seen}, "
+                                 f"want {want}")
+
+
+def armor_ctrl_click(gc, host, client, base, cid, sid, want, label):
+    """Ctrl-click soldier @sid on the craft armor screen of craft @cid at @base
+    (on @gc), then wait until both machines seat it at @want."""
+    r = gc.cmd({"cmd": "craft_armor_seat", "base": base, "craft_id": cid,
+                "craft_type": T.SKYRANGER, "soldier_id": sid})
+    assert r.get("ok"), f"{gc.name}: craft armor ctrl-click on soldier {sid}: {r}"
+    wait_seat((host, client), base, sid, want, label)
 
 
 def separate_rows():
@@ -176,6 +212,17 @@ def separate_rows():
                 f"{gc.name}: the client's de-assign unseated the host's soldier {hsid}")
         print(f"PASS separate-deassign: {len(mine)} client soldier(s) off the Skyranger, "
               f"the host's soldier still on it, ClientBase identical on both")
+
+        # 6. the client's ctrl-click on the craft armor screen seats and unseats
+        csid = mine[0]
+        armor_ctrl_click(client, host, client, CB, cid, csid, cid,
+                         "craft armor ctrl-click seat (Separate)")
+        wait_same_base(host, client, CB, "craft armor ctrl-click seat")
+        armor_ctrl_click(client, host, client, CB, cid, csid, -1,
+                         "craft armor ctrl-click unseat (Separate)")
+        wait_same_base(host, client, CB, "craft armor ctrl-click unseat")
+        print(f"PASS separate-armor-seat: the client's ctrl-click seated soldier {csid} on "
+              f"its Skyranger and took it off, on both machines; ClientBase identical")
     finally:
         js.shutdown()
 
@@ -210,13 +257,30 @@ def shared_row():
                     f"SHARED de-assign all: on {gc.name} the crew sits at "
                     f"{[(i, (T.soldier_at(gc, base, i) or {}).get('craft')) for i in seated]}")
         print(f"PASS shared-deassign-all: {len(seated)} soldier(s) off the Skyranger on both machines")
+
+        # 7. the client's craft armor ctrl-click on its own soldier
+        armor_ctrl_click(client, host, client, base, cid, sid, cid,
+                         "craft armor ctrl-click seat (SHARED)")
+        armor_ctrl_click(client, host, client, base, cid, sid, -1,
+                         "craft armor ctrl-click unseat (SHARED)")
+        print(f"PASS shared-armor-seat: the client's ctrl-click seated soldier {sid} on the "
+              f"shared Skyranger and took it off, on both machines")
     finally:
         js.shutdown()
 
 
 def main():
-    separate_rows()
-    shared_row()
+    failures = []
+    for part in (separate_rows, shared_row):
+        try:
+            part()
+        except Exception as e:  # noqa: BLE001 - report every part, then fail
+            traceback.print_exc()
+            failures.append(f"{part.__name__}: {e}")
+    if failures:
+        for f in failures:
+            print(f"FAIL {f}")
+        sys.exit(1)
     print("TEST PASSED")
 
 
