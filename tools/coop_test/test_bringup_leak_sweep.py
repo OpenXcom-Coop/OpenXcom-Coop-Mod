@@ -1,26 +1,27 @@
-"""test_bringup_leak_sweep.py: a bring-up that fails after its games started shuts them down (docs
-rewrite/prompts/w2u8f_bringup_leak_sweep.md (f); R-U8d2-1 and its R3 sweep, F9051-F9060).
-Ten test helpers start game processes where no clean-up can reach them: when they raise after the spawn, both games
-keep running after Python exits (a plain Popen, no reaper; F9062). Each row makes ONE helper fail right after its
-games started, through a stand-in that rebinds only a name in the helper's own module (never harness.GameClient) and
-is restored in a finally, then reads every machine's Popen.poll() right after the call, before any test clean-up:
-- Kind G (S1, TL, CL, RD, RS, 18, SP, BD): <module>.GameClient (sp: sp.harness, a namespace copy of harness) ->
-  StandInGC, which raises right after the real connect() of the last of the row's machines.
-- Kind P (CN): cn.GameClient -> StandInGC (record only); cn.session -> a namespace copy whose drive_to_battlescape is a
-  recorded no-op; cn.battle_state -> a stub that raises (the first raising line after the protected bring-up).
-- Kind W (GR): shared_fixture.bring_up -> a fake that builds the real SharedSession, records both machines BEFORE it
-  spawns and connects them (no campaign), and replaces js.host.ok per INSTANCE by one that raises on geo_state.
-  gr.boot catches that raise and returns; its own "CAPTURE ... (boot miss)" print is kept in EVIDENCE (bootPrinted).
-Rows U8f-S1, -TL, -CL, -RD, -RS, -18, -SP, -BD, -CN, -GR: guards G1 the stand-in fired once (CN: and the drive was
-skipped once), G2 the helper raised exactly the stand-in's RuntimeError (GR: boot returned None), G3 the row's machine
-count, each with a proc, G4 every machine alive at the fire, G5 the bystander alive after the call. Named reds
-<X>-reap: right after the call every machine has exited rc 0 through the harness shutdown (before the fix: alive).
-A bystander game (label 49647, user dir w2u8f_bystander) boots first and runs through every row; row U8f-X (the
-negative control) checks it was alive after every row and quits rc 0 at the end. exec_row shuts down every row
-machine still running (harness.shutdown_clients), never the bystander.
-Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) or a boot miss adds
-ONE "CAPTURE <id>:" line. ONE foreground run, no skip path, every row runs after a failure; exit 0 only
-when every row passes, 2 otherwise. Run: python tools/coop_test/test_bringup_leak_sweep.py
+"""test_bringup_leak_sweep.py: a bring-up that fails after its games started shuts them down. Ten test helpers start
+game processes where no clean-up could reach them: a helper that raised after the spawn would leave both games running
+after Python exits (a plain Popen, no reaper). Each row makes ONE helper fail right after its games started, through a
+stand-in that rebinds only a name in the helper's own module (never harness.GameClient) and is restored in a finally,
+then reads every machine's Popen.poll() right after the call, before any test clean-up:
+- GameClient stand-in rows (pause_on_leave, teleport, client_landing, door_repro, spot_repro, midbattle_save,
+  smoke_main, base_defense): <module>.GameClient (sp: sp.harness, a namespace copy of harness) -> StandInGC, which
+  raises right after the real connect() of the last of the row's machines.
+- battle_state stand-in row (corpse_node): cn.GameClient -> StandInGC (record only); cn.session -> a namespace copy
+  whose drive_to_battlescape is a recorded no-op; cn.battle_state -> a stub that raises (the first raising line after
+  the protected bring-up).
+- geo_state stand-in row (geo_event): shared_fixture.bring_up -> a fake that builds the real SharedSession, records both
+  machines BEFORE it spawns and connects them (no campaign), and replaces js.host.ok per INSTANCE by one that raises on
+  geo_state. gr.boot catches that raise and returns; its own "CAPTURE ... (boot miss)" print is kept in EVIDENCE
+  (bootPrinted).
+Rows <helper>_leak: guards stand_in_fired_once (corpse_node: and the drive was skipped once),
+helper_raised_stand_in_error (geo_event: boot_returned_none), machine_count (each with a proc), all_alive_at_fire,
+bystander_alive. Cell <helper>_reaped: right after the call every machine has exited rc 0 through the harness shutdown.
+A bystander game (label 49647, user dir leak_sweep_bystander) boots first and runs through every row; row
+bystander_survives (the negative control) checks it was alive after every row and quits rc 0 at the end. exec_row shuts
+down every row machine still running (harness.shutdown_clients), never the bystander. Each row prints "EVIDENCE <id>:"
+then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) or a boot miss adds ONE "CAPTURE <id>:" line. No skip
+path; every row runs after a failure; exit 0 only when every row passes, 2 otherwise. Run: python
+tools/coop_test/test_bringup_leak_sweep.py
 """
 
 import contextlib, io, json, os, sys, time, types  # noqa: E401
@@ -30,24 +31,24 @@ sys.path.insert(0, HERE)
 import harness  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_pause_on_leave as s16  # noqa: E402
+import test_pause_on_leave as pol  # noqa: E402
 import test_teleport_lever as trl  # noqa: E402
 import test_client_landing as cl  # noqa: E402
 import repro_door_deterministic as rdd  # noqa: E402
 import repro_atom_spot as ras  # noqa: E402
-import test_midbattle_resume as s18  # noqa: E402
+import test_midbattle_resume as mbr  # noqa: E402
 import sp_smoke as sp  # noqa: E402
 import test_coop_basedef_temp_ufo_uaf as ba  # noqa: E402
 import test_corpse_node as cn  # noqa: E402
 import test_geo_event_replica as gr  # noqa: E402
 
-BYSTANDER = ("u8f-bystander", 49647, "w2u8f_bystander")
-GR_SPEC = ("w2u8f_geo", (49645, 49646, 47651), None)
+BYSTANDER = ("bystander", 49647, "leak_sweep_bystander")
+GR_SPEC = ("leak_sweep_geo", (49645, 49646, 47651), None)
 class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 
 
 class StandInGC(harness.GameClient):
-    """W2-U8f stand-in (test only): records every instance a helper builds while installed; when `want` is set, raises
+    """A stand-in (test only): records every instance a helper builds while installed; when `want` is set, raises
     right after the real connect() of the last of `want` instances (every machine spawned and connected)."""
     made, want, fired, text, alive_at_fire = [], 0, 0, None, None
 
@@ -97,7 +98,7 @@ class Row:
         if missed:
             raise GuardMiss("; ".join(missed))
 
-# ---- the Kind P (cn) and Kind W (gr) stand-ins ----
+# ---- the battle_state (cn) and geo_state (gr) stand-ins ----
 ST = {"driveSkipped": 0, "rec": [], "printed": []}
 
 def cn_drive(*a, **k):  # cn.session.drive_to_battlescape: a recorded no-op
@@ -136,37 +137,42 @@ def gr_call():  # gr.boot prints its own boot-miss CAPTURE line: keep it in EVID
             if not ln.startswith("CAPTURE"):
                 print(ln, flush=True)
 
-# ---- the ten rows: (rid, cell prefix, module, helper, F code, want, bindings, call) ----
+# ---- the ten rows: (rid, cell prefix, module, helper, stand-in kind, want, bindings, call) ----
 G = "GameClient"
 SPECS = (
-    ("U8f-S1", "S1", s16, "_bring_up", "F9051", 2, lambda: [(s16, G, StandInGC)],
-     lambda: s16._bring_up("w2u8f", 9, s16.WALK_DROP_SEED)),
-    ("U8f-TL", "TL", trl, "bring_up", "F9052", 2, lambda: [(trl, G, StandInGC)],
-     lambda: trl.bring_up("w2u8f", "STR_SUPPLY_SHIP", "47650", 49640, 49641)),
-    ("U8f-CL", "CL", cl, "boot_pair", "F9053", 2, lambda: [(cl, G, StandInGC)], lambda: cl.boot_pair("w2u8f")),
-    ("U8f-RD", "RD", rdd, "bring_up", "F9054", 2, lambda: [(rdd, G, StandInGC)], lambda: rdd.bring_up()),
-    ("U8f-RS", "RS", ras, "bring_up_lightning", "F9055", 2, lambda: [(ras, G, StandInGC)],
-     lambda: ras.bring_up_lightning()),
-    ("U8f-18", "18", s18, "_build_midbattle_save", "F9056", 2, lambda: [(s18, G, StandInGC)],
-     lambda: s18._build_midbattle_save("s18mr_w2u8f", 49642)),
-    ("U8f-SP", "SP", sp, "main", "F9057", 1, lambda: [(sp, "harness", ns_of(harness, GameClient=StandInGC))],
-     lambda: sp.main()),
-    ("U8f-BD", "BD", ba, "main", "F9058", 2, lambda: [(ba, G, StandInGC)], lambda: ba.main()),
-    ("U8f-CN", "CN", cn, "one_bringup", "F9059", 0,
+    ("pause_on_leave_leak", "pause_on_leave", pol, "_bring_up", "GameClient stand-in", 2, lambda: [(pol, G, StandInGC)],
+     lambda: pol._bring_up("leak_sweep", 9, pol.WALK_DROP_SEED)),
+    ("teleport_leak", "teleport", trl, "bring_up", "GameClient stand-in", 2, lambda: [(trl, G, StandInGC)],
+     lambda: trl.bring_up("leak_sweep", "STR_SUPPLY_SHIP", "47650", 49640, 49641)),
+    ("client_landing_leak", "client_landing", cl, "boot_pair", "GameClient stand-in", 2, lambda: [(cl, G, StandInGC)],
+     lambda: cl.boot_pair("leak_sweep")),
+    ("door_repro_leak", "door_repro", rdd, "bring_up", "GameClient stand-in", 2, lambda: [(rdd, G, StandInGC)],
+     lambda: rdd.bring_up()),
+    ("spot_repro_leak", "spot_repro", ras, "bring_up_lightning", "GameClient stand-in", 2,
+     lambda: [(ras, G, StandInGC)], lambda: ras.bring_up_lightning()),
+    ("midbattle_save_leak", "midbattle_save", mbr, "_build_midbattle_save", "GameClient stand-in", 2,
+     lambda: [(mbr, G, StandInGC)], lambda: mbr._build_midbattle_save("leak_sweep_midbattle", 49642)),
+    ("smoke_main_leak", "smoke_main", sp, "main", "harness.GameClient stand-in", 1,
+     lambda: [(sp, "harness", ns_of(harness, GameClient=StandInGC))], lambda: sp.main()),
+    ("base_defense_leak", "base_defense", ba, "main", "GameClient stand-in", 2, lambda: [(ba, G, StandInGC)],
+     lambda: ba.main()),
+    ("corpse_node_leak", "corpse_node", cn, "one_bringup", "battle_state stand-in", 0,
      lambda: [(cn, G, StandInGC), (cn, "session", ns_of(session, drive_to_battlescape=cn_drive)),
               (cn, "battle_state", cn_battle_state)],
      lambda: cn.one_bringup(62, cn.SEED_KILLED, cn.FINGERPRINT_KILLED)),
-    ("U8f-GR", "GR", gr, "boot", "F9060", 0, lambda: [(shared_fixture, "bring_up", gr_fake)], gr_call),
+    ("geo_event_leak", "geo_event", gr, "boot", "geo_state stand-in", 0,
+     lambda: [(shared_fixture, "bring_up", gr_fake)], gr_call),
 )
-WANT_N = {"U8f-SP": 1}  # machines per row (every other row: 2)
+WANT_N = {"smoke_main_leak": 1}  # machines per row (every other row: 2)
 
-def standin_row(r, by, cid, mod, helper, fcode, want, bind, call):
+def standin_row(r, by, cid, mod, helper, kind, want, bind, call):
     name = "%s.%s" % (mod.__name__, helper)
     StandInGC.made, StandInGC.fired, StandInGC.alive_at_fire = [], 0, None
-    StandInGC.want, StandInGC.text = want, "W2-U8f stand-in: %s bring-up failed after its games started (%s)" % (
-        r.rid, fcode)
+    StandInGC.want, StandInGC.text = want, "stand-in: %s bring-up failed after its games started (%s)" % (
+        r.rid, kind)
     ST["driveSkipped"], ST["rec"], ST["printed"] = 0, [], []
-    r.machines = ST["rec"] if r.rid == "U8f-GR" else StandInGC.made  # filled by the bring-up: exec_row reaches them
+    # filled by the bring-up: exec_row reaches them
+    r.machines = ST["rec"] if r.rid == "geo_event_leak" else StandInGC.made
     saved, raised, ret, ms, alive, rc, done, by_alive = [], None, "not called", [], [], [], [], None
     try:
         for obj, attr, val in bind():
@@ -186,34 +192,35 @@ def standin_row(r, by, cid, mod, helper, fcode, want, bind, call):
               for gc, a, c in zip(ms, alive, rc)}  # CAPTURE's state (after the reads)
     si = {"fired": StandInGC.fired, "aliveAtFire": StandInGC.alive_at_fire,
           "pids": {gc.name: gc.proc.pid if gc.proc else None for gc in ms}}
-    if r.rid == "U8f-CN":
+    if r.rid == "corpse_node_leak":
         si["driveSkipped"] = ST["driveSkipped"]
     r.ev.update(helper=name, machines=[gc.name for gc in ms], standIn=si, raised=raised,
                 returned=repr(ret) if raised is None else None, alive=alive, rc=rc, shutdownDone=done,
                 bystander=by_alive)
-    if r.rid == "U8f-GR":
+    if r.rid == "geo_event_leak":
         r.ev["bootPrinted"] = ST["printed"]
     n, text = WANT_N.get(r.rid, 2), StandInGC.text
-    r.guards([("G1 the stand-in fired once" + (" and the drive was skipped once" if r.rid == "U8f-CN" else ""),
-               StandInGC.fired == 1 and (r.rid != "U8f-CN" or ST["driveSkipped"] == 1), si),
-              (("G2 gr.boot returned None with no exception" if r.rid == "U8f-GR" else
-                "G2 %s raised exactly the stand-in's RuntimeError" % name),
-               (raised is None and ret is None) if r.rid == "U8f-GR" else raised == ["RuntimeError", text],
+    r.guards([("stand_in_fired_once: the stand-in fired once"
+               + (" and the drive was skipped once" if r.rid == "corpse_node_leak" else ""),
+               StandInGC.fired == 1 and (r.rid != "corpse_node_leak" or ST["driveSkipped"] == 1), si),
+              (("boot_returned_none: gr.boot returned None with no exception" if r.rid == "geo_event_leak" else
+                "helper_raised_stand_in_error: %s raised exactly the stand-in's RuntimeError" % name),
+               (raised is None and ret is None) if r.rid == "geo_event_leak" else raised == ["RuntimeError", text],
                {"raised": raised, "returned": r.ev["returned"]}),
-              ("G3 %d machine(s), each with a proc" % n, len(ms) == n and all(gc.proc is not None for gc in ms),
-               r.ev["machines"]),
-              ("G4 every machine alive at the fire", bool(StandInGC.alive_at_fire) and all(StandInGC.alive_at_fire),
-               si),
-              ("G5 the bystander alive after the call", by_alive, by_alive)])
+              ("machine_count: %d machine(s), each with a proc" % n,
+               len(ms) == n and all(gc.proc is not None for gc in ms), r.ev["machines"]),
+              ("all_alive_at_fire: every machine alive at the fire",
+               bool(StandInGC.alive_at_fire) and all(StandInGC.alive_at_fire), si),
+              ("bystander_alive: the bystander alive after the call", by_alive, by_alive)])
     left = [gc.name for gc, a in zip(ms, alive) if a]
-    msg = ("%s's failed bring-up left %s running (%s)" % (name, " and ".join(left), fcode) if left else
-           "%s's failed bring-up: rc %s, shutdownDone %s (%s)" % (name, rc, done, fcode))
-    r.cell("%s-reap: %s's failed bring-up shut every game it started down (rc 0)" % (cid, name),
+    msg = ("%s's failed bring-up left %s running (%s)" % (name, " and ".join(left), kind) if left else
+           "%s's failed bring-up: rc %s, shutdownDone %s (%s)" % (name, rc, done, kind))
+    r.cell("%s_reaped: %s's failed bring-up shut every game it started down (rc 0)" % (cid, name),
            not left and rc == [0] * n and all(done), {"alive": alive, "rc": rc, "shutdownDone": done}, msg)
 
 BY_SEEN = {}  # rid -> the bystander alive after that row (exec_row, after the row's clean-up)
 
-def u8f_x(r, by):
+def bystander_row(r, by):
     alive_end, err = by.proc.poll() is None, None
     try:
         harness.shutdown_clients(by)
@@ -222,11 +229,12 @@ def u8f_x(r, by):
     r.ev.update(bystanderAfterRows=dict(BY_SEEN), aliveAtEnd=alive_end, pid=by.proc.pid, rc=by.proc.poll(),
                 shutdownErr=err)
     every = len(BY_SEEN) == len(SPECS) and all(BY_SEEN.values())
-    r.cell("X: the bystander was alive after every row, and its shutdown at the end gives rc 0",
+    r.cell("bystander_kept: the bystander was alive after every row, and its shutdown at the end gives rc 0",
            every and alive_end and by.proc.poll() == 0 and err is None, r.ev,
            "the clean-up reached a game the helper did not start, or the bystander did not quit rc 0")
 
-ROWS = tuple((s[0], (lambda r, by, s=s: standin_row(r, by, *s[1:]))) for s in SPECS) + (("U8f-X", u8f_x),)
+ROWS = tuple((s[0], (lambda r, by, s=s: standin_row(r, by, *s[1:]))) for s in SPECS) + (
+    ("bystander_survives", bystander_row),)
 
 def capture(r):
     return {"standIn": r.ev.get("standIn"), "raised": r.ev.get("raised"), "states": r.dump,
@@ -246,7 +254,7 @@ def exec_row(rid, fn, by):
         except Exception as e:
             r.ev["cleanupErr"] = short(str(e))
         r.ev["rcAfterCleanup"] = [gc.proc.poll() if gc.proc else None for gc in ms]
-    if rid != "U8f-X":
+    if rid != "bystander_survives":
         BY_SEEN[rid] = by.proc.poll() is None
     r.ev["wall"] = round(time.time() - t0, 1)
     if r.err:
@@ -268,7 +276,7 @@ def main():
     try:
         by.spawn(); by.connect()
     except Exception as e:  # a bystander boot miss fails every row "boot (bystander)" with ONE CAPTURE line
-        print("CAPTURE U8f-bystander: %s" % json.dumps({"error": "%s: %s" % (type(e).__name__, short(str(e), 800)),
+        print("CAPTURE bystander: %s" % json.dumps({"error": "%s: %s" % (type(e).__name__, short(str(e), 800)),
                                                          "logTail": tail(os.path.join(by.user_dir, "openxcom.log"))}),
               flush=True)
         safe(lambda: harness.shutdown_clients(by))
