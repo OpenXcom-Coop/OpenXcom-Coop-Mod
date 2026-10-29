@@ -23,7 +23,7 @@ order, 3 boots identical; C9 runs last because its burning unit is at health
 
   C5r  revive at a side change (cycle 1, battle turn 1 -> 2). W2-P2's
        default-map stun-rod staging: H gets a STR_STUN_ROD (battle_give,
-       BOTH), H on C5_H_TILE, A on C5_A_TILE, H tu TU_MAX (BOTH). Host real
+       BOTH), H on STUN_H_TILE, A on STUN_A_TILE, H tu TU_MAX (BOTH). Host real
        UI: TAB-select H, the right-hand box (ActionMenuState), set_seed
        SEED_C5, key 52 (STUN): A UNCONSCIOUS, body item C5_BODY_ID. Then
        battle_set_unit_state {unit A, stun 0} on BOTH, and one full END TURN
@@ -242,8 +242,8 @@ STATUS_STANDING, STATUS_UNCONSCIOUS, STATUS_PANICKING, STATUS_BERSERK = 0, 7, 8,
 
 # ----- C5r (T0b constants.md "C5r"; F863) -----
 H_ID = 10                        # host seat soldier (the stun rod in C5r, the rocket in C9)
-C5_H_TILE, C5_H_DIR = (4, 4, 0), 0
-C5_A_TILE, C5_A_DIR = (4, 3, 0), 4
+STUN_H_TILE, STUN_H_DIR = (4, 4, 0), 0
+STUN_A_TILE, STUN_A_DIR = (4, 3, 0), 4
 SEED_C5 = 1                      # host set_seed right before key 52 (STUN): A UNCONSCIOUS, stun 120
 C5_ROD_ID = 60                   # battle_give {unit H, STR_STUN_ROD, clear_hands} on both
 C5_BODY_ID = 61                  # STR_SECTOID_CORPSE, unitLink A (A's body while unconscious)
@@ -796,8 +796,8 @@ def c5r_revive(host, client, ctx):
     rec = begin(host, client)
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_STUN_ROD", "clear_hands": True},
              ("weaponId", "ammoId"))
-    tele_both(host, client, H_ID, C5_H_TILE, C5_H_DIR)
-    tele_both(host, client, A_ID, C5_A_TILE, C5_A_DIR)
+    tele_both(host, client, H_ID, STUN_H_TILE, STUN_H_DIR)
+    tele_both(host, client, A_ID, STUN_A_TILE, STUN_A_DIR)
     both(host, client, {"cmd": "battle_set_unit_state", "unit": H_ID, "tu": TU_MAX}, ("tu",))
     staged_diff = diff_buckets(host, client)
     try:
@@ -822,7 +822,7 @@ def c5r_revive(host, client, ctx):
     st1 = sts[0] if sts else None
     revs = [e for e in hev if e["kind"] == "revive"]
     st1_ring = ring_view(ring_at(rec["ring"], st1)) if st1 else None
-    print(f"EVIDENCE C5r: rod={g.get('weaponId')} H {C5_H_TILE}/{C5_H_DIR} A {C5_A_TILE}/{C5_A_DIR} stagedDiff="
+    print(f"EVIDENCE C5r: rod={g.get('weaponId')} H {STUN_H_TILE}/{STUN_H_DIR} A {STUN_A_TILE}/{STUN_A_DIR} stagedDiff="
           f"{staged_diff}; after the stun (seed {SEED_C5})={stunned}; stun 0 response (stun, status)="
           f"{(s0.get('stun'), s0.get('status'))}; cycle side_transitions={sts}; revive evs="
           f"{[(e['seq'], e['actionId'], payload(rec, e)) for e in revs]}; the first side_transition's delta="

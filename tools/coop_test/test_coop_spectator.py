@@ -3,11 +3,12 @@ is told "You command no soldiers - spectator mode" at once, the host as well as 
 player; and the second player's new-contact count is unchanged (WR-30 guard).
 
 Spec: docs repo rewrite/prompts/r5u2_pvp_presentation.md section (f) test_coop_spectator.py, with AMENDMENT U2-1 (U2-1.5,
-U2-1.8: the seats are MCC.boot_c's RV-U8 pins) and the orchestrator rulings (QU2-1 .. QU2-17 (a), QU2-A1-1 .. QU2-A1-5 (a)).
+U2-1.8: the seats are MCC.boot_seated's RV-U8 pins) and the orchestrator rulings (QU2-1 .. QU2-17 (a),
+QU2-A1-1 .. QU2-A1-5 (a)).
 Constants: rewrite/r5u2-task0/sc/CONSTANTS.md (TASK 0 boots Sa, Sb on the C1 probe build).
 
-Boot S1 (key 48886, dirs r5u2_s1_host / _client): MCC.boot_c (BER.boot_classic: STR_SMALL_SCOUT, map seed 1, the one alien
-pinned AI-neutral; seats S0_IDS [10..14] host / S1_IDS [8, 9] client on both, turnMode parallel).
+Boot S1 (key 48886, dirs r5u2_s1_host / _client): MCC.boot_seated (BER.boot_classic: STR_SMALL_SCOUT, map seed 1,
+the one alien pinned AI-neutral; seats S0_IDS [10..14] host / S1_IDS [8, 9] client on both, turnMode parallel).
   WG  the co-op client's new-contact count is unchanged (guard)
       WG-count    the client's event_state.visibleHostileCount == the distinct FACTION_HOSTILE ids in the union of
                   units[i].visibleUnits, i in S1_IDS, on the client
@@ -15,7 +16,7 @@ pinned AI-neutral; seats S0_IDS [10..14] host / S1_IDS [8, 9] client on both, tu
       SP1-out     8 and 9 DEAD on both (precondition; the wait ends at the observed deaths, capped at KILL_S)
       SP1-client  the client's coopWaitText == TEXT_SPECTATOR within NOTICE_S
       SP1-host    the host's coopWaitText != TEXT_SPECTATOR in every sample of that window (guard)
-Boot S2 (key 48888, dirs r5u2_s2_host / _client): MCC.boot_c.
+Boot S2 (key 48888, dirs r5u2_s2_host / _client): MCC.boot_seated.
   SP2 the host loses its last soldier: host kill_unit_real {coop_side 0}
       SP2-out     10..14 DEAD on both; the battle continues: both tops BattlescapeState, (turn, side) unchanged
                   (precondition; the client still commands 8, 9: W2-H31)
@@ -159,7 +160,7 @@ def run_boot(tag, key, rows, row_fns):
     m = (host, client)
     try:
         try:
-            info = G3F.guarded(tag.upper(), lambda: MCC.boot_c(host, client, key), m)
+            info = G3F.guarded(tag.upper(), lambda: MCC.boot_seated(host, client, key), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
             return G3F.fail_all(rows, f"boot (setup failure, see the CAPTURE {tag.upper()} line)")

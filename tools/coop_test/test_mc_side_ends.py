@@ -19,8 +19,8 @@ every unit's reactions 0, the B2 staging (MCT.stage_b2).
        G3E-alien  the partner's press: side 1 turn 2; host tally {count 0, needed 1} within PAINT_S; the host's press
                   alone: side 0 turn 3
        G3E-common every bucket EQUAL right before the partner's G3E-end press, desyncSeen false, no new crash file
-Boot C (classic co-op parallel, key 48787): MCC.boot_c (X 1000000 pinned AI-neutral; seat 0 [10..14], seat 1 [8, 9]),
-reactions 0, MCC.stage_c.
+Boot C (classic co-op parallel, key 48787): MCC.boot_seated (X 1000000 pinned AI-neutral; seat 0 [10..14],
+seat 1 [8, 9]), reactions 0, MCC.stage_tiles.
   CM   X holds the partner's 8 and 9 (the C1 recipe, R-H29-A-1), the host's five soldiers die mid-side:
        CM-mc      (precondition) 8 and 9 faction 1, mcId X, coop 1 on both
        CM-out     (precondition) host kill_unit_real {coop_side 0}: killed [10..14], DEAD on both; the wait ends at
@@ -322,7 +322,7 @@ def run_boot(tag, key, boot_fn, staging_fn, rows, row_fns):
 def main():
     t0 = time.time()
     fails = run_boot("g", KEY_G, boot_g, lambda h, c, rec: MCT.stage_b2(h, c), G_ROWS, (row_g3e,))
-    fails += run_boot("c", KEY_C, MCC.boot_c, MCC.stage_c, C_ROWS, (row_cm,))
+    fails += run_boot("c", KEY_C, MCC.boot_seated, MCC.stage_tiles, C_ROWS, (row_cm,))
     print(f"test_mc_side_ends: {'PASS' if not fails else 'FAIL'} ({fails} failing cell(s)) wall "
           f"{time.time() - t0:.1f} s", flush=True)
     sys.exit(0 if not fails else 2)

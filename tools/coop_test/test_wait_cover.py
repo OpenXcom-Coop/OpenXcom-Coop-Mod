@@ -7,7 +7,7 @@ Spec: docs repo rewrite/prompts/rvu5_quarantine_gate.md section (f) test_wait_co
 R-RV5-SB-1 (WB-C's camera step) and AMENDMENT RV5-E E.8 (WB4, WB4-seat, WB4-clear). Constants:
 rewrite/rvu5-task0/sb/CONSTANTS.md (TASK 0 boots Wa / Wb, re-dispatch) and rewrite/rvu5-task0/se/CONSTANTS.md (Ea / Eb).
 
-Boot W (key 49711, dirs rv5_w_host / rv5_w_client, both user dirs battleXcomSpeed WB_SPEED): MCC.boot_c
+Boot W (key 49711, dirs rv5_w_host / rv5_w_client, both user dirs battleXcomSpeed WB_SPEED): MCC.boot_seated
 (BER.boot_classic with the one alien pinned AI-neutral; seats S0 [10..14] host, S1 [8, 9] client; turnMode parallel on
 both). Sampling: the host's event_state.busyOwnerSeat and both machines' battle_state.coopWaitText every 0.1 s from the
 order until the walk's host context is in closedContexts, then 2 s more (bounded 30 s); WB-H also reads the client's
@@ -251,7 +251,7 @@ def boot_w():
     try:
         crash0 = session._crash_log_snapshot()
         try:
-            guarded("W", lambda: MCC.boot_c(host, client, W_KEY), (host, client))
+            guarded("W", lambda: MCC.boot_seated(host, client, W_KEY), (host, client))
         except Miss:
             return fail_all(W_ROWS, "boot (setup failure, see the CAPTURE W line)")
         rows, fails = dict(W_ROWS), 0

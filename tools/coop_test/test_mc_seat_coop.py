@@ -67,7 +67,7 @@ def live_ids(gc, seat):
                   if u.get("coop") == seat and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
 
 
-def boot_c(host, client, key):
+def boot_seated(host, client, key):
     info = BER.boot_classic(host, client, key)
     seats = {gc.name: [live_ids(gc, 0), live_ids(gc, 1)] for gc in (host, client)}
     assert all(v == [S0_IDS, S1_IDS] for v in seats.values()), f"seat ids {seats} (want {[S0_IDS, S1_IDS]})"
@@ -76,7 +76,7 @@ def boot_c(host, client, key):
     return info
 
 
-def stage_c(host, client, rec):
+def stage_tiles(host, client, rec):
     th = {(t["x"], t["y"]): t for t in host.ok({"cmd": "tile_census", "x0": 10, "x1": 20, "y0": 0, "y1": 10,
                                                  "z0": 0, "z1": 0})["tiles"] if t}
     tc = {(t["x"], t["y"]): t for t in client.ok({"cmd": "tile_census", "x0": 10, "x1": 20, "y0": 0, "y1": 10,
@@ -254,7 +254,7 @@ def row_c2(host, client, crash0, rec):
 
 def main():
     t0 = time.time()
-    fails = run_boot("c", KEY_C, boot_c, stage_c, C_ROWS, (row_c1, row_c2))
+    fails = run_boot("c", KEY_C, boot_seated, stage_tiles, C_ROWS, (row_c1, row_c2))
     print(f"test_mc_seat_coop: {'PASS' if not fails else 'FAIL'} ({fails} failing cell(s)) wall "
           f"{time.time() - t0:.1f} s", flush=True)
     sys.exit(0 if not fails else 2)

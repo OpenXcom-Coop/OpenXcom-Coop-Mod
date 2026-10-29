@@ -23,7 +23,8 @@ turnMode parallel on both). No input on either machine except the presses each r
   C2  END TURN to turn 3: C2-keep, C2-hud, C2-cam, C2-host as C1.
   HT  the host's Tab once at turn 3, read PRESS_READ_S later.  HT-tab host (HT_NEXT, HT_NEXT), the client unchanged.
   C3  END TURN to turn 4: C3-keep, C3-hud, C3-cam, C3-host (HT_NEXT kept) as C1.
-  F   MSC.stage_c; the partner's P mind-controls X (host set_seed SEED_FB, the host-local psi_attack lever); the client's
+  F   MSC.stage_tiles; the partner's P mind-controls X (host set_seed SEED_FB, the host-local psi_attack
+      lever); the client's
       Tab until it holds X (<= TAB_MAX_C presses).  F-mc X (faction, originalFaction, mindControllerId) == (0, 1, P) on
       both and the client holds X with its actor equal (precondition).
   C4  END TURN to turn 5: X reverts, the held unit is no longer the client's.  C4-fall client (FALLBACK, FALLBACK) at
@@ -276,9 +277,9 @@ def row_ht(host, client, crash0):
 def row_f(host, client, crash0, state):
     rec = {"boxes": []}
     try:
-        G3F.guarded("F staging", lambda: MSC.stage_c(host, client, rec), (host, client))
+        G3F.guarded("F staging", lambda: MSC.stage_tiles(host, client, rec), (host, client))
     except G3F.Miss:
-        state["f"] = "MSC.stage_c (see the CAPTURE F staging line)"
+        state["f"] = "MSC.stage_tiles (see the CAPTURE F staging line)"
         return staging_fail("F", state["f"])
     state["f"] = "the F levers did not complete"
     ev = mc(host, client, P, SEED_FB, rec, "F")
