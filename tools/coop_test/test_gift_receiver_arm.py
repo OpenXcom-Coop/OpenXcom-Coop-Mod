@@ -417,7 +417,7 @@ def bring_up(host, client, key):
             "sides": [(hb.get("side"), hb.get("turn")), (cb.get("side"), cb.get("turn"))],
             "seats": [[(G3F.units(gc).get(i) or {}).get("coop") for i in (TBG.TANK, TBG.C1, TBG.C2, TBG.H)] for gc in m]}
     want = {"kept": TBG.KEPT, "seated": [TBG.C1, TBG.C2], "vehicles": {TBG.TANK_ITEM: 1},
-            "mapFp": [TBG.MAP_FP_C, TBG.MAP_FP_C], "sides": [(0, 1), (0, 1)], "seats": [[0, 1, 1, 0], [0, 1, 1, 0]]}
+            "mapFp": [TBG.MAP_FP, TBG.MAP_FP], "sides": [(0, 1), (0, 1)], "seats": [[0, 1, 1, 0], [0, 1, 1, 0]]}
 
     def pins():
         assert view == want, f"boot G pins {view} (want {want})"

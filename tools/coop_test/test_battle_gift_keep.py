@@ -160,7 +160,7 @@ def bring_up(host, client, key, tag):
             "sides": [(hb.get("side"), hb.get("turn")), (cb.get("side"), cb.get("turn"))],
             "seats": [[(units(gc).get(i) or {}).get("coop") for i in (TANK, C1, C2, H)] for gc in m],
             "turnMode": [es(host, "turnMode"), es(client, "turnMode")]}
-    want = {"kept": GF.KEPT, "seated": [C1, C2], "vehicles": {GF.TANK_ITEM: 1}, "mapFp": [GF.MAP_FP_C, GF.MAP_FP_C],
+    want = {"kept": GF.KEPT, "seated": [C1, C2], "vehicles": {GF.TANK_ITEM: 1}, "mapFp": [GF.MAP_FP, GF.MAP_FP],
             "sides": [(0, 1), (0, 1)], "seats": [[0, 1, 1, 0], [0, 1, 1, 0]], "turnMode": [TRADITIONAL, TRADITIONAL]}
 
     def pins():
