@@ -1,42 +1,42 @@
-"""W2-H26 row CV (boot C, classic gamemode 1): a player-side conversion. Soldier H, staged to respawn as S_TYPE on the
-player side, dies to C1's lever shot; the host builds the new unit P (SavedBattleGame::convertUnit copies H's
-spawnUnitFaction onto it) and the second player builds its copy from the host's unit record (`unitsAdded`). The copy
-must carry the host's spawnUnitFaction, so the spawn ev's `synced` hash matches and the battle goes on.
+"""test_convert_spawn_faction.py: a player-side conversion in a classic co-op battle (gamemode 1). Soldier H, staged to
+respawn as S_TYPE on the player side, dies to C1's shot (the battle_fire test command); the host builds the new unit P
+(SavedBattleGame::convertUnit copies H's spawnUnitFaction onto it) and the second player builds its copy from the
+host's unit record (`unitsAdded`), which carries spawnUnitFaction. The copy matches the host's unit, so the spawn ev's
+`synced` hash matches and the battle goes on. The TEST-ONLY `synced_census` probe and the recompute below (SYNCED_SUM)
+explain any desync.
 
-Spec: docs repo rewrite/prompts/w2h26_conversion_spawn_faction.md section (f) (orchestrator ruling R-U4-A-3, F11313;
-Q-H26-1 (a): the TEST-ONLY `synced_census` probe and the recompute below; Q-H26-3 (a): CV-explain is a cell).
-Constants: rewrite/w2h26-task0/CONSTANTS.md (TASK 0 boots Ca, Cb on the probe build, every pin equal).
-
-Boot C (key 48744): R5-U4's boot C - the Skyranger's crew cut to its first KEEP soldiers, one STR_TANK_CANNON loaded,
-STR_SMALL_SCOUT, roster and map seed 1 - then pin_ai_neutral, every live unit's reactions 0, the host idle.
+Boot (key 48744): the Skyranger's crew cut to its first KEEP soldiers, one STR_TANK_CANNON loaded, STR_SMALL_SCOUT,
+roster and map seed 1 - then pin_ai_neutral, every live unit's reactions 0, the host idle.
 Staging: the rifle on C1 (both, client first), C1 teleported to STAGE_S facing STAGE_DIR (place_deterministic), the
 pre-shot synced_census on both, H's spawn staging {S_TYPE, player, respawn} (both). The action: host set_seed SEED_S,
 host battle_fire {C1, snap, FLOOR_S, C1's TU}; the host's chain idle (host only: the client may be frozen), then at most
-CLIENT_S s for the client's desyncSeen or its catch-up; then every read.
-  CV-pre      MAP_FP_C and the bring-up ids on both; no unit P_ID before the shot; C1's rifle ids equal on both;
-              place_deterministic ok; H's staging replies {S_TYPE, 0, true} on both; the pre-shot census_diff == []
-              and synced_sum == hash_now synced on each machine
-  CV-chain    exactly one new host context {host, shoot, C1}; its evs since seq0 have exactly CHAIN_KINDS; the spawn
-              payload {unit P_ID, cause convert, from H}; the client's ev log holds the spawn ev's seq
-  CV-unit     P_ID on both: S_TYPE, faction 0, originalFaction 0, not out, on H's tile; H status 6 on both
-  CV-faction  synced_census: P_ID's spawnUnitFaction is "player" on the host AND on the client
-  CV-sync     desyncSeen false on both; the client's lastSeqApplied == the host's lastSeqEmitted; every hash bucket
-              EQUAL (saveBlob and revealHostile included)
-  CV-census   the post-chain census_diff(host, client) == [] (every synced row of every unit, item, node, door tile
-              and the battle)
-  CV-explain  each machine's synced_sum == its hash_now synced; with a client `[coop-hash] DESYNC:` line: bucket
-              synced, the spawn ev's seq, kind spawn, got == the client's synced, and the client census with ONLY
-              P's spawnUnitFaction taken from the host recomputes to its expect; without one: host synced == client's
-  CV-common   no new crash file
+CLIENT_S s for the client's desyncSeen or its catch-up; then every read. The row is player_convert; its cells:
+  player_convert-pre      MAP_FP and the bring-up ids on both; no unit P_ID before the shot; C1's rifle ids equal on
+                          both; place_deterministic ok; H's staging replies {S_TYPE, 0, true} on both; the pre-shot
+                          census_diff == [] and synced_sum == hash_now synced on each machine
+  player_convert-chain    exactly one new host context {host, shoot, C1}; its evs since seq0 have exactly CHAIN_KINDS;
+                          the spawn payload {unit P_ID, cause convert, from H}; the client's ev log holds the spawn ev's
+                          seq
+  player_convert-unit     P_ID on both: S_TYPE, faction 0, originalFaction 0, not out, on H's tile; H status 6 on both
+  player_convert-faction  synced_census: P_ID's spawnUnitFaction is "player" on the host AND on the client
+  player_convert-sync     desyncSeen false on both; the client's lastSeqApplied == the host's lastSeqEmitted; every
+                          hash bucket EQUAL (saveBlob and revealHostile included)
+  player_convert-census   the post-chain census_diff(host, client) == [] (every synced row of every unit, item, node,
+                          door tile and the battle)
+  player_convert-explain  each machine's synced_sum == its hash_now synced; with a client `[coop-hash] DESYNC:` line:
+                          bucket synced, the spawn ev's seq, kind spawn, got == the client's synced, and the client
+                          census with ONLY P's spawnUnitFaction taken from the host recomputes to its expect; without
+                          one: host synced == client's
+  player_convert-common   no new crash file
 EVIDENCE only: P's census rows, every census_diff row, the DESYNC line, the client's lastHashVerify, the host's deltaRing
 records after the spawn seq, both hash_now, the chain's seqs, host infoboxes, the wall and CPU.
 
-RED on the unchanged build + the probe (commit A1): CV-faction, CV-sync, CV-census; every other cell PASS (CV-explain
-proves P's spawnUnitFaction is the only synced row that differed at the spawn ev). GREEN (commit A2): every cell PASS.
+A client copy without the host's spawnUnitFaction fails player_convert-faction, player_convert-sync and
+player_convert-census, and player_convert-explain then shows that P's spawnUnitFaction is the only synced row that
+differed at the spawn ev. With it, every cell passes.
 One EVIDENCE line, one PASS/FAIL line per cell, then the row verdict; every cell is evaluated after a failure. A boot or
-staging step past its bound prints ONE CAPTURE line and fails every cell "boot" / "staging". run in the
-foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes,
-else 2.
+staging step past its bound prints ONE CAPTURE line and fails every cell "boot" / "staging". No skip path; exit 0 only
+when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_convert_spawn_faction.py
 """
@@ -60,7 +60,7 @@ from test_ai_origins import host_payloads  # noqa: E402
 KEY = "48744"
 SEED_ROSTER = SEED_MAP = SEED_S = 1
 KEEP = 3                          # the crew rule: the Skyranger keeps its first three soldiers (C1, C2, H)
-MAP_FP_C = -4.48310638993e+18     # both machines (TASK 0 Ca, Cb)
+MAP_FP = -4.48310638993e+18       # both machines (equal in two boots)
 C1, C2, H = 8, 9, 10              # C1 / C2 the client's (seat 1), H the host's (seat 0)
 TANK, ALIEN, P_ID = 1000000, 1000001, 1000002
 S_TYPE = "STR_SECTOID_SOLDIER"    # what H converts into (no spawn unit of its own)
@@ -70,9 +70,10 @@ CHAIN_KINDS = ["turn", "shot", "hit", "spawn", "bt_action_end"]
 FACTION_PLAYER, STATUS_DEAD = 0, 6
 STEP_S, CLIENT_S, LOG_FLUSH_S = 30, 15, 3
 DESYNC_RE = re.compile(r"\[coop-hash\] DESYNC: bucket=(\S+) seq=(\d+) kind=(\S+) expect=([0-9a-f]+) got=([0-9a-f]+)")
-CELLS = ("CV-pre", "CV-chain", "CV-unit", "CV-faction", "CV-sync", "CV-census", "CV-explain", "CV-common")
+CELLS = ("player_convert-pre", "player_convert-chain", "player_convert-unit", "player_convert-faction",
+         "player_convert-sync", "player_convert-census", "player_convert-explain", "player_convert-common")
 
-# ---- W2-H26 SYNCED_SUM (spec rewrite/prompts/w2h26_conversion_spawn_faction.md Appendix C; copied verbatim) ----
+# ---- SYNCED_SUM ----
 # The `synced` bucket of SharedEcon.cpp computeBattleHashes, recomputed from ONE TestServer `synced_census` reply:
 # per entity an FNV that mixes a kind tag (1 unit, 2 door tile, 3 node, 4 item, 5 battle) and the id, then the rows
 # in the bucket's own order; the bucket is the sum of the entity values mod 2**64, printed "%016x" like hash_now.
@@ -241,7 +242,7 @@ def wait_until(pred, timeout, interval):
 
 
 def cpu_pct():
-    """EVIDENCE: the machine's total CPU over the last 2 s (S24; cpu_load, D307); None when unreadable."""
+    """EVIDENCE: the machine's total CPU over the last 2 s (harness.cpu_load); None when unreadable."""
     return cpu_load()["cpu"]
 
 
@@ -282,7 +283,7 @@ def desync_line(gc):
 
 
 def host_chain_idle(host, dismissed):
-    """R5-U4 TASK 0 (t0.py): the host's chain is idle; a host InfoboxState is dismissed host-only (EVIDENCE)."""
+    """The host's chain is idle; a host InfoboxState is dismissed host-only (EVIDENCE)."""
     lw = host.cmd({"cmd": "list_widgets"}).get("state", "")
     if "Infobox" in lw:
         dismissed.append((lw.split(">")[-1], host.cmd({"cmd": "dismiss_popup"}).get("handled")))
@@ -291,7 +292,7 @@ def host_chain_idle(host, dismissed):
     return (bs.get("pendingStates") == 0 and not bs.get("isBusy") and event_state(host).get("busyOwnerSeat") == -1) or None
 
 
-# ===================== boot C (R5-U4 TASK 0 boot_c: lobby, pre_seat, drive) =====================
+# ===================== boot (lobby, pre_seat, drive) =====================
 
 
 def bring_up(host, client, ev):
@@ -307,7 +308,7 @@ def bring_up(host, client, ev):
         client.wait_for("client popup", lambda: session.has_state(client, "Profile"))
         host.ok({"cmd": "profile_ok"}); client.ok({"cmd": "profile_ok"})
         host.wait_for("start offered", lambda: RAW.lobby(host).get("buttonVisible") or None)
-    G3F.guarded("C lobby", lobby, m)
+    G3F.guarded("boot lobby", lobby, m)
     pre = {}
 
     def pre_seat(h):
@@ -330,27 +331,28 @@ def bring_up(host, client, ev):
         assert (cv.get("vehicles") or {}).get("STR_TANK_CANNON") == 1, f"craft_vehicles: {cv}"
 
     seated = {}
-    G3F.guarded("C drive", lambda: session.drive_to_battlescape(
+    G3F.guarded("boot drive", lambda: session.drive_to_battlescape(
         host, client, seated, mission="STR_SMALL_SCOUT", seat_count=2, pre_seat=pre_seat,
         pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP})), m)
     ev["preSeat"], ev["seated"] = pre, seated.get("soldierIds")
-    ev["pinned"] = G3F.guarded("C pin", lambda: session.pin_ai_neutral(host, client, tag="w2h26"), m)
-    G3F.guarded("C reactions", lambda: G3F.reactions_zero(host, client), m)
-    G3F.guarded("C idle", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
+    ev["pinned"] = G3F.guarded("boot pin", lambda: session.pin_ai_neutral(host, client, tag="convert_spawn_faction"), m)
+    G3F.guarded("boot reactions", lambda: G3F.reactions_zero(host, client), m)
+    G3F.guarded("boot idle", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
 
 
 def stage(host, client, ev):
     m = (host, client)
-    g = G3F.guarded("CV staging", lambda: both(host, client, {
+    g = G3F.guarded("player_convert staging", lambda: both(host, client, {
         "cmd": "battle_give", "unit": C1, "item": "STR_RIFLE", "ammo": "STR_RIFLE_CLIP", "slot": "right",
         "clear_hands": True}, ("weaponId", "ammoId")), m)
     ev["rifle"] = [g.get("weaponId"), g.get("ammoId")]
     move = {"cmd": "battle_teleport_unit", "unit": C1, "x": STAGE_S[0], "y": STAGE_S[1], "z": STAGE_S[2],
             "dir": STAGE_DIR}
-    res = G3F.guarded("CV staging", lambda: session.place_deterministic(host, client, [move], what="w2h26 CV"), m)
+    res = G3F.guarded("player_convert staging", lambda: session.place_deterministic(
+        host, client, [move], what="player_convert staging"), m)
     ev["place"] = res[0][0]
     ev["preDiff"], ev["preSums"], _ = val(host, client)
-    r = G3F.guarded("CV staging", lambda: both(host, client, {
+    r = G3F.guarded("player_convert staging", lambda: both(host, client, {
         "cmd": "battle_set_unit_state", "unit": H, "spawnUnit": S_TYPE, "spawnUnitFaction": FACTION_PLAYER,
         "respawn": True}, ("spawnUnit", "spawnUnitFaction", "respawn")), m)
     ev["hStaging"] = [r.get("spawnUnit"), r.get("spawnUnitFaction"), r.get("respawn")]
@@ -361,8 +363,8 @@ def pre_cell(host, client, ev):
     hb, cb = battle_state(host), battle_state(client)
     uh, uc = units(host), units(client)
     ev["mapFp"] = [hb.get("mapFingerprint"), cb.get("mapFingerprint")]
-    if ev["mapFp"] != [MAP_FP_C, MAP_FP_C]:
-        bad.append(f"mapFingerprint host/client {ev['mapFp']} (want {MAP_FP_C} on both)")
+    if ev["mapFp"] != [MAP_FP, MAP_FP]:
+        bad.append(f"mapFingerprint host/client {ev['mapFp']} (want {MAP_FP} on both)")
     ids = {"seated": ev["seated"], "kept": ev["preSeat"].get("kept"),
            "tanks": [sorted(i for i, u in us.items() if u.get("type") == "STR_TANK_CANNON") for us in (uh, uc)],
            "alien": [(us.get(ALIEN) or {}).get("type") for us in (uh, uc)], "P": [P_ID in uh, P_ID in uc]}
@@ -383,11 +385,11 @@ def pre_cell(host, client, ev):
     s = ev["preSums"]
     if ev["preDiff"] != [] or s["host"][0] != s["host"][1] or s["client"][0] != s["client"][1]:
         bad.append(f"pre-shot census_diff {ev['preDiff']} (want []); [recompute, hash_now synced] {s} (want equal)")
-    return (not bad, "; ".join(bad) or f"MAP_FP_C, ids, rifle {ev['rifle']}, stage, H staging, pre-shot census equal")
+    return (not bad, "; ".join(bad) or f"MAP_FP, ids, rifle {ev['rifle']}, stage, H staging, pre-shot census equal")
 
 
-def row_cv(host, client, crash0, ev):
-    cells = {"CV-pre": pre_cell(host, client, ev)}
+def row_player_convert(host, client, crash0, ev):
+    cells = {"player_convert-pre": pre_cell(host, client, ev)}
     uh0 = units(host)
     h_tile, tu = pos(uh0.get(H)), (uh0.get(C1) or {}).get("tu")
     e0 = event_state(host)
@@ -430,24 +432,27 @@ def row_cv(host, client, crash0, ev):
         ch.append(f"spawn payload {sp} (want {{unit {P_ID}, cause convert, from {H}}})")
     if not spawn or spawn[0] not in [e["seq"] for e in cev]:
         ch.append(f"client ev log seqs {[e['seq'] for e in cev]} lack the spawn ev {spawn}")
-    cells["CV-chain"] = (not ch, "; ".join(ch) or f"one {{host, shoot, {C1}}} with {CHAIN_KINDS}, spawn payload ok, "
-                                                   f"the client holds the spawn seq {spawn}")
+    cells["player_convert-chain"] = (not ch, "; ".join(ch) or f"one {{host, shoot, {C1}}} with {CHAIN_KINDS}, spawn "
+                                                               f"payload ok, the client holds the spawn seq {spawn}")
     uv = [{k: (u.get(P_ID) or {}).get(k) for k in ("type", "faction", "originalFaction", "isOut")} for u in (uh, uc)]
     pp = [pos(uh.get(P_ID)), pos(uc.get(P_ID))]
     hs = [(uh.get(H) or {}).get("status"), (uc.get(H) or {}).get("status")]
     want = {"type": S_TYPE, "faction": FACTION_PLAYER, "originalFaction": FACTION_PLAYER, "isOut": False}
-    cells["CV-unit"] = (uv == [want, want] and pp == [h_tile, h_tile] and hs == [STATUS_DEAD, STATUS_DEAD],
-                        f"P {P_ID} host/client {uv} at {pp} (want {want} on H's tile {h_tile}); H status {hs} (want 6)")
+    cells["player_convert-unit"] = (
+        uv == [want, want] and pp == [h_tile, h_tile] and hs == [STATUS_DEAD, STATUS_DEAD],
+        f"P {P_ID} host/client {uv} at {pp} (want {want} on H's tile {h_tile}); H status {hs} (want 6)")
     pf = [(ev["P"][k] or {}).get("spawnUnitFaction") for k in ("host", "client")]
-    cells["CV-faction"] = (pf == ["player", "player"], f"P {P_ID} spawnUnitFaction host/client {pf} (want player on both)")
+    cells["player_convert-faction"] = (pf == ["player", "player"],
+                                       f"P {P_ID} spawnUnitFaction host/client {pf} (want player on both)")
     he, ce = event_state(host), event_state(client)
     ds = [he.get("desyncSeen"), ce.get("desyncSeen")]
     seqs = [ce.get("lastSeqApplied"), he.get("lastSeqEmitted")]
     hashed = G3F.hash_now(host, client)
-    cells["CV-sync"] = (ds == [False, False] and seqs[0] == seqs[1] and hashed == "all buckets EQUAL",
-                        f"desyncSeen host/client {ds} (want False/False); client lastSeqApplied / host lastSeqEmitted "
-                        f"{seqs} (want equal); hash {hashed}")
-    cells["CV-census"] = (diff == [], f"post-chain census_diff(host, client) {diff} (want [])")
+    cells["player_convert-sync"] = (
+        ds == [False, False] and seqs[0] == seqs[1] and hashed == "all buckets EQUAL",
+        f"desyncSeen host/client {ds} (want False/False); client lastSeqApplied / host lastSeqEmitted "
+        f"{seqs} (want equal); hash {hashed}")
+    cells["player_convert-census"] = (diff == [], f"post-chain census_diff(host, client) {diff} (want [])")
     ex = []
     for k in ("host", "client"):
         if sums[k][0] != sums[k][1]:
@@ -467,41 +472,41 @@ def row_cv(host, client, crash0, ev):
                       f"DESYNC expect {dl['expect']}): another synced row differed at the spawn ev")
     elif sums["host"][1] != sums["client"][1]:
         ex.append(f"no DESYNC line and synced host/client {sums['host'][1]} / {sums['client'][1]} (want equal)")
-    cells["CV-explain"] = (not ex, "; ".join(ex) or (
+    cells["player_convert-explain"] = (not ex, "; ".join(ex) or (
         f"recompute == hash_now on both; DESYNC {dl['bucket']} seq {dl['seq']} explained by P's spawnUnitFaction alone "
         f"({ev.get('patchedClient')} == expect)" if dl else "recompute == hash_now on both; no DESYNC, synced equal"))
     crash = sorted(session._crash_log_snapshot() - crash0)
-    cells["CV-common"] = (not crash, f"new crash files {crash} (want none)")
+    cells["player_convert-common"] = (not crash, f"new crash files {crash} (want none)")
     return cells, ev
 
 
-def boot_c(t0, cpu0):
-    host = GameClient("host", None, make_user_dir("w2h26_c_host"))
-    client = GameClient("client", None, make_user_dir("w2h26_c_client"))
+def run_boot(t0, cpu0):
+    host = GameClient("host", None, make_user_dir("convert_spawn_faction_host"))
+    client = GameClient("client", None, make_user_dir("convert_spawn_faction_client"))
     try:
         ev = {}
         try:
             bring_up(host, client, ev)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all((("CV", CELLS),), "boot (setup failure, see the CAPTURE line)")
+            return G3F.fail_all((("player_convert", CELLS),), "boot (setup failure, see the CAPTURE line)")
         try:
             stage(host, client, ev)
         except G3F.Miss:
-            return G3F.fail_all((("CV", CELLS),), "staging (see the CAPTURE CV staging line)")
+            return G3F.fail_all((("player_convert", CELLS),), "staging (see the CAPTURE player_convert staging line)")
 
         def row():
-            cells, out = row_cv(host, client, crash0, ev)
+            cells, out = row_player_convert(host, client, crash0, ev)
             out.update(wall=round(time.time() - t0, 1), cpu=[cpu0, cpu_pct()])
             return cells, out
-        return G3F.run_row("CV", CELLS, row)
+        return G3F.run_row("player_convert", CELLS, row)
     finally:
         G3F.shut(host, client)
 
 
 def main():
     t0 = time.time()
-    fails = boot_c(t0, cpu_pct())
+    fails = run_boot(t0, cpu_pct())
     print("ALL CELLS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_convert_spawn_faction: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
