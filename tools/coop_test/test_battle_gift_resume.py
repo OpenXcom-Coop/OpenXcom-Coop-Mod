@@ -104,7 +104,7 @@ def resume(host, host2, client2, savefile, ev):
 
 def row_v1(host, client, crash0, later):
     cells, ev = {}, {"sel0": GF.sels(host, client)}
-    landed, miss = KEEP.lever_gifts([(host, H1, 1), (client, G, 0)], host, client, ev)
+    landed, miss = KEEP.gifts_in_order([(host, H1, 1), (client, G, 0)], host, client, ev)
     got = [GF.coops(host, client, H1), GF.coops(host, client, G)]
     cells["V1-gifts"] = (landed and got == [[1, 1], [0, 0]],
                          f"H1 / G coop host/client {got} (want [1, 1] / [0, 0], each landing within {STEP_S} s)"

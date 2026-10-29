@@ -1,34 +1,31 @@
-"""R5-U5 S-B rows K1, K2, K3 (boot K; owner D235-VL4, D240 (a); RV-U8 D-23 / D-24, VL-U5-4): in traditional mode a player
-gives one of its units while it is not its go, the holder that gives away its last unit passes the go, and a rejoin keeps
-every gift. Boot K: classic co-op (gamemode 1) with the HOST in TRADITIONAL mode (its user dir made with CoopTurnMode
-traditional), lobby key 48619, dirs r5u5_k_host / r5u5_k_client / r5u5_k_client2.
+"""test_battle_gift_keep.py: in traditional mode a player gives one of its units while it is not its go, the holder
+that gives away its last unit passes the go, and a rejoin keeps every gift (a battle gift lasts until the mission ends).
+One boot: classic co-op (gamemode 1) with the HOST in TRADITIONAL mode (its user dir made with CoopTurnMode
+traditional), lobby key 48619, dirs battle_gift_keep_host / battle_gift_keep_client / battle_gift_keep_client2.
 
-Spec: docs repo rewrite/prompts/r5u5_battle_gift_order.md section (f) test_battle_gift_keep.py (ORCHESTRATOR RULINGS
-QU5-1 .. QU5-11 (a); ruling R-U5-SB-1). Constants: rewrite/r5u5-task0/sb/CONSTANTS.md (boots Ka, Kb).
-
-Boot K = boot G's recipe (test_battle_gift.bring_up = R5-U4's boot C, copied here with the lobby key and the CAPTURE tag
-as parameters, F10917): roster seed 1, the Skyranger's crew cut to C1 8 / C2 9 (seat 1) and H 10 (seat 0), one
-STR_TANK_CANNON (TANK 1000000, seat 0), map seed 1; both machines in traditional mode; pin_ai_neutral; every live unit's
-reactions 0.
-  K1  a gift off the giver's go (main's "while it is not your turn"): K1-baton (precondition: the baton at seat 0 on
-      both), K1-give (the off-baton client's give-unit key on its gift target K1_UNIT, its menu, a click on HostPlayer:
-      the order lands, the host admits it, the client's lastDeny unchanged), K1-common.
-  K2  the holder gives away its last unit: host lever gifts of TANK, H and K1_UNIT, each landing before the next:
-      K2-seats, K2-baton (the baton at seat 1 on both within STEP_S, the client's bar not gray), K2-cmd (the client's turn
-      of TANK admitted), K2-common.
-  K3  a rejoin keeps every gift (D235-VL4): the host's seat map M, the client leaves (SRB drop_client_mid_battle), a fresh
-      client2 rejoins (SRB rejoin_skirmish, clear_popups), the host RESUMEs (SRB scenario_rejoin_and_resume's step):
-      K3-rejoin (precondition: client2's top BattlescapeState, its battleId the host's), K3-seats (client2 per unit ==
-      the host == M), K3-cmd (client2's turn of TANK admitted), K3-common (host and client2). The last row.
-Red at B1: none (green on S-A's build; F12908, F12909). Each receiver presses OK on its gift notices (EVIDENCE).
+The boot is test_battle_gift.bring_up's recipe (itself test_ownerless_units.bring_up), copied here with the lobby key
+and the CAPTURE tag as parameters: roster seed 1, the Skyranger's crew cut to C1 8 / C2 9 (seat 1) and H 10 (seat 0),
+one STR_TANK_CANNON (TANK 1000000, seat 0), map seed 1; both machines in traditional mode; pin_ai_neutral; every live
+unit's reactions 0.
+  gift_off_turn  a gift while it is not the giver's go: baton_at_host (precondition: the baton at seat 0 on both),
+      client_gives_off_turn (the off-baton client's give-unit key on its gift target GIFT_UNIT, its menu, a click on
+      HostPlayer: the order lands, the host admits it, the client's lastDeny unchanged), off_turn_common.
+  last_unit_passes_turn  the holder gives away its last unit: host battle_gift gifts of TANK, H and GIFT_UNIT, each
+      landing before the next: all_units_given, baton_passes (the baton at seat 1 on both within STEP_S, the client's
+      bar not gray), client_commands_tank (the client's turn of TANK admitted), last_unit_common.
+  rejoin_keeps_gifts  a rejoin keeps every gift: the host's seat map M, the client leaves (SRB drop_client_mid_battle),
+      a fresh client2 rejoins (SRB rejoin_skirmish, clear_popups), the host RESUMEs (SRB scenario_rejoin_and_resume's
+      step): client2_rejoined (precondition: client2's top BattlescapeState, its battleId the host's), seats_kept
+      (client2 per unit == the host == M), client2_commands_tank (client2's turn of TANK admitted), rejoin_common (host
+      and client2). The last row.
+Each receiver presses OK on its gift notices (EVIDENCE).
 
 "The order lands" = the unit's coop is the target on both machines within STEP_S. "Admitted" = one new host context
-{intent, turn, <unit>} and the unit faces the new direction on both. One EVIDENCE line per row, then one PASS/FAIL line per
-cell, then the row verdict. Every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and fails
-every row "boot"; a cell whose precondition failed FAILs "not reached"; a missed K3 staging step fails K3-rejoin with its
-CAPTURE line. Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come from probes
-(S25). run in the foreground to completion. ONE run is the result, no skip path; exit 0 only
-when every cell passes, else 2.
+{intent, turn, <unit>} and the unit faces the new direction on both. One EVIDENCE line per row, then one PASS/FAIL line
+per cell, then the row verdict. Every row runs after a failure. A boot step past its bound prints ONE CAPTURE line and
+fails every row "boot"; a cell whose precondition failed FAILs "not reached"; a missed rejoin_keeps_gifts staging step
+fails client2_rejoined with its CAPTURE line. Common cell: every hash bucket EQUAL, desyncSeen false on both, no new
+crash file. Ids come from probes. No skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_battle_gift_keep.py
 """
@@ -50,14 +47,14 @@ import test_skirmish_rejoin_battle as SRB  # noqa: E402
 from test_battle_end_rules import wait_until  # noqa: E402
 
 KEY = "48619"
-STEP_S = 30                               # every bounded wait (TASK 0: each step <= 3 s, the rejoin 5.5 s in all)
+STEP_S = 30                               # every bounded wait (measured: each step <= 3 s, the rejoin 5.5 s in all)
 TRADITIONAL = "traditional"
-TANK, C1, C2, H = GF.TANK, GF.C1, GF.C2, GF.H   # boot G's ids (Ka, Kb)
-K1_UNIT = 8                               # the client's gift target at bring-up (Ka, Kb: the refill picks C1)
-HOST_NAME = GF.HOST_NAME                  # the client's menu target caption (S-A TASK 0; Ka, Kb)
-ROWS = (("K1", ("K1-baton", "K1-give", "K1-common")),
-        ("K2", ("K2-seats", "K2-baton", "K2-cmd", "K2-common")),
-        ("K3", ("K3-rejoin", "K3-seats", "K3-cmd", "K3-common")))
+TANK, C1, C2, H = GF.TANK, GF.C1, GF.C2, GF.H   # test_battle_gift's ids
+GIFT_UNIT = 8                             # the client's gift target at bring-up (the refill picks C1)
+HOST_NAME = GF.HOST_NAME                  # the client's menu target caption
+ROWS = (("gift_off_turn", ("baton_at_host", "client_gives_off_turn", "off_turn_common")),
+        ("last_unit_passes_turn", ("all_units_given", "baton_passes", "client_commands_tank", "last_unit_common")),
+        ("rejoin_keeps_gifts", ("client2_rejoined", "seats_kept", "client2_commands_tank", "rejoin_common")))
 
 units, es, top = G3F.units, G3F.es, G3F.top
 not_reached = OWN.not_reached
@@ -67,8 +64,8 @@ not_reached = OWN.not_reached
 
 
 def pre_seat_hook(pre):
-    """Boot G's pre_seat (test_battle_gift.bring_up): after the craft pin, the Skyranger, every crew soldier after the
-    first three off it, one tank on it. Fills `pre`."""
+    """test_battle_gift.bring_up's pre_seat: after the craft pin, the Skyranger, every crew soldier after the first
+    three off it, one tank on it. Fills `pre`."""
     def pre_seat(h):
         r = h.cmd({"cmd": "newbattle_craft", "type": GF.CRAFT})
         assert r.get("ok"), f"newbattle_craft {GF.CRAFT}: {r}"
@@ -101,24 +98,24 @@ def turn_cell(host, other, uid, ev):
             f"{pt['lastDeny0']} -> {pt['lastDeny']}")
 
 
-def lever_gifts(giver_receiver, a, b, ev):
-    """Lever gifts [(giver, unit, owner), ...] in order on machines a / b, each landing before the next; each receiver
-    presses OK on its new notices (EVIDENCE). Returns (all landed, the first miss)."""
+def gifts_in_order(giver_receiver, a, b, ev):
+    """battle_gift test-command gifts [(giver, unit, owner), ...] in order on machines a / b, each landing before the
+    next; each receiver presses OK on its new notices (EVIDENCE). Returns (all landed, the first miss)."""
     for giver, uid, owner in giver_receiver:
         receiver = b if giver is a else a
         g, n0 = {"unit": uid, "owner": owner}, GF.notices(receiver)
-        g["lever"] = giver.cmd({"cmd": "battle_gift", "unit_id": uid, "owner": owner})
+        g["reply"] = giver.cmd({"cmd": "battle_gift", "unit_id": uid, "owner": owner})
         ok, txt = GF.lands(a, b, uid, owner, g)
         if ok:
             wait_until(lambda: len(GF.notices(receiver)) > len(n0), 5, 0.2)
         g["notices"], g["cleared"] = GF.notices(receiver)[len(n0):], GF.clear_popups(receiver)
         ev.setdefault("gifts", []).append(g)
         if not ok:
-            return False, f"{giver.name} lever battle_gift {{{uid}, owner {owner}}} {g['lever']}: {txt}"
+            return False, f"{giver.name} battle_gift {{{uid}, owner {owner}}} {g['reply']}: {txt}"
     return True, None
 
 
-# ===================== boot K =====================
+# ===================== the boot =====================
 
 
 def tally(gc):
@@ -134,8 +131,8 @@ def seats(gc):
 
 
 def bring_up(host, client, key, tag):
-    """test_battle_gift.bring_up with the lobby key and the CAPTURE tag as parameters, plus boot K's live
-    mode pin (traditional on both)."""
+    """test_battle_gift.bring_up with the lobby key and the CAPTURE tag as parameters, plus the live mode pin
+    (traditional on both)."""
     m, pre, seated = (host, client), {}, {}
 
     def lobby():
@@ -164,63 +161,65 @@ def bring_up(host, client, key, tag):
             "sides": [(0, 1), (0, 1)], "seats": [[0, 1, 1, 0], [0, 1, 1, 0]], "turnMode": [TRADITIONAL, TRADITIONAL]}
 
     def pins():
-        assert view == want, f"boot {tag} pins {view} (want {want})"
+        assert view == want, f"the {tag} pins {view} (want {want})"
     GF.guarded(tag, pins, m)
-    pinned = GF.guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="r5u5"), m)
+    pinned = GF.guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="test_battle_gift_keep"), m)
     GF.guarded(tag, lambda: G3F.reactions_zero(host, client), m)
     GF.guarded(tag, lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
     return dict(view, pinned=pinned), crash0
 
 
-def row_k1(host, client, crash0):
+def row_gift_off_turn(host, client, crash0):
     cells, ev = {}, {"sel0": GF.sels(host, client), "tally0": [tally(host), tally(client)]}
     a = batons(host, client)
-    cells["K1-baton"] = (a == [0, 0], f"coopEndTurnTally.activeSeat host/client {a} (want 0 on both, D-23)")
-    if not cells["K1-baton"][0]:
-        not_reached(cells, ("K1-give",), "K1-baton failed")
+    cells["baton_at_host"] = (a == [0, 0], f"coopEndTurnTally.activeSeat host/client {a} (want 0 on both: the host's "
+                                           f"seat goes first)")
+    if not cells["baton_at_host"][0]:
+        not_reached(cells, ("client_gives_off_turn",), "baton_at_host failed")
     else:
         g = GF.gsel(client)[1]
         c0, d0, n0 = GF.gift_counts(host, client), es(client, "lastDeny"), GF.notices(host)
         client.ok({"cmd": "inject_input", "kind": "key", "key": GF.GIVE_KEY})
-        m_ok, m_txt = GF.menu_cell(client, K1_UNIT, HOST_NAME, ev.setdefault("menu", {}))
+        m_ok, m_txt = GF.menu_cell(client, GIFT_UNIT, HOST_NAME, ev.setdefault("menu", {}))
         if not m_ok:
-            cells["K1-give"] = (False, f"client giftSelectedId {g} (want {K1_UNIT}); key 258: {m_txt}")
+            cells["client_gives_off_turn"] = (False, f"client giftSelectedId {g} (want {GIFT_UNIT}); key 258: {m_txt}")
         else:
             clicked = GF.give_by_menu(client, HOST_NAME, ev)
-            l_ok, l_txt = GF.lands(host, client, K1_UNIT, 0, ev)
+            l_ok, l_txt = GF.lands(host, client, GIFT_UNIT, 0, ev)
             wait_until(lambda: GF.gift_counts(host, client)[1] >= c0[1] + 1, STEP_S, 0.1)
             c1, d1 = GF.gift_counts(host, client), es(client, "lastDeny")
             if l_ok:
                 wait_until(lambda: len(GF.notices(host)) > len(n0), 5, 0.2)
             ev["hostNotices"] = GF.notices(host)[len(n0):]
-            cells["K1-give"] = (g == K1_UNIT and clicked and l_ok and c1[1] == c0[1] + 1 and d1 == d0,
-                                f"client giftSelectedId {g} (want {K1_UNIT}); key 258: {m_txt}; click_widget "
-                                f"{HOST_NAME!r} {ev['click']}; {l_txt}; client sent / host admitted / denied {c0} -> "
-                                f"{c1} (want admitted +1); client lastDeny {d0} -> {d1} (want unchanged)")
+            cells["client_gives_off_turn"] = (g == GIFT_UNIT and clicked and l_ok and c1[1] == c0[1] + 1 and d1 == d0,
+                                              f"client giftSelectedId {g} (want {GIFT_UNIT}); key 258: {m_txt}; "
+                                              f"click_widget {HOST_NAME!r} {ev['click']}; {l_txt}; client sent / host "
+                                              f"admitted / denied {c0} -> {c1} (want admitted +1); client lastDeny "
+                                              f"{d0} -> {d1} (want unchanged)")
     ev.update(cleared=[GF.clear_popups(host), GF.clear_popups(client)], giftLines=GF.gift_lines(host)[-3:],
               tally=[tally(host), tally(client)], sel=GF.sels(host, client))
-    cells["K1-common"] = G3F.common(host, client, crash0)
+    cells["off_turn_common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
-def row_k2(host, client, crash0):
+def row_last_unit(host, client, crash0):
     cells, ev = {}, {"sel0": GF.sels(host, client)}
-    landed, miss = lever_gifts([(host, u, 1) for u in (TANK, H, K1_UNIT)], host, client, ev)
-    got = {u: GF.coops(host, client, u) for u in (TANK, H, K1_UNIT)}
-    cells["K2-seats"] = (landed and all(v == [1, 1] for v in got.values()),
-                         f"TANK / H / K1_UNIT coop host/client {got} (want 1 on both, each landing within {STEP_S} s "
-                         f"before the next){'; ' + miss if miss else ''}")
-    if not cells["K2-seats"][0]:
-        not_reached(cells, ("K2-baton", "K2-cmd"), "K2-seats failed")
+    landed, miss = gifts_in_order([(host, u, 1) for u in (TANK, H, GIFT_UNIT)], host, client, ev)
+    got = {u: GF.coops(host, client, u) for u in (TANK, H, GIFT_UNIT)}
+    cells["all_units_given"] = (landed and all(v == [1, 1] for v in got.values()),
+                                f"TANK / H / GIFT_UNIT coop host/client {got} (want 1 on both, each landing within "
+                                f"{STEP_S} s before the next){'; ' + miss if miss else ''}")
+    if not cells["all_units_given"][0]:
+        not_reached(cells, ("baton_passes", "client_commands_tank"), "all_units_given failed")
     else:
         ok, ev["batonS"] = wait_until(lambda: batons(host, client) == [1, 1], STEP_S, 0.1)
         gray = battle_state(client).get("coopOffBatonGray")
-        cells["K2-baton"] = (ok and gray is False,
-                             f"activeSeat host/client {batons(host, client)} (want 1 on both within {STEP_S} s; "
-                             f"{ev['batonS']} s); client coopOffBatonGray {gray} (want False)")
-        cells["K2-cmd"] = turn_cell(host, client, TANK, ev)
+        cells["baton_passes"] = (ok and gray is False,
+                                 f"activeSeat host/client {batons(host, client)} (want 1 on both within {STEP_S} s; "
+                                 f"{ev['batonS']} s); client coopOffBatonGray {gray} (want False)")
+        cells["client_commands_tank"] = turn_cell(host, client, TANK, ev)
     ev.update(tally=[tally(host), tally(client)], sel=GF.sels(host, client), giftLines=GF.gift_lines(host)[-4:])
-    cells["K2-common"] = G3F.common(host, client, crash0)
+    cells["last_unit_common"] = G3F.common(host, client, crash0)
     return cells, ev
 
 
@@ -247,7 +246,7 @@ def rejoin(host, client, client2, ev):
     ev["rejoinS"] = round(time.time() - t0, 2)
 
 
-def row_k3(host, client, client2, crash0):
+def row_rejoin(host, client, client2, crash0):
     cells, ev = {}, {}
     m = seats(host)
     ev["M"], ev["battleId0"] = m, es(host, "battleId")
@@ -255,44 +254,47 @@ def row_k3(host, client, client2, crash0):
         rejoin(host, client, client2, ev)
     except Exception as e:
         err = f"{type(e).__name__}: {str(e)[:500]}"
-        GF.capture("K3", err, (host, client2))
-        cells["K3-rejoin"] = (False, f"staging: {err}")
+        GF.capture("rejoin_keeps_gifts", err, (host, client2))
+        cells["client2_rejoined"] = (False, f"staging: {err}")
     else:
         ok, ev["topsS"] = wait_until(lambda: top(host) == "BattlescapeState" and top(client2) == "BattlescapeState",
                                      STEP_S, 0.25)
         b = [es(host, "battleId"), es(client2, "battleId")]
-        cells["K3-rejoin"] = (ok and b[0] == b[1],
-                              f"tops host/client2 {[top(host), top(client2)]} (want BattlescapeState on both within "
-                              f"{STEP_S} s; {ev['topsS']} s); battleId host/client2 {b} (want equal; before the leave "
-                              f"{ev['battleId0']})")
-    if not cells["K3-rejoin"][0]:
-        not_reached(cells, ("K3-seats", "K3-cmd"), "K3-rejoin failed")
+        cells["client2_rejoined"] = (ok and b[0] == b[1],
+                                     f"tops host/client2 {[top(host), top(client2)]} (want BattlescapeState on both "
+                                     f"within {STEP_S} s; {ev['topsS']} s); battleId host/client2 {b} (want equal; "
+                                     f"before the leave {ev['battleId0']})")
+    if not cells["client2_rejoined"][0]:
+        not_reached(cells, ("seats_kept", "client2_commands_tank"), "client2_rejoined failed")
     else:
         sh, s2 = seats(host), seats(client2)
-        cells["K3-seats"] = (s2 == sh == m, f"client2 seats {s2}; host {sh}; M before the leave {m} (want all equal)")
-        cells["K3-cmd"] = turn_cell(host, client2, TANK, ev)
+        cells["seats_kept"] = (s2 == sh == m, f"client2 seats {s2}; host {sh}; M before the leave {m} (want all equal)")
+        cells["client2_commands_tank"] = turn_cell(host, client2, TANK, ev)
     ev.update(tally=[tally(host), tally(client2)], stacks=[session.states_stripped(host), session.states_stripped(client2)],
               offBatonGray=[battle_state(host).get("coopOffBatonGray"), battle_state(client2).get("coopOffBatonGray")])
-    cells["K3-common"] = G3F.common(host, client2, crash0)
+    cells["rejoin_common"] = G3F.common(host, client2, crash0)
     return cells, ev
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", None, make_user_dir("r5u5_k_host", options={"CoopTurnMode": TRADITIONAL}))
-    client = GameClient("client", None, make_user_dir("r5u5_k_client"))
-    client2 = GameClient("client2", None, make_user_dir("r5u5_k_client2"))
+    host = GameClient("host", None, make_user_dir("battle_gift_keep_host", options={"CoopTurnMode": TRADITIONAL}))
+    client = GameClient("client", None, make_user_dir("battle_gift_keep_client"))
+    client2 = GameClient("client2", None, make_user_dir("battle_gift_keep_client2"))
     rows, fails = dict(ROWS), 0
     try:
         try:
-            boot, crash0 = bring_up(host, client, KEY, "K")
-            print(f"[r5u5] boot K: {json.dumps(boot, default=str)}", flush=True)
+            boot, crash0 = bring_up(host, client, KEY, "boot")
+            print(f"[test_battle_gift_keep] boot: {json.dumps(boot, default=str)}", flush=True)
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE K line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE boot line)")
         else:
-            fails += G3F.run_row("K1", rows["K1"], lambda: row_k1(host, client, crash0))
-            fails += G3F.run_row("K2", rows["K2"], lambda: row_k2(host, client, crash0))
-            fails += G3F.run_row("K3", rows["K3"], lambda: row_k3(host, client, client2, crash0))
+            fails += G3F.run_row("gift_off_turn", rows["gift_off_turn"],
+                                 lambda: row_gift_off_turn(host, client, crash0))
+            fails += G3F.run_row("last_unit_passes_turn", rows["last_unit_passes_turn"],
+                                 lambda: row_last_unit(host, client, crash0))
+            fails += G3F.run_row("rejoin_keeps_gifts", rows["rejoin_keeps_gifts"],
+                                 lambda: row_rejoin(host, client, client2, crash0))
     finally:
         G3F.shut(host, client, client2)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)

@@ -5,7 +5,7 @@ tank stays.
 
 Spec: docs repo rewrite/prompts/d248u_client_tank_host_craft.md section (f) test_tank_return.py, as amended by
 AMENDMENT D248-1 section 4 (SB-1 the ending: the kills, END TURN on both, the host's NextTurnState closed; SB-2 the gift
-through test_battle_gift_keep's lever_gifts + turn_cell; SB-3 30 shells, S0 {2, 30}) and section 5 (each pin's rule);
+through test_battle_gift_keep's gifts_in_order + turn_cell; SB-3 30 shells, S0 {2, 30}) and section 5 (each pin's rule);
 rulings QD248-1 .. QD248-11 (a), R-D248-SA-1, QD248-B1-1 .. -4 (a). Constants: rewrite/d248u-task0/sb/CONSTANTS.md (TASK 0
 boots RSa, RSb, RLa, RLb).
 
@@ -190,7 +190,7 @@ def after_cells(host, client, pins, ev):
 def row_r1(host, client, pins, crash0):
     cells, ev = {}, ev0(host, client, pins)
     T = pins["T"]
-    landed, miss = KEEP.lever_gifts([(host, T, 1)], host, client, ev)
+    landed, miss = KEEP.gifts_in_order([(host, T, 1)], host, client, ev)
     got = GF.coops(host, client, T)
     g = (ev.get("gifts") or [{}])[0]
     t_ok, t_txt = KEEP.turn_cell(host, client, T, ev) if landed else (False, "the turn not tried (the gift did not land)")

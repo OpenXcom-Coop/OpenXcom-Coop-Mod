@@ -123,7 +123,7 @@ def stage_entry(host, client, ctx):
 
 def row_m1(host, client, crash0):
     cells, ev, ctx = {}, {"sel0": GF.sels(host, client)}, {}
-    landed, miss = KEEP.lever_gifts([(host, TANK, 1), (client, C1, 0)], host, client, ev)
+    landed, miss = KEEP.gifts_in_order([(host, TANK, 1), (client, C1, 0)], host, client, ev)
     got = [GF.coops(host, client, TANK), GF.coops(host, client, C1)]
     cells["M1-gifts"] = (landed and got == [[1, 1], [0, 0]],
                          f"TANK / C1 coop host/client {got} (want [1, 1] / [0, 0], each landing within {STEP_S} s)"

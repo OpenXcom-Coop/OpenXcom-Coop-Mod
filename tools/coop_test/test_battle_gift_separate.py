@@ -157,7 +157,7 @@ def bring_up(host, client):
 
 def row_x1(host, client, ctx, crash0):
     cells, ev = {}, {}
-    landed, miss = KEEP.lever_gifts([(host, H1, 1), (host, H2, 1), (client, G, 0)], host, client, ev)
+    landed, miss = KEEP.gifts_in_order([(host, H1, 1), (host, H2, 1), (client, G, 0)], host, client, ev)
     got = [GF.coops(host, client, u) for u in (H1, H2, G)]
     ok = landed and got == [[1, 1], [1, 1], [0, 0]]
     cells["X1-gifts"] = (ok, f"H1 / H2 / G coop host/client {got} (want [1, 1] / [1, 1] / [0, 0], each landing within "
