@@ -365,10 +365,14 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	_txtDesc->setText(ss5.str());
 
 	// Give modders some handles on political situation
+	// coop: a campaign replica only displays the report. The host spawns these
+	// events (their countdown is an RNG roll) and its world_extras result carries
+	// them to the replica.
+	const bool spawnPactEvents = !_game->getCoopMod()->isCampaignReplica();
 	for (const auto& traitorName : _pactList)
 	{
 		auto traitor = _game->getMod()->getCountry(traitorName, false);
-		if (traitor)
+		if (traitor && spawnPactEvents)
 		{
 			_game->getSavedGame()->spawnEvent(traitor->getSignedPactEvent());
 		}
@@ -376,7 +380,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	for (const auto& exTraitorName : _cancelPactList)
 	{
 		auto exTraitor = _game->getMod()->getCountry(exTraitorName, false);
-		if (exTraitor)
+		if (exTraitor && spawnPactEvents)
 		{
 			_game->getSavedGame()->spawnEvent(exTraitor->getRejoinedXcomEvent());
 		}

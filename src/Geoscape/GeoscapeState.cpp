@@ -2089,9 +2089,15 @@ void GeoscapeState::think()
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
 			// time heartbeat. The replica logs a warning on mismatch; full desync
-			// repair is PRD-J10.
-			if (_game->getCoopMod()->isSharedCampaign())
+			// repair is PRD-J10. Separate stamps every player's wallet and
+			// private research count instead of the host's own wallet.
+			if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			{
 				SharedEcon::attachWorldChecksum(_game, root);
+				// The replica never runs the event countdowns or a counter writer;
+				// it adopts the host's pending events and custom counters.
+				SharedEcon::hostWorldExtras(_game);
+			}
 
 		}
 
@@ -4541,6 +4547,7 @@ void GeoscapeState::time1Day()
 			project = nullptr;
 
 			// 3b. handle interrogation
+			std::string keptCorpse; // coop: mirrored to the replica in research_done
 			if (Options::retainCorpses && research->needItem() && research->destroyItem())
 			{
 				auto* ruleUnit = mod->getUnit(research->getName(), false); // don't use getNeededItem()
@@ -4550,6 +4557,7 @@ void GeoscapeState::time1Day()
 					if (ruleCorpse && ruleCorpse->isRecoverable() && ruleCorpse->isCorpseRecoverable())
 					{
 						xbase->getStorageItems()->addItem(ruleCorpse);
+						keptCorpse = ruleCorpse->getType();
 					}
 				}
 			}
@@ -4600,7 +4608,7 @@ void GeoscapeState::time1Day()
 			// that ResearchCompleteState would emit is fenced off in SHARED.
 			SharedEcon::hostResearchDone(_game, sharedBaseId(xbase), research->getName(),
 				bonus ? bonus->getName() : std::string(),
-				newResearch ? newResearch->getName() : std::string());
+				newResearch ? newResearch->getName() : std::string(), keptCorpse);
 			// 3f. reset timer
 			timerReset();
 			const bool showLocalResearchAlerts = SeparateEcon::showResearchCompletion(_game, xbase);
@@ -4707,7 +4715,9 @@ void GeoscapeState::time1Day()
 			// 1. remove obsolete research projects from all bases
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
-			saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+			// coop: a SHARED or SEPARATE host mirrors the removed projects and the
+			// spawned items to the replica (research_effects).
+			SharedEcon::hostResearchSideEffects(_game, topicsToCheck, xbase);
 		}
 
 		// Handle soldier wounds and martial training

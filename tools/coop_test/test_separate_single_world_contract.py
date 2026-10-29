@@ -159,11 +159,22 @@ def main():
     adoption = load_game.split("connectionTCP::coop_save_owner_player_id = 1", 1)[1].split(
         "SharedEcon::notifyWorldAdopted", 1)[0]
     assert "refreshSeparateBaseOwnership();" in adoption
-    assert "if (_game->getCoopMod()->isSharedCampaign())" in adoption
+    # Both single-world campaigns end a desync repair here (world checksum).
+    assert "if (_game->getCoopMod()->isSharedCampaign())" not in adoption
     shared_econ = source("src/CoopMod/SharedEcon.cpp")
     verify_world = shared_econ.split("void verifyWorldChecksum", 1)[1].split(
         "ResyncStats resyncStats", 1)[0]
     assert "isSharedReplica()" in verify_world
+    # Separate compares every player's wallet and private research count,
+    # never the machine-local wallet (PR #213 wave 2).
+    assert "separateChecksumTerms(save, myPlayerFunds, myPlayerResearch" in verify_world
+    assert "sameNamedTerms(hostPlayerFunds, myPlayerFunds)" in verify_world
+    assert "sameNamedTerms(hostPlayerResearch, myPlayerResearch)" in verify_world
+    attach_world = shared_econ.split("void attachWorldChecksum", 1)[1].split(
+        "bool requestResync", 1)[0]
+    assert "separate ? totalFunds : save->getFunds()" in attach_world
+    assert 'msg["chkPlayerFunds"] = playerFunds;' in attach_world
+    assert 'msg["chkPlayerResearch"] = playerResearch;' in attach_world
 
     assert "merged bootstrap base(s)" in tcp
     assert "no client blob retained" in tcp
@@ -173,7 +184,7 @@ def main():
     geoscape = source("src/Geoscape/GeoscapeState.cpp")
     checksum_stamp = geoscape.split("SharedEcon::attachWorldChecksum", 1)[0]
     assert "isSharedCampaign()" in checksum_stamp[-300:]
-    assert "isSeparateCampaign()" not in checksum_stamp[-300:]
+    assert "isSeparateCampaign()" in checksum_stamp[-300:]
     settled_start = geoscape.split("PRD-J02: host-authoritative campaign start", 1)[1].split(
         "void GeoscapeState::think", 1)[0]
     assert "isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()" in settled_start

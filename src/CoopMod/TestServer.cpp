@@ -1881,7 +1881,8 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "geo_events")
 	{
 		// Pending geoscape events on THIS world (spawned by event scripts or
-		// research, waiting for their countdown): name, minutes left, fired yet.
+		// research, waiting for their countdown): name, minutes left, fired yet,
+		// and the Separate player it belongs to ("" = everyone).
 		SavedGame* sg = _game->getSavedGame();
 		Json::Value list(Json::arrayValue);
 		if (sg)
@@ -1891,10 +1892,56 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 				je["name"] = ge->getRules().getName();
 				je["countdown"] = static_cast<Json::UInt64>(ge->getSpawnCountdown());
 				je["over"] = ge->isOver();
+				je["owner"] = ge->getOwnerPlayerName();
 				list.append(je);
 			}
 		resp["events"] = list;
 		resp["ok"] = sg != nullptr;
+	}
+	else if (cmd == "custom_counters")
+	{
+		// Custom counters on THIS world (research increaseCounter / decreaseCounter,
+		// deployment counters): the named entries of SavedGame's id map, or every
+		// entry when <names> is absent. A missing counter reads as absent.
+		SavedGame* sg = _game->getSavedGame();
+		Json::Value counters(Json::objectValue);
+		if (sg)
+		{
+			const auto& ids = sg->getAllIds();
+			const Json::Value& names = req["names"];
+			if (names.isArray())
+			{
+				for (const auto& n : names)
+				{
+					auto it = ids.find(n.asString());
+					if (it != ids.end()) counters[it->first] = it->second;
+				}
+			}
+			else
+			{
+				for (const auto& entry : ids) counters[entry.first] = entry.second;
+			}
+		}
+		resp["counters"] = counters;
+		resp["ok"] = sg != nullptr;
+	}
+	else if (cmd == "set_custom_counter")
+	{
+		// Drift helper: set (value > 0) or erase (value <= 0) one custom counter on
+		// THIS world only.
+		SavedGame* sg = _game->getSavedGame();
+		const std::string name = req.get("name", "").asString();
+		if (!sg || name.empty())
+			resp["error"] = "no world / no counter name";
+		else
+		{
+			std::map<std::string, int> ids = sg->getAllIds();
+			const int value = req.get("value", 0).asInt();
+			if (value > 0) ids[name] = value;
+			else ids.erase(name);
+			sg->setAllIds(ids);
+			resp["ok"] = true;
+		}
 	}
 	else if (cmd == "set_event_countdown")
 	{

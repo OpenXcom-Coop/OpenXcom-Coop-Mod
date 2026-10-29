@@ -21,7 +21,9 @@
 
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <string>
+#include <vector>
 
 #include <json/json.h>
 
@@ -37,6 +39,7 @@ class Soldier;
 class AlienBase;
 class BattleItem;
 class SavedBattleGame;
+class RuleResearch;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -215,8 +218,45 @@ void broadcast(Game* game, const Json::Value& msg);
 /// Research finished on the host (time1Day): replica removes the base's matching
 /// ResearchProject (freeing its scientists), adds the discovered topic + bonus +
 /// lookups deterministically (no RNG re-roll), and pops ResearchCompleteState.
+/// @a corpse is the item a finished interrogation put back in the host's stores
+/// ("" = none); the replica stores the same item.
 void hostResearchDone(Game* game, int baseId, const std::string& research,
-                      const std::string& bonus, const std::string& newResearch);
+                      const std::string& bonus, const std::string& newResearch,
+                      const std::string& corpse = std::string());
+
+/// Runs SavedGame::handlePrimaryResearchSideEffects for the topics one base
+/// completed (time1Day). On a SHARED or SEPARATE host it then mirrors what that
+/// call changed, as research_effects: the obsolete projects it removed from any
+/// base (with the item refund the host made) and the item transfers the research
+/// spawned at @a base. The replica applies exactly those results; it never re-runs
+/// the side effects on its own state.
+void hostResearchSideEffects(Game* game, const std::vector<const RuleResearch*>& topics,
+                             Base* base);
+
+/// Host, every geoscape heartbeat: when the pending geoscape events (name, owner,
+/// shared flag) or the custom counters changed since the last call, sends the
+/// whole set as world_extras. The replica replaces its events and counters with
+/// it. This one hook covers every writer: event scripts at the month roll, an
+/// event that fired, research side effects, mission-site and battle counters.
+void hostWorldExtras(Game* game);
+
+/// What an event's eventLogic changed at its owner's bases, captured on a
+/// Separate host so the replica can apply the same result (separate_geoscape_event
+/// "rewards"): store and craft-item deltas, the transfers and crafts it added at
+/// the owner's base. Inactive (no capture) anywhere else.
+struct EventRewardSnapshot
+{
+	bool active = false;
+	std::vector<std::map<std::string, int> > stores;
+	std::vector<std::vector<std::map<std::string, int> > > craftItems;
+	size_t hqTransfers = 0;
+	size_t hqCrafts = 0;
+};
+EventRewardSnapshot snapshotEventRewards(Game* game, Base* hq);
+/// The rewards since @a before as JSON text ("" when nothing changed).
+std::string describeEventRewards(Game* game, Base* hq, const EventRewardSnapshot& before);
+/// Replica: applies a describeEventRewards result.
+void applyEventRewards(Game* game, const Json::Value& rewards);
 
 /// Facility construction finished on the host (time1Day): replica sets the
 /// facility at (x,y) buildTime 0 and mirrors the completion popup.

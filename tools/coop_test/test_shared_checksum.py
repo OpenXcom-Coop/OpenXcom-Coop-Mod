@@ -42,7 +42,9 @@ OLD_FIELDS = ("chkFunds", "chkBases", "chkResearch")
 
 
 def _chk(gc):
-    return gc.ok({"cmd": "shared_checksum"})
+    # Only the checksum terms: the response also carries harness fields (the
+    # request id echo) that differ per machine.
+    return {k: v for k, v in gc.ok({"cmd": "shared_checksum"}).items() if k.startswith("chk")}
 
 
 def _resync(gc):
