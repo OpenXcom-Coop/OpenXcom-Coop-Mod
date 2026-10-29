@@ -1,19 +1,21 @@
-"""test_bringup_capture.py (docs rewrite/prompts/w2u8e_bringup_capture.md (f)): F8376, a join_tcp sent
-before the host's lobby listener opened (the client knocks ONCE, ~1.1 s later; refused = CoopState(16)); F8573, the
-host-popup timeout said only last=None; F8563, a game alive 15 s after quit was killed with no trace of its threads.
-U8e-G / -J / -K: no game, fakes (real harness.GameClients with a scripted per-instance _send). U8e-L (key 47277): a
-LateListener stand-in (bound at once, listening from 8 s, relaying to the real lobby port) + a per-INSTANCE get_coop
-rewrite (onConnect -1 until it listens) = a host whose listener opened 8 s late. U8e-A (key 47278): a never-listening
-stand-in. U8e-D: a control socket that drops quit, so shutdown() force-kills a live game. harness.TEMP_ROOT points at
-this run's own temp dir. Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard or boot miss
-adds one "CAPTURE <id>:" line. ONE foreground run, no skip, every row runs after a failure; exit 0 only when all pass,
-else 2. Run: python tools/coop_test/test_bringup_capture.py
+"""test_bringup_capture.py: the harness's bring-up waits and failure captures. A join_tcp sent before the host's lobby
+listener opened is refused (the client knocks ONCE, ~1.1 s later; refused = CoopState(16)), so the harness joins only
+after the host reports its listener open; the host-popup timeout prints the joiner's connect result, not only
+last=None; a game still alive 15 s after quit is force-killed and leaves a minidump of its threads.
+Rows join_waits_for_listener / popup_timeout_names_joiner / shutdown_forced_kill_fake: no game, fakes (real
+harness.GameClients with a scripted per-instance _send). late_listener_join (key 47277): a LateListener stand-in (bound
+at once, listening from 8 s, relaying to the real lobby port) + a per-INSTANCE get_coop rewrite (onConnect -1 until it
+listens) = a host whose listener opened 8 s late. refused_join_in_timeout (key 47278): a never-listening stand-in.
+hung_shutdown_dump: a control socket that drops quit, so shutdown() force-kills a live game. harness.TEMP_ROOT points
+at this run's own temp dir. Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard or boot
+miss adds one "CAPTURE <id>:" line. No skip; every row runs after a failure; exit 0 only when all pass, else 2.
+Run: python tools/coop_test/test_bringup_capture.py
 """
 import contextlib, glob, io, json, os, shutil, socket, struct, subprocess, sys, tempfile, threading, time, types  # noqa
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 import repro_atom_walk as raw  # noqa: E402
-KEY_L, KEY_A = "47277", "47278"
+KEY_LATE, KEY_NEVER = "47277", "47278"
 JT = {"cmd": "join_tcp", "ip": "127.0.0.1", "player": "ClientPlayer"}
 VIEW = ("onConnect", "coopDialog", "serverOwner", "coopSession", "clientName", "host")
 POPUP_MSG = "host: timed out waiting for host popup (last=None)"
@@ -33,7 +35,7 @@ def tail(path, n=15):
 def jload(path):
     with open(path, encoding="utf-8") as f: return json.load(f)
 def ms(t0): return int((time.monotonic() - t0) * 1000)
-def forget(key):  # every registry the harness has (the red harness has only the first)
+def forget(key):  # every registry the harness may have
     for name in ("_EPHEMERAL_COOP_PORTS", "_COOP_HOSTS", "_COOP_JOINERS"): getattr(harness, name, {}).pop(key, None)
 def diag_dir(): return os.path.join(harness.TEMP_ROOT, "oxc-coop-port-diagnostics")
 def events(pid): return [e for e in list(harness._PORT_FILE_HISTORY) if e.get("game_pid") == pid]
@@ -48,7 +50,7 @@ class Row:
         missed = [c["cell"] for c in self.cells if c["guard"] and not c["pass"]]
         if missed: raise GuardMiss("; ".join(missed))
 
-# ---- U8e-G / -J / -K (no game): the fakes are spec (f) code text ----
+# ---- rows with no game: fakes ----
 class FakeProc:
     def __init__(self):
         self.pid, self.returncode = 0, None
@@ -75,9 +77,9 @@ def fake_pair(host_cmd, port, coops, user_dir=None):
                 "ok": True, "states": ["MainMenuState", "LobbyMenu"]}}, LOG, user_dir),
             fake_gc("client", {"join_tcp": {"ok": True}, "join_udp": {"ok": True}, "get_coop": coop(-1, False, 16),
                     "get_state": {"ok": True, "states": ["MainMenuState", "NewBattleState", "CoopState"]}}, LOG))
-def g_cell(r, cell, host_cmd, port, coops, key=None, req=JT, user_dir=None, dead=False):
+def join_case(r, cell, host_cmd, port, coops, key=None, req=JT, user_dir=None, dead=False):
     """Host (unless host_cmd is None), clear the log, join through cmd(): what the client got, the host polls."""
-    key, (host, client) = key or "U8E-" + cell, fake_pair(host_cmd or "host_tcp", port, coops, user_dir)
+    key, (host, client) = key or "FAKE-" + cell, fake_pair(host_cmd or "host_tcp", port, coops, user_dir)
     try:
         if host_cmd:
             host.cmd(dict({"cmd": host_cmd, "port": key, "player": "HostPlayer"},
@@ -102,41 +104,45 @@ def fake_join(r, cell, client, key, req=JT):  # what the client got, the host po
 def once(rec, port, cmd="join_tcp"):
     j = rec["joined"]
     return rec["err"] is None and len(j) == 1 and j[0].get("cmd") == cmd and j[0].get("port") == port
-def u8e_g(r):
-    wait = g_cell(r, "G-wait", "host_tcp", "55001", [coop(-1), coop(-1), coop(-1), coop(1)])
-    owner = g_cell(r, "G-owner", "host_tcp", "55002", [coop(1, False), coop(1, True)])
-    r.tmp = tempfile.mkdtemp(prefix="w2u8e_g_")  # the G-timeout host's user dir (its listen_wait_failed report)
-    with open(os.path.join(r.tmp, "openxcom.log"), "w", encoding="ascii") as f: f.write("[W2-U8e] fake host log\n")
+def row_join_waits_for_listener(r):
+    wait = join_case(r, "join_after_listener_up", "host_tcp", "55001", [coop(-1), coop(-1), coop(-1), coop(1)])
+    owner = join_case(r, "join_after_server_owner", "host_tcp", "55002", [coop(1, False), coop(1, True)])
+    # the timeout case's host user dir (its listen_wait_failed report)
+    r.tmp = tempfile.mkdtemp(prefix="bringup_capture_fake_host_")
+    with open(os.path.join(r.tmp, "openxcom.log"), "w", encoding="ascii") as f:
+        f.write("[test_bringup_capture] fake host log\n")
     pat = os.path.join(diag_dir(), "port-file-%d-*.json" % os.getpid())
     before, had, old = set(glob.glob(pat)), hasattr(harness, "LISTEN_WAIT_S"), getattr(harness, "LISTEN_WAIT_S", None)
     setattr(harness, "LISTEN_WAIT_S", 0.5)
-    try: tmo = g_cell(r, "G-timeout", "host_tcp", "55003", [coop(-1)], user_dir=r.tmp)
+    try: tmo = join_case(r, "listener_timeout_stops_join", "host_tcp", "55003", [coop(-1)], user_dir=r.tmp)
     finally: setattr(harness, "LISTEN_WAIT_S", old) if had else delattr(harness, "LISTEN_WAIT_S")
-    tmo["reports"] = r.ev["join"]["G-timeout"]["reports"] = [safe(lambda: jload(p)["failure"]["operation"])
-                                                             for p in sorted(set(glob.glob(pat)) - before)]
-    fail3 = g_cell(r, "G-fail3", "host_tcp", "55004", [coop(-3)])
-    fail440 = g_cell(r, "G-fail440", "host_tcp", "55005", [coop(-1, False, 440)])
-    unreg = g_cell(r, "G-unreg", None, "55000", [coop(1)], key="U8E-NOHOST")
-    udp = g_cell(r, "G-udp", "host_udp", "55006", [coop(-1)], req={"cmd": "join_udp", "ip": "127.0.0.1",
+    tmo["reports"] = r.ev["join"]["listener_timeout_stops_join"]["reports"] = [
+        safe(lambda: jload(p)["failure"]["operation"]) for p in sorted(set(glob.glob(pat)) - before)]
+    fail3 = join_case(r, "failed_listener_stops_join", "host_tcp", "55004", [coop(-3)])
+    fail440 = join_case(r, "teardown_dialog_stops_join", "host_tcp", "55005", [coop(-1, False, 440)])
+    unreg = join_case(r, "unhosted_key_joins", None, "55000", [coop(1)], key="FAKE-NOHOST")
+    udp = join_case(r, "udp_join_no_wait", "host_udp", "55006", [coop(-1)], req={"cmd": "join_udp", "ip": "127.0.0.1",
                  "localport": "1234", "player": "ClientPlayer", "password": "lan"})
-    menu = g_cell(r, "G-menuudp", "host_menu_host", "55007", [coop(-1)])
-    dead = g_cell(r, "G-dead", "host_tcp", "55008", [coop(-1)], dead=True)
+    menu = join_case(r, "udp_host_window_join", "host_menu_host", "55007", [coop(-1)])
+    dead = join_case(r, "dead_host_no_wait", "host_tcp", "55008", [coop(-1)], dead=True)
     r.guards([(c, once(rec, port, cmd) and rec["hostPolls"] == 0 and xtra, rec) for c, rec, port, cmd, xtra in (
-        ("G-unreg: an unhosted key joins as given, no host poll", unreg, "U8E-NOHOST", "join_tcp", True),
-        ("G-udp: join_udp gets the UDP host's port + localport 0, no host poll", udp, "55006", "join_udp",
+        ("unhosted_key_joins: an unhosted key joins as given, no host poll", unreg, "FAKE-NOHOST", "join_tcp", True),
+        ("udp_join_no_wait: join_udp gets the UDP host's port + localport 0, no host poll", udp, "55006", "join_udp",
          bool(udp["joined"]) and udp["joined"][0].get("localport") == "0"),
-        ("G-menuudp: a UDP host window's join_tcp goes out, no host poll", menu, "55007", "join_tcp", True),
-        ("G-dead: a host that is not running gets no wait", dead, "55008", "join_tcp", True))])
-    early = "join_tcp went out before the host reported its lobby listener open (F8376)"
-    r.cell("G-wait: one join to 55001 after 4 host polls (-1, -1, -1, 1)", once(wait, "55001")
+        ("udp_host_window_join: a UDP host window's join_tcp goes out, no host poll", menu, "55007", "join_tcp", True),
+        ("dead_host_no_wait: a host that is not running gets no wait", dead, "55008", "join_tcp", True))])
+    early = "join_tcp went out before the host reported its lobby listener open"
+    r.cell("join_after_listener_up: one join to 55001 after 4 host polls (-1, -1, -1, 1)", once(wait, "55001")
            and wait["pollsBefore"] == 4, wait, early)
-    r.cell("G-owner: one join to 55002 after 2 host polls (1 without serverOwner, 1 with)", once(owner, "55002")
-           and owner["pollsBefore"] == 2, owner, early)
-    r.cell("G-timeout: no listener report stops the join (RuntimeError < 3 s, a listen_wait_failed report)",
+    r.cell("join_after_server_owner: one join to 55002 after 2 host polls (1 without serverOwner, 1 with)",
+           once(owner, "55002") and owner["pollsBefore"] == 2, owner, early)
+    r.cell("listener_timeout_stops_join: no listener report stops the join (RuntimeError < 3 s, a listen_wait_failed "
+           "report)",
            tmo["err"] is not None and "never reported its lobby listener open" in tmo["err"] and not tmo["joined"]
            and tmo["ms"] < 3000 and "listen_wait_failed" in tmo["reports"], tmo,
            "a host that never reports its listener did not stop the join")
-    for cell, rec, what in (("G-fail3", fail3, "onConnect -3"), ("G-fail440", fail440, "coopDialog 440")):
+    for cell, rec, what in (("failed_listener_stops_join", fail3, "onConnect -3"),
+                            ("teardown_dialog_stops_join", fail440, "coopDialog 440")):
         r.cell("%s: a host at %s stops the join after 1 poll" % (cell, what), rec["err"] is not None
                and what in rec["err"] and rec["hostPolls"] == 1 and not rec["joined"], rec,
                "a host that reported its lobby listener failed (%s) did not stop the join" % what)
@@ -150,37 +156,37 @@ def joiner_16(text, key=None):  # the [harness-join] lines, and whether one is t
     lines = [safe(lambda: json.loads(x[15:])) for x in text.splitlines() if x.startswith("[harness-join] ")]
     return lines, any(isinstance(x, dict) and x.get("role") == "joiner" and x.get("name") == "client"
                       and x.get("coopDialog") == 16 and (key is None or x.get("key") == key) for x in lines)
-def u8e_j(r):
+def row_popup_timeout_names_joiner(r):
     host, client = fake_pair("host_tcp", "55010", [coop(1)])
     try:
-        host.cmd({"cmd": "host_tcp", "port": "U8E-J", "player": "HostPlayer"})
-        fake_join(r, "J", client, "U8E-J")
+        host.cmd({"cmd": "host_tcp", "port": "FAKE-POPUP", "player": "HostPlayer"})
+        fake_join(r, "J", client, "FAKE-POPUP")
         text, err = waited(host, "host popup", 0.3, interval=0.05)
     finally:
-        forget("U8E-J")
+        forget("FAKE-POPUP")
     text2, err2 = waited(host, "nothing", 0.2, interval=0.05)
     lines, ok = joiner_16(text)
     r.ev.update(captured=text, lines=lines, raised=err, noneCaptured=text2, noneRaised=err2)
-    r.guards([("J-msg: the TimeoutError text is unchanged", err == POPUP_MSG, err),
-              ("J-none: no joined pair, no [harness-join] line", err2 is not None and "[harness-join]" not in text2,
-               text2)])
-    r.cell("J-diag: the timeout prints the joiner's line (role joiner, name client, coopDialog 16)", ok, lines,
-           "the host-popup timeout did not show the client's connect result (F8573)")
+    r.guards([("timeout_text_unchanged: the TimeoutError text is unchanged", err == POPUP_MSG, err),
+              ("no_joiner_no_line: no joined pair, no [harness-join] line",
+               err2 is not None and "[harness-join]" not in text2, text2)])
+    r.cell("timeout_shows_joiner: the timeout prints the joiner's line (role joiner, name client, coopDialog 16)", ok,
+           lines, "the host-popup timeout did not show the client's connect result")
 class FakeProcT:  # pid 0 and no _handle; wait() times out until kill()
     def __init__(self): self.pid, self.returncode, self.calls = 0, None, []
     def poll(self): return self.returncode
     def kill(self): self.calls.append("kill")
     def wait(self, timeout=None):
         self.calls.append("wait")
-        if "kill" not in self.calls: raise subprocess.TimeoutExpired("u8e-kfake", timeout)
+        if "kill" not in self.calls: raise subprocess.TimeoutExpired("fake-shutdown", timeout)
         self.returncode = harness.KILLED_RETURN_CODE
         return self.returncode
 class FakeSock:
     def __init__(self): self.sent, self.closed = [], False
     def sendall(self, b): self.sent.append(b)
     def close(self): self.closed = True
-def u8e_k(r):
-    gc, r.tmp = harness.GameClient("u8e-kfake"), tempfile.mkdtemp(prefix="w2u8e_k_")
+def row_shutdown_forced_kill_fake(r):
+    gc, r.tmp = harness.GameClient("fake-shutdown"), tempfile.mkdtemp(prefix="bringup_capture_fake_kill_")
     gc.user_dir, gc.proc, gc.sock = r.tmp, FakeProcT(), FakeSock()
     t0, err = time.monotonic(), None
     try: gc.shutdown()
@@ -188,13 +194,13 @@ def u8e_k(r):
     evs = [e for e in list(harness._PORT_FILE_HISTORY) if e["monotonic"] >= t0]
     r.ev.update(text=err, calls=gc.proc.calls, ms=ms(t0), ops=[e["operation"] for e in evs], dumpEvents=[
         {k: e.get(k) for k in ("dumpSkipped", "dump", "dumpError")} for e in evs if e["operation"] == "shutdown_dump"])
-    r.guards([("K-fake: RuntimeError 'shutdown failed' + 'forced_kill=True', calls wait / kill / wait", err is not None
-               and "shutdown failed" in err and "forced_kill=True" in err and gc.proc.calls == ["wait", "kill", "wait"],
-               r.ev)])
+    r.guards([("forced_kill_reported: RuntimeError 'shutdown failed' + 'forced_kill=True', calls wait / kill / wait",
+               err is not None and "shutdown failed" in err and "forced_kill=True" in err
+               and gc.proc.calls == ["wait", "kill", "wait"], r.ev)])
 
-# ---- U8e-L / -A / -D (live): LateListener, NoQuitSock and dump_threads are spec (f) code text ----
+# ---- rows with live games ----
 class LateListener:
-    """W2-U8e stand-in: a loopback port that is BOUND at once (so no other process can take it) but LISTENS only
+    """A stand-in: a loopback port that is BOUND at once (so no other process can take it) but LISTENS only
     from t_open (delay_s None = never), then relays each accepted connection to the host's real lobby port. From
     the client's side: a host whose listener opened late."""
     def __init__(self, target_port, delay_s):
@@ -246,7 +252,7 @@ class LateListener:
         except OSError:
             pass
 class NoQuitSock:
-    """W2-U8e stand-in (per INSTANCE): the game's control socket with the harness's quit line dropped, so the game
+    """A stand-in (per INSTANCE): the game's control socket with the harness's quit line dropped, so the game
     never hears quit and shutdown() runs its 15 s timeout and forced kill against a live game."""
     def __init__(self, s):
         self.s, self.dropped = s, 0
@@ -284,16 +290,18 @@ def boot(r, *specs):  # (name, label, user dir) each: spawn + connect; a miss fa
     return r.machines[-len(specs):]
 def lobby_up(r, key, labels, delay, rewrite):  # skirmish host + client at its browser, the stand-in (per INSTANCE)
     tag = r.rid[-1]
-    host, client = boot(r, *[(n, lb, "w2u8e_%s_%s" % (tag.lower(), n)) for n, lb in zip(("host", "client"), labels)])
+    host, client = boot(r, *[(n, lb, "bringup_capture_%s_%s" % (tag.lower(), n)) for n, lb in zip(("host", "client"),
+                                                                                                   labels)])
     raw.skirmish_host(host, key)
     raw.skirmish_client_at_browser(client)
-    t0, seen = time.monotonic(), {}  # guard: the host's REAL listener is up within 10 s (both builds)
+    t0, seen = time.monotonic(), {}  # guard: the host's REAL listener is up within 10 s
     while ms(t0) < 10000 and not (seen.get("onConnect") == 1 and seen.get("serverOwner") is True):
         seen = harness.GameClient._send(host, {"cmd": "get_coop"})
         time.sleep(0.05)
     up = r.ev["host"] = {"onConnect": seen.get("onConnect"), "serverOwner": seen.get("serverOwner"), "ms": ms(t0),
                          "realPort": harness._EPHEMERAL_COOP_PORTS.get(key)}
-    r.guards([("%s-host: the host's real listener is up (get_coop onConnect 1 + serverOwner within 10 s)" % tag,
+    r.guards([("host_listener_up: the host's real listener is up (get_coop onConnect 1 + serverOwner within 10 s; user "
+               "dirs bringup_capture_%s_*)" % tag,
                up["onConnect"] == 1 and up["serverOwner"] is True, up)])
     st = LateListener(harness._EPHEMERAL_COOP_PORTS[key], delay)
     harness._EPHEMERAL_COOP_PORTS[key] = str(st.port)
@@ -313,11 +321,11 @@ def close_stand_in(r, st, key):
     r.ev["standIn"].update(openedMs=None if st.opened_at is None else int((st.opened_at - st.t_install) * 1000),
                            acceptsMs=[int((a - st.t_install) * 1000) for a in st.accepts])
     return r.ev["standIn"]
-def u8e_l(r):
-    host, client, st = lobby_up(r, KEY_L, (49453, 49454), 8.0, True)
+def row_late_listener_join(r):
+    host, client, st = lobby_up(r, KEY_LATE, (49453, 49454), 8.0, True)
     try:
         t0 = time.monotonic()
-        try: client.ok(dict(JT, port=KEY_L, player=raw.CLIENT_PLAYER))
+        try: client.ok(dict(JT, port=KEY_LATE, player=raw.CLIENT_PLAYER))
         finally: del host._send
         join_ms, t1, polls, dlg, prof, at16 = ms(t0), time.monotonic(), 0, None, [False, False], None
         while ms(t1) <= 20000 and at16 is None and not all(prof):  # every 0.25 s: the client's dialog, both Profile
@@ -325,41 +333,44 @@ def u8e_l(r):
             polls, dlg = polls + 1, client.cmd({"cmd": "get_coop"}).get("coopDialog")
             prof = [bool(session.has_state(gc, "Profile")) for gc in (host, client)]
             at16 = int((time.monotonic() - st.t_install) * 1000) if dlg == 16 else None
-        while st.opened_at is None and time.monotonic() - st.t_install < 10:  # the stand-in's own open (both builds)
+        while st.opened_at is None and time.monotonic() - st.t_install < 10:  # the stand-in's own open
             time.sleep(0.05)
     finally:
-        rec = close_stand_in(r, st, KEY_L)
+        rec = close_stand_in(r, st, KEY_LATE)
     outcome = "16" if at16 is not None else ("Profile" if all(prof) else "neither")
     r.ev.update(joinMs=join_ms, installToJoinMs=int((t0 - st.t_install) * 1000), outcome=outcome, sixteenAtMs=at16,
                 clientDialog=dlg, profile=prof, polls=polls)
-    r.guards([("L-open: the stand-in listened at 7900-9000 ms, no accept before it", rec["openedMs"] is not None
-               and 7900 <= rec["openedMs"] <= 9000 and all(a >= st.opened_at for a in st.accepts), rec)])
-    r.cell("L-race: the join waits >= 7500 ms, one relayed connection, both Profile, never coopDialog 16",
+    r.guards([("stand_in_opens_late: the stand-in listened at 7900-9000 ms, no accept before it",
+               rec["openedMs"] is not None and 7900 <= rec["openedMs"] <= 9000
+               and all(a >= st.opened_at for a in st.accepts), rec)])
+    r.cell("join_waits_for_late_listener: the join waits >= 7500 ms, one relayed connection, both Profile, never "
+           "coopDialog 16",
            join_ms >= 7500 and all(prof) and at16 is None and len(st.accepts) == 1, {"joinMs": join_ms, "outcome":
            outcome, "acceptsMs": rec["acceptsMs"], "openedMs": rec["openedMs"]}, "the join went out %d ms after the "
            "stand-in started, before its listener opened at 8 s: the client's single connect was refused, coopDialog "
-           "%s (F8376 / F8566)" % (join_ms, dlg))
-def u8e_a(r):
-    host, client, st = lobby_up(r, KEY_A, (49455, 49456), None, False)
+           "%s" % (join_ms, dlg))
+def row_refused_join_in_timeout(r):
+    host, client, st = lobby_up(r, KEY_NEVER, (49455, 49456), None, False)
     try:
         t0 = time.monotonic()
-        client.ok(dict(JT, port=KEY_A, player=raw.CLIENT_PLAYER))
+        client.ok(dict(JT, port=KEY_NEVER, player=raw.CLIENT_PLAYER))
         r.ev["joinMs"], dlg = ms(t0), None
         while ms(t0) <= 20000 and dlg != 16:
             time.sleep(0.25 if dlg is not None else 0)
             dlg = client.cmd({"cmd": "get_coop"}).get("coopDialog")
         r.ev.update(sixteenMs=ms(t0) if dlg == 16 else None, clientDialog=dlg)
-        r.guards([("A-16: the refused join ends in the client's coopDialog 16 within 20 s", dlg == 16, r.ev)])
+        r.guards([("refused_join_dialog: the refused join ends in the client's coopDialog 16 within 20 s", dlg == 16,
+                   r.ev)])
         text, err = waited(host, "host popup", 1, lambda: session.has_state(host, "Profile"))
     finally:
-        close_stand_in(r, st, KEY_A)
-    lines, ok = joiner_16(text, KEY_A)
+        close_stand_in(r, st, KEY_NEVER)
+    lines, ok = joiner_16(text, KEY_NEVER)
     r.ev.update(captured=text, lines=lines, raised=err)
-    r.guards([("A-msg: the TimeoutError text is unchanged", err == POPUP_MSG, err)])
-    r.cell("A-diag: the timeout prints the client's line (key 47278, role joiner, name client, coopDialog 16)", ok,
-           lines, "the host-popup timeout did not show the client's refused join (F8573)")
-def u8e_d(r):
-    gc, = boot(r, ("hostd", 49457, "w2u8e_d"))
+    r.guards([("refused_timeout_text_unchanged: the TimeoutError text is unchanged", err == POPUP_MSG, err)])
+    r.cell("timeout_shows_refused_join: the timeout prints the client's line (key 47278, role joiner, name client, "
+           "coopDialog 16)", ok, lines, "the host-popup timeout did not show the client's refused join")
+def row_hung_shutdown_dump(r):
+    gc, = boot(r, ("hostd", 49457, "bringup_capture_hung"))
     pid, ns, t0, text = gc.proc.pid, NoQuitSock(gc.sock), time.monotonic(), None
     gc.sock = ns
     try: gc.shutdown()
@@ -376,24 +387,29 @@ def u8e_d(r):
     r.ev.update(pid=pid, shutdownS=wall, text=text, dropped=ns.dropped, rc=gc.proc.returncode, history=[
         e["operation"] for e in evs], dumpEvent={k: v for k, v in dump.items() if k not in (
         "wall", "tid", "slot", "lock_held", "pid")}, parse=parse, reports=[p for p, _ in reports], inReport=in_report)
-    gc2, = boot(r, ("hostd2", 49458, "w2u8e_d2"))
+    gc2, = boot(r, ("hostd2", 49458, "bringup_capture_clean"))
     clean = r.ev["clean"] = {"pid": gc2.proc.pid, "text": None}
     try: gc2.shutdown()
     except RuntimeError as e: clean["text"] = str(e)
     clean.update(rc=gc2.proc.returncode, files=glob.glob(os.path.join(diag_dir(), "hang-hostd2-*")),
                  dumpEvents=[e["operation"] for e in events(clean["pid"])].count("shutdown_dump"))
-    r.guards([("D-kill: 'shutdown failed' + 'forced_kill=True', rc KILLED_RETURN_CODE, quit dropped once, >= 15 s",
+    r.guards([("hung_game_killed: 'shutdown failed' + 'forced_kill=True', rc KILLED_RETURN_CODE, quit dropped once, "
+               ">= 15 s",
                text is not None and "shutdown failed" in text and "forced_kill=True" in text
                and gc.proc.returncode == harness.KILLED_RETURN_CODE and ns.dropped == 1 and wall >= 15, r.ev),
-              ("D-clean: a normal shutdown: rc 0, no shutdown_dump event, no hang-hostd2-* file", clean["text"] is None
-               and clean["rc"] == 0 and not clean["dumpEvents"] and not clean["files"], clean)])
-    r.cell("D-dump: a minidump (MDMP, >= 2 threads) in the diagnostics dir, carried by the shutdown_failed report",
+              ("clean_shutdown_no_dump: a normal shutdown: rc 0, no shutdown_dump event, no hang-hostd2-* file",
+               clean["text"] is None and clean["rc"] == 0 and not clean["dumpEvents"] and not clean["files"], clean)])
+    r.cell("hang_dump_written: a minidump (MDMP, >= 2 threads) in the diagnostics dir, carried by the shutdown_failed "
+           "report",
            len(dumps) == 1 and not dump.get("dumpError") and os.path.dirname(path) == diag_dir()
            and os.path.basename(path).startswith("hang-hostd-%d-" % pid) and path.endswith(".dmp")
            and isinstance(parse, dict) and parse.get("sig") == "MDMP" and (parse.get("threads") or 0) >= 2
            and len(in_report) == 1, {"dumpEvents": len(dumps), "dump": r.ev["dumpEvent"], "inReport": in_report},
-           "the forced kill of a game that never heard quit left no dump of its threads (F8563)")
-ROWS = (("U8e-G", u8e_g), ("U8e-J", u8e_j), ("U8e-K", u8e_k), ("U8e-L", u8e_l), ("U8e-A", u8e_a), ("U8e-D", u8e_d))
+           "the forced kill of a game that never heard quit left no dump of its threads")
+ROWS = (("join_waits_for_listener", row_join_waits_for_listener),
+        ("popup_timeout_names_joiner", row_popup_timeout_names_joiner),
+        ("shutdown_forced_kill_fake", row_shutdown_forced_kill_fake), ("late_listener_join", row_late_listener_join),
+        ("refused_join_in_timeout", row_refused_join_in_timeout), ("hung_shutdown_dump", row_hung_shutdown_dump))
 def capture(r):  # Setup-failure dump: each machine's get_coop + get_state (unhooked), history, log tail
     cap = {"standIn": r.ev.get("standIn"), "fakeLog": None if r.machines else [x[:2] for x in LOG[-20:]]}
     for gc in r.machines:
@@ -433,8 +449,9 @@ def report(r, results):
 
 def main():
     t0, results, saved = time.time(), {}, harness.TEMP_ROOT
-    root = harness.TEMP_ROOT = tempfile.mkdtemp(prefix="w2u8e_diag_")  # this run's reports and dumps stay here
-    print("EVIDENCE U8e-root: %s" % json.dumps({"diagnosticsRoot": root, "slot": harness.HARNESS_SLOT}), flush=True)
+    root = harness.TEMP_ROOT = tempfile.mkdtemp(prefix="bringup_capture_diag_")  # this run's reports and dumps
+    print("EVIDENCE diagnostics_root: %s" % json.dumps({"diagnosticsRoot": root, "slot": harness.HARNESS_SLOT}),
+          flush=True)
     try:
         for rid, fn in ROWS: report(exec_row(rid, fn), results)
     finally:
