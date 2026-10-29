@@ -1,15 +1,16 @@
-"""test_hidden_press.py: the harness vs a hidden host BEGIN / RESUME (F8018, F6474, F6824; docs rewrite/prompts/
-w2u7c_hidden_press_and_geoscape_wait.md PART B (f) + AMENDMENT U7d-1). The host's wait dialogs 60 (BEGIN) and 62 (RESUME)
-show their button only once the game is ready for it (CoopState.cpp :1199-1216); `coop_dialog_back` presses a hidden one
-anyway and `previous()` begins / resumes the campaign with nobody ready. Boots: C the test_lobby_dialogs campaign lobby
-(labels 49405/49406, lobby 47228): B-1 (a hidden BEGIN before the client placed its base). D SEPARATE new_campaign
-(49407/49408, rejoiner 49410, lobby 47230): B-3 (the bring-up's BEGIN waits for the button: EVIDENCE only while session.py
-has no press_back_when_shown, a verdict once it has), then B-2 (a hidden RESUME after the client was killed). RED (commit
-1): B-1 and B-2 FAIL on their press cell, B-3 and every GUARD cell pass; GREEN (commit 2b): all pass. B-1 / B-2 reach
-session.press_back_when_shown only after their hidden press was refused ("hidden"). Each row prints "EVIDENCE <id>:" then
-"PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line. ONE
-foreground run, no skip path, no retried press, every row runs after a failure; exit 0 only when every row passes, 2
-otherwise. Run: python tools/coop_test/<this>
+"""test_hidden_press.py: the harness vs a hidden host BEGIN / RESUME. The host's wait dialogs 60 (BEGIN) and 62 (RESUME)
+show their button only once the game is ready for it (CoopState::waitSatisfied()); pressing a hidden one would make
+`previous()` begin / resume the campaign with nobody ready, so `coop_dialog_back` refuses it ("refused hidden") and the
+caller waits for the button. Boots: lobby, the test_lobby_dialogs campaign lobby (labels 49405/49406, lobby 47228):
+hidden_begin_refused (a hidden BEGIN before the client placed its base). campaign, a SEPARATE new_campaign
+(49407/49408, rejoiner 49410, lobby 47230): bringup_begin_waits (the bring-up's BEGIN waits for the button: EVIDENCE
+only while session.py has no press_back_when_shown, a verdict once it has), then hidden_resume_refused (a hidden RESUME
+after the client was killed). When broken, hidden_begin_refused and hidden_resume_refused FAIL on their press cell,
+bringup_begin_waits and every GUARD cell pass. hidden_begin_refused / hidden_resume_refused reach
+session.press_back_when_shown only after their hidden press was refused ("hidden"). Each row prints "EVIDENCE <id>:"
+then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line. ONE foreground run,
+no skip path, no retried press, every row runs after a failure; exit 0 only when every row passes, 2 otherwise.
+Run: python tools/coop_test/<this>
 """
 
 import json, os, sys, time
@@ -19,10 +20,10 @@ from harness import GameClient, make_user_dir, shutdown_clients, LAND_LON, LAND_
 import geo, session
 import test_lobby_dialogs as tld
 
-HOLD_S = 2.0                       # (f) 2 s of 0.1 s polls after each hidden press
+HOLD_S = 2.0                       # 2 s of 0.1 s polls after each hidden press
 GEO = ["GeoscapeState"]
 DIAG = "[coop-test] coop_dialog_back:"
-PRESS = "coop_dialog_back: code "  # a PRESS line; a refusal (2b) reads "coop_dialog_back: refused hidden code N"
+PRESS = "coop_dialog_back: code "  # a PRESS line; a refusal reads "coop_dialog_back: refused hidden code N"
 class GuardMiss(Exception): pass  # a guard cell failed: setup failure
 
 def short(x, n=300):
@@ -36,7 +37,7 @@ def dlg(gc): return {k: v for k, v in gc.cmd({"cmd": "coop_dialog_info"}).items(
                      if k in ("present", "code", "title", "backVisible", "backText")}
 def snap(gc): return {"stack": stk(gc), "dlg": dlg(gc)}
 def bases(gc): return [b.get("name") for b in gc.cmd({"cmd": "geo_state"}).get("bases") or []]
-def on_wait(s, code): return s["stack"][-1:] == ["CoopState"] and s["dlg"].get("code") == code  # C5: TOP CoopState
+def on_wait(s, code): return s["stack"][-1:] == ["CoopState"] and s["dlg"].get("code") == code  # TOP CoopState
 def refused(rep, code):
     return rep.get("ok") is False and rep.get("wait") is True and rep.get("refused") == "hidden" and rep.get("code") == code
 def until(pred, timeout, interval=0.1):
@@ -90,7 +91,7 @@ def capture(r):
     out["hostDiag"] = log_read(r.host, None, DIAG)
     return out
 
-def b_1(r, ctx):
+def row_hidden_begin_refused(r, ctx):
     host, cl = r.host, r.client
     host.wait_for("start eligible", lambda: host.cmd({"cmd": "lobby_state"}).get("startEligible") or None)
     session.start_campaign_via_button(host)
@@ -118,26 +119,26 @@ def b_1(r, ctx):
         r.guard("base names present", all(n in nm[k] for k in nm for n in ("HostBase", "ClientBase")), nm)
     ok = (refused(rep, 60) and left is None and res is not None and res.get("ok") is True and res.get("code") == 60
           and res.get("backVisible") is True and done)
-    red = rep.get("ok") is True and left is not None
+    pressed_hidden = rep.get("ok") is True and left is not None
     r.cell("press on the hidden BEGIN", ok, {"reply": rep, "left": left, "begin": res},
-           "coop_dialog_back pressed the host's hidden BEGIN (F8018)" if red else "unexpected outcome")
+           "coop_dialog_back pressed the host's hidden BEGIN" if pressed_hidden else "unexpected outcome")
 
-def b_3(r, ctx):
+def row_bringup_begin_waits(r, ctx):
     helper = hasattr(session, "press_back_when_shown")
     lines, _ = until(lambda: log_read(r.host, None, DIAG), 2.0)
     presses = [x for x in lines or [] if PRESS in x]
     refusals = [x for x in lines or [] if "refused hidden" in x]
     r.ev.update(helper="yes" if helper else "no", bringUpPress=presses, refusedHidden=refusals)
-    s0 = r.both("S0")
+    s0 = r.both("session_up")
     r.guard("session up", s0["client"]["stack"][-1:] == GEO, s0)
     nm = r.ev["bases"] = {"host": bases(r.host), "client": bases(r.client)}
     r.guard("base names present", all(n in nm[k] for k in nm for n in ("HostBase", "ClientBase")), nm)
-    if helper:  # 2a / 2b: the bring-up pressed through press_back_when_shown; commit 1: EVIDENCE only (F8019 census)
+    if helper:  # the bring-up pressed through press_back_when_shown; without it, EVIDENCE only
         r.cell("the bring-up's BEGIN waited for the button",
                len(presses) == 1 and "code 60 backVisible 1" in presses[0] and not refusals,
-               {"presses": presses, "refused": refusals}, "the bring-up pressed a BEGIN no player could see (F6474)")
+               {"presses": presses, "refused": refusals}, "the bring-up pressed a BEGIN no player could see")
 
-def b_2(r, ctx):
+def row_hidden_resume_refused(r, ctx):
     host = r.host
     r.client.kill()
     v, secs = until(lambda: on_wait(snap(host), 62), 60, 0.25)
@@ -152,7 +153,7 @@ def b_2(r, ctx):
     resumed = next((p for p in polls if p["hostTop"] == GEO[0]), None)
     res = back = None
     if refused(rep, 62) and left is None and polls[-1]["t"] >= HOLD_S:
-        rj = r.client = ctx["rejoiner"] = GameClient("client", 49410, make_user_dir("w2u7dd_client2"))
+        rj = r.client = ctx["rejoiner"] = GameClient("client", 49410, make_user_dir("hidden_press_rejoiner"))
         rj.spawn(); rj.connect()
         j = rj.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": "47230", "player": "ClientPlayer"})
         r.guard("join_tcp", j.get("ok"), j)
@@ -160,7 +161,7 @@ def b_2(r, ctx):
         r.ev["hold68"] = dict(dlg(rj), s=secs)
         r.guard("the rejoiner reaches 68", v, r.ev["hold68"])
         closed = []
-        def top62():  # T0-B2: the host's join Profile is pushed before the rejoiner's 68
+        def top62():  # the host's join Profile is pushed before the rejoiner's 68
             if stk(host)[-1:] == ["Profile"]:
                 closed.append(host.cmd({"cmd": "profile_ok"}))
                 return None
@@ -173,10 +174,11 @@ def b_2(r, ctx):
         r.ev["release"] = {"rejoinerTop": back, "s": secs, "host": stk(host)}
     ok = (refused(rep, 62) and left is None and res is not None and res.get("ok") is True and res.get("code") == 62
           and res.get("backVisible") is True and back and r.ev["release"]["host"][-1:] == GEO)
-    red = rep.get("ok") is True and resumed is not None
+    pressed_hidden = rep.get("ok") is True and resumed is not None
     r.cell("press on the hidden RESUME", ok, {"reply": rep, "left": left, "resumed": resumed, "resume": res},
-           "coop_dialog_back pressed the host's hidden RESUME (F8018)" if red else "unexpected outcome")
-ROWS = {"B-1": b_1, "B-2": b_2, "B-3": b_3}
+           "coop_dialog_back pressed the host's hidden RESUME" if pressed_hidden else "unexpected outcome")
+ROWS = {"hidden_begin_refused": row_hidden_begin_refused, "hidden_resume_refused": row_hidden_resume_refused,
+        "bringup_begin_waits": row_bringup_begin_waits}
 
 def exec_row(rid, host, client, ctx):
     r, t0 = Row(rid, host, client), time.time()
@@ -209,9 +211,12 @@ def start_pair(tag, labels, bring):
         finally:
             raise RuntimeError("%s | %s" % (short(str(e), 600), short(cap, 900))) from e
     return host, client
-BOOTS = (("C", lambda: start_pair("w2u7dc", (49405, 49406), lambda h, c: tld._campaign_lobby(h, c, "47228")), ("B-1",)),
-         ("D", lambda: start_pair("w2u7dd", (49407, 49408), lambda h, c: session.new_campaign(h, c, port="47230")),
-          ("B-3", "B-2")))
+BOOTS = (("lobby", lambda: start_pair("hidden_press_lobby", (49405, 49406),
+                                      lambda h, c: tld._campaign_lobby(h, c, "47228")),
+          ("hidden_begin_refused",)),
+         ("campaign", lambda: start_pair("hidden_press_campaign", (49407, 49408),
+                                         lambda h, c: session.new_campaign(h, c, port="47230")),
+          ("bringup_begin_waits", "hidden_resume_refused")))
 
 def run_boot(key, start, rids, results, walls, problems):
     t0, ctx, booted = time.time(), {}, None
