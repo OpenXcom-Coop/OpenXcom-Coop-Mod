@@ -134,7 +134,7 @@ def row_hd3(host, client, crash0):
         cells["HD3-opp"] = (S13_ID not in ids and not pre, f"13 (X-COM, wounded) in HUD(host) {ids}: {S13_ID in ids} "
                                                            f"(want False){pre}")
     finally:
-        PH.levers_back(host, client, ev, (A_ID, S13_ID))
+        PH.unstage(host, client, ev, (A_ID, S13_ID))
     cells["HD3-common"] = G3F.common(host, client, crash0)
     return cells, ev
 
