@@ -49,8 +49,9 @@ KEY = "48878"
 A_ID = RM.A_ID                    # the only alien (the client's in gm2, the host's in gm3)
 S13_ID, S14_ID = 13, 14           # X-COM soldiers far from A (RM.TILES (33,33,0) / (34,33,0)): the wounded / stunned
 XCOM_IDS = [8, 9, 10, 11, 12, 13, 14]
-FACE_AWAY = 4                     # every X-COM unit faces 4 (south): A's tile (and gm3's WP_DEST) lie outside each
-                                  # one's view sector, while A still sees 8..11 (checked on four boots)
+FACE_AWAY = 4                     # every X-COM unit faces 4 (south): A's tile (and test_pvp_pace_gm3's
+                                  # OWN_WALK_DEST) lie outside each one's view sector, while A still sees 8..11
+                                  # (checked on four boots)
 TILES = {uid: (RM.TILES[uid][0], FACE_AWAY if uid in XCOM_IDS else RM.TILES[uid][1]) for uid in RM.TILES}
 HEALTH_A, HEALTH_14 = 30, 39      # health at bring-up (measured on two gm2 boots)
 STUN_A, STUN_14 = 23, 30          # the smallest stun with stun * 100 / health >= 75 and stun < health (23*100/30 = 76)
