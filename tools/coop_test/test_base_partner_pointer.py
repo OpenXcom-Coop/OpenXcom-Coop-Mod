@@ -1,36 +1,41 @@
-"""test_base_partner_pointer.py (BPP): the co-op partner's pointer and name on a SHARED base inventory
-screen (VL-EQ3-1; owner D290 (c): the partner's pointer anywhere on the screen, D295 (a): its name beside it; QEQ3-7 (a): only
-while both players are on the same pile, QEQ3-8 (a): a `base_equip_ptr {key, seat, x, y, on}` snapshot on EQ-2's SNAP_EQUIP_PTR
-slot, QEQ3-12 (a): a SHARED boot; R-EQ3-1; R-EQ2-1 (QEQ2-1 .. -5 (a): raw position on the 320x200 Inventory surface, 50 ms rate,
-1 s keepalive, 3 s stale, the name at (+10, +4)). Spec: docs repo rewrite/prompts/eq3_base_screens.md + eq3b_pointer.md (f) as
-amended by its PIN-PASS AMENDMENTS; TASK 0 constants rewrite/eq3-task0/sb/CONSTANTS.md.
-Boot S (SHARED, key 49409, dirs eq3b_s_host / _client): shared_fixture.bring_up + W2-H20's setup (H20's helpers imported, never
-edited); spine: both machines open HostBase's Soldiers inventory (H20's open_soldier_screen; the same pile on both).
-Reads: drawn = event_state.equip.presence.drawn (EQ-2's overlay record, one per machine); counters, keys and snapshots =
-event_state.equip.basePresence (screen, localKey, sent, recv, dropped, last, peer, peerAgeMs; absent = 0 / false / "": the red);
-every `sent` / `recv` cell reads the row's delta; the inventory offset (invX, invY) = the observer's cursor_pos.
+"""test_base_partner_pointer.py: the co-op partner's pointer and name on a SHARED base inventory screen. The partner's
+pointer shows anywhere on the screen with its name beside it, only while both players are on the same pile. It travels
+as a `base_equip_ptr {key, seat, x, y, on}` snapshot on the SNAP_EQUIP_PTR conflation slot (the pre-battle equip
+pointer's): the raw position on the 320x200 Inventory surface, sent at a 50 ms rate, a 1 s keepalive, stale after
+3 s, the name drawn at (+10, +4) from the pointer.
+The boot (SHARED, key 49409, dirs base_partner_pointer_host / _client): shared_fixture.bring_up +
+test_shared_base_equip's setup (its helpers imported, never edited); spine: both machines open HostBase's Soldiers
+inventory (test_shared_base_equip's open_soldier_screen; the same pile on both).
+Reads: drawn = event_state.equip.presence.drawn (the partner overlay's draw record, one per machine); counters, keys and
+snapshots = event_state.equip.basePresence (screen, localKey, sent, recv, dropped, last, peer, peerAgeMs; absent = 0 /
+false / "", as on a build without this feature); every `sent` / `recv` cell reads the row's delta; the inventory offset
+(invX, invY) = the observer's cursor_pos.
 move(gc, pt) = inject_input {kind motion} at ((invX + x) * SCALE, (invY + y) * SCALE), then cursor_pos until it reads
-(invX + x, invY + y) within MOTION_S, re-injected once (F20621: a new state re-reads the OS mouse); else ONE CAPTURE line and
-the row's cells are "not reached (motion)".
-  P1 C2H   move(client, PT1); poll the host up to W_PTR: P1-drawn, P1-pos (the host's invX / invY + PT1), P1-name (CLIENT_NAME,
-           shown at the pointer + (10, 4))
-  P2 H2C   move(host, PT2); poll the client up to W_PTR: P2-drawn, P2-pos, P2-name (HOST_NAME)
-  P3 REST  no input for REST_S: P3-rest (the host still draws the client's pointer at the end; the client's sent delta over the
-           rest in [REST_S - 1, REST_S + 1]: the 1 s keepalive)
-  P4 OK    the client's real OK (inventory_click ok); W_PTR: P4-off (the host's peer = the client's explicit `on false`, a new
-           receive), P4-hidden (guard: the host's drawn.ptr false); then the client's soldiers_ok
-  P5 PILE  the client opens SKY's Equipment inventory (H20's open_craft_screen), move(client, PT1); watch the host for W_PTR:
-           P5-key (the host's peer.key = the client's localKey, which differs from the host's), P5-hidden (guard: the host draws
-           nothing throughout), P5-client (guard: the client draws nothing of the host: the host's snapshot names the Soldiers
-           pile); then H20's close_craft_screen
-  P6 QUIET the host's real OK, soldiers_ok; both on the geoscape; QUIET_S after the host's last.on reads false: P6-quiet (guard:
-           neither machine's sent grows, both last.on false)
-  X        X-crash (guard: no new crash file in this lane's crash folder, both games alive)
-RED (HEAD before EQ-3 S-B G1): 9 of 14 cells - P1-drawn, P1-pos, P1-name, P2-drawn, P2-pos, P2-name, P3-rest, P4-off, P5-key;
-the 5 guards PASS. Green: 14 / 14. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs
-after a failure (a precondition miss ends its own row, its later cells "not reached"); a spine miss fails every row "spine" with
-ONE CAPTURE line. run in the foreground to completion. ONE run is the result, no skip path; exit 0
-only when every cell passes, else 2.
+(invX + x, invY + y) within MOTION_S, re-injected once (a new state re-reads the OS mouse); else ONE CAPTURE line and the
+row's cells are "not reached (motion)".
+  client_pointer   move(client, PT1); poll the host up to W_PTR: client_pointer_drawn, client_pointer_pos (the host's
+                   invX / invY + PT1), client_pointer_name (CLIENT_NAME, shown at the pointer + (10, 4))
+  host_pointer     move(host, PT2); poll the client up to W_PTR: host_pointer_drawn, host_pointer_pos, host_pointer_name
+                   (HOST_NAME)
+  resting_pointer  no input for REST_S: keepalive_while_resting (the host still draws the client's pointer at the end;
+                   the client's sent delta over the rest in [REST_S - 1, REST_S + 1]: the 1 s keepalive)
+  client_ok        the client's real OK (inventory_click ok); W_PTR: ok_sends_pointer_off (the host's peer = the client's
+                   explicit `on false`, a new receive), pointer_hidden_after_ok (guard: the host's drawn.ptr false); then
+                   the client's soldiers_ok
+  other_pile       the client opens SKY's Equipment inventory (test_shared_base_equip's open_craft_screen),
+                   move(client, PT1); watch the host for W_PTR: peer_key_is_client_key (the host's peer.key = the client's
+                   localKey, which differs from the host's), host_draws_nothing (guard: the host draws nothing
+                   throughout), client_draws_nothing (guard: the client draws nothing of the host: the host's snapshot
+                   names the Soldiers pile); then test_shared_base_equip's close_craft_screen
+  geoscape_quiet   the host's real OK, soldiers_ok; both on the geoscape; QUIET_S after the host's last.on reads false:
+                   nothing_sent_on_geoscape (guard: neither machine's sent grows, both last.on false)
+  crash_check      no_new_crash_file (guard: no new crash file in this lane's crash folder, both games alive)
+On a build without this feature, 9 of the 14 cells fail: client_pointer_drawn, client_pointer_pos, client_pointer_name,
+host_pointer_drawn, host_pointer_pos, host_pointer_name, keepalive_while_resting, ok_sends_pointer_off,
+peer_key_is_client_key; the 5 guards pass. With it, 14 / 14 pass. One EVIDENCE line per row, one PASS / FAIL line per
+cell, then the row verdict; every row runs after a failure (a precondition miss ends its own row, its later cells "not
+reached"); a spine miss fails every row "spine" with ONE CAPTURE line. Run in the foreground to completion. ONE run is
+the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_base_partner_pointer.py
 """
@@ -46,25 +51,25 @@ import shared_fixture  # noqa: E402
 import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screens, q / stack)
 from test_shared_base_equip import q, stack, open_soldier_screen, open_craft_screen, close_craft_screen  # noqa: E402
 
-TAG, PORTS = "eq3b_s", (49409, 49409, 49409)  # BPP_PORTS (pin pass: the two labels are inert, the third is the key)
+TAG, PORTS = "base_partner_pointer", (49409, 49409, 49409)  # the two labels are inert, the third is the lobby key
 HB, GEO, INV = "HostBase", "GeoscapeState", "InventoryState"
-PT1, PT2 = (150, 120), (60, 150)  # on the Inventory surface, on no widget of the base screens (CONSTANTS.md)
+PT1, PT2 = (150, 120), (60, 150)  # on the Inventory surface, on no widget of the base screens
 SCALE = 2                         # the harness window / logical ratio (cursor_pos measured)
-HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"  # the SHARED roster names B2 draws (TASK 0 boot c)
+HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"  # the player names the SHARED boot gives, drawn beside the pointer
 NAME_DX, NAME_DY = 10, 4          # the name's top-left from the pointer's tip
 MOTION_S, W_PTR, REST_S, QUIET_S = 1.0, 2.0, 3.0, 2.0
 POLL, SAMPLE_S, SCREEN_S = 0.05, 0.25, 30.0
 CELLS = {
-    "P1": ["P1-drawn", "P1-pos", "P1-name"],
-    "P2": ["P2-drawn", "P2-pos", "P2-name"],
-    "P3": ["P3-rest"],
-    "P4": ["P4-off", "P4-hidden"],
-    "P5": ["P5-key", "P5-hidden", "P5-client"],
-    "P6": ["P6-quiet"],
-    "X": ["X-crash"],
+    "client_pointer": ["client_pointer_drawn", "client_pointer_pos", "client_pointer_name"],
+    "host_pointer": ["host_pointer_drawn", "host_pointer_pos", "host_pointer_name"],
+    "resting_pointer": ["keepalive_while_resting"],
+    "client_ok": ["ok_sends_pointer_off", "pointer_hidden_after_ok"],
+    "other_pile": ["peer_key_is_client_key", "host_draws_nothing", "client_draws_nothing"],
+    "geoscape_quiet": ["nothing_sent_on_geoscape"],
+    "crash_check": ["no_new_crash_file"],
 }
-ORDER = ["P1", "P2", "P3", "P4", "P5", "P6", "X"]
-EV = {}  # every row's EVIDENCE (TASK 0 dumps it as JSON)
+ORDER = ["client_pointer", "host_pointer", "resting_pointer", "client_ok", "other_pile", "geoscape_quiet", "crash_check"]
+EV = {}  # every row's EVIDENCE, by row id, plus the spine (kept for a caller of main)
 
 
 class Row:
@@ -88,7 +93,7 @@ class Row:
 
 
 class Shim:
-    """H20's open / close helpers record G cells on a row; a row keeps their failures as evidence."""
+    """test_shared_base_equip's open / close helpers record guard cells on a row; a row keeps their failures as evidence."""
     def __init__(self):
         self.fails = []
 
@@ -110,7 +115,7 @@ def equip(gc):
 
 
 def drawn(gc):
-    """EQ-2's overlay record on gc (absent = {})."""
+    """The partner overlay's draw record on gc (absent = {})."""
     return (equip(gc).get("presence") or {}).get("drawn") or {}
 
 
@@ -130,7 +135,7 @@ def cpos(gc):
 
 
 def look(x):
-    """EVIDENCE: each machine's top state, cursor_pos, EQ-2 presence object and basePresence object."""
+    """EVIDENCE: each machine's top state, cursor_pos, equip presence object and basePresence object."""
     out = {}
     for gc in (x.host, x.client):
         e = equip(gc)
@@ -183,7 +188,8 @@ def at(gc, pt):
 
 
 def move(gc, pt, ev):
-    """A real mouse motion to pt on gc's Inventory surface; True once cursor_pos reads it (one re-inject, F20621)."""
+    """A real mouse motion to pt on gc's Inventory surface; True once cursor_pos reads it (one re-inject: a new state
+    re-reads the OS mouse)."""
     c0 = cpos(gc)
     want = [(c0.get("invX") or 0) + pt[0], (c0.get("invY") or 0) + pt[1]]
     tries, got = [], False
@@ -232,7 +238,8 @@ def spine(x):
 
 
 def draw_row(x, r, mover, obs, pt, name, p):
-    """P1 / P2: mover's pointer at pt; the observer draws it at its own Inventory top-left + pt with the mover's name."""
+    """client_pointer / host_pointer: mover's pointer at pt; the observer draws it at its own Inventory top-left + pt with
+    the mover's name."""
     if not move(mover, pt, r.ev):
         r.why = "motion"
         return
@@ -242,27 +249,27 @@ def draw_row(x, r, mover, obs, pt, name, p):
     d = drawn_of(lk, obs.name)
     xy = [d.get("x"), d.get("y")]
     absent = "" if lk[obs.name]["basePresence"] is not None else f" ({obs.name} basePresence absent)"
-    r.cell(f"{p}-drawn", d.get("ptr") is True,
+    r.cell(f"{p}_drawn", d.get("ptr") is True,
            f"{obs.name} drawn.ptr {d.get('ptr')} (want true within {W_PTR} s of {mover.name}'s motion; waited {r.ev['within']})"
            + absent)
-    r.cell(f"{p}-pos", d.get("ptr") is True and xy == want, f"{obs.name} drawn at {xy} (want {want} = its invX / invY + {list(pt)})"
+    r.cell(f"{p}_pos", d.get("ptr") is True and xy == want, f"{obs.name} drawn at {xy} (want {want} = its invX / invY + {list(pt)})"
            + absent)
     nxy = [d.get("nameX"), d.get("nameY")]
-    r.cell(f"{p}-name", d.get("nameShown") is True and d.get("name") == name
+    r.cell(f"{p}_name", d.get("nameShown") is True and d.get("name") == name
            and nxy == [(d.get("x") or 0) + NAME_DX, (d.get("y") or 0) + NAME_DY],
            f"{obs.name} name {d.get('name')!r} shown {d.get('nameShown')} at {nxy} (want {name!r} shown at the pointer + "
            f"({NAME_DX}, {NAME_DY}))" + absent)
 
 
-def p1(x, r):
-    draw_row(x, r, x.client, x.host, PT1, CLIENT_NAME, "P1")
+def row_client_pointer(x, r):
+    draw_row(x, r, x.client, x.host, PT1, CLIENT_NAME, "client_pointer")
 
 
-def p2(x, r):
-    draw_row(x, r, x.host, x.client, PT2, HOST_NAME, "P2")
+def row_host_pointer(x, r):
+    draw_row(x, r, x.host, x.client, PT2, HOST_NAME, "host_pointer")
 
 
-def p3(x, r):
+def row_resting_pointer(x, r):
     h, c = x.host, x.client
     s0, samples, t0 = num(bp(c), "sent"), [], time.time()
     while time.time() - t0 < REST_S:
@@ -273,13 +280,13 @@ def p3(x, r):
     lk = r.ev["look"] = look(x)
     end = drawn_of(lk, "host").get("ptr")
     r.ev.update(clientSent=[s0, s1], hostDrawnSamples=samples)
-    r.cell("P3-rest", end is True and REST_S - 1 <= s1 - s0 <= REST_S + 1,
+    r.cell("keepalive_while_resting", end is True and REST_S - 1 <= s1 - s0 <= REST_S + 1,
            f"host drawn.ptr {end} at the end of the {r.ev['restS']} s rest (want true; samples true "
            f"{sum(1 for v in samples if v is True)} of {len(samples)}); client sent {s0} -> {s1} (want +{REST_S - 1:g} .. "
            f"+{REST_S + 1:g}: the 1 s keepalive)")
 
 
-def p4(x, r):
+def row_client_ok(x, r):
     h, c, cs = x.host, x.client, x.seats.get("client")
     b0 = bp(h)
     r.ev["host before"] = {"peer": b0.get("peer"), "recv": b0.get("recv"), "drawn": drawn(h)}
@@ -296,16 +303,16 @@ def p4(x, r):
     if first["closed"] is None:
         r.why = f"precondition: the client's OK did not close its screen within {W_PTR} s ({stack(c)})"
         return
-    r.cell("P4-off", first["off"] is not None and off() and num(b1, "recv") > num(b0, "recv"),
+    r.cell("ok_sends_pointer_off", first["off"] is not None and off() and num(b1, "recv") > num(b0, "recv"),
            f"host peer {b1.get('peer')} (want state base_equip_ptr, seat {cs}, on false within {W_PTR} s of the client's OK; "
            f"first {first['off']}); host recv {b0.get('recv')} -> {b1.get('recv')} (want a new receive)")
-    r.cell("P4-hidden", first["hidden"] is not None and drawn_of(lk, "host").get("ptr") is not True,
+    r.cell("pointer_hidden_after_ok", first["hidden"] is not None and drawn_of(lk, "host").get("ptr") is not True,
            f"host drawn.ptr {drawn_of(lk, 'host').get('ptr')} (want false within {W_PTR} s; first {first['hidden']})")
     r.ev["soldiers_ok"] = q(c, {"cmd": "soldiers_ok"}).get("ok")
     r.ev["client at geoscape"] = poll(lambda: top(c) == GEO, SCREEN_S)
 
 
-def p5(x, r):
+def row_other_pile(x, r):
     h, c = x.host, x.client
     to_geo(c, r.ev.setdefault("cleanup before", []))
     sh = Shim()
@@ -323,12 +330,12 @@ def p5(x, r):
         r.ev["first true (s)"] = first
         lk = r.ev["look"] = look(x)
         cd = drawn_of(lk, "client")
-        r.cell("P5-key", first["key"] is not None and ck != hk,
+        r.cell("peer_key_is_client_key", first["key"] is not None and ck != hk,
                f"host peer.key {((lk['host']['basePresence'] or {}).get('peer') or {}).get('key')!r} (want the client's localKey "
                f"{ck!r} within {W_PTR} s, first {first['key']}; non-empty and not the host's {hk!r})")
-        r.cell("P5-hidden", first["hostDrawn"] is None,
+        r.cell("host_draws_nothing", first["hostDrawn"] is None,
                f"host drawn.ptr first true at {first['hostDrawn']} s (want never within {W_PTR} s: another pile)")
-        r.cell("P5-client", cd.get("ptr") is not True,
+        r.cell("client_draws_nothing", cd.get("ptr") is not True,
                f"client drawn.ptr {cd.get('ptr')} at the end of {W_PTR} s (want false: the host's snapshot names its Soldiers pile)")
     finally:
         close_craft_screen(sh, c)
@@ -336,7 +343,7 @@ def p5(x, r):
         poll(lambda: top(c) == GEO, 10.0)
 
 
-def p6(x, r):
+def row_geoscape_quiet(x, r):
     h, c = x.host, x.client
     if top(h) != INV:
         r.why = f"precondition: the host's Soldiers inventory is not on top ({stack(h)})"
@@ -355,18 +362,20 @@ def p6(x, r):
     s1 = {n: num(lk[n]["basePresence"] or {}, "sent") for n in ("host", "client")}
     last = {n: ((lk[n]["basePresence"] or {}).get("last") or {}).get("on") for n in ("host", "client")}
     r.ev.update(sent=[s0, s1], lastOn=last)
-    r.cell("P6-quiet", s1 == s0 and not any(v is True for v in last.values()),
+    r.cell("nothing_sent_on_geoscape", s1 == s0 and not any(v is True for v in last.values()),
            f"sent {s0} -> {s1} over {QUIET_S} s on the geoscape (want unchanged); last.on {last} (want false / absent on both)")
 
 
-def px(x, r):
+def row_crash_check(x, r):
     crash = sorted(session._crash_log_snapshot() - x.crash0)
     up = {gc.name: alive(gc) for gc in (x.host, x.client)}
     r.ev.update(newCrashFiles=crash, alive=up, tops={gc.name: stack(gc) for gc in (x.host, x.client)})
-    r.cell("X-crash", not crash and all(up.values()), f"new crash files {crash} (want none); alive {up} (want both)")
+    r.cell("no_new_crash_file", not crash and all(up.values()), f"new crash files {crash} (want none); alive {up} (want both)")
 
 
-FNS = {"P1": p1, "P2": p2, "P3": p3, "P4": p4, "P5": p5, "P6": p6, "X": px}
+FNS = {"client_pointer": row_client_pointer, "host_pointer": row_host_pointer, "resting_pointer": row_resting_pointer,
+       "client_ok": row_client_ok, "other_pile": row_other_pile, "geoscape_quiet": row_geoscape_quiet,
+       "crash_check": row_crash_check}
 
 
 def main(tag=TAG, ports=PORTS, extra=None):
