@@ -1,23 +1,22 @@
-"""test_handoff_base_stream.py (HBS): a SEPARATE partner clicks the host's base just before the host presses YES on a landing;
+"""test_handoff_base_stream.py: a SEPARATE partner clicks the host's base just before the host presses YES on a landing;
 the host's base answer is still streaming when the partner's battle_accept arrives. The battle still starts: the partner reaches its briefing,
 the cut base answer is dropped, the host's battle starts.
 
-Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sa_handoff_base_stream.md (f) rows R-C3 and G;
-TASK 0 constants: docs rewrite/w2h82-task0/sa/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap, F22290-F22306), ruling R-LH78-1-1 (REG :1431),
-mechanism R-H82-1 (QH82-1 .. QH82-7 (a)). Lobby key "49516", dirs w2h82_c3_*, w2h82_g_*. The sibling HBM (test_handoff_base_marker.py)
-holds row R-V2. TEST-ONLY lever: hold_blob_ack {on: true, scope: "base"} (W2-H82 L1: also holds the base answer's chunk acks while a
-CoopState 50 is on the client's stack).
-Row R-C3 (capture C3-1): seat_guest, LOCATE, PRE ("baseclient" present, PRE_F), PROMPT, ARM, CLICK (a real globe click on the host base and
-    the "HostBase" target; the client's CoopState 50 on top within 1 s), HELD, YES (set_seed 2, the host's real YES), ACCEPTED (client) and
-    ACCRX (host) within W_ACC, RELEASE, ENTRY (from RELEASE), WATCH, END. Cells C3-pre, C3-entry, C3-brief, C3-host, C3-defer, C3-drop,
-    C3-store, C3-crash.
-Row G (capture C3-ctl, the guard: no ARM, the click before the YES): seat_guest, LOCATE, PROMPT, a real visit and a real GEOSCAPE, PRE, YES,
-    ENTRY (from YES), WATCH, END. Cells G-pre, G-brief, G-host, G-quiet.
-Red today (R1): C3-entry, C3-brief, C3-host, C3-defer, C3-drop FAIL (5 of 12); every other cell PASS. Green (G1, spec E1-E7): all 12 PASS.
+Lobby key "49516", user dirs handoff_base_stream_accept_*, handoff_base_stream_visit_*. test_handoff_base_marker.py
+checks a base answer that ends after the battle offer. Test hook: hold_blob_ack {on: true, scope: "base"} (also holds
+the base answer's chunk acks while a CoopState 50 is on the client's stack).
+Row accept_during_stream: seat_guest, LOCATE, PRE ("baseclient" present, PRE_F), PROMPT, ARM, CLICK (a real globe click
+    on the host base and the "HostBase" target; the client's CoopState 50 on top within 1 s), HELD, YES (set_seed 2, the
+    host's real YES), ACCEPTED (client) and ACCRX (host) within W_ACC, RELEASE, ENTRY (from RELEASE), WATCH, END.
+    Cells accept_during_stream-pre, -entry, -brief, -host, -defer, -drop, -store, -crash.
+Row visit_then_yes (the guard: no ARM, the click before the YES): seat_guest, LOCATE, PROMPT, a real visit and a real
+    GEOSCAPE, PRE, YES, ENTRY (from YES), WATCH, END. Cells visit_then_yes-pre, -brief, -host, -quiet.
+Without the fix: the -entry, -brief, -host, -defer and -drop cells of accept_during_stream FAIL (5 of 12); every other
+cell passes. With the fix all 12 pass.
 One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
-row (later cells "not reached") with ONE CAPTURE line; a boot miss fails the row's -pre cell with ONE CAPTURE line. WV-D95 (run to completion
-in the foreground), WV-D99 (one run; exit 0 only when every cell passes, else 2), WV-D100 (no SKIP, no exit 3). Helpers copied (never
-imported) from docs rewrite/lh78-1-cap/cap.py; LOCATE's CANCEL press waits for the button to be shown (W2-H78 TASK 0's S54 swap, F21950)."""
+row (later cells "not reached") with ONE CAPTURE line; a boot miss fails the row's -pre cell with ONE CAPTURE line. One
+run: exit 0 only when every cell passes, else 2 (no skip, no exit 3). LOCATE's CANCEL press waits for the button to be
+shown."""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
@@ -25,7 +24,7 @@ import session
 from harness import GameClient, make_user_dir
 
 KEY = "49516"
-SEED_P = 2
+YES_SEED = 2
 ZOOM_MIN, SYM_PLUS = 3, 43
 W_CLICK50, W_HELD, W_ACC, W_ENTRY, W_HOLD, W_PROMPT, W_VISIT, W_UI = 1.0, 15, 30, 30, 10.0, 120, 60, 10
 RC_OK = (0, 3221226505)
@@ -35,15 +34,19 @@ NEEDLES = {"ADOPT": "read-only BriefingState pushed", "EQUAL": "battle_ready sav
            "BASEDROP": "[coop-visit] base answer dropped: a battle hand-off is in flight",
            "ACCEPTED": "[coop-handshake] battle_offer accepted (battleId=", "ACCRX": "[coop-handshake] battle_accept received (battleId="}
 HOST_NEEDLES = ("EQUAL", "DEFER", "START", "ACCRX")
-CELLS = {"R-C3": ["C3-pre", "C3-entry", "C3-brief", "C3-host", "C3-defer", "C3-drop", "C3-store", "C3-crash"],
-         "G": ["G-pre", "G-brief", "G-host", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
+CELLS = {"accept_during_stream": ["accept_during_stream-pre", "accept_during_stream-entry",
+                                  "accept_during_stream-brief", "accept_during_stream-host",
+                                  "accept_during_stream-defer", "accept_during_stream-drop",
+                                  "accept_during_stream-store", "accept_during_stream-crash"],
+         "visit_then_yes": ["visit_then_yes-pre", "visit_then_yes-brief", "visit_then_yes-host",
+                            "visit_then_yes-quiet"]}
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this harness slot's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
     pass
 
-# ----- probes (CAP) -----
+# ----- probes -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def pick(r, keys): return {k: r.get(k) for k in keys}
@@ -83,7 +86,7 @@ def wait(pred, timeout, interval=0.25):
             return v or None, round(time.time() - t0, 2)
         time.sleep(interval)
 
-# ----- real presses (CAP) -----
+# ----- real presses -----
 def real_click(gc, text, timeout=15.0):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -140,7 +143,7 @@ def geo_clean(gc):
     st = stack(gc)
     return bool(st) and st[-1] == "GeoscapeState" and not any(("CoopState" in s or "LoadGameState" in s) for s in st)
 
-# ----- fixture (CAP seat_guest: bring_up_separate_guest_battle's seat) -----
+# ----- fixture (seat_guest: bring_up_separate_guest_battle's seat) -----
 def seat_guest(h, c, ev):
     session.new_campaign(h, c, port=KEY)
     hb = session._campaign_own_roster_base(h)
@@ -231,7 +234,7 @@ class Row:
         bad = [n for n in self.cells if not self.done.get(n)]
         print("ROW %s: %s" % (self.rid, "PASS" if not bad else "FAIL (%d failing: %s)" % (len(bad), bad)), flush=True)
 
-# ----- common steps (spec (f)) -----
+# ----- common steps -----
 def locate(r, x):
     """LOCATE = the host base's lon / lat from the host's geo_state; the client's affine from INTERCEPT / CANCEL"""
     session.drain_host_coop_notice(x.host)
@@ -243,7 +246,7 @@ def locate(r, x):
     if not g:
         raise Stop("LOCATE: the client not back on a clean geoscape: %s" % stack(x.client))
 def visit_leave(r, x):
-    """G's visit: CAP real_visit_and_leave (a real click on the host base, the "HostBase" target, the base screen's real GEOSCAPE)"""
+    """the guard row's visit: a real click on the host base, the "HostBase" target, the base screen's real GEOSCAPE"""
     c = x.client
     ck = click_marker(c, x.sc, x.hbpos[0], x.hbpos[1], x.HB)
     v, s = wait(lambda: coop(c).get("insideCoopBase") is True and top(c) == "BasescapeState", W_VISIT, 0.05)
@@ -265,7 +268,8 @@ def pre(r, x):
     if not bc.get("present") or not x.PRE_F:
         raise Stop("PRE: baseclient %s (want present)" % js(bc))
 def prompt(r, x):
-    """PROMPT = CAP's site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on the host"""
+    """PROMPT = a mission site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on
+    the host"""
     h = x.host
     b0 = session._campaign_base0(h)
     sid = h.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
@@ -294,7 +298,8 @@ def arm(r, x):
     if not (a.get("ok") and a.get("armed") and a.get("scope") == 1):
         raise Stop("ARM: hold_blob_ack %s" % js(a))
 def click(r, x):
-    """CLICK = CAP click_marker on the host base ("HostBase"); the client's top CoopState 50 within W_CLICK50; HELD within W_HELD"""
+    """CLICK = click_marker on the host base ("HostBase"); the client's top CoopState 50 within W_CLICK50; HELD within
+    W_HELD"""
     c = x.client
     ck = click_marker(c, x.sc, x.hbpos[0], x.hbpos[1], x.HB)
     v50, s50 = wait(lambda: top(c) == "CoopState" and dlg(c).get("code") == 50, W_CLICK50, 0.05)
@@ -307,10 +312,10 @@ def click(r, x):
     if not hv:
         raise Stop("HELD: no base-answer ack withheld within %d s: %s" % (W_HELD, js(hold(c))))
 def yes(r, x):
-    """marks (each machine's log length), YES (set_seed SEED_P, the host's real YES)"""
+    """marks (each machine's log length), YES (set_seed YES_SEED, the host's real YES)"""
     h, c = x.host, x.client
     x.nh, x.nc = len(log(h)), len(log(c))
-    sd = q(h, {"cmd": "set_seed", "seed": SEED_P})
+    sd = q(h, {"cmd": "set_seed", "seed": YES_SEED})
     k = real_click(h, "YES", W_UI)
     x.t_yes = time.time()
     r.ev["yes"] = {"seed": sd.get("ok"), "click": k.get("ok")}
@@ -357,7 +362,7 @@ def host_cell(r, x, name):
     r.cell(name, x.n["EQUAL"] == 1 and not h62, "host EQUAL since YES %d, CoopState 62 during WATCH at %s (want 1, never)" % (x.n["EQUAL"], h62))
 
 # ----- rows -----
-def body_c3(r, x):
+def body_accept_during_stream(r, x):
     c, h = x.client, x.host
     locate(r, x)
     pre(r, x)
@@ -367,8 +372,9 @@ def body_c3(r, x):
     yes(r, x)
     a, sa = wait(lambda: count(c, x.nc, "ACCEPTED") >= 1 and count(h, x.nh, "ACCRX") >= 1, W_ACC, 0.05)
     r.ev["acc"] = {"ok": bool(a), "s": sa, "hold": hold(c)}
-    r.cell("C3-pre", a, "guest seated %s, baseclient present, prompt %.2f s, CLICK targets %s picked %s, CoopState 50 %s, HELD %s, ACCEPTED "
-           "and ACCRX %s after %.2f s (want all within W_CLICK50 %.0f s / W_HELD %d s / W_ACC %d s)"
+    r.cell("accept_during_stream-pre", a,
+           "guest seated %s, baseclient present, prompt %.2f s, CLICK targets %s picked %s, CoopState 50 %s, HELD %s, "
+           "ACCEPTED and ACCRX %s after %.2f s (want all within W_CLICK50 %.0f s / W_HELD %d s / W_ACC %d s)"
            % (r.ev["seat"]["seated"], r.ev["promptS"], r.ev["click"]["targets"], r.ev["click"]["pick"], r.ev["click"]["coop50"], r.ev["held"],
               bool(a), sa, W_CLICK50, W_HELD, W_ACC))
     if not a:
@@ -377,35 +383,42 @@ def body_c3(r, x):
     t_rel = time.time()
     r.ev["release"] = pick(rl, ("ok", "armed", "sent"))
     entry_watch_end(r, x, t_rel)
-    r.cell("C3-entry", x.entry, "ADOPT %s within %d s of RELEASE (%s)" % (r.ev["entry"]["adopt"], W_ENTRY, r.ev["entry"]))
-    brief_cell(r, x, "C3-brief")
-    host_cell(r, x, "C3-host")
-    r.cell("C3-defer", x.n["DEFER"] == 1 and x.n["START"] == 1, "host DEFER %d, START %d since YES (want 1, 1)" % (x.n["DEFER"], x.n["START"]))
-    r.cell("C3-drop", x.n["BASEDROP"] == 1, "client BASEDROP %d since YES (want 1)" % x.n["BASEDROP"])
-    r.cell("C3-store", x.END_F == x.PRE_F, "client baseclient fnv END_F %s vs PRE_F %s (want equal)" % (x.END_F, x.PRE_F))
-    r.cell("C3-crash", not x.newCrash and all(x.alive), "new crash files %s, alive (host, client) %s (want none, both)" % (x.newCrash, x.alive))
-def body_g(r, x):
+    r.cell("accept_during_stream-entry", x.entry,
+           "ADOPT %s within %d s of RELEASE (%s)" % (r.ev["entry"]["adopt"], W_ENTRY, r.ev["entry"]))
+    brief_cell(r, x, "accept_during_stream-brief")
+    host_cell(r, x, "accept_during_stream-host")
+    r.cell("accept_during_stream-defer", x.n["DEFER"] == 1 and x.n["START"] == 1,
+           "host DEFER %d, START %d since YES (want 1, 1)" % (x.n["DEFER"], x.n["START"]))
+    r.cell("accept_during_stream-drop", x.n["BASEDROP"] == 1, "client BASEDROP %d since YES (want 1)" % x.n["BASEDROP"])
+    r.cell("accept_during_stream-store", x.END_F == x.PRE_F,
+           "client baseclient fnv END_F %s vs PRE_F %s (want equal)" % (x.END_F, x.PRE_F))
+    r.cell("accept_during_stream-crash", not x.newCrash and all(x.alive),
+           "new crash files %s, alive (host, client) %s (want none, both)" % (x.newCrash, x.alive))
+def body_visit_then_yes(r, x):
     locate(r, x)
     prompt(r, x)
     visit_leave(r, x)
     pre(r, x)
-    r.cell("G-pre", True, "guest seated %s, visit %s s, leave %s, baseclient present, prompt %.2f s"
+    r.cell("visit_then_yes-pre", True, "guest seated %s, visit %s s, leave %s, baseclient present, prompt %.2f s"
            % (r.ev["seat"]["seated"], r.ev["visit"]["visitS"], r.ev["visit"]["geoClean"], r.ev["promptS"]))
     yes(r, x)
     entry_watch_end(r, x, x.t_yes)
-    brief_cell(r, x, "G-brief")
-    host_cell(r, x, "G-host")
-    r.cell("G-quiet", x.n["DEFER"] == 0 and x.n["START"] == 0 and x.n["BASEDROP"] == 0 and x.END_F == x.PRE_F and not x.newCrash and all(x.alive),
+    brief_cell(r, x, "visit_then_yes-brief")
+    host_cell(r, x, "visit_then_yes-host")
+    r.cell("visit_then_yes-quiet",
+           x.n["DEFER"] == 0 and x.n["START"] == 0 and x.n["BASEDROP"] == 0 and x.END_F == x.PRE_F and not x.newCrash
+           and all(x.alive),
            "DEFER %d, START %d, BASEDROP %d, END_F %s vs PRE_F %s, new crash files %s, alive %s (want 0, 0, 0, equal, none, both)"
            % (x.n["DEFER"], x.n["START"], x.n["BASEDROP"], x.END_F, x.PRE_F, x.newCrash, x.alive))
 def main():
     c0 = cpu()
-    print("==== W2-H82 HBS (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    Row("R-C3").run(body_c3, "w2h82_c3")
-    Row("G").run(body_g, "w2h82_g")
+    print("==== test_handoff_base_stream (slot %s, key %s, exe %s) CPU %s ====" % (
+        harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    Row("accept_during_stream").run(body_accept_during_stream, "handoff_base_stream_accept")
+    Row("visit_then_yes").run(body_visit_then_yes, "handoff_base_stream_visit")
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H82 HBS: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
-          flush=True)
+    print("\n==== test_handoff_base_stream: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (
+        len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()), flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
     return 0 if not fails else 2
