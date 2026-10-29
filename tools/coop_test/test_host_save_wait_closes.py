@@ -1,33 +1,44 @@
-"""W2-H64 stage S-B (spec rewrite/prompts/w2h64_sb_close_unarmed.md (f), common file rewrite/prompts/w2h64_save_under_window.md; TASK 0
-rewrite/w2h64-task0/sb/CONSTANTS.md; lead L-H59-1, ruling R-H64-0; F19185, F19187, F19189): every co-op host geoscape save waits behind
-"Saving..." (CoopState 54) for the second player's world; inside the host's base the wait lasts the whole visit, and a soldier gift
-(keypad 2) puts the host's GiftNoticeState over the 54. A save written while the notice covers the 54 (the world landing when the player
-leaves the base, F19185; S-A's drop write, F19188) disarms it but leaves the 54 under the notice: after the notice's OK the host sees
-"Saving..." until CANCEL, which writes nothing.
-Three rows, one fresh boot pair each (key "49227", dirs w2h64_<row>_host / _client, R-GR's rejoiner w2h64_gr_client2; session.new_campaign
-SEPARATE gm1 tcp, the host base at HOST_POS; both tops GeoscapeState unchanged STABLE_S within BOOT_S). Construction (real presses only):
-R-GN / R-GR stage the guest (the client's first own-base soldier not in a craft renamed GIFTNAME, transfer_to_coop_base to the host's base,
-the host's 150 closed by a real OK); the picker (quick save, named probe save, select-destination CANCEL scale); the visit (the client's
-globe click on the host base); baseline B; the trigger (save_game_ui quick: the 54 on top, the client's 67); R-GN / R-GR: HOLD_PRE and the
-gift (the client's OK on its 67, SOLDIERS, the guest's row, KP2, the host's button: the host's notice on top over the 54).
-  R-GN (C2): the client leaves the base (OK, GEOSCAPE); QUICK written within W_SAVE; WAIT_W; read W; the host's real OK on the notice.
-  R-GR (C3R): client.kill() at the notice's first sight; read D HOLD_S later; a NEW client (fresh dir) joins KEY by name until the host's
-    resumeAck with its 62 on top within JOIN_S; the host's real RESUME; the notice on top within W_RESUME (read R); the notice's real OK.
-  R-GW (C1, the armed-wait guard): no gift; HOLD_W with the client on its 67 (read H); the client's OK on its 67 and GEOSCAPE; QUICK
-    written and the 54 gone within W_SAVE (the blob handler's pop); read E 1 s later.
-R-GN / R-GR: poll POLL_S up to W_CLOSE after the notice's OK for back() (the host stack == B's, top GeoscapeState), then read E. Needles
-(host log since B): H59LOG, CLEAR, FREEZE, DROP and CLOSE54 (EB1's log line). Cells (16): GN-pre / GR-pre / GW-pre GUARD (the
-preconditions, with reads W / D); GR-rejoin GUARD (read R); GN-close / GR-close FIX (back() within W_CLOSE); GN-log / GR-log FIX (CLOSE54
-1 at E); GN-once / GR-once GUARD (QUICK's mtime at E == at W / D; CLEAR 1); GW-hold GUARD (read H: the 54 on top, armed, CLEAR 0);
-GW-write GUARD; GW-log GUARD (CLOSE54 0 at H and E); X-common GUARD (host alive; each new crash_*.log since B is the lever's miss, one per W2-H70 push).
-Red (commit R1, the HEAD build = S-A green): exit 2, RED exactly on GN-close, GN-log, GR-close, GR-log (4).
-A precondition miss ends its row (cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line
-per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
-foreground run per invocation.
-W2-H70 T1: W2-H70's gift pushes the client's stored world; it lands about
-0.2 s after the notice and races the notice's CLEAR guard and R-GR's drop write. R-GN / R-GR arm the client's TEST-ONLY
-force_stream_key_miss just before the host's button (no client world lands) and wait until the lever's logged misses equal the client's
-W2-H70 pushes (0 without W2-H70, 1 with it); R-GN then releases it and waits until CLEAR equals that count before the leave.
+"""test_host_save_wait_closes.py: every co-op host geoscape save waits behind "Saving..." (CoopState 54) for the
+second player's world; inside the host's base the wait lasts the whole visit, and a soldier gift (keypad 2) puts the
+host's GiftNoticeState over the 54. A save written while the notice covers the 54 (the world landing when the player
+leaves the base, or the drop write of test_host_save_under_window) disarms it but cannot pop the 54 under the notice.
+The 54 closes itself as soon as it is the top state again with nothing armed ("[coop] the host's save wait (54)
+closes"). When broken, after the notice's OK the host sees "Saving..." until CANCEL, which writes nothing.
+Three rows, one fresh boot pair each (key "49227", dirs wait_closes_<row>_host / _client, drop_and_rejoin's rejoiner
+wait_closes_drop_and_rejoin_client2; session.new_campaign SEPARATE gm1 tcp, the host base at HOST_POS; both tops
+GeoscapeState unchanged STABLE_S within BOOT_S). Construction (real presses only): leave_under_notice /
+drop_and_rejoin stage the guest (the client's first own-base soldier not in a craft renamed GIFTNAME,
+transfer_to_coop_base to the host's base, the host's 150 closed by a real OK); the picker (quick save, named probe
+save, select-destination CANCEL scale); the visit (the client's globe click on the host base); the baseline read; the
+trigger (save_game_ui quick: the 54 on top, the client's 67); leave_under_notice / drop_and_rejoin: HOLD_PRE and the
+gift (the client's OK on its 67, SOLDIERS, the guest's row, KP2, the host's button: the host's notice on top over the
+54).
+  leave_under_notice: the client leaves the base (OK, GEOSCAPE); QUICK written within W_SAVE; WAIT_W; the leave read;
+    the host's real OK on the notice.
+  drop_and_rejoin: client.kill() at the notice's first sight; the drop read HOLD_S later; a NEW client (fresh dir)
+    joins KEY by name until the host's resumeAck with its 62 on top within JOIN_S; the host's real RESUME; the notice
+    on top within W_RESUME (the resume read); the notice's real OK.
+  armed_wait (the armed-wait guard): no gift; HOLD_W with the client on its 67 (the hold read); the client's OK on its
+    67 and GEOSCAPE; QUICK written and the 54 gone within W_SAVE (the blob handler's pop); the end read 1 s later.
+leave_under_notice / drop_and_rejoin: poll POLL_S up to W_CLOSE after the notice's OK for back() (the host stack ==
+the baseline's, top GeoscapeState), then the end read. Needles (host log since the baseline): DEFERRED_DROP, CLEAR,
+FREEZE, DROP and CLOSE54 (the 54's own close line). Cells (16), named <row>-<check>: -pre GUARD (the preconditions,
+with the leave / drop reads); drop_and_rejoin-rejoin GUARD (the resume read); leave_under_notice-close /
+drop_and_rejoin-close FIX (back() within W_CLOSE); leave_under_notice-log / drop_and_rejoin-log FIX (CLOSE54 1 at the
+end read); leave_under_notice-once / drop_and_rejoin-once GUARD (QUICK's mtime at the end read == at the leave / drop
+read; CLEAR 1); armed_wait-hold GUARD (the hold read: the 54 on top, armed, CLEAR 0); armed_wait-write GUARD;
+armed_wait-log GUARD (CLOSE54 0 at the hold and end reads); -common GUARD (host alive; each new crash_*.log since the
+baseline is the key miss below, one per gift push).
+When broken (with the drop write of test_host_save_under_window in place): exit 2, failing exactly
+leave_under_notice-close, leave_under_notice-log, drop_and_rejoin-close and drop_and_rejoin-log (4).
+A precondition miss ends its row (cells "not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line.
+ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2.
+one foreground run per invocation.
+A gift made during a base visit pushes the client's stored world; it lands about 0.2 s after the notice and races the
+notice's CLEAR guard and drop_and_rejoin's drop write. leave_under_notice / drop_and_rejoin arm the client's
+force_stream_key_miss test command just before the host's button (no client world lands) and wait until the logged key
+misses equal the client's gift pushes (at most one); leave_under_notice then releases it and waits until CLEAR equals
+that count before the leave.
 Run: python tools/coop_test/test_host_save_wait_closes.py
 """
 import base64, glob, json, math, os, sys, time  # noqa: E401
@@ -39,7 +50,7 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49227"
-QUICK, PROBE = "_quick_.asav", "h64_probe.sav"
+QUICK, PROBE = "_quick_.asav", "picker_probe.sav"
 HOST_POS = (0.90, -0.60)
 GIFTNAME = "Zzz Gift"
 REJOIN_NAME = "ClientPlayer"
@@ -47,16 +58,17 @@ SDLK_KP2 = 258
 POLL_S, SEEN54_S, W_67, HOLD_PRE, W_UI, W_NOTICE, W_VISIT = 0.005, 10.0, 10.0, 1.0, 5.0, 10.0, 60.0
 HOLD_S, W_SAVE, STABLE_S, BOOT_S = 5.0, 30.0, 2.0, 60.0
 W_BACK, WAIT_W, W_CLOSE, JOIN_S, W_RESUME, HOLD_W = 60.0, 1.0, 2.0, 40.0, 15.0, 4.0
-W_LEVER = 5.0  # W2-H70 T1: the lever's miss follows the host's reply to the client's push (T0-6: the whole stream took 0.23 s)
+W_MISS = 5.0  # the key miss follows the host's reply to the client's push (the whole stream took 0.23 s in one run)
 MISS = "Failed to read from hash map with key: client_%s_%s.data"  # loopData's miss of the client's own-world key (saveID, name)
-GIFT70 = "[coop-gift] the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored world at the gift
+GIFT_PUSH = "[coop-gift] the stored own world follows a gift"  # the client pushed its stored world at the gift
 RC_OK = (0, 3221226505)
 ZOOM = [0.45, 0.60, 0.90, 1.40, 2.25, 3.60]
 CLICKS = [(0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (2, 2), (-2, -2), (2, -2), (-2, 2), (3, 0), (-3, 0), (0, 3), (0, -3)]
-NEEDLES = {"H59LOG": "[coop] the partner dropped during the host's deferred save", "CLEAR": "[coop-session] clearDeferredSave",
+NEEDLES = {"DEFERRED_DROP": "[coop] the partner dropped during the host's deferred save",
+           "CLEAR": "[coop-session] clearDeferredSave",
            "FREEZE": "[coop-session] freeze (lobbyMode=", "DROP": "[coop-session] onClientDrop",
            "CLOSE54": "[coop] the host's save wait (54) closes"}
-PATH4 = ("H59LOG", "CLEAR", "FREEZE", "DROP")
+PATH4 = ("DEFERRED_DROP", "CLEAR", "FREEZE", "DROP")
 
 class Stop(Exception):
     """a WAIT timed out or a precondition missed: the row ends here"""
@@ -108,12 +120,12 @@ def files(gc):
             if os.path.isfile(p):
                 st = os.stat(p)
                 out[os.path.basename(p)] = [st.st_size, st.st_mtime_ns]
-        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 
 def misses(r, paths):
-    """W2-H70 T1: the names of the crash files among paths that hold the lever's miss r.miss (none before settle sets it)"""
+    """the names of the crash files among paths that hold the key miss r.miss (none before settle sets it)"""
     out = []
     for p in sorted(paths):
         with open(p, encoding="utf-8", errors="replace") as fh:
@@ -122,28 +134,31 @@ def misses(r, paths):
     return out
 
 def settle(r, x):
-    """W2-H70 T1: once the client's GiftSoldierMenu is gone (its handler, with any W2-H70 push, has run), n70 = the client's W2-H70
-    push lines; poll up to W_LEVER until the lever's misses since B number n70 (that push's stream failed on the lever) -> ev["lever"]"""
+    """once the client's GiftSoldierMenu is gone (its handler, with any gift push, has run), n_push = the client's gift
+    push lines; poll up to W_MISS until the key misses since the baseline number n_push (that push's stream failed on
+    the key miss) -> ev["key_miss"]"""
     c = x.client
     gone, _s = wait(lambda: "GiftSoldierMenu" not in stack(c), W_UI)
-    r.miss = MISS % (r.ev["at54"]["saveID"], r.ev["B"]["get_coop"].get("clientName"))
-    r.n70 = sum(1 for ln in log(c) if GIFT70 in ln)
-    v, s = wait(lambda: len(misses(r, session._crash_log_snapshot() - r.cr0)) == r.n70, W_LEVER, 0.02)
-    r.ev["lever"] = {"menu gone": bool(gone), "n70": r.n70, "misses": misses(r, session._crash_log_snapshot() - r.cr0), "s": s}
-    if not (gone and v and r.n70 <= 1):
-        raise Stop("the lever did not settle: %s" % r.ev["lever"])
+    r.miss = MISS % (r.ev["at54"]["saveID"], r.ev["baseline"]["get_coop"].get("clientName"))
+    r.n_push = sum(1 for ln in log(c) if GIFT_PUSH in ln)
+    v, s = wait(lambda: len(misses(r, session._crash_log_snapshot() - r.cr0)) == r.n_push, W_MISS, 0.02)
+    r.ev["key_miss"] = {"menu gone": bool(gone), "n_push": r.n_push,
+                        "misses": misses(r, session._crash_log_snapshot() - r.cr0), "s": s}
+    if not (gone and v and r.n_push <= 1):
+        raise Stop("the key misses did not settle: %s" % r.ev["key_miss"])
 
 def release(r, x):
-    """W2-H70 T1 (R-GN): the lever off; poll up to W_SAVE until the host's CLEAR equals n70 (a W2-H70 push the lever held lands under
-    the notice and completes the save; without W2-H70 nothing lands before the leave) -> ev["release"]"""
+    """leave_under_notice: the key miss off; poll up to W_SAVE until the host's CLEAR equals n_push (a gift push the key
+    miss held lands under the notice and completes the save; with no push nothing lands before the leave)
+    -> ev["release"]"""
     off = q(x.client, {"cmd": "force_stream_key_miss", "on": False})
-    v, s = wait(lambda: counts(x.host, r.n_h)["CLEAR"] == r.n70, W_SAVE, 0.02)
+    v, s = wait(lambda: counts(x.host, r.n_h)["CLEAR"] == r.n_push, W_SAVE, 0.02)
     r.ev["release"] = {"off": bool(off.get("ok") and off.get("on") is False), "CLEAR s": s if v else None}
     if not (r.ev["release"]["off"] and v):
-        raise Stop("the lever's release: %s" % r.ev["release"])
+        raise Stop("the key miss release: %s" % r.ev["release"])
 
 def cpu():
-    """the machine's CPU load (Processor(_Total)) and any Wardogs* process (S24)"""
+    """the machine's CPU load (Processor(_Total)) and any Wardogs* process"""
     c = cpu_load()
     return "%s%s" % (cpu_text(c["cpu"]), " | " + ",".join(c["wardogs"]) if c["wardogs"] else "")
 
@@ -263,11 +278,12 @@ def visit(x, ev):
         raise Stop("the client not inside the host base within %.0f s: %s" % (W_VISIT, stack(c)))
 
 def baseline(r, x):
-    """B, just before the trigger: crash snapshot, the host log's line count, stack, get_coop, coop_file_info, the folder"""
+    """The baseline, just before the trigger: crash snapshot, the host log's line count, stack, get_coop,
+    coop_file_info, the folder"""
     h = x.host
     r.cr0, r.n_h = session._crash_log_snapshot(), len(log(h))
-    r.ev["B"] = {"stack": stack(h), "get_coop": coop(h), "coop_file_info": blobinfo(h), "folder": files(h)}
-    return r.ev["B"]
+    r.ev["baseline"] = {"stack": stack(h), "get_coop": coop(h), "coop_file_info": blobinfo(h), "folder": files(h)}
+    return r.ev["baseline"]
 
 def at54(r, x):
     """save_game_ui quick; poll POLL_S up to SEEN54_S for the host's top 54 (name, saveID, CLEAR); the client's 67 within W_67"""
@@ -306,10 +322,10 @@ def gift(r, x):
     ev["gift"] = seq
     if not (seq["menu names the guest"] and hostbtn):
         raise Stop("the gift menu not reached: %s %s %s" % (seq, btns, stack(c)))
-    lv = q(c, {"cmd": "force_stream_key_miss", "on": True})  # W2-H70 T1: no client world lands before the drop / release
-    seq["lever on"] = bool(lv.get("ok") and lv.get("on") is True)
-    if not seq["lever on"]:
-        raise Stop("force_stream_key_miss not armed on the client: %s" % lv)
+    miss_on = q(c, {"cmd": "force_stream_key_miss", "on": True})  # no client world lands before the drop / release
+    seq["key miss on"] = bool(miss_on.get("ok") and miss_on.get("on") is True)
+    if not seq["key miss on"]:
+        raise Stop("force_stream_key_miss not armed on the client: %s" % miss_on)
     tg = time.time()
     seq["host button"] = real_click(c, hostbtn, W_UI)
     while time.time() - tg < W_NOTICE:
@@ -322,7 +338,7 @@ def gift(r, x):
     raise Stop("no GiftNoticeState on the host within %.0f s of the gift click: %s" % (W_NOTICE, stack(h)))
 
 def leave_base(x, ev, label):
-    """CAP's leave_base: OK on SoldierInfoState / SoldiersState, GEOSCAPE; back on its own geoscape within W_BACK -> GEOSCAPE's time"""
+    """OK on SoldierInfoState / SoldiersState, GEOSCAPE; back on its own geoscape within W_BACK -> GEOSCAPE's time"""
     c, oks = x.client, []
     for _ in range(4):
         if top(c) not in ("SoldierInfoState", "SoldiersState"):
@@ -342,9 +358,10 @@ def leave_base(x, ev, label):
     return tg
 
 def rejoin(r, x):
-    """CAP's rejoin: a NEW client (fresh dir) joins KEY as B's clientName; profile_ok on a Profile top; resumeAck + 62 within JOIN_S"""
+    """a NEW client (fresh dir) joins KEY as the baseline clientName; profile_ok on a Profile top; resumeAck + 62 within
+    JOIN_S"""
     h = x.host
-    name = r.ev["B"]["get_coop"].get("clientName") or REJOIN_NAME
+    name = r.ev["baseline"]["get_coop"].get("clientName") or REJOIN_NAME
     x.client2 = x.client = GameClient("client2", None, make_user_dir(x.tag + "_client2"))
     x.client.spawn(); x.client.connect()
     tj, gc, n = time.time(), x.client, 0
@@ -361,23 +378,24 @@ def rejoin(r, x):
     raise Stop("the host's resumeAck with its 62 on top not within %.0f s: %s" % (JOIN_S, r.ev["rejoin"]))
 
 def read(r, x):
-    """a read: the host stack, coop_dialog_info, get_coop, the folder (QUICK), the needle counts since B, host alive, new crash files"""
+    """a read: the host stack, coop_dialog_info, get_coop, the folder (QUICK), the needle counts since the baseline,
+    host alive, new crash files"""
     h = x.host
     rd = {"stack": stack(h), "dialog": dlg(h), "get_coop": coop(h), "folder": files(h), "needles": counts(h, r.n_h), "alive": alive(h),
           "new crash": sorted(session._crash_log_snapshot() - r.cr0)}
-    a, b = rd["folder"].get(QUICK), r.ev["B"]["folder"].get(QUICK)
+    a, b = rd["folder"].get(QUICK), r.ev["baseline"]["folder"].get(QUICK)
     rd["written"], rd["mtime"] = bool(a and (b is None or a[1] > b[1])), a and a[1]
     rd["misses"] = misses(r, rd["new crash"])
     return rd
 
 def written(r, x):
-    """QUICK's mtime_ns newer than B's"""
-    a, b = files(x.host).get(QUICK), r.ev["B"]["folder"].get(QUICK)
+    """QUICK's mtime_ns newer than the baseline's"""
+    a, b = files(x.host).get(QUICK), r.ev["baseline"]["folder"].get(QUICK)
     return bool(a and (b is None or a[1] > b[1]))
 
 def wait_back(r, x):
-    """poll POLL_S up to W_CLOSE for back(): the host stack == B's (top GeoscapeState) -> seconds or None"""
-    v, s = wait(lambda: stack(x.host) == r.ev["B"]["stack"], W_CLOSE, POLL_S)
+    """poll POLL_S up to W_CLOSE for back(): the host stack == the baseline's (top GeoscapeState) -> seconds or None"""
+    v, s = wait(lambda: stack(x.host) == r.ev["baseline"]["stack"], W_CLOSE, POLL_S)
     return s if v else None
 
 class Row:
@@ -419,7 +437,8 @@ class Row:
         self.end(results, walls, cap=self.x.cap)
 
 def to_notice(r, x):
-    """construction (2)-(4), B, the trigger, HOLD_PRE, the gift: the notice on top over B's stack + [CoopState], name QUICK, CLEAR +0"""
+    """the guest, the picker, the visit, the baseline, the trigger, HOLD_PRE, the gift: the notice on top over the
+    baseline stack + [CoopState], name QUICK, CLEAR +0"""
     ev = r.ev
     stage_guest(x, ev)
     picker(x, ev)
@@ -447,24 +466,28 @@ def guard(r, cid, label, fn):
     return v
 
 def ok_and_close(r, x, p):
-    """the host's real OK on the notice, back() within W_CLOSE, read E; the -close and -log cells"""
+    """the host's real OK on the notice, back() within W_CLOSE, the end read; the -close and -log cells"""
     ok = r.ev["notice OK"] = real_click(x.host, "OK", W_UI)
     bs = r.ev["back s"] = wait_back(r, x)
-    E = r.ev["E"] = read(r, x)
-    r.cell(p + "-close", "FIX", "back(): the host stack == B's (top GeoscapeState) within %.0f s after the notice's OK (red today: top CoopState "
-           "54 \"Saving...\" with nothing armed, F19185 / F19187)" % W_CLOSE, bool(ok and bs is not None))
-    r.cell(p + "-log", "FIX", "CLOSE54 = 1 at E (red today: 0)", E["needles"]["CLOSE54"] == 1)
+    E = r.ev["end_read"] = read(r, x)
+    r.cell(p + "-close", "FIX", "back(): the host stack == the baseline's (top GeoscapeState) within %.0f s after the "
+           "notice's OK (when broken: top CoopState 54 \"Saving...\" with nothing armed)" % W_CLOSE,
+           bool(ok and bs is not None))
+    r.cell(p + "-log", "FIX", "CLOSE54 = 1 at the end read (when broken: 0)", E["needles"]["CLOSE54"] == 1)
     return E
 
 def common_cell(r, p, E):
-    """W2-H70 T1: every crash_*.log new since B is the lever's miss, one per W2-H70 push (n70; R-GW arms no lever: 0)"""
-    n = getattr(r, "n70", 0)
-    r.cell(p + "-common", "GUARD", "the host alive at E; every crash_*.log new since B is the lever's miss %s, %d of them (W2-H70 T1)"
-           % (getattr(r, "miss", None), n), bool(E["alive"] and len(E["misses"]) == len(E["new crash"]) == n))
+    """every crash_*.log new since the baseline is the key miss, one per gift push (n_push; armed_wait arms no key
+    miss: 0)"""
+    n = getattr(r, "n_push", 0)
+    r.cell(p + "-common", "GUARD", "the host alive at the end read; every crash_*.log new since the baseline is the "
+           "key miss %s, %d of them" % (getattr(r, "miss", None), n),
+           bool(E["alive"] and len(E["misses"]) == len(E["new crash"]) == n))
 
-def row_gn(x, results, walls):
-    """R-GN (C2): the gift's notice over the 54; the client leaves the base; the write lands under the notice; the host's OK"""
-    r = Row("R-GN", ["GN-pre", "GN-close", "GN-log", "GN-once", "GN-common"], x)
+def row_leave_under_notice(x, results, walls):
+    """the gift's notice over the 54; the client leaves the base; the write lands under the notice; the host's OK"""
+    r = Row("leave_under_notice", ["leave_under_notice-pre", "leave_under_notice-close", "leave_under_notice-log",
+                                   "leave_under_notice-once", "leave_under_notice-common"], x)
     if x.err:
         return r.boot_miss(results, walls)
     ev = r.ev
@@ -473,31 +496,35 @@ def row_gn(x, results, walls):
     def pre():
         B, _tn = to_notice(r, x)
         release(r, x)
-        tg = leave_base(x, ev, "R-GN")
+        tg = leave_base(x, ev, "leave_under_notice")
         v, _s = wait(lambda: written(r, x), W_SAVE, 0.02)
         ev["written s after GEOSCAPE"] = round(time.time() - tg, 3) if v else None
         time.sleep(WAIT_W)
-        W = ev["W"] = read(r, x)
+        W = ev["leave_read"] = read(r, x)
         n = W["needles"]
-        if not (W["written"] and n["CLEAR"] == 1 and n["H59LOG"] == 0 and W["stack"] == B["stack"] + ["CoopState", "GiftNoticeState"]
+        if not (W["written"] and n["CLEAR"] == 1 and n["DEFERRED_DROP"] == 0
+                and W["stack"] == B["stack"] + ["CoopState", "GiftNoticeState"]
                 and W["get_coop"].get("pendingHostSaveName") == ""):
-            raise Stop("read W: %s" % json.dumps(W, default=str)[:400])
+            raise Stop("the leave read: %s" % json.dumps(W, default=str)[:400])
         return W
     try:
-        W = guard(r, "GN-pre", "construction met; the 54 on top within %.0f s, name %s, CLEAR +0; the notice on top over B's stack + [CoopState], "
-                  "name %s; the client back on its geoscape; read W: %s written once (CLEAR 1, H59LOG 0), host stack B + [CoopState, "
+        W = guard(r, "leave_under_notice-pre", "construction met; the 54 on top within %.0f s, name %s, CLEAR +0; the "
+                  "notice on top over the baseline stack + [CoopState], name %s; the client back on its geoscape; the "
+                  "leave read: %s written once (CLEAR 1, DEFERRED_DROP 0), host stack the baseline + [CoopState, "
                   "GiftNoticeState], name \"\"" % (SEEN54_S, QUICK, QUICK, QUICK), pre)
-        E = ok_and_close(r, x, "GN")
-        r.cell("GN-once", "GUARD", "%s's mtime_ns at E == at W; CLEAR still 1; name \"\" (the close writes nothing)" % QUICK,
+        E = ok_and_close(r, x, "leave_under_notice")
+        r.cell("leave_under_notice-once", "GUARD", "%s's mtime_ns at the end read == at the leave read; CLEAR still 1; "
+               "name \"\" (the close writes nothing)" % QUICK,
                bool(E["mtime"] == W["mtime"] and E["needles"]["CLEAR"] == 1 and E["get_coop"].get("pendingHostSaveName") == ""))
-        common_cell(r, "GN", E)
+        common_cell(r, "leave_under_notice", E)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
 
-def row_gr(x, results, walls):
-    """R-GR (C3R on S-A): kill at the notice; S-A's drop write; a NEW client rejoins; the host's RESUME; the notice's OK"""
-    r = Row("R-GR", ["GR-pre", "GR-rejoin", "GR-close", "GR-log", "GR-once", "GR-common"], x)
+def row_drop_and_rejoin(x, results, walls):
+    """kill at the notice; the drop write; a NEW client rejoins; the host's RESUME; the notice's OK"""
+    r = Row("drop_and_rejoin", ["drop_and_rejoin-pre", "drop_and_rejoin-rejoin", "drop_and_rejoin-close",
+                                "drop_and_rejoin-log", "drop_and_rejoin-once", "drop_and_rejoin-common"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, ev = x.host, r.ev
@@ -510,10 +537,11 @@ def row_gr(x, results, walls):
         ev["drop"] = {"event": "client.kill()", "s after notice": round(td - tn, 3), "rc": x.client.proc.poll()}
         while time.time() - td < HOLD_S:
             time.sleep(0.05)
-        D = ev["D"] = read(r, x)
+        D = ev["drop_read"] = read(r, x)
         if not (not alive(x.client) and D["written"] and tuple(D["needles"][k] for k in PATH4) == (1, 1, 1, 1)
-                and D["stack"] == B["stack"] + ["CoopState", "GiftNoticeState", "CoopState"] and D["dialog"].get("code") == 62):
-            raise Stop("read D: %s" % json.dumps(D, default=str)[:400])
+                and D["stack"] == B["stack"] + ["CoopState", "GiftNoticeState", "CoopState"]
+                and D["dialog"].get("code") == 62):
+            raise Stop("the drop read: %s" % json.dumps(D, default=str)[:400])
         return D
 
     def back_in():
@@ -521,26 +549,32 @@ def row_gr(x, results, walls):
         ev["RESUME"] = real_click(h, "RESUME", W_RESUME)
         v, s = wait(lambda: top(h) == "GiftNoticeState", W_RESUME, 0.02)
         ev["notice after RESUME s"] = s if v else None
-        R = ev["R"] = read(r, x)
-        if not (ev["RESUME"] and v and R["stack"] == ev["B"]["stack"] + ["CoopState", "GiftNoticeState"]
+        R = ev["resume_read"] = read(r, x)
+        if not (ev["RESUME"] and v and R["stack"] == ev["baseline"]["stack"] + ["CoopState", "GiftNoticeState"]
                 and R["get_coop"].get("pendingHostSaveName") == ""):
             raise Stop("after RESUME: %s" % json.dumps(R, default=str)[:400])
     try:
-        D = guard(r, "GR-pre", "construction met; the notice on top over B's stack + [CoopState], name %s, CLEAR +0; the client exited; read D "
-                  "%.0f s after the kill: %s written, (H59LOG, CLEAR, FREEZE, DROP) = (1, 1, 1, 1), host stack B + [CoopState, GiftNoticeState, "
-                  "CoopState], code 62 (S-A, F19188)" % (QUICK, HOLD_S, QUICK), pre)
-        guard(r, "GR-rejoin", "the NEW client joins %s: the host's resumeAck true with its 62 on top within %.0f s; the host's real RESUME; "
-              "GiftNoticeState on top within %.0f s; read R: stack B + [CoopState, GiftNoticeState], name \"\"" % (KEY, JOIN_S, W_RESUME), back_in)
-        E = ok_and_close(r, x, "GR")
-        r.cell("GR-once", "GUARD", "%s's mtime_ns at E == at D; CLEAR still 1" % QUICK, bool(E["mtime"] == D["mtime"] and E["needles"]["CLEAR"] == 1))
-        common_cell(r, "GR", E)
+        D = guard(r, "drop_and_rejoin-pre", "construction met; the notice on top over the baseline stack + "
+                  "[CoopState], name %s, CLEAR +0; the client exited; the drop read %.0f s after the kill: %s written, "
+                  "(DEFERRED_DROP, CLEAR, FREEZE, DROP) = (1, 1, 1, 1), host stack the baseline + [CoopState, "
+                  "GiftNoticeState, CoopState], code 62 (the drop write)" % (QUICK, HOLD_S, QUICK), pre)
+        guard(r, "drop_and_rejoin-rejoin", "the NEW client joins %s: the host's resumeAck true with its 62 on top "
+              "within %.0f s; the host's real RESUME; GiftNoticeState on top within %.0f s; the resume read: stack the "
+              "baseline + [CoopState, GiftNoticeState], name \"\"" % (KEY, JOIN_S, W_RESUME), back_in)
+        E = ok_and_close(r, x, "drop_and_rejoin")
+        r.cell("drop_and_rejoin-once", "GUARD",
+               "%s's mtime_ns at the end read == at the drop read; CLEAR still 1" % QUICK,
+               bool(E["mtime"] == D["mtime"] and E["needles"]["CLEAR"] == 1))
+        common_cell(r, "drop_and_rejoin", E)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
 
-def row_gw(x, results, walls):
-    """R-GW (C1, the armed-wait guard): no gift; HOLD_W; the client's OK on its 67 + GEOSCAPE; the blob handler writes and pops the 54"""
-    r = Row("R-GW", ["GW-pre", "GW-hold", "GW-write", "GW-log", "GW-common"], x)
+def row_armed_wait(x, results, walls):
+    """the armed-wait guard: no gift; HOLD_W; the client's OK on its 67 + GEOSCAPE; the blob handler writes and pops
+    the 54"""
+    r = Row("armed_wait", ["armed_wait-pre", "armed_wait-hold", "armed_wait-write", "armed_wait-log",
+                           "armed_wait-common"], x)
     if x.err:
         return r.boot_miss(results, walls)
     h, c, ev = x.host, x.client, r.ev
@@ -554,25 +588,27 @@ def row_gw(x, results, walls):
         if a["name"] != QUICK or a["CLEAR"] != 0 or a["67 s"] is None:
             raise Stop("at the 54: %s" % a)
     try:
-        guard(r, "GW-pre", "construction met (no guest); the 54 on top within %.0f s, name %s, CLEAR +0; the client's 67 within %.0f s"
-              % (SEEN54_S, QUICK, W_67), pre)
+        guard(r, "armed_wait-pre", "construction met (no guest); the 54 on top within %.0f s, name %s, CLEAR +0; the "
+              "client's 67 within %.0f s" % (SEEN54_S, QUICK, W_67), pre)
         time.sleep(HOLD_W)
-        H = ev["H"] = read(r, x)
-        r.cell("GW-hold", "GUARD", "read H after %.0f s: host top CoopState with code 54, name %s, CLEAR 0 (F19180; EB1 inert while armed)"
-               % (HOLD_W, QUICK), bool(H["stack"][-1:] == ["CoopState"] and H["dialog"].get("code") == 54
-                                       and H["get_coop"].get("pendingHostSaveName") == QUICK and H["needles"]["CLEAR"] == 0))
+        H = ev["hold_read"] = read(r, x)
+        r.cell("armed_wait-hold", "GUARD", "the hold read after %.0f s: host top CoopState with code 54, name %s, "
+               "CLEAR 0 (the 54's own close does nothing while armed)" % (HOLD_W, QUICK),
+               bool(H["stack"][-1:] == ["CoopState"] and H["dialog"].get("code") == 54
+                    and H["get_coop"].get("pendingHostSaveName") == QUICK and H["needles"]["CLEAR"] == 0))
         ev["67 OK"] = real_click(c, dlg(c).get("backText") or "OK", W_UI)
         time.sleep(0.3)
-        tg = leave_base(x, ev, "R-GW")
-        v, _s = wait(lambda: written(r, x) and stack(h) == ev["B"]["stack"], W_SAVE, 0.02)
+        tg = leave_base(x, ev, "armed_wait")
+        v, _s = wait(lambda: written(r, x) and stack(h) == ev["baseline"]["stack"], W_SAVE, 0.02)
         ev["written and back s after GEOSCAPE"] = round(time.time() - tg, 3) if v else None
         time.sleep(1.0)
-        E = ev["E"] = read(r, x)
-        r.cell("GW-write", "GUARD", "within %.0f s of the client's GEOSCAPE: %s written and back() (the blob handler's pop); at E CLEAR 1, name \"\""
-               % (W_SAVE, QUICK), bool(v and E["needles"]["CLEAR"] == 1 and E["get_coop"].get("pendingHostSaveName") == ""))
-        r.cell("GW-log", "GUARD", "CLOSE54 = 0 at H and at E (F19189: an armed 54 is never closed by EB1)",
+        E = ev["end_read"] = read(r, x)
+        r.cell("armed_wait-write", "GUARD", "within %.0f s of the client's GEOSCAPE: %s written and back() (the blob "
+               "handler's pop); at the end read CLEAR 1, name \"\"" % (W_SAVE, QUICK),
+               bool(v and E["needles"]["CLEAR"] == 1 and E["get_coop"].get("pendingHostSaveName") == ""))
+        r.cell("armed_wait-log", "GUARD", "CLOSE54 = 0 at the hold and end reads (an armed 54 never closes itself)",
                H["needles"]["CLOSE54"] == 0 and E["needles"]["CLOSE54"] == 0)
-        common_cell(r, "GW", E)
+        common_cell(r, "armed_wait", E)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
     r.end(results, walls)
@@ -605,7 +641,8 @@ def boot(rid, tag):
     return x
 
 def shut(x):
-    """every machine of the boot (the killed client was reaped by kill(); R-GR's rejoiner too) -> the shutdown failures"""
+    """every machine of the boot (the killed client was reaped by kill(); drop_and_rejoin's rejoiner too) -> the
+    shutdown failures"""
     failed = []
     for gc in (x.client2, x.client1, x.host):
         try:
@@ -616,7 +653,9 @@ def shut(x):
             failed.append("%s shutdown %s" % (x.tag, gc.name))
     return failed
 
-ROWS = (("R-GN", "w2h64_gn", row_gn), ("R-GR", "w2h64_gr", row_gr), ("R-GW", "w2h64_gw", row_gw))
+ROWS = (("leave_under_notice", "wait_closes_leave_under_notice", row_leave_under_notice),
+        ("drop_and_rejoin", "wait_closes_drop_and_rejoin", row_drop_and_rejoin),
+        ("armed_wait", "wait_closes_armed_wait", row_armed_wait))
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
