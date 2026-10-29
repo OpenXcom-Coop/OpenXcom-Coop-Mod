@@ -1,16 +1,16 @@
 """test_held_resubmit.py: a client order the host denies `busy` while a turn-start bleed-out death
-is queued is held, and must go out again once that chain ends (the ruled busy -> held -> resubmit behaviour: ADDENDUM
-2026-08-31 1.3 (a) "admission happens at quiescence" (register ADD-1.3a); R2-P7's auto-retry; W2-P4 C17p "busy orders
-held and resubmitted"). Owner Q2 (CIT-Q2, 2026-10-19): trace it, show how a player reaches it, then a deterministic red.
+is queued is held, and must go out again once that chain ends (busy -> held -> resubmit: an order is admitted at
+quiescence, and a busy order is held and resubmitted automatically).
 
-The chain (H90 Stage 1, report docs rewrite/w2-resume-dafc8555/reports/w2-h90.md): at a side change the host's
-BattlescapeGame::endTurn() runs checkForCasualties() after coopEmitSideTransition(); a soldier whose fatal wound took
-its last hit point gets a UnitDieBState with NO action context open. The host's own NextTurnState is pushed on top in
-the same call, and a covered host battle steps only an `intent` / `endturn` context (coopThinkCoveredBattle), so the
-death stays queued (the host isBusy) until the HOST player closes its turn screen. A client player who closed its own
-turn screen first and gives an order meanwhile is answered deny(busy) and the order is held. The death then plays and
-ends through onChainQuiesced()'s context-less branch: no bt_action_end, so the client's only release point
-(CoopArbiter::onQuiescenceObserved, called when a bt_action_end applies) never runs.
+The chain: at a side change the host's BattlescapeGame::endTurn() runs checkForCasualties() after
+coopEmitSideTransition(); a soldier whose fatal wound took its last hit point gets a UnitDieBState with NO action
+context open. The host's own NextTurnState is pushed on top in the same call, and a covered host battle steps only an
+`intent` / `endturn` context (coopThinkCoveredBattle), so the death stays queued (the host isBusy) until the HOST
+player closes its turn screen. A client player who closed its own turn screen first and gives an order meanwhile is
+answered deny(busy) and the order is held. The death then plays and ends through onChainQuiesced()'s context-less
+branch, which emits no bt_action_end; while such a busy deny is unreleased, the host sends one `quiesce` ev after the
+chain's evs, and the client's apply resubmits the held order (CoopArbiter::onQuiescenceObserved), as a bt_action_end's
+does.
 
 Classic co-op boot (test_battle_end.boot: SEED_MAP 1, parallel turns, the only alien pinned neutral). H = 10 (seat 0,
 the host's lowest soldier) bleeds: battle_set_unit_state {health 1, fatalWounds [0,1,0,0,0,0]} client first, then host.
@@ -19,22 +19,25 @@ row is REAL UI: the client closes its NextTurnState with a key, TAB-selects C an
 (BattlescapeGame::secondaryAction's client branch sends the `turn` intent); the host closes its NextTurnState with a key.
 The alien-side turn screens in between close through close_nextturn (vanilla's own close(), not the subject).
 
-| row | the client's right-click | green |
-|---|---|---|
-| B1 | while the host's NextTurnState is up and H's UnitDieBState is queued | denied busy and held (lastDeny busy, the held turn, C unturned on both); after the host's key the death runs and the host goes idle; then the held turn goes out again and C faces toDir on both within RESUBMIT_S; nothing pending or in flight; hash clean |
-| B1n | after the host's key, once the host is idle (the negative control) | C faces toDir on both within RESUBMIT_S, no busy deny; nothing pending or in flight; hash clean |
+Rows (when the client right-clicks: what passes):
+  held_resubmitted    while the host's NextTurnState is up and H's UnitDieBState is queued: denied busy and held
+                      (lastDeny busy, the held turn, C unturned on both); after the host's key the death runs and the
+                      host goes idle; then the held turn goes out again and C faces toDir on both within RESUBMIT_S;
+                      nothing pending or in flight; hash clean.
+  admitted_when_idle  after the host's key, once the host is idle (the negative control): C faces toDir on both
+                      within RESUBMIT_S, no busy deny; nothing pending or in flight; hash clean.
 
-RED at the base `12f27518b` (H90 runs, F24150-F24152): B1 fails its `resubmit` cell (C keeps its direction on both;
-the turn stays held on the client for the whole RESUBMIT_S window with the Wait line "Please wait for HostPlayer's
-action to finish" up while the host runs nothing) and its `after` cell; B1n passes (the turn applies in ~0.1 s).
+When broken (no release after the context-less chain), held_resubmitted fails its `resubmit` cell (C keeps its
+direction on both; the turn stays held on the client for the whole RESUBMIT_S window with the Wait line "Please wait for
+HostPlayer's action to finish" up while the host runs nothing) and its `after` cell; admitted_when_idle passes (the turn
+applies in ~0.1 s).
 
-Replacement rules (S54): H / C are the lowest live soldier of seat 0 / seat 1 (asserted). The target tile is two tiles
+Replacement rules: H / C are the lowest live soldier of seat 0 / seat 1 (asserted). The target tile is two tiles
 from C in direction (d0 + 2) % 8; if map_tile_click_pos does not verify it, the next of (d0 + 6), (d0 + 3), (d0 + 5) % 8
 whose tile two steps away verifies (an on-map tile the click resolves); a row with none fails `pre`.
 
-one run is the result; no skip path; D297 (a) one fresh boot per row. Each row prints ONE
-"EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: ...". Every wait is bounded. Exit 0 only when every row passes,
-2 otherwise. run in the foreground to completion.
+One run is the result; no skip path; one fresh boot per row. Each row prints ONE "EVIDENCE <id>:" line, then
+"PASS <id>" or "FAIL <id>: ...". Every wait is bounded. Exit 0 only when every row passes, 2 otherwise.
 
 Run:  py -3 tools/coop_test/test_held_resubmit.py
 """
@@ -51,7 +54,7 @@ import test_battle_end as tbe  # noqa: E402
 
 H_ID, C_ID = 10, 8                 # the lowest seat-0 / seat-1 soldier on the classic boot (asserted)
 WOUND = [0, 1, 0, 0, 0, 0]         # one torso fatal wound: health 1 -> 0 at the player side's start
-ROW_PORT = {"B1": "48781", "B1n": "48782"}
+ROW_PORT = {"held_resubmitted": "48781", "admitted_when_idle": "48782"}
 CTRL_PORTS = (49930, 49931)        # GameClient labels (the control sockets are ephemeral)
 SDLK_TAB, SDLK_HOME = 9, 278       # keyBattleNextUnit / keyBattleCenterUnit defaults
 MAP, NEXT = "BattlescapeState", "NextTurnState"
@@ -132,7 +135,7 @@ def probe(gc):
 
 
 def stage(r):
-    """H bleeds (client first, F607); seat pins asserted; both settle; hash clean."""
+    """H bleeds (client first); seat pins asserted; both settle; hash clean."""
     h, c = r.host, r.client
     hs = battle_state(h)
     for seat, want in ((0, H_ID), (1, C_ID)):
@@ -317,7 +320,7 @@ def check_applied(r, tg, phase):
         r.fail("after", f"hash_now full: {short(e)}")
 
 
-def row_b1(r):
+def row_held_resubmitted(r):
     stage(r)
     if r.fails or not to_turn_two(r):
         return
@@ -333,7 +336,7 @@ def row_b1(r):
     check_applied(r, tg, "resubmit")
 
 
-def row_b1n(r):
+def row_admitted_when_idle(r):
     stage(r)
     if r.fails or not to_turn_two(r):
         return
@@ -385,17 +388,17 @@ def run_row(rid, row_fn, results, label):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2-h90] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[held_resubmit] shutdown {gc.name}: {short(e)}", flush=True)
 
 
-ROWS = (("B1", row_b1), ("B1n", row_b1n))
+ROWS = (("held_resubmitted", row_held_resubmitted), ("admitted_when_idle", row_admitted_when_idle))
 
 
 def main():
     t0 = time.time()
     results = {}
     for rid, fn in ROWS:
-        run_row(rid, fn, results, "w2h90")
+        run_row(rid, fn, results, "held_resubmit")
     order = [x[0] for x in ROWS]
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
