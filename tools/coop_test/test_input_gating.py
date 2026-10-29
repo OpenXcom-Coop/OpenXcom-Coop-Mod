@@ -79,7 +79,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-from repro_atom_spot import phase0_pin_reaction_fire, assert_reaction_pin_holds
+from repro_atom_spot import pin_reaction_fire, assert_reaction_pin_holds
 
 FACTION_PLAYER = 0
 COOP_SEAT_NONE = -1
@@ -601,10 +601,10 @@ def test_classic_selection_gating():
 
         # F108 / S5 AI-ORIGIN PRECONDITION: entry is settled and no walk-capable
         # input has run yet, so apply the PROVEN symmetric reaction-fire pin once
-        # (repro_atom_spot.phase0_pin_reaction_fire). Deferred reaction-fire
+        # (repro_atom_spot.pin_reaction_fire). Deferred reaction-fire
         # coop-wire migration is OUT of this wave-1 selection/walk fixture's scope;
         # this suppresses no production path and implements no reaction fire.
-        reaction_pin = phase0_pin_reaction_fire(host, client)
+        reaction_pin = pin_reaction_fire(host, client)
 
         # === (2) the TAB cycle (R5-P2's original half, unchanged) ============
         host_seen = cycle_selected_ids(host, len(host_own_ids) + 3)

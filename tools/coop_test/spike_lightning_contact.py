@@ -270,8 +270,8 @@ def boot_a(placement, game_port, host_port, client_port):
         record["a6_hostile_facing"] = facing_door
 
         # reactions pinned to 0 on all non-players, both machines; hash gate
-        # (both done inside phase0_pin_reaction_fire).
-        SPOT.phase0_pin_reaction_fire(host, client)
+        # (both done inside pin_reaction_fire).
+        SPOT.pin_reaction_fire(host, client)
 
         actor = min(seat1, key=lambda u: session.cheb(session.unit_pos(u), near))
         actor_id = actor["id"]

@@ -1,44 +1,42 @@
-"""W1-P11 (rewrite wave 1, WAVE1-RUNBOOK.md SS4 "ATOM spot" = WV-D26): the
-SPOTTING HALT as a first-class ev - "a walk that stops on contact is the same
+"""The SPOTTING HALT as its own ev: "a walk that stops on contact is the same
 story on both machines".
 
-WHAT THE PACKET REQUIRES, and where each requirement is asserted below:
+WHAT IS CHECKED, and where each check is asserted below:
 
-  PHASE 0  THE REACTION-FIRE PIN. See "THE HARD PART" below - this is the whole
-           risk of the packet and it is engineered, not hoped for. Asserted as a
-           READ-BACK on both machines plus all-buckets-EQUAL, because a pin you
-           cannot read is not a pin.
-  PHASE 1  THE SCRIPTED CONTACT. The walk halts on BOTH machines at the SAME
-           tile; the step evs emitted before the halt STAND (SS2.W2 rule 5 - no
-           retraction, no rewind); the completion `path` is exactly the executed
-           prefix; the `spot` ev sits at its OWN position in the seq stream
-           (after the last `walk_step` of its actionId, before that action's
-           `bt_action_end`); `unitsCore`/`unitsStats` - indeed all nine buckets -
-           EQUAL at the halt; the ORDERING SEAT shows the exact cancel banner;
-           the per-side reveal sets are still EQUAL after the contact.
-  PHASE 2  THE CONTROL. One more walk for the same actor immediately afterwards:
-           either it does NOT halt on spot and emits NO second `spot` ev (which
-           proves the halt is not latched and that `seen` really is the
-           ADDITIONS to the actor's spotted-this-turn set rather than the whole
-           set), or it spots something NEW and its `seen` is DISJOINT from the
-           first one's - which proves the same thing more strongly.
+  PIN PHASE      THE REACTION-FIRE PIN. See "THE HARD PART" below - this is the
+                 whole risk of the test and it is engineered, not hoped for.
+                 Asserted as a READ-BACK on both machines plus all-buckets-EQUAL,
+                 because a pin you cannot read is not a pin.
+  CONTACT PHASE  THE SCRIPTED CONTACT. The walk halts on BOTH machines at the SAME
+                 tile; the step evs emitted before the halt STAND (no retraction,
+                 no rewind); the completion `path` is exactly the executed prefix;
+                 the `spot` ev sits at its OWN position in the seq stream (after
+                 the last `walk_step` of its actionId, before that action's
+                 `bt_action_end`); `unitsCore`/`unitsStats` - indeed all nine
+                 buckets - EQUAL at the halt; the ORDERING SEAT shows the exact
+                 cancel banner; the per-side reveal sets are still EQUAL after the
+                 contact.
+  CONTROL PHASE  One more walk for the same actor immediately afterwards: either
+                 it does NOT halt on spot and emits NO second `spot` ev (which
+                 proves the halt is not latched and that `seen` really is the
+                 ADDITIONS to the actor's spotted-this-turn set rather than the
+                 whole set), or it spots something NEW and its `seen` is DISJOINT
+                 from the first one's - which proves the same thing more strongly.
 
 ============================================================================
-THE HARD PART, AND IT IS NOT THE ATOM: A SPOT WITHOUT A SHOT.
+THE HARD PART, AND IT IS NOT THE SPOT: A SPOT WITHOUT A SHOT.
 
 `TileEngine::checkReactionFire` sits INSIDE the very `if (unitSpotted)` region
-this packet hooks (UnitWalkBState.cpp - the reaction check is the next statement
-after the spot halt's own `return cancelCurentMove()`), so spot and reaction fire
-are ADJACENT BY CONSTRUCTION. And S5's AI-ORIGIN PRECONDITION rules that an alien
-SHOT is an EXPECTED client desync freeze for the whole of wave 1 - W1-P10 lost
-multiple cycles to exactly this, its crossing walks wandering into alien LOS and
-producing terrain/items/unitsStats/saveBlob divergences that looked like product
-bugs and were not.
+the spot halt hooks (UnitWalkBState.cpp - the reaction check is the next
+statement after the spot halt's own `return cancelCurentMove()`), so spot and
+reaction fire are ADJACENT BY CONSTRUCTION. A reaction shot during the contact
+walk would move the terrain / items / unitsStats / saveBlob buckets for reasons
+unrelated to the spot halt, and those divergences look like spot bugs.
 
 So this file does not hope for a shot-free spot; it makes one IMPOSSIBLE, and it
-does so with ONE field. PHASE 0 sets `reactions` to 0 on every living non-player
-unit, on BOTH machines. That closes THREE independent gates in vanilla, any one
-of which alone would be enough:
+does so with ONE field. The pin phase sets `reactions` to 0 on every living
+non-player unit, on BOTH machines. That closes THREE independent gates in
+vanilla, any one of which alone would be enough:
 
   1. `TileEngine::getSpottingUnits()` keeps a candidate only while
      `bu->getReactionScore() >= threshold`, where `threshold` is the WALKER's own
@@ -53,81 +51,77 @@ of which alone would be enough:
      and `tryReaction()`'s first statement is
      `if (!_save->canUseWeapon(action.weapon, ...)) return false;`.
 
-Gate 1 depends on the walker's score being strictly positive, so PHASE 0 also
-ASSERTS the actor's own `reactions > 0` and PHASE 1 asserts its TU > 0 at the
-halt - the only way `threshold` could be 0 is a walker at 0 TU, and gates 2 and 3
-still hold even then.
+Gate 1 depends on the walker's score being strictly positive, so the pin phase
+also ASSERTS the actor's own `reactions > 0` and the contact phase asserts its
+TU > 0 at the halt - the only way `threshold` could be 0 is a walker at 0 TU,
+and gates 2 and 3 still hold even then.
 
 `currStats` IS serialized (BattleUnit::save writes it) and is NOT on
 SharedEcon's `saveBlobExcludedUnitKey` list, so it rides the saveBlob bucket:
-the pin is applied to BOTH machines and PHASE 0 asserts all buckets EQUAL
+the pin is applied to BOTH machines and the pin phase asserts all buckets EQUAL
 immediately afterwards, which is what proves the application was symmetric.
 
 Belt and braces, because a pin can rot: every leg of the approach also asserts
 that the host's `items` and `terrain` bucket hashes are UNCHANGED from the
-pre-walk baseline (a reaction shot spends ammo and damages terrain - that is the
-exact signature W1-P10 traced), that no `hit`/`death` ev reached either ring,
-that the actor's health and stun never moved, and that no halt ever reports
-SS2.W2's `reaction` reason. A run that DOES get shot at therefore fails loudly
-and specifically, instead of surfacing as a mysterious hash red.
+pre-walk baseline (a reaction shot spends ammo and damages terrain), that no
+`hit`/`death` ev reached either ring, that the actor's health and stun never
+moved, and that no halt ever reports the `reaction` reason. A run that DOES get
+shot at therefore fails loudly and specifically, instead of surfacing as a
+mysterious hash mismatch.
 ============================================================================
 
-FIXTURE (WV-D86/WV-D87, SPEC 0e-2 cycle 3): DETERMINISTIC, no search. Walk-core's
-fixtures are CONTACT-FREE by construction precisely so they cannot take
-this halt, so this packet must CREATE the contact rather than find one - but
-instead of trying successive freshly generated maps for a qualifying alien
-distance (the old INVERTED rule this file used to run), contact_p3 (WV-D87/M1) stages the
-whole situation on the Lightning craft's own UFO door with place_deterministic's
-own hash-equality gate: the door's fixed geometry gives `near`/`far`/`far_ground`,
-the actor is placed on the deck at `near` facing out, one hostile is placed
-exactly `far_ground + 6*d_out` tiles away (inside view range once the actor steps
+FIXTURE: DETERMINISTIC, no search. The walk tests' fixtures are CONTACT-FREE by
+construction precisely so they cannot take this halt, so this file must CREATE
+the contact rather than find one: stage_contact stages the whole situation on
+the Lightning craft's own UFO door with place_deterministic's own hash-equality
+gate: the door's fixed geometry gives `near`/`far`/`far_ground`, the actor is
+placed on the deck at `near` facing out, one hostile is placed exactly
+`far_ground + 6*d_out` tiles away (inside view range once the actor steps
 through the door) and every other hostile is moved to the far corner. ONE boot,
-no retry of any kind. A `FIXTURE:`-prefixed staging failure is a FAIL (exit 2, D59);
-everything else is a real FAIL (exit 2). Everything else about the fixture is the
-shared helper set (bring_up_lobby / drive_to_battlescape / send_walk_outcome,
-imported from repro_atom_walk).
+no retry of any kind. A `FIXTURE:`-prefixed staging failure is a FAIL (exit 2);
+everything else is a real FAIL (exit 2). Everything else about the fixture is
+the shared helper set (bring_up_lobby / drive_to_battlescape /
+send_walk_outcome, imported from repro_atom_walk).
 
-WHY THE ASSERTIONS HERE ARE NOT VACUOUS - the checks that would go RED:
+WHY THE ASSERTIONS HERE ARE NOT VACUOUS - the checks that would FAIL:
   * The stream-position check reads the event ring on BOTH machines and requires
     the `spot` entry's seq to be strictly ABOVE every `walk_step` of the same
     actionId and strictly BELOW that action's `bt_action_end`. An implementation
     that emitted the spot before the last step, or folded it into the
     action_end, fails here and nowhere else.
   * The reason check requires `spot` EXACTLY. Both vanilla halt sites leave
-    `_action.result` empty, so without W1-P11's own hook the completion restate
-    reports W1-P9's catch-all `blocked` and the ordering seat shows
+    `_action.result` empty, so without the spot hook the completion restate
+    reports the walk's catch-all `blocked` and the ordering seat shows
     "Move stopped - path blocked" - so BOTH the reason assert and the exact-text
-    banner assert go red on a missing latch, independently.
+    banner assert fail on a missing latch, independently.
   * The delivery proof is `coopSpotEvsApplied` plus the client's own `lastSpot`
     matching the host's field for field, INCLUDING `seq`.
 
-AND ONE HONEST LIMIT, MEASURED WITH A CONTROL BUILD RATHER THAN ARGUED (the
-builder found this by running the control, not by reasoning about it):
+AND ONE LIMIT, MEASURED WITH A CONTROL BUILD RATHER THAN ARGUED:
 
   * "the CLIENT's spottedThisTurn set contains `seen`" is a CONSISTENCY check,
     NOT a delivery proof, and it cannot be made into one on the walk path. With
     the applier's `spotted.push_back(seenUnit)` compiled out and the exe rebuilt,
     this file STILL PASSED - twice, once with the client's selection on the
-    walker and once parked off it. The reason is A5's targeted per-unit FOV
+    walker and once parked off it. The reason is the targeted per-unit FOV
     refresh: CoopDisplayQueue::onApplied() calls
     `save->getTileEngine()->calculateFOV(unit)` for EVERY bt_ev that carries a
-    `unit` payload field (connectionTCP.cpp, the "A5 (turn/kneel bt_ev path)"
-    block and the bt_action_end block above it), and SS2.4a suppresses only the
-    TILE half of a client's FOV - `calculateUnitsInFOV` is untouched and writes
+    `unit` payload field (connectionTCP.cpp, the turn/kneel bt_ev path and the
+    bt_action_end block above it), and the client's FOV suppression covers only
+    the TILE half - `calculateUnitsInFOV` is untouched and writes
     _unitsSpottedThisTurn locally. So on this path the client reaches the host's
     answer by its own recompute, per walk step, whether or not the `spot` ev's
     bookkeeping is applied at all.
-    The apply is KEPT because it is prd-r3a's specified shape and because host
-    truth is strictly safer than a client-side derivation SS2.4a permits but
-    does not guarantee to agree - it is the belt to A5's braces, it is
-    idempotent (it de-duplicates) and it is hash-neutral. It is simply not what
-    this file's green proves. What this file DOES prove is the atom's
-    load-bearing half: the halt REASON, the ev's POSITION in the seq stream, and
-    the exact banner on the ordering seat - each of which was RED in its own
-    control build.
-  * PHASE 2 asserts the SECOND walk emits no second `spot` for a unit already in
-    the set - an implementation that shipped the whole set instead of the
-    additions, or that never cleared the halt, fails there.
+    The apply is KEPT because host truth is strictly safer than a client-side
+    derivation that is permitted but not guaranteed to agree - it backs up the
+    FOV refresh, it is idempotent (it de-duplicates) and it is hash-neutral. It
+    is simply not what this file's pass proves. What this file DOES prove is the
+    spot halt's essential half: the halt REASON, the ev's POSITION in the seq
+    stream, and the exact banner on the ordering seat - each of which failed in
+    its own control build.
+  * The control phase asserts the SECOND walk emits no second `spot` for a unit
+    already in the set - an implementation that shipped the whole set instead of
+    the additions, or that never cleared the halt, fails there.
 
 Run:  python tools/coop_test/repro_atom_spot.py
       (in its OWN shell invocation - the standing harness rule, one harness run
@@ -157,7 +151,7 @@ EXIT_PASS, EXIT_FAIL = 0, 2
 
 
 # Seat-1 soldiers to stamp. Each one is an INDEPENDENT chance at a contact (its
-# spotted-this-turn set is its own) and TU never regenerates in wave 1, so an
+# spotted-this-turn set is its own) and TU does not regenerate within the turn, so an
 # actor that walks itself dry cannot be reused - the same reason
 # repro_atom_walk.py allocates an actor per phase.
 SEAT1_SOLDIERS = 5
@@ -197,14 +191,13 @@ SDLK_TAB = 9  # Options::keyBattleNextUnit default (repro_atom_walk.py precedent
 
 # EXACT text, from bin/common/Language/en-US.yml (asserted as TEXT and never as
 # an STR_ key: Language::getString() returns the KEY when it is missing, so a
-# key-shaped assert passes silently against a stale deploy copy - WV-D17).
-# SS2.W2's halt-presenter table maps `spot` to the EXISTING SS2.6 row
-# STR_COOP_CANCEL_ENEMY_SPOTTED, already wired by W1-P9; this packet mints NO
-# new string, because an unreferenced key would be a WV-D41 orphan.
+# key-shaped assert passes silently against a stale deploy copy). The halt
+# presenter maps `spot` to the EXISTING string STR_COOP_CANCEL_ENEMY_SPOTTED;
+# the spot halt needs no new string.
 STR_HALT_SPOT = "Order cancelled - enemy spotted"
 STR_HALT_BLOCKED = "Move stopped - path blocked"
 
-# SS2.W2's frozen halt enum, for the "is this even a legal reason" check.
+# The frozen halt-reason enum, for the "is this even a legal reason" check.
 HALT_REASONS = ("spot", "reaction", "blocked", "no_tu", "no_energy", "prox",
                 "fall", "unit_down")
 
@@ -290,8 +283,8 @@ def send_walk_outcome(host, client, actor_id, dest, **kw):
     mid-walk surfaces there as a bare TimeoutError with no cause attached. This
     checks before (so a walk is never ordered into a frozen battle) and converts
     the timeout into assert_not_frozen()'s diagnosis when that is what happened.
-    A timeout with NOTHING frozen still propagates unchanged - it is a real red
-    either way, and nothing here is softened."""
+    A timeout with NOTHING frozen still propagates unchanged - it is a real
+    failure either way, and nothing here is softened."""
     assert_not_frozen(host, client, f"before ordering a walk for actor {actor_id}")
     try:
         out = W.send_walk_outcome(host, client, actor_id, dest, **kw)
@@ -314,19 +307,18 @@ def ring(gc, tail=120):
 
 def drive_to_battlescape(host, client, seated):
     """repro_atom_walk.drive_to_battlescape, with this file's own seat count and
-    WITHOUT its door/contact rules (which are exactly what this packet inverts).
-    Deliberately leaves the NEW BATTLE mission on the persisted default: trap 11
-    of this wave - a CRAFT SKIRMISH is MEASURED clean at t=0, while UFO map
-    classes carry the separate, already-diagnosed `itemIdCtr` divergence
-    (SavedBattleGame.cpp:351/:356, an owner ruling in flight) that would red this
-    file's hash asserts for a reason that is not this packet's."""
+    WITHOUT its door/contact rules (which are exactly what this file inverts).
+    Deliberately leaves the NEW BATTLE mission on the persisted default: a CRAFT
+    SKIRMISH is MEASURED clean at t=0, while UFO map classes carry a separate
+    `itemIdCtr` divergence (SavedBattleGame.cpp:351/:356) that would fail this
+    file's hash asserts for a reason unrelated to the spot halt."""
     host.ok({"cmd": "lobby_action"})
     host.wait_for("host at battle settings",
                   lambda: (not session.has_state(host, "LobbyMenu")) or None)
     assert W.top_state(host) == "NewBattleState", \
         f"host should land on the NEW BATTLE setup screen, stack={W.states(host)}"
 
-    # SPEC 0e-2: the craft pin, BEFORE any newbattle_seat_soldier call
+    # the craft pin, BEFORE any newbattle_seat_soldier call
     # (this local drive_to_battlescape deliberately never issues a
     # newbattle_mission - see the docstring above - so the craft pin has no
     # mission pin to follow; it just has to land before seats are picked).
@@ -362,7 +354,7 @@ def any_candidates(host, actor, aliens, occupied, radii=(1, 2)):
     """Open-ground destinations in ANY direction, respecting APPROACH_FLOOR,
     ordered FURTHEST-from-contact first.
 
-    PHASE 2's control asks one question - "does ordering another walk for this
+    CONTROL PHASE's control asks one question - "does ordering another walk for this
     actor emit a SECOND `spot` ev for a unit already in its set?" - and the
     answer does not depend on which way the actor walks. Reusing
     approach_candidates() there imposed the contact phase's "must strictly
@@ -401,16 +393,16 @@ def any_candidates(host, actor, aliens, occupied, radii=(1, 2)):
     return out
 
 
-# ----- PHASE 0: the reaction-fire pin -------------------------------------
+# ----- PIN PHASE: the reaction-fire pin -------------------------------------
 
-def phase0_pin_reaction_fire(host, client):
+def pin_reaction_fire(host, client):
     """Make an alien reaction shot IMPOSSIBLE, then PROVE it. See the module
     docstring for the three vanilla gates this closes and why one field is
     enough. Returns the actor-independent baseline bucket hashes every later leg
     checks itself against."""
     st = battle_state(host)
     aliens = living_non_players(st)
-    assert aliens, "PHASE 0: no living non-player unit to pin - the fixture rule " \
+    assert aliens, "PIN PHASE: no living non-player unit to pin - the fixture rule " \
                    "should have rejected this boot"
 
     for a in aliens:
@@ -418,7 +410,7 @@ def phase0_pin_reaction_fire(host, client):
             r = gc.cmd({"cmd": "battle_action", "action": "set_stat",
                         "unit": a["id"], "stat": "reactions", "value": 0})
             assert r.get("ok"), \
-                f"PHASE 0: could not zero unit {a['id']}'s reactions on the {tag}: {r}"
+                f"PIN PHASE: could not zero unit {a['id']}'s reactions on the {tag}: {r}"
         session.wait_seq_barrier(host, client)
 
     # READ-BACK on BOTH machines. A pin that cannot be read is not a pin, and the
@@ -429,17 +421,16 @@ def phase0_pin_reaction_fire(host, client):
         live = living_non_players(battle_state(gc))
         bad = [(u["id"], u.get("reactions")) for u in live if u.get("reactions") != 0]
         assert not bad, (
-            f"PHASE 0: on the {tag}, {len(bad)} living non-player unit(s) still carry a "
-            f"non-zero `reactions` stat {bad} - reaction fire is NOT pinned and S5's "
-            "AI-ORIGIN PRECONDITION makes an alien shot an EXPECTED wave-1 client "
-            "desync freeze, so this run could not tell a fixture accident from a "
-            "product defect")
-        assert live, f"PHASE 0: the {tag} reports no living non-player unit at all"
+            f"PIN PHASE: on the {tag}, {len(bad)} living non-player unit(s) still carry a "
+            f"non-zero `reactions` stat {bad} - reaction fire is NOT pinned, so an "
+            "alien shot could interfere and this run could not tell a fixture "
+            "accident from a product defect")
+        assert live, f"PIN PHASE: the {tag} reports no living non-player unit at all"
 
     host_h, client_h = assert_hash_clean(
         host, client, full=True,
-        what="after PHASE 0 zeroed every non-player unit's `reactions` on both machines")
-    print(f"PASS PHASE 0: reaction fire PINNED - {len(aliens)} living non-player unit(s) "
+        what="after PIN PHASE zeroed every non-player unit's `reactions` on both machines")
+    print(f"PASS PIN PHASE: reaction fire PINNED - {len(aliens)} living non-player unit(s) "
           f"at reactions=0 on BOTH machines, all {len(host_h)} buckets EQUAL "
           f"(the write rides `currStats` -> saveBlob, so equality is what proves it "
           f"was applied symmetrically)")
@@ -452,18 +443,16 @@ def assert_reaction_pin_holds(host, client, baseline, what):
     """The belt-and-braces half, run after EVERY leg. Anything a reaction shot
     would have done, asserted absent - and asserted by its SIGNATURE, not by the
     absence of a log line:
-      * `items` moves when a shot spends ammo (SS2.8: the items bucket carries
+      * `items` moves when a shot spends ammo (the items bucket carries
         ammoQty). A WALK cannot move it, so it is a clean, unconditional control.
       * `terrain` moves when a shot damages the map - and ALSO, legitimately,
-        when a walk auto-opens a NORMAL door, because W1-P10's `door` atom
-        rewrites the part's mapDataID/mapDataSetID and that is exactly what this
-        bucket sums. MEASURED, not reasoned: the first version of this control
-        asserted `terrain` unconditionally and went red on a door crossing during
-        the control build's longer walks. So the rule is CONDITIONAL and the
+        when a walk auto-opens a NORMAL door, because the `door` ev rewrites the
+        part's mapDataID/mapDataSetID and that is exactly what this bucket sums.
+        MEASURED, not reasoned: an unconditional `terrain` check fails on a door
+        crossing during longer walks. So the rule is CONDITIONAL and the
         baseline MOVES WITH IT: terrain may change only on a leg that emitted a
         `door` ev, and the new value becomes the baseline. A terrain change with
-        no door ev is still a hard failure - which is the shot signature W1-P10
-        traced.
+        no door ev is still a hard failure - the shot signature.
       * a `hit` or `death` ev on either ring is the direct evidence.
       * neither machine may be desync-frozen.
     @a baseline is MUTATED by this function (it is the running baseline).
@@ -473,19 +462,18 @@ def assert_reaction_pin_holds(host, client, baseline, what):
     assert hh["items"] == baseline["items"], (
         f"{what}: the HOST's `items` bucket moved ({baseline['items']} -> "
         f"{hh['items']}) during a plain walk. That is the signature of a REACTION "
-        "SHOT (ammo spent) - PHASE 0's reactions=0 pin has failed, and S5's "
-        "AI-ORIGIN PRECONDITION means the client is now expected to desync for a "
-        "reason that is NOT this packet's atom")
+        "SHOT (ammo spent) - PIN PHASE's reactions=0 pin has failed, and the client "
+        "may now desync for a reason that is NOT the spot halt")
     if hh["terrain"] != baseline["terrain"]:
         assert doors > baseline["_doorEvs"], (
             f"{what}: the HOST's `terrain` bucket moved ({baseline['terrain']} -> "
             f"{hh['terrain']}) during a plain walk that emitted NO `door` ev "
             f"(coopDoorEvsEmitted still {doors}). A walk has exactly two ways to "
-            "rewrite terrain - W1-P10's door auto-open, and damage - so with the "
-            "door excluded this is the REACTION SHOT signature and PHASE 0's pin "
+            "rewrite terrain - the door auto-open, and damage - so with the "
+            "door excluded this is the REACTION SHOT signature and PIN PHASE's pin "
             "has failed")
         print(f"    [{what}] terrain moved with {doors - baseline['_doorEvs']} `door` "
-              "ev(s) - a walk-time auto-open (W1-P10), re-baselining")
+              "ev(s) - a walk-time auto-open, re-baselining")
         baseline["terrain"] = hh["terrain"]
     baseline["_doorEvs"] = doors
     for gc, tag in ((host, "host"), (client, "client")):
@@ -500,13 +488,13 @@ def assert_reaction_pin_holds(host, client, baseline, what):
     assert not bad, f"{what}: the reaction pin ROTTED mid-run on the host: {bad}"
 
 
-# ----- PHASE 1: staging and asserting the contact --------------------------
+# ----- CONTACT PHASE: staging and asserting the contact --------------------------
 
 def action_ring(gc, action_id, tail=200):
     """The event ring filtered to ONE actionId, oldest first. This is where the
-    SS2.W2 rule 6 statement - "an interleaved consequence arrives as its own ev
-    in-stream and breaks the walk exactly at its own position" - becomes an
-    assertion rather than a claim."""
+    rule "an interleaved consequence arrives as its own ev in-stream and breaks
+    the walk exactly at its own position" becomes an assertion rather than a
+    claim."""
     return [e for e in ring(gc, tail=tail) if e.get("actionId") == action_id]
 
 
@@ -530,149 +518,149 @@ def assert_stream_position(gc, tag, action_id, n_steps):
     for e in steps:
         assert e["seq"] < spot_seq, (
             f"{tag}: `walk_step` at seq {e['seq']} lands AFTER the `spot` ev at seq "
-            f"{spot_seq} - SS2.W2 rule 6 says the spot breaks the walk at its OWN "
-            "position, so every executed step must precede it")
+            f"{spot_seq} - the spot breaks the walk at its OWN position, so every "
+            "executed step must precede it")
     assert spot_seq < ends[0]["seq"], (
         f"{tag}: the `spot` ev at seq {spot_seq} lands at or after this action's "
         f"bt_action_end at seq {ends[0]['seq']} - the halt must be in-stream BEFORE the "
         "completion restate, not folded into it")
     assert spots[0]["h"], (
-        f"{tag}: the `spot` ev at seq {spot_seq} carries NO h:{{unitsStats}} - RB-D14 "
-        "puts one on every ev, and an ev that carries no hash is verified against "
+        f"{tag}: the `spot` ev at seq {spot_seq} carries NO h:{{unitsStats}} - every "
+        "ev carries one, and an ev that carries no hash is verified against "
         "nothing when the client applies it")
     return spot_seq, [e["seq"] for e in steps], ends[0]["seq"]
 
 
 def assert_contact(host, client, actor_id, hw, cw, before, baseline):
-    """Every acceptance clause of W1-P11, on a walk that has just halted on a
-    spot. @a before is the pre-walk snapshot taken by the driver."""
+    """Every check of the spot halt, on a walk that has just halted on a spot.
+    @a before is the pre-walk snapshot taken by the driver."""
     action_id = hw["actionId"]
     hsteps = hw["steps"]
     n = len(hsteps)
 
-    # --- SS2.W2's per-step contract on BOTH machines, halted -----------------
+    # --- the per-step contract on BOTH machines, halted ----------------------
     # (step evs stand, stepIndex 0..n-1, strictly increasing seq, host == client
     #  step for step, restate path == the executed prefix, final == last step)
-    W.assert_step_stream(hw, cw, "PHASE 1", expect_len=n, expect_halted=True)
+    W.assert_step_stream(hw, cw, "CONTACT PHASE", expect_len=n, expect_halted=True)
 
     # --- the reason, on both machines ---------------------------------------
     for tag, w in (("host", hw), ("client", cw)):
         r = w["restate"]
         assert r["reason"] in HALT_REASONS, (
-            f"PHASE 1: the {tag}'s halt reason {r['reason']!r} is not one of SS2.W2's "
+            f"CONTACT PHASE: the {tag}'s halt reason {r['reason']!r} is not one of the "
             f"frozen enum values {HALT_REASONS}")
         assert r["reason"] == "spot", (
-            f"PHASE 1: the {tag}'s halt reason is {r['reason']!r}, expected 'spot'. "
-            "Both vanilla spot sites leave `_action.result` EMPTY, so W1-P9's catch-all "
-            "maps them to 'blocked' - a 'blocked' here means W1-P11's own latch did not "
+            f"CONTACT PHASE: the {tag}'s halt reason is {r['reason']!r}, expected 'spot'. "
+            "Both vanilla spot sites leave `_action.result` EMPTY, so the walk's catch-all "
+            "maps them to 'blocked' - a 'blocked' here means the spot latch did not "
             "run at this site")
-        assert r["halted"] is True, f"PHASE 1: the {tag}'s restate is not marked halted"
+        assert r["halted"] is True, f"CONTACT PHASE: the {tag}'s restate is not marked halted"
     assert hw["plannedLen"] > n, (
-        f"PHASE 1: the walk executed {n} of {hw['plannedLen']} planned step(s) - the "
+        f"CONTACT PHASE: the walk executed {n} of {hw['plannedLen']} planned step(s) - the "
         "contact must break the walk with something LEFT to break, or 'it breaks the "
         "walk exactly at its own position' is unobservable")
 
     # --- the SAME tile on both machines --------------------------------------
     executed = [W.tpos(s["to"]) for s in hsteps]
-    hu, cu = W.assert_unit_parity(host, client, actor_id, "PHASE 1 at the spot halt")
+    hu, cu = W.assert_unit_parity(host, client, actor_id, "CONTACT PHASE at the spot halt")
     assert pos_of(hu) == executed[-1], (
-        f"PHASE 1: the actor is at {pos_of(hu)} on the host but the last emitted step "
-        f"said {executed[-1]} - a halt must not rewind (SS2.W2 rule 5)")
+        f"CONTACT PHASE: the actor is at {pos_of(hu)} on the host but the last emitted step "
+        f"said {executed[-1]} - a halt must not rewind")
     assert pos_of(cu) == executed[-1], (
-        f"PHASE 1: the actor is at {pos_of(cu)} on the CLIENT but the halt tile is "
+        f"CONTACT PHASE: the actor is at {pos_of(cu)} on the CLIENT but the halt tile is "
         f"{executed[-1]} - the two machines did not stop on the same tile")
     assert hu["tu"] > 0, (
-        "PHASE 1: the actor halted at 0 TU, which makes its own reaction score 0 and "
-        "therefore PHASE 0's gate-1 argument vacuous for this leg (gates 2 and 3 still "
+        "CONTACT PHASE: the actor halted at 0 TU, which makes its own reaction score 0 and "
+        "therefore PIN PHASE's gate-1 argument vacuous for this leg (gates 2 and 3 still "
         "hold, but this run can no longer claim the strong form of the pin)")
 
-    # --- SS2.W2 rule 6: the ev's POSITION in the stream, on both machines -----
+    # --- the ev's POSITION in the stream, on both machines -------------------
     h_spot_seq, h_step_seqs, h_end_seq = assert_stream_position(host, "host", action_id, n)
     c_spot_seq, c_step_seqs, c_end_seq = assert_stream_position(client, "client", action_id, n)
     assert (h_spot_seq, h_step_seqs, h_end_seq) == (c_spot_seq, c_step_seqs, c_end_seq), (
-        f"PHASE 1: host and client disagree about the seq stream for actionId "
+        f"CONTACT PHASE: host and client disagree about the seq stream for actionId "
         f"{action_id} - host spot={h_spot_seq} steps={h_step_seqs} end={h_end_seq}, "
         f"client spot={c_spot_seq} steps={c_step_seqs} end={c_end_seq}")
 
     # --- the ev PAYLOAD, host emit vs client apply ---------------------------
     hs, cs = last_spot(host), last_spot(client)
-    assert hs and cs, f"PHASE 1: lastSpot missing (host={hs}, client={cs})"
+    assert hs and cs, f"CONTACT PHASE: lastSpot missing (host={hs}, client={cs})"
     for key in ("actionId", "unit", "seen", "haltStep", "seq"):
         assert hs.get(key) == cs.get(key), (
-            f"PHASE 1: the host EMITTED and the client APPLIED different `spot` evs - "
+            f"CONTACT PHASE: the host EMITTED and the client APPLIED different `spot` evs - "
             f"field {key!r}: host={hs.get(key)!r} client={cs.get(key)!r}")
     assert hs["unit"] == actor_id, \
-        f"PHASE 1: the spot ev names unit {hs['unit']}, expected the actor {actor_id}"
+        f"CONTACT PHASE: the spot ev names unit {hs['unit']}, expected the actor {actor_id}"
     assert hs["actionId"] == action_id, (
-        f"PHASE 1: the spot ev rides actionId {hs['actionId']} but the halted walk is "
+        f"CONTACT PHASE: the spot ev rides actionId {hs['actionId']} but the halted walk is "
         f"{action_id} - it must be part of the walk's own action chain")
     assert hs["seq"] == h_spot_seq, \
-        f"PHASE 1: lastSpot.seq {hs['seq']} != the ring's spot seq {h_spot_seq}"
+        f"CONTACT PHASE: lastSpot.seq {hs['seq']} != the ring's spot seq {h_spot_seq}"
     seen = list(hs["seen"])
     assert seen, (
-        "PHASE 1: the `spot` ev carries an EMPTY `seen` list - vanilla halted on "
+        "CONTACT PHASE: the `spot` ev carries an EMPTY `seen` list - vanilla halted on "
         "`unitSpotted`, so the actor's spotted-this-turn set MUST have grown, and an "
         "empty additions list means the bookkeeping half of this atom did nothing")
     assert hs["haltStep"] == n, (
-        f"PHASE 1: the spot ev reports haltStep {hs['haltStep']} but {n} step(s) were "
+        f"CONTACT PHASE: the spot ev reports haltStep {hs['haltStep']} but {n} step(s) were "
         "executed - haltStep names the executed-step count at the halt")
 
     # --- DELIVERY, not coincidence -------------------------------------------
     he, ce = event_state(host), event_state(client)
     assert he["coopSpotEvsEmitted"] >= 1, \
-        f"PHASE 1: the host emitted no `spot` ev at all ({he['coopSpotEvsEmitted']})"
+        f"CONTACT PHASE: the host emitted no `spot` ev at all ({he['coopSpotEvsEmitted']})"
     assert ce["coopSpotEvsApplied"] == he["coopSpotEvsEmitted"], (
-        f"PHASE 1: the host emitted {he['coopSpotEvsEmitted']} `spot` ev(s) but the "
+        f"CONTACT PHASE: the host emitted {he['coopSpotEvsEmitted']} `spot` ev(s) but the "
         f"client applied {ce['coopSpotEvsApplied']}")
     assert ce["coopSpotEvsEmitted"] == 0, (
-        f"PHASE 1: the CLIENT emitted {ce['coopSpotEvsEmitted']} `spot` ev(s) - a thin "
+        f"CONTACT PHASE: the CLIENT emitted {ce['coopSpotEvsEmitted']} `spot` ev(s) - a thin "
         "client is never an author")
 
     # --- the APPLY: the client's own model, not the mirror -------------------
     h_set = set(unit_of(host, actor_id)["spottedThisTurn"])
     c_set = set(unit_of(client, actor_id)["spottedThisTurn"])
     assert battle_state(client)["selectedId"] != actor_id, (
-        f"PHASE 1: the CLIENT's selection drifted onto the walker {actor_id} during "
+        f"CONTACT PHASE: the CLIENT's selection drifted onto the walker {actor_id} during "
         "the contact - see park_client_selection() for why this file keeps it away")
-    # CONSISTENCY, not delivery - see the module docstring's "ONE HONEST LIMIT".
-    # A5's targeted per-ev calculateFOV(unit) reaches the same answer on the walk
-    # path, so this cannot go red on a missing applier; it CAN go red on an
+    # CONSISTENCY, not delivery - see the module docstring's "ONE LIMIT".
+    # The targeted per-ev calculateFOV(unit) reaches the same answer on the walk
+    # path, so this cannot fail on a missing applier; it CAN fail on an
     # applier that writes the WRONG ids, and on a machine whose model and whose
     # wire disagree.
     assert set(seen) <= c_set, (
-        f"PHASE 1: the `spot` ev carried {seen} but the CLIENT's actor holds "
+        f"CONTACT PHASE: the `spot` ev carried {seen} but the CLIENT's actor holds "
         f"{sorted(c_set)} in its spotted-this-turn set - the two disagree "
-        "(prd-r3a: 'append ids to the actor's spotted-this-turn set')")
+        "(the apply appends ids to the actor's spotted-this-turn set)")
     assert h_set == c_set, (
-        f"PHASE 1: the two machines disagree about the actor's spotted-this-turn set - "
+        f"CONTACT PHASE: the two machines disagree about the actor's spotted-this-turn set - "
         f"host {sorted(h_set)} client {sorted(c_set)}")
     assert before["actor_spotted_host"] == [] and before["actor_spotted_client"] == [], (
-        "PHASE 1 NON-VACUITY: the actor already carried a spotted-this-turn set before "
+        "CONTACT PHASE NON-VACUITY: the actor already carried a spotted-this-turn set before "
         f"the contact walk (host {before['actor_spotted_host']}, client "
         f"{before['actor_spotted_client']}) - the fixture rule should have rejected it")
     for uid in seen:
         u = units_by_id(battle_state(host)).get(uid)
-        assert u is not None, f"PHASE 1: `seen` names unit {uid}, which is not on the map"
+        assert u is not None, f"CONTACT PHASE: `seen` names unit {uid}, which is not on the map"
         assert u["faction"] != FACTION_PLAYER, (
-            f"PHASE 1: `seen` names unit {uid}, a PLAYER unit - vanilla only adds "
+            f"CONTACT PHASE: `seen` names unit {uid}, a PLAYER unit - vanilla only adds "
             "hostiles to a player unit's spotted-this-turn set")
 
     # --- the presenter, EXACT TEXT, ordering seat only -----------------------
     assert banner(client) == STR_HALT_SPOT, (
-        f"PHASE 1: the ORDERING seat's banner is {banner(client)!r}, expected "
+        f"CONTACT PHASE: the ORDERING seat's banner is {banner(client)!r}, expected "
         f"{STR_HALT_SPOT!r}. {STR_HALT_BLOCKED!r} here means the halt reason latched as "
-        "`blocked` (W1-P11's own hook did not run); a raw STR_ key means the deployed "
-        "bin/x64/Release/common/Language copy is stale (WV-D17)")
+        "`blocked` (the spot hook did not run); a raw STR_ key means the deployed "
+        "bin/x64/Release/common/Language copy is stale")
     assert banner(host) != STR_HALT_SPOT, (
-        "PHASE 1: the OBSERVING machine printed the ordering seat's halt message - "
-        "SS2.W2/WV-D53 shows it only on the ordering seat")
+        "CONTACT PHASE: the OBSERVING machine printed the ordering seat's halt message - "
+        "it shows only on the ordering seat")
 
     # --- hashes and fog ------------------------------------------------------
     hh, ch = assert_hash_clean(host, client, full=True, what="at the spot halt")
     for bucket in ("unitsCore", "unitsStats"):
         assert hh[bucket] == ch[bucket], \
-            f"PHASE 1: `{bucket}` differs at the halt: host={hh[bucket]} client={ch[bucket]}"
-    assert_reaction_pin_holds(host, client, baseline, "PHASE 1 at the spot halt")
+            f"CONTACT PHASE: `{bucket}` differs at the halt: host={hh[bucket]} client={ch[bucket]}"
+    assert_reaction_pin_holds(host, client, baseline, "CONTACT PHASE at the spot halt")
     alien = min((u for u in living_non_players(battle_state(host))),
                 key=lambda u: dist3(pos_of(u), executed[-1]))
     assert_reveal_parity(
@@ -682,7 +670,7 @@ def assert_contact(host, client, actor_id, hw, cw, before, baseline):
                         + [(alien["x"] + dx, alien["y"] + dy, alien["z"])
                            for dx in (-1, 0, 1) for dy in (-1, 0, 1)])
 
-    print(f"PASS PHASE 1: unit {actor_id} walked {n} of {hw['plannedLen']} planned step(s) "
+    print(f"PASS CONTACT PHASE: unit {actor_id} walked {n} of {hw['plannedLen']} planned step(s) "
           f"{before['actor_pos']} -> {executed[-1]} and HALTED ON CONTACT. The `spot` ev "
           f"landed at seq {h_spot_seq}, after step seqs {h_step_seqs} and before the "
           f"bt_action_end at seq {h_end_seq}, carrying seen={seen} haltStep={n} + "
@@ -698,23 +686,22 @@ def park_client_selection(host, client, park_id):
     """Move the CLIENT's selection to one of its OWN units that is NOT the
     walker, and keep it there for the whole contact.
 
-    WHAT IT BUYS, stated exactly (the first version of this helper claimed it
-    made the apply proof non-vacuous; a control build disproved that, and the
-    module docstring's "ONE HONEST LIMIT" carries the measurement):
+    WHAT IT BUYS, stated exactly (it does NOT make the apply proof non-vacuous:
+    a control build disproved that, see the module docstring's "ONE LIMIT"):
       * it removes ONE of the two client-side writers of the walker's
-        _unitsSpottedThisTurn - SS2.W5's
+        _unitsSpottedThisTurn -
         updateSoldierInfo(checkFOV) -> calculateFOV(selectedUnit, false, true).
-        The OTHER writer, A5's targeted per-ev calculateFOV(unit) in
+        The OTHER writer, the targeted per-ev calculateFOV(unit) in
         CoopDisplayQueue::onApplied, still reaches the same unit, which is why
         the set comparison remains a consistency check;
       * it makes the walk a REMOTE-unit walk from the client's own HUD's point
-        of view, which is the more interesting case and the one W1-P12's ghost
-        will animate;
+        of view, which is the more interesting case and the one the ghost
+        stepper animates;
       * it proves the halt banner reaches the ORDERING SEAT even when the
         walker is not that seat's selected unit.
 
-    Selection is a machine-local presentation act (SS2.W5: a selection change
-    authors no shared fog in a co-op battle) and the client is only ever
+    Selection is a machine-local presentation act (a selection change authors
+    no shared fog in a co-op battle) and the client is only ever
     selecting its OWN units, so nothing here is a state mint - the
     all-buckets-EQUAL asserts that follow are what hold that claim."""
     for _ in range(14):
@@ -733,15 +720,12 @@ def assert_zero_step_contact(host, client, actor_id, hw, cw, before, baseline):
     """THE haltStep == 0 CASE: a spot during vanilla's PRE-FIRST-STEP facing
     turn, so the walk halts having executed NO steps at all.
 
-    THIS USED TO BE A FIXTURE REJECTION, AND THAT IS WHY A REAL DESYNC SURVIVED
-    43 GREEN RUNS. The driver saw `haltStep == 0`, recorded "this boot did not
-    offer a testable situation" and moved on - while the client had ALREADY
-    desync-frozen on the ev, so the run died in the next settle instead. A
-    fixture that REJECTS a case cannot detect a bug in that case, and every
-    green run printed "0 zero-step spot(s)" without that reading as the coverage
-    hole it was.
+    It is asserted at full strength, never rejected as "this boot did not offer
+    a testable situation": a fixture that REJECTS a case cannot detect a bug in
+    that case, and on this case the client can desync-freeze on the ev, so a
+    run that skipped it would only die in the next settle.
 
-    It is now asserted at full strength. It is also the case with the least
+    It is also the case with the least
     slack in the whole atom: with no executed step there is no preceding
     `walk_step` ev to have shipped an absolute `tuAfter`, so the `spot` ev's own
     h:{unitsStats} is the FIRST thing the client verifies after the walk began -
@@ -762,7 +746,7 @@ def assert_zero_step_contact(host, client, actor_id, hw, cw, before, baseline):
             "computed - so no hook placement can precede it and the `spot` ev's "
             "h:{unitsStats} would be post-spend again. A mod has changed the premise: "
             "the fix must become a payload change to `ev spot`, which is a PUBLISHED "
-            "schema and therefore an owner ruling.")
+            "schema.")
 
     for tag, w in (("host", hw), ("client", cw)):
         r = w.get("restate") or {}
@@ -772,7 +756,7 @@ def assert_zero_step_contact(host, client, actor_id, hw, cw, before, baseline):
         assert r["halted"] is True, f"ZERO-STEP: the {tag}'s restate is not marked halted"
         assert list(r["path"]) == [], (
             f"ZERO-STEP: the {tag}'s completion path is {r['path']}, expected EMPTY - no "
-            "step executed, so the executed prefix is empty (SS2.W2 rule 5)")
+            "step executed, so the executed prefix is empty")
         assert not (w.get("steps") or []), (
             f"ZERO-STEP: the {tag} recorded {len(w['steps'])} walk_step ev(s) for a walk "
             "that executed none")
@@ -818,8 +802,8 @@ def assert_zero_step_contact(host, client, actor_id, hw, cw, before, baseline):
           f"on both machines, all 9 buckets EQUAL, ordering seat shows {STR_HALT_SPOT!r}")
 
 
-def contact_p3(host, client, soldier_ids, baseline):
-    """WV-D87 / M1: the deterministic contact. Actor on the deck at `near` facing out; one
+def stage_contact(host, client, soldier_ids, baseline):
+    """The deterministic contact. Actor on the deck at `near` facing out; one
     hostile at far_ground + 6*d_out facing the door (>= APPROACH_FLOOR from the destination);
     every other hostile in the far corner; destination far_ground + 2*d_out (planned 3 steps).
     Measured: the step down through the door completes, then the spot halts (haltStep 1)."""
@@ -831,7 +815,7 @@ def contact_p3(host, client, soldier_ids, baseline):
     corner = ("S" if door["y"] < my / 2.0 else "N") + ("E" if door["x"] < mx / 2.0 else "W")
     place_deterministic(host, client, [{"lever": "battle_teleport_all", "faction": "hostile",
                                         "corner": corner, "facing": session._CORNER_FACING[corner]}],
-                        what="P3 corner")
+                        what="contact staging corner")
     hostiles = sorted((u for u in living_non_players(battle_state(host))
                        if u.get("faction") == session.FACTION_HOSTILE), key=lambda u: u["id"])
     assert hostiles, "FIXTURE: no live hostile to stage"
@@ -842,7 +826,7 @@ def contact_p3(host, client, soldier_ids, baseline):
         f"FIXTURE: alien tile {alien_tile} or destination {dest} not standable on this map")
     place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": alien,
                                         "x": alien_tile[0], "y": alien_tile[1], "z": alien_tile[2],
-                                        "dir": (d_out + 4) % 8}], what="P3 alien")
+                                        "dir": (d_out + 4) % 8}], what="contact staging alien")
     mine = seat1_units(host, soldier_ids)
     assert len(mine) >= 2, "FIXTURE: need two seat-1 units (walker + parking spot)"
     actor = min(mine, key=lambda u: session.cheb(pos_of(u), near))
@@ -852,7 +836,7 @@ def contact_p3(host, client, soldier_ids, baseline):
     if pos_of(actor) != near:
         place_deterministic(host, client, [{"lever": "battle_teleport_unit", "unit": actor_id,
                                             "x": near[0], "y": near[1], "z": near[2], "dir": d_out}],
-                            what="P3 actor")
+                            what="contact staging actor")
     u = unit_of(host, actor_id)
     assert u["reactions"] > 0 and u["tu"] > 0, f"actor {actor_id} has no reactions/TU: {u}"
     before = {"actor_pos": pos_of(u),
@@ -861,19 +845,19 @@ def contact_p3(host, client, soldier_ids, baseline):
               "health": u["health"], "stun": u["stun"]}
     spots_before = event_state(host)["coopSpotEvsEmitted"]
     kind, payload = send_walk_outcome(host, client, actor_id, dest)
-    assert kind == "walk", f"P3: the contact walk did not execute (kind={kind!r}, {payload})"
+    assert kind == "walk", f"contact staging: the contact walk did not execute (kind={kind!r}, {payload})"
     hw, cw = payload, W.last_walk(client)
     r = hw["restate"]
     assert r.get("halted") and r.get("reason") == "spot", (
-        f"P3: expected a spot halt, got halted={r.get('halted')} reason={r.get('reason')!r}")
-    assert event_state(host)["coopSpotEvsEmitted"] > spots_before, "P3: no spot ev emitted"
+        f"contact staging: expected a spot halt, got halted={r.get('halted')} reason={r.get('reason')!r}")
+    assert event_state(host)["coopSpotEvsEmitted"] > spots_before, "contact staging: no spot ev emitted"
     seen = assert_contact(host, client, actor_id, hw, cw, before, baseline)
     return actor_id, hw, seen
 
 
-# ----- PHASE 2: the control ------------------------------------------------
+# ----- CONTROL PHASE: the control ------------------------------------------------
 
-def phase2_control(host, client, actor_id, first_seen, baseline):
+def control_walk(host, client, actor_id, first_seen, baseline):
     """One more walk for the same actor. Either it does NOT halt on a spot and
     emits NO second `spot` ev - which proves the halt is not latched and that
     `seen` is the ADDITIONS since the chain opened rather than the whole set -
@@ -906,28 +890,28 @@ def phase2_control(host, client, actor_id, first_seen, baseline):
         # part that is unobservable without a walk is unobserved, and it is
         # named as such.
         assert event_state(host)["coopSpotEvsEmitted"] == emitted_before, (
-            "PHASE 2: a `spot` ev was emitted although no control walk ever ran")
+            "CONTROL PHASE: a `spot` ev was emitted although no control walk ever ran")
         h_set = set(unit_of(host, actor_id)["spottedThisTurn"])
         c_set = set(unit_of(client, actor_id)["spottedThisTurn"])
         assert h_set == c_set and set(first_seen) <= h_set, (
-            f"PHASE 2: spotted-this-turn drifted with no walk in flight - host "
+            f"CONTROL PHASE: spotted-this-turn drifted with no walk in flight - host "
             f"{sorted(h_set)} client {sorted(c_set)}, first contact {first_seen}")
-        assert_hash_clean(host, client, full=True, what="after the PHASE 2 no-walk control")
-        print(f"PASS PHASE 2 (weak form): no control walk could be ordered "
+        assert_hash_clean(host, client, full=True, what="after the CONTROL PHASE no-walk control")
+        print(f"PASS CONTROL PHASE (weak form): no control walk could be ordered "
               f"({len(cands)} candidate(s) tried) - asserted instead that NO second "
               f"`spot` ev exists, both machines still hold {sorted(h_set)}, all buckets "
               "EQUAL")
         return
-    assert_reaction_pin_holds(host, client, baseline, "after the PHASE 2 control walk")
+    assert_reaction_pin_holds(host, client, baseline, "after the CONTROL PHASE control walk")
 
     emitted_after = event_state(host)["coopSpotEvsEmitted"]
     if isinstance(outcome, tuple):
         # A deny (a drained actor). The control still holds in its weak form: no
         # second spot ev was emitted for a walk that never ran.
         assert emitted_after == emitted_before, (
-            f"PHASE 2: a DENIED walk emitted {emitted_after - emitted_before} `spot` "
+            f"CONTROL PHASE: a DENIED walk emitted {emitted_after - emitted_before} `spot` "
             "ev(s)")
-        print(f"PASS PHASE 2 (weak form): the control walk was denied "
+        print(f"PASS CONTROL PHASE (weak form): the control walk was denied "
               f"({outcome[1].get('reason')!r}) and emitted no `spot` ev")
         return
 
@@ -935,18 +919,18 @@ def phase2_control(host, client, actor_id, first_seen, baseline):
     r = hw["restate"]
     if emitted_after == emitted_before:
         assert not (r["halted"] and r["reason"] == "spot"), (
-            "PHASE 2: the restate says the walk halted on 'spot' but no `spot` ev was "
+            "CONTROL PHASE: the restate says the walk halted on 'spot' but no `spot` ev was "
             "emitted - the reason and the ev must always travel together")
         h_set = set(unit_of(host, actor_id)["spottedThisTurn"])
         c_set = set(unit_of(client, actor_id)["spottedThisTurn"])
         assert h_set == c_set, (
-            f"PHASE 2: the spotted-this-turn sets drifted apart after the control walk - "
+            f"CONTROL PHASE: the spotted-this-turn sets drifted apart after the control walk - "
             f"host {sorted(h_set)} client {sorted(c_set)}")
         assert set(first_seen) <= h_set, (
-            f"PHASE 2: the first contact's ids {first_seen} are no longer in the actor's "
+            f"CONTROL PHASE: the first contact's ids {first_seen} are no longer in the actor's "
             f"spotted-this-turn set {sorted(h_set)} - the atom is not additive")
-        assert_hash_clean(host, client, full=True, what="after the PHASE 2 control walk")
-        print(f"PASS PHASE 2: the actor walked {len(hw['steps'])} more step(s) toward the "
+        assert_hash_clean(host, client, full=True, what="after the CONTROL PHASE control walk")
+        print(f"PASS CONTROL PHASE: the actor walked {len(hw['steps'])} more step(s) toward the "
               f"SAME unit(s) {first_seen} and emitted NO second `spot` ev "
               f"(halted={r['halted']} reason={r['reason']!r}) - the halt is not latched "
               f"and `seen` carries ADDITIONS, not the whole set")
@@ -954,16 +938,16 @@ def phase2_control(host, client, actor_id, first_seen, baseline):
 
     # A genuinely NEW contact. The stronger branch.
     assert r["halted"] and r["reason"] == "spot", (
-        f"PHASE 2: a second `spot` ev was emitted but the restate says halted="
+        f"CONTROL PHASE: a second `spot` ev was emitted but the restate says halted="
         f"{r['halted']} reason={r['reason']!r}")
     second = list(last_spot(host)["seen"])
-    assert second, "PHASE 2: the second `spot` ev carries an empty `seen`"
+    assert second, "CONTROL PHASE: the second `spot` ev carries an empty `seen`"
     assert not (set(second) & set(first_seen)), (
-        f"PHASE 2: the second `spot` ev re-ships {sorted(set(second) & set(first_seen))}, "
+        f"CONTROL PHASE: the second `spot` ev re-ships {sorted(set(second) & set(first_seen))}, "
         "which the first one already carried - `seen` must be the ADDITIONS since the "
         "chain opened, never the whole spotted-this-turn set")
-    assert_hash_clean(host, client, full=True, what="after the PHASE 2 second contact")
-    print(f"PASS PHASE 2 (strong form): a SECOND contact spotted {second}, DISJOINT from "
+    assert_hash_clean(host, client, full=True, what="after the CONTROL PHASE second contact")
+    print(f"PASS CONTROL PHASE (strong form): a SECOND contact spotted {second}, DISJOINT from "
           f"the first {first_seen} - `seen` is the additions, not the set")
 
 
@@ -978,9 +962,9 @@ def dir_toward(frm, to):
 
 
 def turn_to(host, client, actor_id, to_dir):
-    """One SYNCED turn (the R3-P1 turn atom) to an absolute facing. Returns True
-    when a turn actually executed. Used only by PHASE 3, to point an actor AWAY
-    from a hostile before ordering a walk back toward it."""
+    """One SYNCED turn (a client turn intent) to an absolute facing. Returns True
+    when a turn actually executed. For pointing an actor AWAY from a hostile
+    before ordering a walk back toward it."""
     assert_not_frozen(host, client, f"before turning actor {actor_id}")
     base = event_state(client).get("lastSeqApplied", 0)
     r = client.cmd({"cmd": "battle_intent", "kind": "turn", "actor": actor_id,
@@ -1004,8 +988,8 @@ def turn_to(host, client, actor_id, to_dir):
 
 
 def bring_up_lightning():
-    """SPEC 0e-2: one boot, no retry - ports/dirs keep the same
-    offsets the single remaining attempt (1) used."""
+    """One boot, no retry - the ports and dirs keep the offsets of
+    attempt 1."""
     port = str(48660 + 1)
     host = GameClient("host", 49620 + 1 * 2,
                       make_user_dir("repro_atom_spot_host_1"))
@@ -1027,9 +1011,9 @@ def main():
     t0 = time.time()
     host, client, seated = bring_up_lightning()
     try:
-        baseline = phase0_pin_reaction_fire(host, client)
-        actor_id, hw, seen = contact_p3(host, client, seated["soldierIds"], baseline)
-        phase2_control(host, client, actor_id, seen, baseline)
+        baseline = pin_reaction_fire(host, client)
+        actor_id, hw, seen = stage_contact(host, client, seated["soldierIds"], baseline)
+        control_walk(host, client, actor_id, seen, baseline)
     finally:
         host.shutdown()
         client.shutdown()
@@ -1053,8 +1037,8 @@ if __name__ == "__main__":
         # file's asserts fall into three classes with very different
         # consequences (a hole in the atom, a wire/field defect, a fixture
         # premise), and the FILE:LINE is what separates them in one read. A
-        # red that has to be REPRODUCED before it can be classified costs a
-        # cycle, and this wave has already paid that twice. Purely additive:
+        # failure that has to be REPRODUCED before it can be classified costs
+        # another run. Purely additive:
         # no assertion, no control flow and no exit code depends on it.
         print("")
         print("--- traceback (classification aid) ---")
