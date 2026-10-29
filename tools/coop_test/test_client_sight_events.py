@@ -218,9 +218,9 @@ def row_door_reveal(host, client):
     census_eq = session.door_census(host) == session.door_census(client)
     hev, cev = evs_a(host, seq1), evs_a(client, seq1)
     ev(f"door_reveal: rotation intent {r1} evs {rot}; door intent {r2} host evs {hev} client evs {cev} | door h/c "
-       f"{d1} -> {d2} (census equal {census_eq}) | O dir h/c {ua(s2['h'], O_ID).get('dir')}/{ua(s2['c'], O_ID).get('dir')} V "
-       f"dir h/c {ua(s2['h'], V_ID).get('dir')}/{ua(s2['c'], V_ID).get('dir')} | client selected {s2['c']['sel']} | "
-       f"list(O) h/c {lists(s2, O_ID)} | after {cas.fmt(s2)}")
+       f"{d1} -> {d2} (census equal {census_eq}) | O dir h/c {ua(s2['h'], O_ID).get('dir')}/"
+       f"{ua(s2['c'], O_ID).get('dir')} V dir h/c {ua(s2['h'], V_ID).get('dir')}/{ua(s2['c'], V_ID).get('dir')} | "
+       f"client selected {s2['c']['sel']} | list(O) h/c {lists(s2, O_ID)} | after {cas.fmt(s2)}")
     v1, lv1, lo1 = (ua(s1["h"]).get("vis"), ua(s1["c"]).get("vis")), lists(s1, V_ID), lists(s1, O_ID)
     no_a = all(A_ID not in (x or []) for x in lv1 + lo1)
     o_dirs = (ua(s1["h"], O_ID).get("dir"), ua(s1["c"], O_ID).get("dir"))
