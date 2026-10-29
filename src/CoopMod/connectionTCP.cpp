@@ -12617,6 +12617,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 				std::string map_data = obj["data"].asString();
 				mapData += map_data;
+				SharedEcon::noteWorldStreamProgress();
 
 				std::string jsonData2 = "{\"state\" : \"WAIT_MAP_SENDER\"}";
 				sendTCPPacketData(jsonData2);

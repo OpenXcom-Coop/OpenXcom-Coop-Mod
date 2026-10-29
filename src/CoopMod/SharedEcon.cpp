@@ -204,6 +204,10 @@ std::atomic<uint64_t> g_resyncReqN{0}; // resyncs asked for (replica) / served (
 bool g_resyncPending = false;          // replica: a world restream is in flight
 bool g_resyncGaveUp = false;           // replica: throttled out, popup already shown
 int64_t g_lastResyncGameMin = -1;      // replica: game-minute stamp of the last resync
+// Replica: wall-clock ms of the last sign that a world stream is coming - the
+// resync request or a stream chunk. The in-flight guard lives while this is
+// recent (RESYNC_PENDING_TIMEOUT_MS), however fast the game clock runs.
+int64_t g_streamProgressMs = -1;
 // The checksum rides the geoscape `time` heartbeat, which the host emits at LINK
 // RATE (~2000/s). Log a mismatch ONCE per episode, not once per heartbeat: a
 // per-heartbeat log is thousands of fopen/fwrite/fclose per second on the
@@ -4357,6 +4361,9 @@ void hostDayTick(Game* game)
 // ---- PRD-J04 detect + PRD-J10 repair: world checksum -------------------------
 const int RESYNC_COOLDOWN_MINUTES = 60; // one game hour between auto-resyncs
 const int RESYNC_DEBOUNCE_MS = 3000;    // a mismatch must survive this to count
+// A resync request whose stream shows no progress (no chunk) for this long was
+// dropped by the host or died with the stream; the replica asks again.
+const int RESYNC_PENDING_TIMEOUT_MS = 30000;
 
 namespace {
 // Wall-clock (not game-time) milliseconds: the debounce below measures how long a
@@ -8187,6 +8194,7 @@ bool requestResync(Game* game, const std::string& why, bool force)
 
 	g_resyncPending = true;
 	g_lastResyncGameMin = gameMinutes(game->getSavedGame());
+	g_streamProgressMs = steadyMs();
 	++g_resyncReqN;
 	Log(LOG_WARNING) << "[SHARED] requesting a world resync from the host (" << why
 		<< (force ? ", forced)" : ")");
@@ -8206,6 +8214,13 @@ void notifyWorldAdopted()
 	// mismatch that reappears within the window is still treated as unrepairable.
 	g_resyncPending = false;
 	g_resyncGaveUp = false;
+}
+
+void noteWorldStreamProgress()
+{
+	// A chunk of a world stream arrived. A large world takes many seconds to
+	// stream; the in-flight resync guard lives while chunks keep coming.
+	if (g_resyncPending) g_streamProgressMs = steadyMs();
 }
 
 void verifyWorldChecksum(Game* game, const Json::Value& msg)
@@ -8326,12 +8341,19 @@ void verifyWorldChecksum(Game* game, const Json::Value& msg)
 	if (g_resyncPending)
 	{
 		// A restream is already on the wire: every heartbeat until it lands still
-		// mismatches, and re-asking would queue a second serialization of the whole
-		// world on the host. Wait for it - but not forever: if the host dropped the
-		// request (its single-slot streamer was busy) the guard expires with the
-		// cooldown and the next mismatch re-asks.
-		if (cooling) return;
+		// mismatches, and re-asking would make the host drop the request ("streamer
+		// busy") or serialize the whole world twice. Wait for the adoption. The wait
+		// is REAL time since the last sign of the stream (the request or a chunk):
+		// at the fastest speed many game hours pass while a large world
+		// streams, so a game-time guard expired mid-stream. A request that shows no
+		// progress for RESYNC_PENDING_TIMEOUT_MS was dropped or died: ask again. That
+		// repair never landed, so it does not count toward giving up below.
+		if (nowMs - g_streamProgressMs < RESYNC_PENDING_TIMEOUT_MS) return;
+		Log(LOG_WARNING) << "[SHARED] no world stream within "
+			<< RESYNC_PENDING_TIMEOUT_MS << "ms of the resync request; asking again";
 		g_resyncPending = false;
+		requestResync(game, "previous resync request got no stream");
+		return;
 	}
 
 	if (cooling)

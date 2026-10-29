@@ -764,12 +764,17 @@ bool requestResync(Game* game, const std::string& why, bool force = false);
 /// guard so a later drift can be repaired again.
 void notifyWorldAdopted();
 
+/// REPLICA: a chunk of a world stream arrived (connectionTCP map_result_data). The
+/// in-flight resync guard is real time since the request or the last chunk, so a
+/// large world that streams for many seconds keeps it.
+void noteWorldStreamProgress();
+
 /// Harness/diagnostics: auto-resync bookkeeping on this machine.
 struct ResyncStats
 {
 	uint64_t mismatches;  // checksum mismatches observed (replica)
 	uint64_t requests;    // shared_resync_request sent (replica) / served (host)
-	bool pending;         // a resync is in flight (replica)
+	bool pending;         // a resync is in flight, until adoption or timeout (replica)
 	bool gaveUp;          // throttled out: the "save and reload" popup was shown
 	int64_t lastGameMin;  // game-minute stamp of the last auto-resync, -1 = never
 };
