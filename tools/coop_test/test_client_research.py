@@ -3,24 +3,23 @@ host has research sync OFF, every research-based weapon check reads the research
 of the unit's OWNER (each soldier's owner's research decides orders, menus,
 reaction fire and berserk).
 
-The second player's game swaps its own world for the host's at battle entry, so
-without the owner routing both machines only know the HOST's research during
-the battle: the guest G could not fire the plasma pistol its player researched
-and could fire the heavy plasma only the host researched. The client ships its
-own list on battle_accept and keeps a copy; each check routes by the unit's
-seat tag. Thirteen scenarios, ONE boot, in this order:
+Both machines share one save, which keeps one research list per player, and a
+plain check answers for this machine's own player, so without the owner routing
+the host would judge the guest G by the host's research: G could not fire the
+plasma pistol its player researched and could fire the heavy plasma only the
+host researched. The client ships its own player's list on battle_accept and
+keeps a copy; each check routes by the unit's seat tag. Thirteen scenarios, ONE boot, in this order:
 
   research_store  the store and the mode (no press). First the fixture
           precondition: event_state.researchMode {campaign true, shared false,
           sync false, coopBattle true, separate true} on both machines and the
           client's localSeat == G's coop == 1. Then: seats[1] {stored true,
-          count Nc, unknown 0} equal on both, seats[0].stored false; the
-          client's liveCount == Nh (the adopted host world); research_check
-          {seat0, seat1} on both: PISTOL, PCLIP, PSI {false, true} and HEAVY,
-          HCLIP {true, false} (the lists are told apart by NAME); is_researched
-          in battle HEAVY and HCLIP true, the other three false, on both. Nc
-          and Nh are read at run time, never baked (the boot discovers more
-          topics than these five).
+          count Nc, unknown 0} equal on both, seats[0].stored false; liveCount
+          equal on both (one save); research_check {seat0, seat1} on both:
+          PISTOL, PCLIP, PSI {false, true} and HEAVY, HCLIP {true, false} (the
+          lists are told apart by NAME); is_researched in battle reads each
+          machine's own player: HEAVY and HCLIP on the host, PISTOL, PCLIP and
+          PSI on the client. Nc and Nh are read at run time, never baked.
           A build with no writer for the store shows seats[1].stored false and
           research_check pistol seat 1 false.
   can_use_by_owner  the owner rule at canUseWeapon: can_use_weapon {G, item,
@@ -37,13 +36,11 @@ seat tag. Thirteen scenarios, ONE boot, in this order:
           weapon pistol}; G TU = max - snap - 4 (the first south shot turns
           G 0 -> 4) and the clip -1 on both. By the host's research: refused
           locally (cursorType 1, RESEARCH_TEXT, nothing sent).
-  mode_read_per_check  the mode is read at each check. Leg 1:
-          set_research_sync true on both (client first) -> separate false on
-          both, research_check pistol seat 1 false -> the pistol press is
-          refused locally with RESEARCH_TEXT, nothing sent. Leg 2:
-          set_research_sync false -> separate true, seat 1 true -> the press
-          starts targeting, SEED_SYNC_OFF_SHOT, click south_3 -> admitted,
-          `shot` weapon pistol, G TU = max - snap (already facing south).
+  mode_read_per_check  the mode is read at each check:
+          set_research_sync false on both (client first) -> separate true,
+          seat 1 true -> the press starts targeting, SEED_SYNC_OFF_SHOT, click
+          south_3 -> admitted, `shot` weapon pistol, G TU = max - snap (already
+          facing south).
   host_heavy_refused  the host-only heavy plasma through the REAL UI (the
           mirror case). Expected: refused locally (cursorType 1,
           BattlescapeState on top, RESEARCH_TEXT, nothing sent, no click made).
@@ -78,10 +75,9 @@ seat tag. Thirteen scenarios, ONE boot, in this order:
   pedia_ammo_column  the rifle article's ammo column (ArticleStateItem :398)
           on G and H. Expected: client "", host "80" (by the host's research
           the client shows "80").
-  pedia_mode_per_list  the mode at each list build: leg 1 sync on (separate
-          false) Heavy Plasma, not Plasma Pistol; leg 2 sync off Plasma
-          Pistol, not Heavy Plasma (by the host's research leg 2 lists as
-          leg 1).
+  pedia_mode_per_list  the mode at each list build: sync off lists Plasma
+          Pistol, not Heavy Plasma (by the host's research it lists Heavy
+          Plasma, not Plasma Pistol).
   pedia_nerds_link  the Stats-for-Nerds ammo link (:386): the rifle article,
           U key, the ammo combo's clip row. Expected: nerds 1 (by the host's
           research the link opens a second screen: nerds 2). Checked in the
@@ -162,12 +158,11 @@ weapons). Only the target OFFSETS from G's deployment tile and the seeds are
 baked. G's firing is pinned to FIRING_PIN on both machines (client first)
 before any shot; with the pin, seed 1 put every shot on the same impact tile
 on every boot (three boots each order): south_2, south_3, south_4, south_4.
-pre_mission_start = client discover_research STR_PLASMA_PISTOL,
-STR_PLASMA_PISTOL_CLIP, STR_PSI_LAB, then host STR_HEAVY_PLASMA,
-STR_HEAVY_PLASMA_CLIP, then client STR_PLASMA_RIFLE, then host
-STR_PLASMA_RIFLE, STR_PLASMA_RIFLE_CLIP (the host's research dependencies
-cascade: Nh 6, Nc 4, read at run time); only the pedia rows read the rifle
-topics. The client's options.cfg psiStrengthEval true; both machines'
+pre_mission_start = separate_profile_set on both machines: the client's player
+STR_PLASMA_PISTOL, STR_PLASMA_PISTOL_CLIP, STR_PSI_LAB, STR_PLASMA_RIFLE; the
+host's player STR_HEAVY_PLASMA, STR_HEAVY_PLASMA_CLIP, STR_PLASMA_RIFLE,
+STR_PLASMA_RIFLE_CLIP (Nh, Nc = the size of each list, read at run time); only
+the pedia rows read the rifle topics. The client's options.cfg psiStrengthEval true; both machines'
 oxceShowAccuracyOnCrosshair 2 (the Alt aiming text). H = the first host soldier
 (coop 0, not out) by id order.
 
@@ -254,8 +249,9 @@ AIM_REGION = (-40, -40, 96, 80)   # screen_pixels region around the tile's scree
 
 # ----- Ufopaedia rows -----
 RIFLE, RCLIP = "STR_PLASMA_RIFLE", "STR_PLASMA_RIFLE_CLIP"
-PEDIA_CLIENT_TOPICS = (RIFLE,)          # pre_mission_start on the client, after CLIENT_TOPICS
-PEDIA_HOST_TOPICS = (RIFLE, RCLIP)      # on the host, after HOST_TOPICS (dependency cascade: Nh 3 -> 6, Nc 3 -> 4)
+HOST_PLAYER, CLIENT_PLAYER = "HostPlayer", "ClientPlayer"   # the campaign's player names (session.new_campaign)
+PEDIA_CLIENT_TOPICS = (RIFLE,)          # pre_mission_start, the client's player, after CLIENT_TOPICS
+PEDIA_HOST_TOPICS = (RIFLE, RCLIP)      # the host's player, after HOST_TOPICS
 PCLIP_NAME, HCLIP_NAME = "Plasma Pistol Clip", "Heavy Plasma Clip"   # en-US :844-:849; rows compared EXACTLY
 RIFLE_NAME, RCLIP_NAME = "Plasma Rifle", "Plasma Rifle Clip"
 SECTION = "alien artifacts"       # click_widget match on UfopaediaStartState
@@ -313,6 +309,18 @@ def isr(gc, topic):
 
 def isr_all(host, client):
     return {n: {t: isr(gc, t) for t in TOPICS} for n, gc in (("host", host), ("client", client))}
+
+
+def grant(host, client, player, topics):
+    """Add `topics` to one player's private research list on both machines."""
+    for gc in (host, client):
+        for t in topics:
+            gc.ok({"cmd": "separate_profile_set", "player": player, "research": t})
+
+
+def player_research_count(gc, player):
+    state = gc.ok({"cmd": "separate_profile_state"})
+    return next(len(p.get("completedResearch", [])) for p in state["players"] if p["name"] == player)
 
 
 def sync_both(host, client, enabled):
@@ -512,18 +520,18 @@ def research_store(host, client, ctx):
             fails.append(f"{n} researchMode.seats[{G_SEAT}] {seats[n][G_SEAT]} (want {want1})")
         if (seats[n][0] or {}).get("stored") is not False:
             fails.append(f"{n} researchMode.seats[0] {seats[n][0]} (want stored false: seat 0 is the live world)")
-    if (mc or {}).get("liveCount") != ctx["Nh"]:
-        fails.append(f"client liveCount {(mc or {}).get('liveCount')} (want Nh {ctx['Nh']}: the adopted host world)")
+    if (mc or {}).get("liveCount") != (mh or {}).get("liveCount"):
+        fails.append(f"client liveCount {(mc or {}).get('liveCount')} (want the host's {(mh or {}).get('liveCount')}: one save)")
     want_rc = {t: {0: t in HOST_TOPICS, G_SEAT: t in CLIENT_TOPICS} for t in TOPICS}
     for t in TOPICS:
         for n in ("host", "client"):
             got = rc[t][n]["seats"] or {}
             if {s: got.get(s) for s in (0, G_SEAT)} != want_rc[t]:
                 fails.append(f"{n} research_check {t} seats {got} (want {want_rc[t]})")
-    want_ib = {t: t in HOST_TOPICS for t in TOPICS}
-    for n in ("host", "client"):
+    for n, own in (("host", HOST_TOPICS), ("client", CLIENT_TOPICS)):
+        want_ib = {t: t in own for t in TOPICS}
         if ib[n] != want_ib:
-            fails.append(f"{n} is_researched in battle {ib[n]} (want {want_ib}: the live world is the host's)")
+            fails.append(f"{n} is_researched in battle {ib[n]} (want {want_ib}: this machine's own player)")
     fails += common_fails(host, client, before, "research_store")
     finish(fails)
 
@@ -590,16 +598,7 @@ def mode_read_per_check(host, client, ctx):
     fails = []
     assert "pistol" in ctx, "client_pistol_fires gave G no pistol (its give failed), so this row has no weapon"
     pw, pc = ctx["pistol"]
-    # ---- leg 1: research sync ON -> the check reads the live (host) world
-    aim0 = cancel_client_aim(client)
-    s1 = sync_both(host, client, True)
-    m1 = {"host": mode_view(rmode(host)), "client": mode_view(rmode(client))}
-    rc1 = {"host": rcheck(host, PISTOL), "client": rcheck(client, PISTOL)}
-    tmax1 = tu_max_both(host, client, G)
-    g0 = g_now(host, client, ctx, pw, pc)
-    b1, r1, pv1, o1, n1 = run_press(host, client, ctx, KEY_SNAP)
-    g1 = g_now(host, client, ctx, pw, pc)
-    # ---- leg 2: research sync OFF again -> the owner's list, read at this check
+    # research sync OFF -> the owner's list, read at this check
     aim1 = cancel_client_aim(client)
     s2 = sync_both(host, client, False)
     m2 = {"host": mode_view(rmode(host)), "client": mode_view(rmode(client))}
@@ -613,23 +612,11 @@ def mode_read_per_check(host, client, ctx):
     hits2 = mine(new2, "intent", "shoot", G)
     aid2 = hits2[0]["actionId"] if len(hits2) == 1 else None
     chain2 = chain_of(r2, aid2)
-    print(f"EVIDENCE mode_read_per_check: pistol={pw} clip={pc}; LEG1 sync={s1} mode={m1} research_check={rc1} "
-          f"tuMax={tmax1} aimCancel={aim0} press={pv1} outcome={o1}; {press_view(b1, r1)}; G before={g0} after={g1}; "
-          f"diff={r1['diff']} notes={n1}; LEG2 sync={s2} mode={m2} research_check={rc2} tuMax={tmax2} "
+    print(f"EVIDENCE mode_read_per_check: pistol={pw} clip={pc}; LEG2 sync={s2} mode={m2} research_check={rc2} tuMax={tmax2} "
           f"aimCancel={aim1} target south_3={tgt} press={pv2} outcome={o2}; {press_view(b2, r2)}; newContexts={new2}; "
           f"action={aid2} chain={[(e['seq'], e['kind']) for e in chain2]}; "
           f"shots={shot_brief(shot_payloads(host, chain2))}; G before={g2} after={g3}; diff={r2['diff']} "
           f"desync={r2['dsc']}; notes={n2}", flush=True)
-    # leg 1
-    fails += [f"leg 1: {m}" for m in n1]
-    for n in ("host", "client"):
-        if s1[n] is not True or m1[n]["separate"] is not False:
-            fails.append(f"leg 1: {n} sync {s1[n]} separate {m1[n]['separate']} (want sync true, separate false)")
-        if (rc1[n]["seats"] or {}).get(G_SEAT) is not False:
-            fails.append(f"leg 1: {n} research_check {PISTOL} seats {rc1[n]['seats']} (want seat {G_SEAT} false)")
-    fails += refused_fails(b1, r1, pv1, g0, g1, "leg 1")
-    fails += [f"leg 1: {m}" for m in common_fails(host, client, b1, "mode_read_per_check leg 1")]
-    # leg 2
     fails += [f"leg 2: {m}" for m in n2]
     for n in ("host", "client"):
         if s2[n] is not False or m2[n]["separate"] is not True:
@@ -1421,7 +1408,7 @@ def pedia_mode_per_list(host, client, ctx):
     before = snap(host, client)
     legs, notes = {}, []
     try:
-        for leg, enabled in (("leg1", True), ("leg2", False)):
+        for leg, enabled in (("leg2", False),):
             e = legs[leg] = {"sync": sync_both(host, client, enabled)}
             e["mode"] = {"host": mode_view(rmode(host)), "client": mode_view(rmode(client))}
             e["list"] = pd_list(client, keys["client"])
@@ -1435,7 +1422,7 @@ def pedia_mode_per_list(host, client, ctx):
     print(f"EVIDENCE pedia_mode_per_list: aimCancel={aim0} start={f0}; legs={legs}; end={end}; notes={notes}",
           flush=True)
     fails = list(notes)
-    for leg, sync, sep in (("leg1", True, False), ("leg2", False, True)):
+    for leg, sync, sep in (("leg2", False, True),):
         e = legs.get(leg) or {}
         for n in ("host", "client"):
             got = ((e.get("sync") or {}).get(n), ((e.get("mode") or {}).get(n) or {}).get("separate"))
@@ -1443,9 +1430,7 @@ def pedia_mode_per_list(host, client, ctx):
                 fails.append(f"precondition: {leg} {n} sync, separate {got} (want {sync}, {sep})")
         if not pd_list_ok(e.get("list") or {}):
             fails.append(f"precondition: {leg} client list recipe {e.get('list')} (want start -> select, lists 1)")
-    fails += rows_fails(((legs.get("leg1") or {}).get("list") or {}).get("rows"), (HEAVY_NAME,), (PISTOL_NAME,),
-                        "leg1 (sync on: the live world) client Ufopaedia list")
-    # expected: sync off again -> the viewer's own research at this list build (by the host's research: as leg 1)
+    # expected: sync off -> the viewer's own research at this list build
     fails += rows_fails(((legs.get("leg2") or {}).get("list") or {}).get("rows"), (PISTOL_NAME,), (HEAVY_NAME,),
                         "leg2 (sync off: the viewer's own research) client Ufopaedia list")
     fails += pd_end_fails(f0, end, "pedia_mode_per_list")
@@ -1521,17 +1506,13 @@ def boot(host, client):
     pre_rec = {}
 
     def pre(h, c):
-        for t in CLIENT_TOPICS:   # PISTOL, PCLIP, PSI on the client
-            c.ok({"cmd": "discover_research", "topic": t})
-        for t in HOST_TOPICS:     # HEAVY, HCLIP on the host
-            h.ok({"cmd": "discover_research", "topic": t})
-        for t in PEDIA_CLIENT_TOPICS:   # then RIFLE on the client
-            c.ok({"cmd": "discover_research", "topic": t})
-        for t in PEDIA_HOST_TOPICS:     # then RIFLE, RCLIP on the host
-            h.ok({"cmd": "discover_research", "topic": t})
+        # One world: each player's private research is a list in the shared save,
+        # written on both machines so the two copies stay equal.
+        grant(h, c, CLIENT_PLAYER, CLIENT_TOPICS + PEDIA_CLIENT_TOPICS)
+        grant(h, c, HOST_PLAYER, HOST_TOPICS + PEDIA_HOST_TOPICS)
         pre_rec["isr"] = isr_all(h, c)
-        pre_rec["Nh"] = (rmode(h) or {}).get("liveCount")
-        pre_rec["Nc"] = (rmode(c) or {}).get("liveCount")
+        pre_rec["Nh"] = player_research_count(h, HOST_PLAYER)
+        pre_rec["Nc"] = player_research_count(h, CLIENT_PLAYER)
 
     host.spawn()
     host.connect()

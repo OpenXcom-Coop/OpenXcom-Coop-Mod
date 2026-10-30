@@ -182,13 +182,11 @@ def boot(host, client):   # = CR's boot with lobby key PORT, plus this test's bo
     ctx, pre_rec = {}, {}
 
     def pre(h, c):
-        for gc, topics in ((c, CR.CLIENT_TOPICS), (h, CR.HOST_TOPICS), (c, CR.PEDIA_CLIENT_TOPICS),
-                           (h, CR.PEDIA_HOST_TOPICS)):
-            for t in topics:
-                gc.ok({"cmd": "discover_research", "topic": t})
+        CR.grant(h, c, CR.CLIENT_PLAYER, CR.CLIENT_TOPICS + CR.PEDIA_CLIENT_TOPICS)
+        CR.grant(h, c, CR.HOST_PLAYER, CR.HOST_TOPICS + CR.PEDIA_HOST_TOPICS)
         pre_rec["isr"] = CR.isr_all(h, c)
-        pre_rec["Nh"] = (CR.rmode(h) or {}).get("liveCount")
-        pre_rec["Nc"] = (CR.rmode(c) or {}).get("liveCount")
+        pre_rec["Nh"] = CR.player_research_count(h, CR.HOST_PLAYER)
+        pre_rec["Nc"] = CR.player_research_count(h, CR.CLIENT_PLAYER)
 
     for gc in (host, client):
         gc.spawn()
