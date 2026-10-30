@@ -7737,10 +7737,25 @@ bool coopResearchSeparate(Game* game)
 		&& !game->getCoopMod()->isSharedCampaign() && !game->getCoopMod()->_enable_research_sync;
 }
 
+// The player whose research a live-world read for @a seat uses. In a Separate
+// campaign with private research every player's list sits in the one shared
+// save, and a plain read answers for this machine's own player; a seat's check
+// names that seat's player, so both machines read the same list for the same
+// unit (seat 0 is the host's player). Empty: no player to name (a seat outside
+// 0..3, or one research list for everyone).
+static std::string coopSeatResearchPlayer(const SavedGame* live, int seat)
+{
+	if (!live || seat < 0 || seat > 3 || !live->usesSeparatePrivateResearch())
+		return std::string();
+	return connectionTCP::seatName(seat);
+}
+
 bool coopSeatIsResearched(Game* game, int seat, const std::vector<const RuleResearch*>& req)
 {
 	SavedGame* live = game->getSavedGame();
 	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop: the alien host's own research
+	const std::string player = coopSeatResearchPlayer(live, seat);
+	SeparateResearchScope playerScope(player.empty() ? nullptr : live, player);
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return live->isResearched(req);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -7764,6 +7779,8 @@ bool coopSeatIsResearched(Game* game, int seat, const std::vector<std::string>& 
 {
 	SavedGame* live = game->getSavedGame();
 	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop: the alien host's own research
+	const std::string player = coopSeatResearchPlayer(live, seat);
+	SeparateResearchScope playerScope(player.empty() ? nullptr : live, player);
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return live->isResearched(req);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -7784,6 +7801,8 @@ bool coopSeatIsManaUnlocked(Game* game, int seat, Mod* mod)
 {
 	SavedGame* live = game->getSavedGame();
 	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop: the alien host's own research
+	const std::string player = coopSeatResearchPlayer(live, seat);
+	SeparateResearchScope playerScope(player.empty() ? nullptr : live, player);
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return live->isManaUnlocked(mod);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -7809,6 +7828,8 @@ bool coopSeatArticleAvailable(Game* game, int seat, ArticleDefinition* article)
 {
 	SavedGame* live = game->getSavedGame();
 	if (seat == 0 && connectionTCP::coopPvpBorrowActive()) live = connectionTCP::coopPvpParkedWorld(); // coop: the alien host's own research
+	const std::string player = coopSeatResearchPlayer(live, seat);
+	SeparateResearchScope playerScope(player.empty() ? nullptr : live, player);
 	if (!coopResearchSeparate(game) || seat < 1 || seat > 3 || live->getDebugMode())
 		return Ufopaedia::isArticleAvailable(live, article);
 	std::lock_guard<std::mutex> lock(g_coopSeatResearchMutex);
@@ -32061,7 +32082,9 @@ void onOffer(Game* game, const Json::Value& offer)
 	Json::Value research(Json::arrayValue);
 	if (SavedGame* own = game->getSavedGame())
 	{
-		for (const RuleResearch* r : own->getDiscoveredResearch())
+		// this machine's player's own list: in a Separate campaign with private
+		// research the shared save keeps one list per player
+		for (const RuleResearch* r : own->getResearchedTopics(game->getMod()))
 			research.append(r->getName());
 	}
 	// a stage offer's accept ships this machine's own list kept at its
