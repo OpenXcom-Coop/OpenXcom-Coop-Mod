@@ -179,7 +179,7 @@ def give_amp(host, client, uid):
                                "clear_hands": True}, ("weaponId",))["weaponId"]
 
 
-def psi_lever(host, client, actor, target, amp, seed, want_faction, rec, where):
+def psi_attack_seeded(host, client, actor, target, amp, seed, want_faction, rec, where):
     """The host-local psi_attack lever right after the host's set_seed; bounded wait for the target's faction on the
     host and the host idle, boxes dismissed on their own machines. Returns the lever reply and the wait."""
     host.ok({"cmd": "set_seed", "seed": seed})
@@ -395,7 +395,7 @@ def row_mx(host, client, crash0, rec):
     set_stat_both(host, client, A_ID, "psiStrength", 0)
     ev["sTu"] = set_tu_both(host, client, S_ID, 255)
     ev["amp"] = amp
-    ev.update(psi_lever(host, client, S_ID, A_ID, amp, SEED_MX, FACTION_PLAYER, rec, "MX"))
+    ev.update(psi_attack_seeded(host, client, S_ID, A_ID, amp, SEED_MX, FACTION_PLAYER, rec, "MX"))
     a = [mcv(host, A_ID), mcv(client, A_ID)]
     tops = tops_ready((host, client), rec, "before MX-end press")
     want_a = (FACTION_PLAYER, S_ID, 1, False, 0)

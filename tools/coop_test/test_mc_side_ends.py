@@ -169,7 +169,7 @@ def row_g3e(host, client, crash0, rec):
     MCT.set_stat_both(host, client, S_ID, "psiSkill", 100)
     MCT.set_stat_both(host, client, A_ID, "psiStrength", 0)
     ev.update(amp=amp, sTu=set_tu_both(host, client, S_ID, 255))
-    ev.update(MCT.psi_lever(host, client, S_ID, A_ID, amp, SEED_G3, FACTION_PLAYER, rec, "G3E"))
+    ev.update(MCT.psi_attack_seeded(host, client, S_ID, A_ID, amp, SEED_G3, FACTION_PLAYER, rec, "G3E"))
     a = [mcv(host, A_ID), mcv(client, A_ID)]
     tops = MCT.tops_ready((host, client), rec, "before G3E-end press")
     want_a = (FACTION_PLAYER, S_ID, 0, False, 0)
@@ -225,11 +225,11 @@ def row_cm(host, client, crash0, rec):
     for uid in S1_IDS:
         MCT.set_stat_both(host, client, uid, "psiStrength", 0)
     ev["ampX"] = amp
-    for tag, tgt, seed in (("C1A", 8, MCC.SEED_C1A), ("C1B", 9, MCC.SEED_C1B)):
+    for tag, tgt, seed in (("C1A", 8, MCC.SEED_TAKE_8), ("C1B", 9, MCC.SEED_TAKE_9)):
         reply = MCT.set_stat_both(host, client, X_ID, "tu", X_TU, refill=True)["tu"]
         back = [(units(gc).get(X_ID) or {}).get("tu") for gc in (host, client)]
         ev[tag] = {"xTu": {"reply": reply, "readBack": back}}
-        ev[tag].update(MCT.psi_lever(host, client, X_ID, tgt, amp, seed, FACTION_HOSTILE, rec, tag))
+        ev[tag].update(MCT.psi_attack_seeded(host, client, X_ID, tgt, amp, seed, FACTION_HOSTILE, rec, tag))
     MCT.set_stat_both(host, client, X_ID, "psiSkill", 0)
     MCT.set_stat_both(host, client, X_ID, "tu", 0, refill=True)
     held = {i: [mcv(host, i)[:3], mcv(client, i)[:3]] for i in S1_IDS}
