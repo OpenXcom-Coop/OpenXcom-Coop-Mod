@@ -217,13 +217,12 @@ def main():
                       timeout=30, interval=0.5)
 
         client.ok({"cmd": "confirm_landing"})
-        # SPEC 19 F355 ordering fix: waiting for the CLIENT's inBattle
-        # here (the old shape) hangs forever - CoopHandshake::emitPreparedOffer()
-        # (the call that actually SENDS the client's offer) runs from
-        # BriefingState::btnOkClick/close_briefing on the HOST, not from
-        # confirm_landing itself. Wait for the host to enter + reach its own
-        # briefing, then drain BOTH machines (host briefing closed FIRST) to
-        # BattlescapeState via session.drive_both_to_tactical.
+        # Waiting for the CLIENT's inBattle here hangs forever:
+        # CoopHandshake::emitPreparedOffer() (the call that actually SENDS the
+        # client's offer) runs from BriefingState::btnOkClick/close_briefing on
+        # the HOST, not from confirm_landing itself. Wait for the host to enter
+        # + reach its own briefing, then drain BOTH machines (host briefing
+        # closed FIRST) to BattlescapeState via session.drive_both_to_tactical.
         host.wait_for("host entered the brokered battle",
                       lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                       timeout=180, interval=1.0)
@@ -235,7 +234,7 @@ def main():
                 % (_states(host)[-3:], _states(client)[-3:]))
         assert not _pending(host), "pending landing not cleared after the confirm"
         print("PASS confirm: the client's YES reached the host, which generated the "
-              "authoritative battle - BOTH machines entered it (F355-ordered)")
+              "authoritative battle - BOTH machines entered it (host briefing closed first)")
 
         # PRD-J11: the shared final-state assertions (world equality +
         # the replica's zero-disk invariant).
