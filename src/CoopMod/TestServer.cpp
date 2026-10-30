@@ -1176,7 +1176,6 @@ static std::string coopSoldierRosterDiag(SavedGame* save, int wantId)
  * ours (and @a resp was filled).
  */
 void coopTestStreamKeyMissSet(bool on); // coop: connectionTCP.cpp (TEST-ONLY hook)
-void coopTestHoldBaseResultSet(int ms); // coop: connectionTCP.cpp (TEST-ONLY hook)
 
 bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
@@ -1290,16 +1289,6 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
-	// coop (TEST-ONLY hook, either machine): {"ms": 0..3000} holds this machine's next base view that long
-	// (connectionTCP.cpp coopTestHoldBaseResult); 0 disarms. Response {ok, ms (the value armed, clamped)}.
-	if (cmd == "hold_base_result")
-	{
-		const int ms = req.get("ms", 0).asInt();
-		coopTestHoldBaseResultSet(ms);
-		resp["ms"] = ms < 0 ? 0 : (ms > 3000 ? 3000 : ms);
-		resp["ok"] = true;
-		return true;
-	}
 
 	// coop: TEST INTROSPECTION, read-only, safe after a co-op
 	// mirror was deleted under a geoscape popup: every pointer a popup holds (GeoscapeState::coopHeldTargets) is compared with the live

@@ -32577,8 +32577,7 @@ void onAccept(Game* game, const Json::Value& accept)
 	// streams one world at a time; it picks a stream's key when the stream starts and its end marker when it ends, then clears every send
 	// flag. A base answer still streaming to the partner here (asked for just before this machine's YES) would end as MAP_RESULT_CLIENT and
 	// clear this blob's trigger with it (both machines then wait, no timeout), and isWaitMap set here would send its next chunk without the
-	// partner's ack. The blob waits for an idle streamer; the base answer ends with its own MAP_RESULT_CLIENT_BASE, which
-	// the partner drops in its hand-off.
+	// partner's ack. The blob waits for an idle streamer.
 	if (!coopStreamIdle())
 	{
 		g_pendingHost.blobDeferred = true;
@@ -36321,32 +36320,6 @@ bool coopTestEquipHoldsDeferred()
 	return g_coopTestHoldsDefer.load();
 }
 
-// ----- coop (TEST-ONLY hold_base_result, either machine):
-// armed with ms > 0, this machine's next base result (MAP_RESULT_HOST_BASE on the host, MAP_RESULT_CLIENT_BASE on the client)
-// stores the visited world as always but opens the base view (CoopState(55)) ms later, from updateCoopTask, so a test can land a
-// partner world inside the "Synchronizing bases." window (its natural length is 0.02-0.05 s). One shot; inert unless
-// armed; never armed by game logic.
-static std::atomic<int> g_coopTestHoldBaseResultMs{0};
-static bool g_coopTestHoldBaseResultDue = false;
-static Uint32 g_coopTestHoldBaseResultAt = 0;
-
-void coopTestHoldBaseResultSet(int ms)
-{
-	g_coopTestHoldBaseResultMs.store(ms < 0 ? 0 : (ms > 3000 ? 3000 : ms));
-}
-
-// The base-result handlers' guarded statement (main thread): true = held, the caller does not open the base view now.
-static bool coopTestHoldBaseResult()
-{
-	const int ms = g_coopTestHoldBaseResultMs.exchange(0);
-	if (ms <= 0)
-		return false;
-	g_coopTestHoldBaseResultDue = true;
-	g_coopTestHoldBaseResultAt = SDL_GetTicks() + (Uint32)ms;
-	Log(LOG_INFO) << "[coop-test] hold_base_result: the base view opens in " << ms << " ms";
-	return true;
-}
-
 // coop: true
 // when no world stream is set up or running on this machine. A handler or a release sets these flags on the main thread (a
 // base answer at once; a save-progress stream only when the host's reply arrives, one round trip after a push or a save
@@ -36391,15 +36364,6 @@ static bool coopTestHoldBlobAckApplies(Game* game)
 
 void connectionTCP::updateCoopTask()
 {
-	// coop (TEST-ONLY hold_base_result): a held base view opens once its time is due (main thread).
-	if (g_coopTestHoldBaseResultDue && (Sint32)(SDL_GetTicks() - g_coopTestHoldBaseResultAt) >= 0)
-	{
-		g_coopTestHoldBaseResultDue = false;
-		Log(LOG_INFO) << "[coop-test] hold_base_result: the held base view opens";
-		CoopState* coopWindow = new CoopState(55);
-		coopWindow->loadWorld();
-	}
-
 	CoopSyncedOptions::tick(_game); // the synced-options activation edge, main thread only
 
 	// Voting deadlines are host-authoritative. The menu keeps its own display
