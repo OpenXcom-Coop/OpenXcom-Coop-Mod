@@ -1,15 +1,16 @@
-"""W2-H18b (F6136, F6137, F6177, D226 a; spec rewrite/prompts/w2h18b_soldier_effects.md (e)-(f); TASK 0
-w2h18b-task0/CONSTANTS.md): host-only soldier effects reach the SHARED replica. Mod Coop_SoldierEffects_Test: sick bay
-STR_EFFECTTEST_SICKBAY (+0.5 hp/day) at (0, 3), index 9; the Avenger with one pilot seat; STR_SOLDIER dogfightExperience
-100 %; pilots never survive an evacuation. Boot A (SHARED, one boot): H18b-1 stale day_tick cache (stock), H18b-2 sick-bay
-fraction, H18b-3 daily pilot list reset, H18b-4 pilot dogfight award (last of Part A/B), H18b-5 crewless lost craft, H18b-6
-crewed lost craft (last). Boot B (SEPARATE): H18b-7 guard row. Levers client first (S25). roll = TASK 0's exact one-day
-recipe (guard: host day + 1, month unchanged). window = both probes every 0.25 s for 3 s; RED cells at the FIRST sample with
-the client's requests == R0. hold (Part C) = host SoldiersState the moment its craft is gone; release = close_screens.
-clean = wait_resync_clear, drain client then host, 4 s after the window / release: requests == R0 through it is a verdict
-when the replica matched at the first sample, else recorded (a repair restream on the red build, never a verdict).
-RED: H18b-1..6 fail on the replica's cells, H18b-7 passes; GREEN: all pass. "guard:" = guard (a miss prints one CAPTURE).
-EVIDENCE then PASS / FAIL per row; every row runs after a failure; ONE run; exit 0 only if all pass, else 2.
+"""Host-only soldier effects reach the SHARED replica. Mod Coop_SoldierEffects_Test: sick bay STR_EFFECTTEST_SICKBAY
+(+0.5 hp/day) at (0, 3), index 9; the Avenger with one pilot seat; STR_SOLDIER dogfightExperience 100 %; pilots never
+survive an evacuation. Shared boot (SHARED, one boot): soldier_effect_1 stale day_tick cache (stock), soldier_effect_2
+sick-bay fraction, soldier_effect_3 daily pilot list reset, soldier_effect_4 pilot dogfight award, soldier_effect_5
+crewless lost craft, soldier_effect_6 crewed lost craft (last). Separate boot (SEPARATE): soldier_effect_7 guard row.
+Test commands go to the client first. roll = an exact one-day recipe (guard: host day + 1, month unchanged). window =
+both probes every 0.25 s for 3 s; the replica cells read the FIRST sample with the client's requests == R0. hold (the
+lost-craft rows) = host SoldiersState the moment its craft is gone; release = close_screens. clean = wait_resync_clear,
+drain client then host, 4 s after the window / release: requests == R0 through it is a verdict when the replica matched
+at the first sample, else recorded (a repair restream without the fix, never a verdict). Without the fix
+soldier_effect_1..6 fail on the replica's cells and soldier_effect_7 passes. "guard:" = guard (a miss prints one
+CAPTURE). EVIDENCE then PASS / FAIL per row; every row runs after a failure; there is no skip path; exit 0 only if all
+pass, else 2.
 """
 
 import datetime
@@ -25,8 +26,8 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierEffects_Test")
-BOOT_A = ("w2h18ba", (49384, 49385, 47364))
-BOOT_B = ("w2h18bb", (49386, 49387), "47366")
+BOOT_SHARED = ("soldier_effects_shared", (49384, 49385, 47364))
+BOOT_SEPARATE = ("soldier_effects_separate", (49386, 49387), "47366")
 FAC, FAC_IDX = "STR_EFFECTTEST_SICKBAY", 9
 AV, SKY, INT = "STR_AVENGER", "STR_SKYRANGER", "STR_INTERCEPTOR"
 CRASHED, HOURS = 2, 72                                # ufo status crashed; xcom1 timePersonnel
@@ -134,7 +135,7 @@ def show(r, tag, read, x):
         print(f"PROBE {r.rid} {tag} {gc.name}: {json.dumps(read(gc), sort_keys=True, default=str)}", flush=True)
 
 
-def roll(r, x, tag):  # TASK 0 (ii) exact one-day roll: host set_geo_day {today, 23}; skip 120 game minutes at speed 4
+def roll(r, x, tag):  # the exact one-day roll: host set_geo_day {today, 23}; skip 120 game minutes at speed 4
     h, c = x.host, x.client
     h.ok({"cmd": "set_geo_day", "day": date(h)[2], "hour": 23})
     d1 = {gc.name: date(gc) for gc in (h, c)}
@@ -145,7 +146,8 @@ def roll(r, x, tag):  # TASK 0 (ii) exact one-day roll: host set_geo_day {today,
     r.need(tag, days == 1 and d2["host"][1] == d1["host"][1] and not sk.get("timed_out"), r.ev[tag])
 
 
-def window(r, x, st, read):  # both probes every 0.25 s for 3 s; the RED cells read the FIRST sample (client requests == R0)
+# both probes every 0.25 s for 3 s; the replica cells read the FIRST sample (client requests == R0)
+def window(r, x, st, read):
     samples, t0 = [], time.time()
     while True:
         t = round(time.time() - t0, 2)
@@ -176,7 +178,7 @@ def clean(r, x, st):
     if st.get("held"):                                 # a guard missed inside the hold: release it first
         cl["release"] = h.cmd({"cmd": "close_screens"}).get("popped")
         st["held"] = False
-    if st.get("fights"):                               # H18b-4: the Avenger's fights close on both (speed-2 pump)
+    if st.get("fights"):                               # pilot row: the Avenger's fights close on both (speed-2 pump)
         av, uid, t0 = st["fights"][0], st["fights"][1], time.time()
         while time.time() - t0 < 60 and (df_for(h, av, uid) or df_for(c, av, uid)):
             pump(h, c, 2)
@@ -197,14 +199,14 @@ def clean(r, x, st):
         r.ev["requests [R0, seen through the window and 4 s after] (recorded, not a verdict: the replica diverged)"] = [st["r0"], reqs]
 
 
-def row_1(r, x, st):  # a healed one-day wound (stock, F7278)
+def row_1(r, x, st):  # a healed one-day wound (stock)
     h, c = x.host, x.client
     s0 = {gc.name: ss(gc) for gc in (h, c)}
     roll(r, x, "primeRoll")
-    r.ev["prime shared_stats [before, after] (day_tick + 1 on the host process's first roll, F7411)"] = {
+    r.ev["prime shared_stats [before, after] (day_tick + 1 on the host process's first roll)"] = {
         gc.name: [s0[gc.name], ss(gc)] for gc in (h, c)}
     stage_recovery(r, x, 3, 1)
-    show(r, "S0", lambda gc: recs(fx(gc, [3])), x)
+    show(r, "baseline", lambda gc: recs(fx(gc, [3])), x)
     st["r0"] = rs(c)["requests"]
     roll(r, x, "roll")
     first, _end = window(r, x, st, lambda gc: recs(fx(gc, [3])))
@@ -216,7 +218,7 @@ def row_1(r, x, st):  # a healed one-day wound (stock, F7278)
                            if cf["recovery"] == 1 else f"client {cf}")
 
 
-def row_2(r, x, st):  # sick-bay fraction (mod, F7277)
+def row_2(r, x, st):  # sick-bay fraction (mod)
     h, c = x.host, x.client
     r.ev["fac_build"] = h.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok")
     r.need("facilityListed", wait_until(lambda: fac_index(h) == FAC_IDX and fac_index(c) == FAC_IDX, 10),
@@ -227,7 +229,7 @@ def row_2(r, x, st):  # sick-bay fraction (mod, F7277)
         gc.name: [[b["index"], b["sickBayAbs"], b["sickBayRel"]] for b in fx(gc, [])["bases"]] for gc in (h, c)}
     r.need("sickBay", all(v[:1] and v[0][1] == 0.5 for v in sb.values()), sb)
     stage_recovery(r, x, 4, 3)
-    show(r, "S0", lambda gc: recs(fx(gc, [4])), x)
+    show(r, "baseline", lambda gc: recs(fx(gc, [4])), x)
     st["r0"] = rs(c)["requests"]
     roll(r, x, "roll")
     first, _end = window(r, x, st, lambda gc: recs(fx(gc, [4])))
@@ -235,7 +237,7 @@ def row_2(r, x, st):  # sick-bay fraction (mod, F7277)
     ex = lambda s: [round(s["recoveryExact"], 4), s["daysToHeal"]]  # noqa: E731
     r.ev["id 4 [recoveryExact, daysToHeal] host / client"] = [ex(hf), ex(cf)]
     r.need("hostFraction", ex(hf) == [1.5, 1], hf)
-    st["matched"] = r.cell("recovery", ex(cf) == ex(hf), "the replica's wound recovery is the host's rounded value (F6136)"
+    st["matched"] = r.cell("recovery", ex(cf) == ex(hf), "the replica's wound recovery is the host's rounded value"
                            if cf["recoveryExact"] == 2 else f"client {cf}")
 
 
@@ -246,7 +248,7 @@ def row_3(r, x, st):  # the daily pilot list reset (mod)
     p = {gc.name: recs(fx(gc, [7]))[7]["dogfightXp"] for gc in (h, c)}
     r.ev["staged id 7 dogfightXp [reply, probe]"] = {n: [rep[n], p[n]] for n in p}
     r.need("staged", all(v == XP_STAGED for v in list(rep.values()) + list(p.values())), r.ev["staged id 7 dogfightXp [reply, probe]"])
-    show(r, "S0", lambda gc: recs(fx(gc, [7])), x)
+    show(r, "baseline", lambda gc: recs(fx(gc, [7])), x)
     st["r0"] = rs(c)["requests"]
     roll(r, x, "roll")
     first, _end = window(r, x, st, lambda gc: recs(fx(gc, [7])))
@@ -256,7 +258,7 @@ def row_3(r, x, st):  # the daily pilot list reset (mod)
     st["matched"] = r.cell("dogfightXp", cx == hx, "the replica keeps yesterday's pilot experience" if cx == XP_STAGED else f"client {cx}")
 
 
-def row_4(r, x, st):  # pilot experience (mod, F7279): the test_shared_dogfight_dest crash recipe with the mod Avenger
+def row_4(r, x, st):  # pilot experience (mod): the test_shared_dogfight_dest crash recipe with the mod Avenger
     h, c = x.host, x.client
     b0 = next(b for b in h.ok({"cmd": "geo_state"})["bases"] if not b.get("coopBase") and not b.get("coopIcon"))
     sc = {gc.name: gc.ok({"cmd": "spawn_craft", "type": AV, "weapon": "STR_CANNON_UC"}).get("craft_id") for gc in (h, c)}
@@ -268,7 +270,7 @@ def row_4(r, x, st):  # pilot experience (mod, F7279): the test_shared_dogfight_
     r.ev["avenger, assign_crew ok, crew before launch"] = [av, asg, crew]
     r.need("seat", all(asg.values()) and all(v == [1] for v in crew.values()), r.ev["avenger, assign_crew ok, crew before launch"])
     s0 = {gc.name: recs(fx(gc, [1]))[1] for gc in (h, c)}
-    show(r, "S0", lambda gc: recs(fx(gc, [1])), x)
+    show(r, "baseline", lambda gc: recs(fx(gc, [1])), x)
     uid = h.ok({"cmd": "spawn_ufo", "type": "STR_MEDIUM_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
                 "race": "STR_SECTOID", "trajectory": "P0", "state": "flying", "speed": 1, "lon": b0["lon"] + 0.03,
                 "lat": b0["lat"]})["ufo_id"]
@@ -299,15 +301,15 @@ def row_4(r, x, st):  # pilot experience (mod, F7279): the test_shared_dogfight_
             time.sleep(0.2)
     r.ev["crash [s, aggressive iterations]"] = [round(time.time() - t2, 1), n]
     r.need("crash", crashed, ufo(h, uid))
-    first, _end = window(r, x, st, lambda gc: recs(fx(gc, [1])))     # speed 0, right after the crash (CONSTANTS 5)
+    first, _end = window(r, x, st, lambda gc: recs(fx(gc, [1])))     # speed 0, right after the crash
     hf, cf = first["host"][1], first["client"][1]
-    r.ev["id 1 [firing, reactions, bravery] + dogfightXp: S0 host, host, S0 client, client"] = [
+    r.ev["id 1 [firing, reactions, bravery] + dogfightXp: baseline host, host, baseline client, client"] = [
         [key(s), s["dogfightXp"]] for s in (s0["host"], hf, s0["client"], cf)]
     r.need("hostAward", [a - b for a, b in zip(key(hf), key(s0["host"]))] == [1, 1, 10]
            and hf["dogfightXp"] == {"firing": 1, "reactions": 1, "bravery": 10}, [key(s0["host"]), key(hf), hf["dogfightXp"]])
     same0 = key(cf) == key(s0["client"]) and cf["dogfightXp"] == s0["client"]["dogfightXp"]
     st["matched"] = r.cell("pilotXp", key(cf) == key(hf) and cf["dogfightXp"] == hf["dogfightXp"],
-                           "the host's pilot experience never reached the replica (F6137)" if same0
+                           "the host's pilot experience never reached the replica" if same0
                            else f"client {key(cf)} {cf['dogfightXp']} vs host {key(hf)} {hf['dogfightXp']}")
 
 
@@ -328,38 +330,38 @@ def release(r, x, st):
     st["held"], st["t_ref"] = False, time.time()
 
 
-part_c = lambda gc: {"crafts": crafts(gc), "tp": tp(gc)}  # noqa: E731
+lost_craft_read = lambda gc: {"crafts": crafts(gc), "tp": tp(gc)}  # noqa: E731
 
 
-def row_5(r, x, st):  # a crewless craft lost (stock, F7281)
+def row_5(r, x, st):  # a crewless craft lost (stock)
     h, c = x.host, x.client
     r.ev["geo_set_speed 0"] = [gc.cmd({"cmd": "geo_set_speed", "idx": 0}).get("ok") for gc in (h, c)]
-    show(r, "S0", part_c, x)
-    r.need("craftS0", all(has(crafts(gc), 2, INT) for gc in (h, c)), {gc.name: crafts(gc) for gc in (h, c)})
+    show(r, "baseline", lost_craft_read, x)
+    r.need("craftAtStart", all(has(crafts(gc), 2, INT) for gc in (h, c)), {gc.name: crafts(gc) for gc in (h, c)})
     st["r0"] = rs(c)["requests"]
     lose(r, x, st, 2, INT)
-    first, end = window(r, x, st, part_c)
+    first, end = window(r, x, st, lost_craft_read)
     release(r, x, st)
     kept, kept_end = has(first["client"]["crafts"], 2, INT), has(end["client"]["crafts"], 2, INT)
     r.ev["INTERCEPTOR-2 listed: host first, client first, client end"] = [has(first["host"]["crafts"], 2, INT), kept, kept_end]
     st["matched"] = r.cell("craft", not kept, f"a lost craft stays on the replica (still listed at the window's end: {kept_end})")
 
 
-def row_6(r, x, st):  # a crewed craft lost: evacuation and a pilot killed (F6177; last in Boot A)
+def row_6(r, x, st):  # a crewed craft lost: evacuation and a pilot killed (last in the shared boot)
     h, c = x.host, x.client
     sp = {gc.name: gc.cmd({"cmd": "set_craft_pilots", "craftId": 1, "craftType": SKY, "pilots": [5]}) for gc in (c, h)}
     r.need("pilots", all(v.get("ok") and v.get("pilots") == [5] for v in sp.values()), sp)
     crew = {gc.name: [m.get("id") for m in gc.cmd({"cmd": "craft_pilots_probe", "craftId": 1, "craftType": SKY}).get("crew") or []]
             for gc in (h, c)}
-    r.ev["SKYRANGER-1 crew S0"] = crew
-    r.ev["crew training S0 (host; no probe reads a soldier in transfer)"] = {
+    r.ev["SKYRANGER-1 crew baseline"] = crew
+    r.ev["crew training baseline (host; no probe reads a soldier in transfer)"] = {
         s["id"]: s["training"] for s in h.ok({"cmd": "soldier_training_probe", "ids": crew["host"]})["soldiers"]}
-    r.need("crewS0", 5 in crew["host"] and crew["host"] == crew["client"], crew)
-    show(r, "S0", part_c, x)
+    r.need("crewAtStart", 5 in crew["host"] and crew["host"] == crew["client"], crew)
+    show(r, "baseline", lost_craft_read, x)
     want = [[i, HOURS] for i in crew["host"] if i != 5]
     st["r0"] = rs(c)["requests"]
     lose(r, x, st, 1, SKY)
-    first, end = window(r, x, st, part_c)
+    first, end = window(r, x, st, lost_craft_read)
     release(r, x, st)
     hp, cp = first["host"], first["client"]
     where = lambda p: {s[0]: s[1] for s in p["tp"]["soldiers"]}  # noqa: E731
@@ -377,7 +379,7 @@ def row_6(r, x, st):  # a crewed craft lost: evacuation and a pilot killed (F617
     st["matched"] = c1 and c2 and c3
 
 
-def row_7(r, x, st):  # SEPARATE keeps its own day (Boot B; guard row)
+def row_7(r, x, st):  # SEPARATE keeps its own day (the separate boot; guard row)
     h, c = x.host, x.client
     p = fx(c)
     own = [s for s in p["soldiers"] if s["baseIndex"] == 0]
@@ -417,9 +419,10 @@ def boot_miss(tag, e, rids, results):
         print(f"EVIDENCE {rid}: {json.dumps({'boot': tag})}\nFAIL {rid}: boot", flush=True)
 
 
-def boot_a(results, walls):
-    (tag, ports), t0 = BOOT_A, time.time()
-    rows = (("H18b-1", row_1), ("H18b-2", row_2), ("H18b-3", row_3), ("H18b-4", row_4), ("H18b-5", row_5), ("H18b-6", row_6))
+def boot_shared(results, walls):
+    (tag, ports), t0 = BOOT_SHARED, time.time()
+    rows = (("soldier_effect_1", row_1), ("soldier_effect_2", row_2), ("soldier_effect_3", row_3),
+            ("soldier_effect_4", row_4), ("soldier_effect_5", row_5), ("soldier_effect_6", row_6))
     try:
         js = shared_fixture.bring_up(tag, ports, mods=(MOD,))
     except Exception as e:
@@ -434,8 +437,8 @@ def boot_a(results, walls):
         walls[tag] = round(time.time() - t0, 1)
 
 
-def boot_b(results, walls):
-    (tag, labels, lobby), t0 = BOOT_B, time.time()
+def boot_separate(results, walls):
+    (tag, labels, lobby), t0 = BOOT_SEPARATE, time.time()
     h = GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,)))
     c = GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,)))
     try:
@@ -444,9 +447,9 @@ def boot_b(results, walls):
             session.new_campaign(h, c, port=lobby, campaign_mode="coop")
             geo.wait_both_ready(h, c)
         except Exception as e:
-            return boot_miss(tag, e, ["H18b-7"], results)
+            return boot_miss(tag, e, ["soldier_effect_7"], results)
         walls[tag + " bring-up"] = round(time.time() - t0, 1)
-        run_row("H18b-7", (row_7,), type("X", (), {"host": h, "client": c}), results)
+        run_row("soldier_effect_7", (row_7,), type("X", (), {"host": h, "client": c}), results)
     finally:
         shutdown_clients(h, c)
         walls[tag] = round(time.time() - t0, 1)
@@ -454,9 +457,9 @@ def boot_b(results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot_a(results, walls)
-    boot_b(results, walls)
-    order = ["H18b-%d" % n for n in range(1, 8)]
+    boot_shared(results, walls)
+    boot_separate(results, walls)
+    order = ["soldier_effect_%d" % n for n in range(1, 8)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_soldier_effects: {len(order) - len(failed)}/{len(order)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
