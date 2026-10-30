@@ -1,43 +1,24 @@
-"""acceptance test for the deterministic PLACEMENT LEVER -
-TestServer.cpp's `battle_teleport_unit` / `battle_teleport_all` commands - and
-its session.py helpers (`place_deterministic`, `contact_free_ufo_door_setup`).
+"""Acceptance test for the deterministic placement test commands - TestServer.cpp's `battle_teleport_unit` /
+`battle_teleport_all` - and their session.py helpers (`place_deterministic`, `contact_free_ufo_door_setup`).
 
-AI-neutral: t=0 only; contact-free by construction (every live hostile is
-teleported away before anything else happens - no walk, no shot, no AI turn
-ever runs in this file). DETERMINISTIC fixture: the SITUATION is
-built by the placement lever plus the hash-equality gate, never a map-
-generator re-roll loop waiting on a CANDIDATE (no MAX_REROLLS/
-FixtureExhausted anywhere below), so the acceptance bar is **3 consecutive
-green**, not 10 - a SKIP here is a LEVER BUG, never a map roll.
+AI-neutral: t=0 only; contact-free by construction (every live hostile is teleported away before anything else happens -
+no walk, no shot, no AI turn ever runs in this file). Deterministic fixture: the situation is built by the placement
+commands plus the hash-equality gate, never by a map-generator re-roll loop.
 
-Covers, on a STR_BASE_DEFENSE bring-up and a STR_SUPPLY_SHIP bring-up:
-  - `battle_teleport_all {faction:"hostile"}` moves every live hostile on
-    BOTH machines, with IDENTICAL replies.
-  - `battle_teleport_unit` (via `contact_free_ufo_door_setup`) moves one
-    seat-1 soldier onto the standable tile next to a UFO door, facing it.
-  - `hash_now {full:true}` is ALL BUCKETS EQUAL after every placement (the
-    gate every WV-D63 fixture must pass before its measured action -
-    `place_deterministic`'s own assert).
-  - A REFUSED call (an occupied destination tile; a faction with a live 2x2+
-    unit) changes NOTHING and the hash stays equal.
-  - `battle_state` reports IDENTICAL `{x,y,z,direction}` for every moved unit
-    on both machines.
-  - The SP smoke path (`sp_smoke.py`) is exercised separately by this
-    packet's own acceptance run, not by this file - the lever adds no code on
-    any path `sp_smoke.py` touches (it is a brand-new TestServer command
-    pair), so nothing here should be able to move it.
-
-THE ONE RE-ROLL IN THIS FILE IS NOT A MAP-ROLLED FIXTURE: a
-freshly generated STR_BASE_DEFENSE/STR_SUPPLY_SHIP map occasionally includes a
-live 2x2+ hostile (a Cyberdisc/Sectopod), and WV-D63(b) is explicit that this
-is the FIXTURE'S job, not the lever's: "A 2x2 unit argument => the lever
-returns an error ... and the fixture re-picks; never partially moves one."
-When a boot rolls one, this file first PROVES the refusal (changes nothing,
-hash stays equal - one of this file's own required assertions) and only THEN
-moves on to a fresh map, because a map with a 2x2 hostile cannot exercise the
-ALL-1x1 happy path `battle_teleport_all` is also required to prove here. This
-is bounded (MAX_REROLLS) but is orthogonal to the WV-D65 bar: the LEVER's
-placement+hash gate is exercised and proven EVERY attempt, re-rolled or not.
+Two legs:
+  - terror (STR_TERROR_MISSION with floaters, which brings live 2x2 reapers): `battle_teleport_all {faction:"hostile",
+    corner:"SE"}` moves each 2x2 hostile whole into the SE corner quarter, its footprint overlapping no other unit, and
+    hash_now full is ALL BUCKETS EQUAL after the move.
+  - supplyship (STR_SUPPLY_SHIP, no live 2x2 hostile):
+    - `battle_teleport_all {faction:"hostile"}` moves every live hostile on BOTH machines, with IDENTICAL replies.
+    - `battle_teleport_unit` (via `contact_free_ufo_door_setup`) moves one seat-1 soldier onto the standable tile next
+      to a UFO door, facing it.
+    - `hash_now {full:true}` is ALL BUCKETS EQUAL after every placement (the gate every deterministic fixture must pass
+      before its measured action - `place_deterministic`'s own assert).
+    - A REFUSED call (an occupied destination tile) changes NOTHING and the hash stays equal.
+    - `battle_state` reports IDENTICAL `{x,y,z,direction}` for every moved unit on both machines.
+The SP smoke path (`sp_smoke.py`) is not exercised here: the teleport commands add no code on any path `sp_smoke.py`
+touches.
 """
 
 import os
@@ -59,8 +40,8 @@ def battle_state(gc):
 
 
 def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat=None):
-    host_dir = make_user_dir(f"rw_teleport_{tag}_host")
-    client_dir = make_user_dir(f"rw_teleport_{tag}_client")
+    host_dir = make_user_dir(f"teleport_{tag}_host")
+    client_dir = make_user_dir(f"teleport_{tag}_client")
     host = GameClient(f"{tag}-host", host_test_port, host_dir)
     client = GameClient(f"{tag}-client", client_test_port, client_dir)
     try:
@@ -91,10 +72,10 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
         has_2x2 = any(u.get("armorSize", 1) != 1 for u in hostile_units)
 
         if expect_2x2:
-            # WV-D88 (floater terror mission) guarantees at least two live
-            # reapers, so this leg proves the WV-D89 whole-move.
+            # a floater terror mission brings at least two live reapers,
+            # so this leg proves the whole move of a 2x2 unit.
             assert has_2x2, (
-                f"FIXTURE: {tag}: expected a live 2x2 hostile (WV-D88 floater terror), "
+                f"FIXTURE: {tag}: expected a live 2x2 hostile (floater terror), "
                 f"found none: {hostile_units}")
 
             [(moved, _c_moved)] = place_deterministic(
@@ -129,7 +110,7 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
                         f"{uid}'s footprint at ({x},{y},{z})")
 
             assert_hash_clean(host, client, full=True, what=f"{tag} after 2x2 whole move")
-            print(f"{tag}: teleport lever 2x2 whole-move fixture PASSED - "
+            print(f"{tag}: teleport command 2x2 whole-move fixture PASSED - "
                   f"{len(big_movers)} size-2 hostile(s) moved")
             return
 
@@ -183,7 +164,7 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
             f"{tag}: teleporting onto an occupied tile should refuse, got {occ}")
         assert_hash_clean(host, client, full=True, what=f"{tag} after occupied-tile refusal")
 
-        print(f"{tag}: teleport lever fixture PASSED - "
+        print(f"{tag}: teleport command fixture PASSED - "
               f"{hr_all['count']} hostile(s) moved, actor {actor_id} placed at "
               f"{near} facing door {door}")
         return
@@ -197,7 +178,7 @@ def main():
                pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": "STR_FLOATER"}),
                expect_2x2=True)
     run_fixture("supplyship", "STR_SUPPLY_SHIP", "47993", 48993, 48994)
-    print("ALL SPEC 6a (WV-D63) TELEPORT LEVER TESTS PASSED")
+    print("ALL TELEPORT COMMAND TESTS PASSED")
 
 
 if __name__ == "__main__":
