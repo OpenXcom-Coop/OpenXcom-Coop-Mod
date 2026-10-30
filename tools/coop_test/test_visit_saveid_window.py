@@ -1,19 +1,22 @@
-"""W2-H79 VSW (spec docs rewrite/prompts/w2h79_visit_saveid_rollback.md (f); TASK 0 rewrite/w2h79-task0/sa/CONSTANTS.md; lead L-H70C-2,
-ruling R-LH70C-2-1; capture lh70c-2-cap F21771, F21772): the save-window rows beside test_visit_saveid_rejoin.py. SEPARATE campaign; rows
-(one fresh boot pair each, key "49465", dirs w2h79_<row>_host / _client, the rejoiner w2h79_<row>_client2; real presses only; GH =
-gift_helpers.py and F = drop_fixture.py imported unchanged; world, hostkeys / keyinfo, ok67 over BasescapeState and leave copied
-from the capture's cap.py):
-  C2  MARKER; the client's globe click into the host's base (VISIT); read B; the host's quick save (its 54) and the client's 67 (SAVE54), the
-      67's OK; GEOSCAPE (the leave; QUICK written); read T; the host's NEXT quick save with the client suspended at its first 54 and killed
-      (F drop_at_54; S2 = the host's id at that 54); a NEW client rejoins by name; RESUME only after the host's ack; read R.
-  C3  MARKER; VISIT; read B; SOLDIERS; SAVE54 (the 67 over SoldiersState), its OK (insideCoopBase false); the client's real OK on
-      SoldiersState -> BasescapeState inside the 67 window; read W (the client's saveID); GEOSCAPE (QUICK written); read T.
-Cells (13): C2-pre GUARD, C2-copied FIX, C2-key FIX, C2-rejoin FIX, C2-world FIX, C2-resume FIX, C2-common GUARD; C3-pre GUARD, C3-ok FIX,
-C3-log FIX, C3-ids FIX, C3-key FIX, C3-common GUARD. Red (commit R1): RED exactly C2-copied, C2-key, C2-rejoin, C2-world, C2-resume, C3-ok,
-C3-log, C3-ids, C3-key (9 of 13). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B. ONE EVIDENCE line per row, one PASS / FAIL
-line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row (later cells "not reached"); a boot or
-construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info, get_coop, the last 40 log lines of each
-machine); exit 0 only when every cell passes, else 2. one foreground run per invocation.
+"""test_visit_saveid_window.py: the save-window rows beside test_visit_saveid_rejoin.py. SEPARATE campaign; rows (one
+fresh boot pair each, key "49465", dirs saveid_window_<row>_host / _client, the rejoiner saveid_window_<row>_client2;
+real presses only; G = gift_helpers.py and F = drop_fixture.py imported unchanged; world, hostkeys / keyinfo, ok67
+over BasescapeState and leave are local helpers):
+  drop_at_next_save: MARKER; the client's globe click into the host's base (VISIT); read B; the host's quick save (its
+      54) and the client's 67 (SAVE54), the 67's OK; GEOSCAPE (the leave; QUICK written); read T; the host's NEXT
+      quick save with the client suspended at its first 54 and killed (F drop_at_54; S2 = the host's id at that 54); a
+      NEW client rejoins by name; RESUME only after the host's ack; read R.
+  soldiers_ok_in_window: MARKER; VISIT; read B; SOLDIERS; SAVE54 (the 67 over SoldiersState), its OK (insideCoopBase
+      false); the client's real OK on SoldiersState -> BasescapeState inside the 67 window; read W (the client's
+      saveID); GEOSCAPE (QUICK written); read T.
+Cells (13): drop_at_next_save-pre GUARD, -copied FIX, -key FIX, -rejoin FIX, -world FIX, -resume FIX, -common GUARD;
+soldiers_ok_in_window-pre GUARD, -ok FIX, -log FIX, -ids FIX, -key FIX, -common GUARD. When broken, exactly
+drop_at_next_save-copied, -key, -rejoin, -world, -resume and soldiers_ok_in_window-ok, -log, -ids, -key FAIL (9 of
+13). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B. ONE EVIDENCE line per row, one PASS /
+FAIL line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row (later cells
+"not reached"); a boot or construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks,
+coop_dialog_info, get_coop, the last 40 log lines of each machine); exit 0 only when every cell passes, else 2. One
+foreground run per invocation.
 Run: python tools/coop_test/test_visit_saveid_window.py
 """
 import json, os, re, sys, time  # noqa: E401
@@ -24,7 +27,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49465"
 KEPT = '[coop] "basehost" loaded - saveID stays'
-H58 = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
+COPIED_LINE = re.compile(r"\[coop\] (\d+) partner world\(s\) copied from saveID (\d+) to (\d+)")
 HOLD, HOLD_R, W_DROP, JOIN_S, ACK_S = 2.0, 3.0, 30.0, 10.0, 30.0
 
 
@@ -54,7 +57,7 @@ def role(gc):
 
 
 def hostkeys(x):
-    """the host's role host_copy_of_client plus host_<id>_<partner>.data for the current id and every id of this row (CAP)"""
+    """the host's role host_copy_of_client plus host_<id>_<partner>.data for the current id and every id of this row"""
     h = x.host
     if not G.alive(h):
         return {"alive": False}
@@ -67,7 +70,7 @@ def hostkeys(x):
 
 
 def world(gc):
-    """the machine's own world: own bases [name, lon, lat, coopBaseId], funds, own soldiers [name, id] (CAP)"""
+    """the machine's own world: own bases [name, lon, lat, coopBaseId], funds, own soldiers [name, id]"""
     if not G.alive(gc):
         return {"alive": False}
     g = q(gc, {"cmd": "geo_state"})
@@ -100,7 +103,7 @@ def capture(x):
 
 
 def picker_marker(x, ev):
-    """GH picker (the host's quick save + probe save + the client's window scale); MARKER = the client's world"""
+    """G.picker (the host's quick save + probe save + the client's window scale); MARKER = the client's world"""
     x.cname = q(x.host, {"cmd": "get_coop"}).get("clientName")
     ev["cname"] = x.cname
     G.picker(x, ev)
@@ -111,7 +114,8 @@ def picker_marker(x, ev):
 
 
 def visit_b(x, ev):
-    """VISIT (GH visit: the client's real globe click -> BasescapeState, insideCoopBase true); read B: both saveIDs, the log line counts"""
+    """VISIT (G.visit: the client's real globe click -> BasescapeState, insideCoopBase true); read B: both saveIDs, the
+    log line counts"""
     G.visit(x, ev)
     x.ids["B"] = sid(x.client)
     x.nB = {"host": len(G.log(x.host)), "client": len(G.log(x.client))}
@@ -119,14 +123,16 @@ def visit_b(x, ev):
 
 
 def save54(x, ev):
-    """SAVE54 (GH trigger54: the host's save_game_ui quick, its 54 with pending QUICK, the client's 67); S = the host's id at the 54"""
+    """SAVE54 (G.trigger54: the host's save_game_ui quick, its 54 with pending QUICK, the client's 67); S = the host's
+    id at the 54"""
     G.trigger54(x, ev)
     x.ids["S"] = ev["S"] = ev["54"].get("saveID")
     must(x.ids["S"] != x.ids["B"], "S == B (%s): the save did not re-mint" % x.ids["S"])
 
 
 def ok67_base(x, ev):
-    """the client's real OK on its 67 over BasescapeState: BasescapeState on top within W_UI (insideCoopBase stays true there, F21766)"""
+    """the client's real OK on its 67 over BasescapeState: BasescapeState on top within W_UI (insideCoopBase stays true
+    there)"""
     c = x.client
     ok = G.real_click(c, G.dlg(c).get("backText") or "OK", G.W_UI)
     v, s = G.wait(lambda: G.top(c) == "BasescapeState", G.W_UI)
@@ -135,7 +141,8 @@ def ok67_base(x, ev):
 
 
 def leave(x, ev):
-    """the client's real GEOSCAPE on BasescapeState: GeoscapeState with no BasescapeState within W_LEAVE; QUICK written; HOLD (CAP)"""
+    """the client's real GEOSCAPE on BasescapeState: GeoscapeState with no BasescapeState within W_LEAVE; QUICK written;
+    HOLD"""
     c = x.client
     must(G.top(c) == "BasescapeState", "the leave: BasescapeState not on top: %s" % G.stack(c))
     ok = G.real_click(c, "GEOSCAPE", G.W_UI)
@@ -158,7 +165,7 @@ def read_t(x, ev):
 
 def drop54(x, ev):
     """DROP54: F drop_at_54 on the host's NEXT quick save (the client suspended at the host's first 54, the probe, the kill, the 62);
-    S2 = the host's id at that 54; the host log's W2-H58 lines since the trigger"""
+    S2 = the host's id at that 54; the host log's partner-world copy lines since the trigger"""
     h = x.host
     probe = lambda hh: (lambda cur: {"saveID": cur, "key": "host_%s_%s.data" % (cur, x.cname),  # noqa: E731
                                      "info": keyinfo(hh, "host_%s_%s.data" % (cur, x.cname)), "keys": hostkeys(x)})(sid(hh))
@@ -168,7 +175,8 @@ def drop54(x, ev):
         x.killed.append(d["kill"].get("returncode"))
         x.client = None
     ev["drop54"] = {k: d.get(k) for k in ("ok", "why", "seen54", "suspend", "probe", "kill", "after62", "saveIDBefore")}
-    ev["h58"] = [ln.split("\t")[-1][:240] for ln in G.log(h)[d.get("n0", 0):] if "partner world(s) copied from saveID" in ln]
+    ev["copiedLines"] = [ln.split("\t")[-1][:240] for ln in G.log(h)[d.get("n0", 0):]
+                         if "partner world(s) copied from saveID" in ln]
     must(d.get("ok"), "drop_at_54: %s" % d.get("why"))
     ev["reached"].append("D")
 
@@ -190,7 +198,7 @@ def rejoin_r(x, ev):
     ev["reached"].append("R")
 
 
-def build_c2(x, ev):
+def build_drop_at_next_save(x, ev):
     picker_marker(x, ev)
     visit_b(x, ev)
     save54(x, ev)
@@ -201,7 +209,7 @@ def build_c2(x, ev):
     rejoin_r(x, ev)
 
 
-def build_c3(x, ev):
+def build_soldiers_ok_in_window(x, ev):
     picker_marker(x, ev)
     visit_b(x, ev)
     G.to_soldiers(x, ev)
@@ -224,35 +232,45 @@ def g(ev, *path):
 
 
 def copied(ev):
-    """the host log since the second trigger: 'W2-H58: N partner world(s) copied from saveID S to S2' with N >= 1"""
+    """the host log since the second trigger: '[coop] N partner world(s) copied from saveID S to S2' with N >= 1"""
     return any(int(m.group(1)) >= 1 and int(m.group(2)) == ev.get("S") and int(m.group(3)) == ev.get("S2")
-               for m in (H58.search(ln) for ln in ev.get("h58") or []) if m)
+               for m in (COPIED_LINE.search(ln) for ln in ev.get("copiedLines") or []) if m)
 
 
-C2_CELLS = [
-    ("C2-pre", "GUARD", "VISIT, SAVE54 (S != B), OK67B, LEAVE, DROP54 ok (the 54 seen, the 62 after the kill)", "start",
+DROP_AT_NEXT_SAVE_CELLS = [
+    ("drop_at_next_save-pre", "GUARD",
+     "VISIT, SAVE54 (S != B), OK67B, LEAVE, DROP54 ok (the 54 seen, the 62 after the kill)", "start",
      lambda ev: "D" in ev["reached"]),
-    ("C2-copied", "FIX", "the host log since the second trigger: 'W2-H58: N partner world(s) copied from saveID S to S2', N >= 1", "D", copied),
-    ("C2-key", "FIX", "DROP54's probe at the 54: host_<S2>_<name>.data present", "D",
+    ("drop_at_next_save-copied", "FIX",
+     "the host log since the second trigger: '[coop] N partner world(s) copied from saveID S to S2', N >= 1", "D",
+     copied),
+    ("drop_at_next_save-key", "FIX", "DROP54's probe at the 54: host_<S2>_<name>.data present", "D",
      lambda ev: g(ev, "drop54", "probe", "saveID") == ev.get("S2") and g(ev, "drop54", "probe", "info", "present") is True),
-    ("C2-rejoin", "FIX", "REJOIN: no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S", "R",
+    ("drop_at_next_save-rejoin", "FIX",
+     "REJOIN: no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S", "R",
      lambda ev: g(ev, "rejoin", "buildNewBase") is None and g(ev, "rejoin", "t68") is not None and g(ev, "rejoin", "ack") is not None),
-    ("C2-world", "FIX", "read R: own bases, funds == read T's, the MARKER soldier [name, id] present", "R",
+    ("drop_at_next_save-world", "FIX", "read R: own bases, funds == read T's, the MARKER soldier [name, id] present",
+     "R",
      lambda ev: same_world(g(ev, "R", "world"), g(ev, "T", "world"), ev.get("marker"))),
-    ("C2-resume", "FIX", "resume_and_clear ok: both tops GeoscapeState", "R",
+    ("drop_at_next_save-resume", "FIX", "resume_and_clear ok: both tops GeoscapeState", "R",
      lambda ev: bool(g(ev, "resume", "ok")) and g(ev, "R", "tops") == ["GeoscapeState", "GeoscapeState"]),
-    ("C2-common", "GUARD", "the host alive to the end, the rejoiner alive at read R; no new crash file since the boot", "R",
+    ("drop_at_next_save-common", "GUARD",
+     "the host alive to the end, the rejoiner alive at read R; no new crash file since the boot", "R",
      lambda ev: g(ev, "R", "alive") == [True, True] and g(ev, "R", "crash") == 0),
 ]
-C3_CELLS = [
-    ("C3-pre", "GUARD", "VISIT, SOLDIERS, SAVE54 (S != B), the 67's OK, the SoldiersState OK, LEAVE (QUICK written) reached", "start",
+SOLDIERS_OK_IN_WINDOW_CELLS = [
+    ("soldiers_ok_in_window-pre", "GUARD",
+     "VISIT, SOLDIERS, SAVE54 (S != B), the 67's OK, the SoldiersState OK, LEAVE (QUICK written) reached", "start",
      lambda ev: "T" in ev["reached"]),
-    ("C3-ok", "FIX", "read W: the client's saveID == S", "T", lambda ev: ev.get("S") is not None and g(ev, "W", "client") == ev["S"]),
-    ("C3-log", "FIX", "the client log since read B: KEPT >= 1", "T", lambda ev: (g(ev, "T", "kept", "client") or 0) >= 1),
-    ("C3-ids", "FIX", "read T: host and client saveID == S", "T",
+    ("soldiers_ok_in_window-ok", "FIX", "read W: the client's saveID == S", "T",
+     lambda ev: ev.get("S") is not None and g(ev, "W", "client") == ev["S"]),
+    ("soldiers_ok_in_window-log", "FIX", "the client log since read B: KEPT >= 1", "T",
+     lambda ev: (g(ev, "T", "kept", "client") or 0) >= 1),
+    ("soldiers_ok_in_window-ids", "FIX", "read T: host and client saveID == S", "T",
      lambda ev: ev.get("S") is not None and g(ev, "T", "host") == ev["S"] and g(ev, "T", "client") == ev["S"]),
-    ("C3-key", "FIX", "read T: role host_copy_of_client present", "T", lambda ev: g(ev, "T", "role", "present") is True),
-    ("C3-common", "GUARD", "both alive; no new crash file since the boot", "T",
+    ("soldiers_ok_in_window-key", "FIX", "read T: role host_copy_of_client present", "T",
+     lambda ev: g(ev, "T", "role", "present") is True),
+    ("soldiers_ok_in_window-common", "GUARD", "both alive; no new crash file since the boot", "T",
      lambda ev: g(ev, "T", "alive") == [True, True] and g(ev, "T", "crash") == 0),
 ]
 
@@ -293,13 +311,15 @@ def run(rid, tag, cells, build):
     return not r.fails, ev["wall"], failed
 
 
-def row_c2():
-    return run("C2", "w2h79_c2", C2_CELLS, build_c2)
+def row_drop_at_next_save():
+    return run("drop_at_next_save", "saveid_window_drop_at_next_save", DROP_AT_NEXT_SAVE_CELLS, build_drop_at_next_save)
 
 
-def row_c3():
-    return run("C3", "w2h79_c3", C3_CELLS, build_c3)
+def row_soldiers_ok_in_window():
+    return run("soldiers_ok_in_window", "saveid_window_soldiers_ok_in_window", SOLDIERS_OK_IN_WINDOW_CELLS,
+               build_soldiers_ok_in_window)
 
 
 if __name__ == "__main__":
-    sys.exit(G.main("test_visit_saveid_window", (("C2", row_c2), ("C3", row_c3))))
+    sys.exit(G.main("test_visit_saveid_window", (("drop_at_next_save", row_drop_at_next_save),
+                                                  ("soldiers_ok_in_window", row_soldiers_ok_in_window))))
