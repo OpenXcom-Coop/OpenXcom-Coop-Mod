@@ -54,8 +54,7 @@ ADOPT_S = camp.ADOPT_S             # 15 s
 FENCE_S = 3                        # host fenceDeferredPasses >= 1 after the sell (one pump pass is ~16 ms)
 RESET_S = 10                       # cell 2: the session reset within 10 s
 COOP_DLG_WAIT_PLAYERS = 62         # the host's reconnect freeze (test_reconnect_dialog.py COOP_DLG_WAIT_PLAYERS)
-JOIN_S = 120                       # the rejoin's bound (test_separate_guest_two_crafts JOIN_S; RESUME measured
-                                   # at 2.2 s)
+JOIN_S = 120                       # the rejoin's bound (RESUME measured at 2.2 s)
 CLIENT_GEO_S = camp.OK_S           # 10 s: the client's GeoscapeState after the host's OK + drain (cell 4)
 
 

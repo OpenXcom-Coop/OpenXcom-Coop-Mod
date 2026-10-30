@@ -47,7 +47,7 @@ def check(cond, msg):
         raise RowFail(msg)
 
 
-# ---- shared helpers (test_client_landing.py has its own copies) ----
+# ---- shared helpers ----
 
 def strip(s):
     return s.replace("class OpenXcom::", "")

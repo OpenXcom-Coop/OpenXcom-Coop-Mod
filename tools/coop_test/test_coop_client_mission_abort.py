@@ -16,9 +16,8 @@ the geoscape.
 
 ABORT opens vanilla's AbortMissionState and its OK opens the vote. The battle
 entry is session.drive_both_to_tactical. No row has the CLIENT's own craft start a
-SEPARATE mission: a SEPARATE client never starts a battle from its own craft
-(test_client_landing.py's own_landing_refused and refused_then_joins_host rows
-cover that refusal).
+SEPARATE mission: test_separate_battle_owner.py's client_craft row covers that
+battle (the host machine runs it for the client).
 
   * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
     never held).

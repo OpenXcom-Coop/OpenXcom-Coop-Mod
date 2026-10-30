@@ -46,7 +46,7 @@ import session
 from session import battle_state, event_state
 import test_battle_end_campaign as camp
 
-PORT = "47266"                       # this file's lobby port (test_campaign_second_battle_separate uses 47267)
+PORT = "47266"                       # this file's lobby port
 TAG = "campaign_second_battle"
 ADOPT_S = camp.ADOPT_S               # 15 s
 DEBRIEF_S = camp.DEBRIEF_S           # 60 s: the host's DebriefingState after the kill
