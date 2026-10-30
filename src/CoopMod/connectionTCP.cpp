@@ -45844,15 +45844,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 		else
 			clearFactionFinaleState();
 
-	    OpenXcom::disconnectRendezvousUdp();
-
-		// Clear all shared TCP/UDP packet queues after the transport is stopped.
-		// This prevents stale packets from the previous session from affecting
-		// a newly hosted or joined session.
-		OpenXcom::clearNetworkSessionQueues();
-
-		deleteAllCoopBases();
-
 		// Capture the machine role ONCE for this teardown - handlers used to
 		// mutate server_owner mid-flight and make the cleanup misclassify the
 		// machine (the disconnect->cancel bug family). Hoisted ABOVE
