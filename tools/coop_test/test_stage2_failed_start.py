@@ -3,12 +3,13 @@ TASK 0 rewrite/fs2a-task0/sa/CONSTANTS.md): a partner lost between part 1 and pa
 host (battle kept, part 1's results in it); after the rejoin and the host's RESUME part 2 is offered again and both play it. Row S2M
 (the custom battle) moved to test_stage2_custom_rearm.py.
 
-ONE boot (boot R, lobby key KEY, dirs w2h24x_s2x_host / _client / _client2): test_multistage_campaign.py's boot D steps copied (its
-Cydonia step is a closure) with WORLD0 read and the real-play stack: open_select_destination {CRAFT_D, STR_SKYRANGER} right
-before open_cydonia, so confirm_cydonia's two pops leave [GeoscapeState, BriefingState]. Then stage_guards, kill_all(ALIENS_D), client
-hold_battle_ready, close_end_turn, the window W3 (host phase Handshake battleId 2, client battle_ready held), client.kill(), the host
-observed W, client2 rejoins (test_failed_battle_start.py's rejoin() copied with the key and tag as parameters, ending at RESUME),
-then part 2 (test_multistage.run_spine).
+ONE boot (boot R, lobby key KEY, dirs w2h24x_s2x_host / _client / _client2): test_multistage_campaign.py's
+boot_campaign steps copied (its Cydonia step is a closure) with WORLD0 read and the real-play stack:
+open_select_destination {CRAFT, STR_SKYRANGER} right before open_cydonia, so confirm_cydonia's two pops leave
+[GeoscapeState, BriefingState]. Then stage_guards, kill_all(ALIEN_IDS), client hold_battle_ready, close_end_turn, the
+window W3 (host phase Handshake battleId 2, client battle_ready held), client.kill(), the host observed W, client2
+rejoins (test_failed_battle_start.py's rejoin() copied with the key and tag as parameters, ending at RESUME), then
+part 2 (test_multistage.run_spine).
 
   S2X-1 GUARD stage-2 offer out (precondition): stage-1 guards empty; host stage emitted 1 / toBattleId 2 / nextStage FINAL at the
         close; host log +1 hand-off, +1 OFFER (battleId=2); host phase Handshake battleId 2; client held; host stack at the window
@@ -23,12 +24,13 @@ then part 2 (test_multistage.run_spine).
         and client2: phase Active, equal battleId > 2, turn 1, missionType MT2, mapFingerprint FP2, xcom XCOM2; UNWIND still 0. With
         no RESUME it fails at once ("no RESUME").
   S2X-9 GUARD CRASH 0.
-W = 15 s, POLL = 0.2 s, RJ = 60 s. UNWIND / PARK / REARM / OFFER = host log lines with those needles since the kill (REARM / OFFER:
-since the RESUME press). PART2(m) = battle_state (phase, battleId, turn, missionType, mapFingerprint, xcom). SKY = host geo_state
-entries of CRAFT_D; MARKS = host save_game, then the "inBattlescape: true" lines; WORLD = (own-base soldier ids, usedStores rounded to
-6 places, totalSoldiers). CRASH = session._crash_log_snapshot() delta. EVIDENCE before each verdict; a failed row prints ONE CAPTURE
-line. ONE foreground run, no skip path; exit 0 only when every cell passes, else 2. Red (R1, the unchanged
-build): FAIL S2X-2, S2X-7, S2X-8; every other cell passes. Green (G1, E1-E14): every cell passes.
+W = 15 s, POLL = 0.2 s, RJ = 60 s. UNWIND / PARK / REARM / OFFER = host log lines with those needles since the kill
+(REARM / OFFER: since the RESUME press). PART2(m) = battle_state (phase, battleId, turn, missionType, mapFingerprint,
+xcom). SKY = host geo_state entries of CRAFT; MARKS = host save_game, then the "inBattlescape: true" lines; WORLD =
+(own-base soldier ids, usedStores rounded to 6 places, totalSoldiers). CRASH = session._crash_log_snapshot() delta.
+EVIDENCE before each verdict; a failed row prints ONE CAPTURE line. ONE foreground run, no skip path; exit 0 only when
+every cell passes, else 2. Red (R1, the unchanged build): FAIL S2X-2, S2X-7, S2X-8; every other cell passes. Green
+(G1, E1-E14): every cell passes.
 
 Run:  python tools/coop_test/test_stage2_failed_start.py
 """
@@ -113,8 +115,8 @@ def part2(gc):
 def sky(host):
     g = q(host, {"cmd": "geo_state"})
     out = [{k: c.get(k) for k in ("status", "destKind", "destId")}
-           for b in g.get("bases") or [] for c in b.get("crafts") or [] if c.get("id") == ms5.CRAFT_D]
-    return out or {"missing craft": ms5.CRAFT_D, "error": g.get("error")}
+           for b in g.get("bases") or [] for c in b.get("crafts") or [] if c.get("id") == ms5.CRAFT]
+    return out or {"missing craft": ms5.CRAFT, "error": g.get("error")}
 
 
 def world(host):
@@ -182,45 +184,47 @@ class Row:
 
 
 def boot_r(host, client, ctx):
-    """MS5F boot_d's steps (copied) + WORLD0 + open_select_destination right before open_cydonia."""
+    """MS5F boot_campaign's steps (copied) + WORLD0 + open_select_destination right before open_cydonia."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     session.new_campaign(host, client, port=KEY, campaign_mode="shared")
     craft, roster = _craft_and_soldiers(host)
-    if craft != ms5.CRAFT_D or roster[:2] != ms5.SQUAD_D:
-        raise RuntimeError("craft %s roster %s (want craft %s, roster starting %s)" % (craft, roster, ms5.CRAFT_D, ms5.SQUAD_D))
+    if craft != ms5.CRAFT or roster[:2] != ms5.SQUAD:
+        raise RuntimeError("craft %s roster %s (want craft %s, roster starting %s)"
+                           % (craft, roster, ms5.CRAFT, ms5.SQUAD))
     _seat(host, craft, roster)
     for gc in (host, client):
         gc.ok({"cmd": "set_soldier_owner", "soldier_id": roster[0], "owner": 0})
         gc.ok({"cmd": "set_soldier_owner", "soldier_id": roster[1], "owner": 1})
-    host.wait_for("shared squad seated", lambda: (_aboard(host, craft) == ms5.SQUAD_D) or None, timeout=30)
+    host.wait_for("shared squad seated", lambda: (_aboard(host, craft) == ms5.SQUAD) or None, timeout=30)
     for gc in (host, client):
-        for topic in ms5.RESEARCH_D:
+        for topic in ms5.RESEARCH:
             r = gc.cmd({"cmd": "discover_research", "topic": topic})
             if not (r.get("ok") and r.get("researched") is True):
                 raise RuntimeError("%s discover_research %s: %s" % (gc.name, topic, r))
     ctx["WORLD0"], ctx["name"] = world(host), coop(host).get("clientName") or NAME
-    sds = host.cmd({"cmd": "open_select_destination", "craft_id": ms5.CRAFT_D, "craft_type": "STR_SKYRANGER"})
+    sds = host.cmd({"cmd": "open_select_destination", "craft_id": ms5.CRAFT, "craft_type": "STR_SKYRANGER"})
     if sds.get("ok") is not True or sds.get("depth") != 2:
         raise RuntimeError("open_select_destination answered %s (want ok, depth 2)" % sds)
     host.ok({"cmd": "open_cydonia", "craft_id": craft})
     host.wait_for("Cydonia confirmation", lambda: session.has_state(host, "ConfirmCydoniaState") or None)
-    host.ok({"cmd": "set_seed", "seed": ms5.SEED_D})
+    host.ok({"cmd": "set_seed", "seed": ms5.SEED})
     host.ok({"cmd": "confirm_cydonia"})
     ctx["stackAfterConfirm"] = stack(host)
     session.briefings_to_battlescape(host, client)
     hb, cb = bview(host), bview(client)
     bad = []
-    if hb.get("mapFingerprint") != ms5.MAP_FP_D or cb.get("mapFingerprint") != ms5.MAP_FP_D:
-        bad.append("mapFingerprint host=%r client=%r (want %r)" % (hb.get("mapFingerprint"), cb.get("mapFingerprint"), ms5.MAP_FP_D))
+    if hb.get("mapFingerprint") != ms5.MAP_FP or cb.get("mapFingerprint") != ms5.MAP_FP:
+        bad.append("mapFingerprint host=%r client=%r (want %r)"
+                   % (hb.get("mapFingerprint"), cb.get("mapFingerprint"), ms5.MAP_FP))
     if (hb.get("side"), hb.get("turn"), hb.get("missionType")) != (FACTION_PLAYER, 1, MISSION_LANDING):
         bad.append("host (side, turn, mission)=%s" % ((hb.get("side"), hb.get("turn"), hb.get("missionType")),))
-    if hb.get("xcom") != ms5.SEATS_D or cb.get("xcom") != ms5.SEATS_D:
-        bad.append("X-COM seats host=%s client=%s (want %s)" % (hb.get("xcom"), cb.get("xcom"), ms5.SEATS_D))
+    if hb.get("xcom") != ms5.SEATS or cb.get("xcom") != ms5.SEATS:
+        bad.append("X-COM seats host=%s client=%s (want %s)" % (hb.get("xcom"), cb.get("xcom"), ms5.SEATS))
     if bad:
         raise RuntimeError("bring-up pins: " + "; ".join(bad))
     pinned = pin_ai_neutral(host, client, tag="w2fs2a-r")
-    if sorted(pinned) != ms5.ALIENS_D:
-        raise RuntimeError("pin_ai_neutral pinned %s (want %s)" % (pinned, ms5.ALIENS_D))
+    if sorted(pinned) != ms5.ALIEN_IDS:
+        raise RuntimeError("pin_ai_neutral pinned %s (want %s)" % (pinned, ms5.ALIEN_IDS))
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
     return {"mapFingerprint": hb.get("mapFingerprint"), "pinned": len(pinned), "stackAfterConfirm": ctx["stackAfterConfirm"],
@@ -284,7 +288,7 @@ def row_s2x(host, client, crash0, ctx):
     try:
         g = []
         stage_guards(host, client, ctx, g)
-        kill_all(host, client, ms5.ALIENS_D, g, "stage 1")
+        kill_all(host, client, ms5.ALIEN_IDS, g, "stage 1")
         hold = q(client, {"cmd": "hold_battle_ready", "on": True})
         n_h = len(log(host))
         close_end_turn(host, client, g)
