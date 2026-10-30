@@ -1,26 +1,31 @@
-"""R4-L2 stage S-C (spec rewrite/prompts/r4l2_campaign_rejoin.md (f) rows X1, X2, QL2-3 a, QL2-5 a; TASK 0
-rewrite/r4l2-task0/sc/CONSTANTS.md): a partner lost on a failed send mid-battle leaves a pause no rejoin can resume. The TEST-ONLY host lever
-force_send_failure (L1-L6) makes the host's TCP thread take its real send-failure branch (onConnect -3, the partner's socket closed). The -3
-arm never calls disconnectTCP() for a live battle: a campaign host freezes with peerAbsent false and RESUME shown at once,
-so offerRejoinBattle()'s guard refuses the rejoin (GUARD +1); a skirmish host gets CoopState(440), which pops the battle and stops serving
-(TASK 0 T0-X1 / T0-X2, 2/2 each).
-  Boot X1 (key "48602", shared_fixture.bring_up("w2r4l2_x1", (1, 2, 48602)) + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2 dir
-  w2r4l2_x1_client2): row X1, SHARED. Cells: X1-1 GUARD the link broke on the host's send (lever armed true, the armed line +1, the client on
-  21 within 15 s); X1-2 FIX the pause at W (phase Active, peerAbsent true, battleId B0, dialog 62 backVisible false, SEND_LOST +1, DROP +1);
-  X1-3 FIX client2's rejoin (OFFER +1, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both,
-  client2 CLIENT_ACTIVE +1); X1-4 FIX SPLIT(host) == SPLIT(client2) == SPLIT0 and HASH(host, client2); X1-5 GUARD CRASH 0.
-  Boot X2 (key "48603", w2r4l2_x2_host / _client / _client2): row X2, skirmish (start_skirmish_battle, rejoin_skirmish). Cells as X1, and X2-2
-  also: no host poll in W shows CoopState 440 or a stack without BattlescapeState.
-Definitions (spec (f)): POLL 0.25 s; W 15 s, the host observed at 0.2 s from the arm until W after the client's 21 (every poll's stack
-judged); W_ACK 30 s (CONSTANTS: max(30 s, 3 x t_world 2.57 s)); SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle +
-assert_hash_clean(full) + desyncSeen false on both; REJOIN = a fresh client2 on its own dir (campaign: join_tcp from the main menu; skirmish:
-rejoin_skirmish; an exception is a value), wait <= W_ACK for the host's resumeAck true AND peerAbsent false (profile_ok on a top host Profile,
-client2's only once its load wait 52 is gone, R-L2-A-2), press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s.
-battle_state is probed only with a BattlescapeState on the stack or no battle in the world; the dropped client is probed with
-get_state / coop_dialog_info only until it is at the main menu. Needles = host log since the row's baseline (client2: its own log). A WAIT
-that times out ends the row (later cells "not reached"), except REJOIN's waits: X-3 is evaluated with the values at the timeout. EVIDENCE
-before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
-Red (S-C commit 1): X1 FAIL on X1-2, X1-3, X1-4 "not reached" (X1-1, X1-5 PASS); X2 FAIL on X2-2, X2-3, X2-4 "not reached" (X2-1, X2-5 PASS).
+"""A partner lost on a failed send mid-battle must leave a pause that a rejoin can resume. The TEST-ONLY host hook
+force_send_failure makes the host's TCP thread take its real send-failure branch (onConnect -3, the partner's socket
+closed). Without the fix the -3 arm never calls disconnectTCP() for a live battle: a campaign host freezes with
+peerAbsent false and RESUME shown at once, so offerRejoinBattle()'s guard refuses the rejoin (GUARD +1); a skirmish host
+gets CoopState(440), which pops the battle and stops serving (measured on 2 boots each).
+  Boot shared_send_lost (key "48602", shared_fixture.bring_up("rejoin_send_failure_shared", (1, 2, 48602)) +
+  bring_up_shared_mixed_battle(js, {0: 0, 1: 1}), client2 dir rejoin_send_failure_shared_client2): row shared_send_lost,
+  SHARED. Cells: -1 GUARD the link broke on the host's send (force_send_failure armed true, the armed line +1, the
+  client on 21 within 15 s); -2 FIX the pause at W (phase Active, peerAbsent true, battleId B0, dialog 62 backVisible
+  false, SEND_LOST +1, DROP +1); -3 FIX client2's rejoin (OFFER +1, RESUME within W_ACK, both tops BattlescapeState,
+  phase Active, peerAbsent false, battleId B0 on both, client2 CLIENT_ACTIVE +1); -4 FIX SPLIT(host) == SPLIT(client2)
+  == SPLIT0 and HASH(host, client2); -5 GUARD CRASH 0.
+  Boot skirmish_send_lost (key "48603", rejoin_send_failure_skirmish_host / _client / _client2): row
+  skirmish_send_lost, skirmish (start_skirmish_battle, rejoin_skirmish). Cells as shared_send_lost, and -2 also: no
+  host poll in W shows CoopState 440 or a stack without BattlescapeState.
+Definitions: POLL 0.25 s; W 15 s, the host observed at 0.2 s from the arm until W after the client's 21 (every poll's
+stack judged); W_ACK 30 s (max(30 s, 3 x t_world, measured at 2.57 s)); SPLIT = sorted (unit id, coop) of faction 0,
+not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both; REJOIN = a fresh client2 on its
+own dir (campaign: join_tcp from the main menu; skirmish: rejoin_skirmish; an exception is a value), wait <= W_ACK for
+the host's resumeAck true AND peerAbsent false (profile_ok on a top host Profile, client2's only once its load wait 52
+is gone), press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s.
+battle_state is probed only with a BattlescapeState on the stack or no battle in the world; the dropped client is
+probed with get_state / coop_dialog_info only until it is at the main menu. Needles = host log since the row's
+baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's
+waits: cell -3 is evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE
+CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
+Without the fix: shared_send_lost FAILs on -2, -3, -4 "not reached" (-1, -5 PASS); skirmish_send_lost FAILs on -2,
+-3, -4 "not reached" (-1, -5 PASS).
 """
 import json
 import os
@@ -34,7 +39,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 from test_skirmish_rejoin_battle import rejoin_skirmish, start_skirmish_battle  # noqa: E402
 
 POLL, W, W_POLL, W_21, W_ACK = 0.25, 15.0, 0.2, 15.0, 30.0
-KEY_X1, KEY_X2 = "48602", "48603"
+KEY_SHARED, KEY_SKIRMISH = "48602", "48603"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
 OFFER, GUARD = "rejoin battle_offer sent (battleId=", "offerRejoinBattle() called while the battle is not "
 ARMED, SEND_LOST = "[coop-test] force_send_failure: armed", "the partner was lost on a failed send during the battle"
@@ -81,7 +86,7 @@ def bs_raw(gc):
 def auth(gc):
     r = bs_raw(gc)
     if not r:
-        return {"skipped": "no BattlescapeState, a battle in the world (F10980)"}
+        return {"skipped": "no BattlescapeState, a battle in the world"}
     return dict(pick(r, ("phase", "inBattle", "turn", "error")), **pick(r.get("authority") or {}, ("battleId", "peerAbsent", "peerLeftByChoice")))
 
 def split(gc):
@@ -107,7 +112,7 @@ def wait(desc, pred, timeout, interval=POLL):
     raise Stop("WAIT %s: timed out after %.0f s" % (desc, timeout))
 
 def hash_ok(host, other, what):
-    """spec (f) HASH(host, other) -> (ok, evidence)"""
+    """HASH(host, other) as the module docstring defines it -> (ok, evidence)"""
     ev = {}
     try:
         session.wait_host_idle(host, other)
@@ -171,10 +176,10 @@ def baseline(r, x):
     if not (x.b0 and x.b0 == cb.get("battleId") and x.split0 and x.split0 == sc and hok):
         raise Stop("SETUP-FAILURE: baseline (B0 equal non-zero, SPLIT0 host == client, HASH clean) missed")
 
-def lever(r, x):
-    """host force_send_failure; the host (stack, dialog, get_coop) and the client (dialog) polled at W_POLL from the arm until W after the
-    client's 21 (or W_21 without one), battle_state read once, at W (no probe while a CoopState(440) may pop the battle, F10980); cell
-    <rid>-1 -> the host's timeline (state changes) and its values at W"""
+def arm_send_failure(r, x):
+    """host force_send_failure; the host (stack, dialog, get_coop) and the client (dialog) polled at W_POLL from the
+    arm until W after the client's 21 (or W_21 without one), battle_state read once, at W (no probe while a
+    CoopState(440) may pop the battle); cell <rid>-1 -> the host's timeline (state changes) and its values at W"""
     h, c, rid = x.host, x.client, r.rid
     arm = pick(q(h, {"cmd": "force_send_failure"}), ("ok", "armed", "error"))
     ta, t21, tl, last = time.time(), None, [], None
@@ -191,7 +196,8 @@ def lever(r, x):
         time.sleep(W_POLL)
     seen = {"stack": stack(h), "battle": auth(h), "dialog": dlg(h), "coop": coop(h)}
     n = counts(h, r.n_h)
-    r.cell(rid + "-1", "GUARD", "the link broke on the host's send: the lever armed true, host \"%s\" +1, the client on 21 within %.0f s"
+    r.cell(rid + "-1", "GUARD", "the link broke on the host's send: force_send_failure armed true, host \"%s\" +1, "
+           "the client on 21 within %.0f s"
            % (ARMED, W_21), arm.get("armed") is True and n["ARMED"] == 1 and t21 is not None,
            {"arm": arm, "ARMED": since(h, r.n_h, ARMED), "client 21": getattr(x, "c21", None) or {"stack": stack(c), "dialog": dlg(c)}})
     if t21 is None:
@@ -199,7 +205,8 @@ def lever(r, x):
     return tl, seen
 
 def the_pause(r, x, tl, s, skirmish):
-    """cell <rid>-2: the host's values at W (+ X2: every poll in W kept a BattlescapeState and never showed 440)"""
+    """cell <rid>-2: the host's values at W (+ skirmish_send_lost: every poll in W kept a BattlescapeState and never
+    showed 440)"""
     h, rid, n = x.host, r.rid, counts(x.host, r.n_h)
     b, d = s.get("battle") or {}, s.get("dialog") or {}
     bad = [e["t"] for e in tl if BS not in (e.get("stack") or []) or (e.get("dialog") or {}).get("code") == 440]
@@ -208,9 +215,10 @@ def the_pause(r, x, tl, s, skirmish):
     ok = (b.get("phase") == "Active" and b.get("peerAbsent") is True and b.get("battleId") == x.b0 and d.get("code") == 62
           and d.get("backVisible") is False and n["SEND_LOST"] == 1 and n["DROP"] == 1 and (not skirmish or not bad))
     r.cell(rid + "-2", "FIX", "the pause: at W host phase Active, peerAbsent true, battleId %s, dialog 62 backVisible false, SEND_LOST +1, DROP +1%s "
-           "(red today: %s)" % (x.b0, ", no poll with CoopState 440 or without BattlescapeState" if skirmish else "",
-                                "a CoopState 440 over no battle, T0-X2" if skirmish else "peerAbsent false, 62 RESUME shown, FREEZE +1, "
-                                "DROP +0, SEND_LOST +0, T0-X1"), ok,
+           "(without the fix: %s)"
+           % (x.b0, ", no poll with CoopState 440 or without BattlescapeState" if skirmish else "",
+              "a CoopState 440 over no battle" if skirmish else "peerAbsent false, 62 RESUME shown, FREEZE +1, "
+              "DROP +0, SEND_LOST +0"), ok,
            {"loss path": path, "at W": s, "needles": n, "polls without BattlescapeState or with 440 (t)": bad, "timeline": tl})
 
 def client_back(x):
@@ -281,8 +289,9 @@ def rejoin_cells(r, x, key, skirmish):
     offer, act = since(h, r.n_h, OFFER), [ln.split("\t")[-1][:160] for ln in log(c2) if CLIENT_ACTIVE in ln]
     ev.update(OFFER=offer, GUARD=since(h, r.n_h, GUARD), needles=n, host=hb, client2=cb, tops=[stack(h), stack(c2)], CLIENT_ACTIVE=act)
     r.cell(rid + "-3", "FIX", "client2's rejoin: OFFER +1 reading battleId=%s, RESUME within W_ACK %.0f s, both tops BattlescapeState, phase Active, "
-           "peerAbsent false, battleId %s on both, client2 CLIENT_ACTIVE +1 (red today: %s)" % (x.b0, W_ACK, x.b0, "the join refused, the host "
-           "not serving (T0-X2)" if skirmish else "GUARD +1, OFFER +0, client2 on 68 (T0-X1)"),
+           "peerAbsent false, battleId %s on both, client2 CLIENT_ACTIVE +1 (without the fix: %s)"
+           % (x.b0, W_ACK, x.b0,
+              "the join refused, the host not serving" if skirmish else "GUARD +1, OFFER +0, client2 on 68"),
            len(offer) == 1 and ("battleId=%s," % x.b0) in offer[0] and resumed and tops and hb.get("phase") == cb.get("phase") == "Active"
            and hb.get("peerAbsent") is False and cb.get("peerAbsent") is False and hb.get("battleId") == cb.get("battleId") == x.b0
            and len(act) == 1, ev)
@@ -293,14 +302,14 @@ def rejoin_cells(r, x, key, skirmish):
     r.cell(rid + "-4", "FIX", "SPLIT(host) == SPLIT(client2) == SPLIT0 and HASH(host, client2)", sh == sc == x.split0 and hok,
            {"host": sh, "client2": sc, "SPLIT0": x.split0, "HASH": hev})
 
-def row_x(x, results, walls, key, skirmish):
+def run_row(x, results, walls, key, skirmish):
     r = Row(x.rid, ["%s-%d" % (x.rid, i) for i in range(1, 5)], x)
     if x.err:
         return r.boot_miss(results, walls)
     try:
         baseline(r, x)
         r.n_h = len(log(x.host))
-        tl, s = lever(r, x)
+        tl, s = arm_send_failure(r, x)
         the_pause(r, x, tl, s, skirmish)
         client_back(x)
         rejoin_cells(r, x, key, skirmish)
@@ -308,27 +317,29 @@ def row_x(x, results, walls, key, skirmish):
         r.stop(e)
     r.end(x.rid + "-5", results, walls)
 
-def new_x(rid, tag):
+def new_boot(rid, tag):
     return SimpleNamespace(rid=rid, tag=tag, js=None, host=None, client=None, client2=None, err=None, b0=None, split0=None, c21=None)
 
-def boot_x1(tag):
-    """boot X1: shared_fixture.bring_up + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}) (squad[1] owned by seat 1)"""
-    x = new_x("X1", tag)
+def boot_shared(tag):
+    """boot shared_send_lost: shared_fixture.bring_up + bring_up_shared_mixed_battle(js, {0: 0, 1: 1}) (squad[1] owned
+    by seat 1)"""
+    x = new_boot("shared_send_lost", tag)
     try:
-        x.js = shared_fixture.bring_up(tag, (1, 2, int(KEY_X1)))
+        x.js = shared_fixture.bring_up(tag, (1, 2, int(KEY_SHARED)))
         x.host, x.client = x.js.host, x.js.client
         session.bring_up_shared_mixed_battle(x.js, {0: 0, 1: 1})
     except Exception as e:
         x.err = short(e, 600)
     return x
 
-def boot_x2(tag):
-    """boot X2: host and client spawn, connect, start_skirmish_battle(host, client, KEY_X2) (both on BattlescapeState)"""
-    x = new_x("X2", tag)
+def boot_skirmish(tag):
+    """boot skirmish_send_lost: host and client spawn, connect, start_skirmish_battle(host, client, KEY_SKIRMISH) (both
+    on BattlescapeState)"""
+    x = new_boot("skirmish_send_lost", tag)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(tag + "_host")), GameClient("client", 2, make_user_dir(tag + "_client"))
         x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
-        start_skirmish_battle(x.host, x.client, KEY_X2)
+        start_skirmish_battle(x.host, x.client, KEY_SKIRMISH)
     except Exception as e:
         x.err = short(e, 600)
     return x
@@ -347,16 +358,18 @@ def shut(x):
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
-    for tag, boot, key, skirmish in (("w2r4l2_x1", boot_x1, KEY_X1, False), ("w2r4l2_x2", boot_x2, KEY_X2, True)):
+    for tag, boot, key, skirmish in (("rejoin_send_failure_shared", boot_shared, KEY_SHARED, False),
+                                     ("rejoin_send_failure_skirmish", boot_skirmish, KEY_SKIRMISH, True)):
         tb = time.time()
         x = boot(tag)
         walls[tag + " boot"] = round(time.time() - tb, 1)
-        row_x(x, results, walls, key, skirmish)
+        run_row(x, results, walls, key, skirmish)
         failed += shut(x)
         walls[tag] = round(time.time() - tb, 1)
-    failed += [rid for rid in ("X1", "X2") if not results.get(rid)]
-    print("\ntest_rejoin_send_failure: %d/2 rows passed (fail=%s) walls %s in %.1fs" % (sum(1 for rid in ("X1", "X2") if results.get(rid)),
-                                                                                       failed, json.dumps(walls), time.time() - t0), flush=True)
+    failed += [rid for rid in ("shared_send_lost", "skirmish_send_lost") if not results.get(rid)]
+    print("\ntest_rejoin_send_failure: %d/2 rows passed (fail=%s) walls %s in %.1fs"
+          % (sum(1 for rid in ("shared_send_lost", "skirmish_send_lost") if results.get(rid)), failed,
+             json.dumps(walls), time.time() - t0), flush=True)
     return 2 if failed else 0
 
 if __name__ == "__main__":
