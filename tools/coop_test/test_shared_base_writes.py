@@ -1,27 +1,36 @@
-"""W2-H20b stage A (owner D255 a, D226 a; W2-H20 Q6 a; spec rewrite/prompts/w2h20b_shared_base_writes.md (f), Q1 a .. Q9 a; TASK 0
-rewrite/w2h20b-task0/CONSTANTS.md): in SHARED, base-screen writes outside H20's gear record end equal on both machines through the host:
-a rename on the base inventory (A14), a saved layout / craft loadout template (A10), a personal layout's armor (A11: own synced, the
-partner's put back at once); the armor screen refuses the partner's soldier "not your soldier" (A13). Today each stays on one machine or
-applies to the partner. H / C / C2 = H20's rule (S25). W = 10 s at 0.25 s polls; a key's local effect <= 5 s; "nothing sent"
-cells after a 1 s settle. Global layout 0 = equip_layouts {index: 0} inside that machine's open soldier screen (T0-1); loadout 0 and
-lastSelectedArmor = the test-only lever base_screen_op {op: read}. A row whose named RED cell fails evaluates no later cell.
-Boot A (SHARED, ports 49421 / 49422 / 47924, option OFF, STR_PERSONAL_ARMOR 4 on both):
-  H20b-1 client screen: rename C "Ripley B". RED: the host's C never "Ripley B" in W. Cleanup (both builds): rename back, W.
-  H20b-2 client screen: rename H "Vasquez B". refused before any write - the reply keeps H's name and
-        neither machine shows "Vasquez B" (host W). RED (before EQ-3 S-A): the reply says "Vasquez B".
-  H20b-3 (guard) host screen open; client soldier_rename {C2, "Hicks B"} lands; host close: "Hicks B" on both.
-  H20b-4 client screen: select C, Ctrl+1, close. RED: the host's global 0 still [] after W (its screen open). Green: slot 0 equal.
-  H20b-5 client SKY equipment screen: loadout_save {index: 0}, OK. RED: the host's loadout 0 still {} after W. Green: equal.
-  H20b-6 client soldier_armor {H, A1}. RED: the host's H wears A1 (red cleanup: host -> A0). Green: refused "not your soldier".
-  H20b-7 (guard, last in Boot A) js.finish(): world equality (names included) + replica zero-disk.
-Boot C (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_POWER_SUIT 4 on both):
-  H20b-8 C: A2, personal saved with it, A1; client screen key 108 (client's C A2). RED: the host's C still A1 after W.
-  H20b-9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. nothing changes on
-        either machine within 5 s. RED (before EQ-3 S-A): H takes the personal's grenades on the client's screen.
-Boot B (SEPARATE, tag w2h20bb, labels 49423 / 49424, lobby 47925): H20b-10 (guard) client rename, Ctrl+1, loadout_save stay local.
-EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (soldier_layouts, get_soldiers, geo_state items,
-shared_stats, equip_layouts {index: 0}, read {index: 0}, stacks; both machines). A boot miss fails its rows "boot" with one CAPTURE line.
-Every row runs after a failure. ONE run; exit 0 iff every row passes, else 2.
+"""In SHARED, base-screen writes outside the soldier gear record (test_shared_base_equip.py) end equal on both machines
+through the host: a rename on the base inventory, a saved layout / craft loadout template, a personal layout's armor
+(the client's own soldier synced, the partner's put back at once); the armor screen refuses the partner's soldier "not
+your soldier". Without the fix each stays on one machine or applies to the partner.
+H / C / C2 as in test_shared_base_equip.setup(): the first HostBase soldier owned by the host's seat / the first /
+second owned by the client's. W = 10 s at 0.25 s polls; a key's local effect <= 5 s; "nothing sent" cells after a
+1 s settle. Global layout 0 = equip_layouts {index: 0} inside that machine's open soldier screen; loadout 0 and
+lastSelectedArmor = the test-only command base_screen_op {op: read}. A row whose main cell (the one that fails without
+the fix) fails evaluates no later cell.
+SHARED boot (ports 49421 / 49422 / 47924, option OFF, STR_PERSONAL_ARMOR 4 on both):
+  base_write_1 client screen: rename C "Ripley B". Without the fix the host's C never shows "Ripley B" in W. Cleanup
+        (with or without the fix): rename back, W.
+  base_write_2 client screen: rename H "Vasquez B". Refused before any write: the reply keeps H's name and neither
+        machine shows "Vasquez B" (host W). Without the read-only partner rule the reply says "Vasquez B".
+  base_write_3 (guard) host screen open; client soldier_rename {C2, "Hicks B"} lands; host close: "Hicks B" on both.
+  base_write_4 client screen: select C, Ctrl+1, close. Without the fix the host's global 0 is still [] after W (its
+        screen open); with it slot 0 is equal.
+  base_write_5 client SKY equipment screen: loadout_save {index: 0}, OK. Without the fix the host's loadout 0 is still
+        {} after W; with it they are equal.
+  base_write_6 client soldier_armor {H, A1}. Without the fix the host's H wears A1 (cleanup: host -> A0); with it the
+        request is refused "not your soldier".
+  base_write_7 (guard, last in the SHARED boot) js.finish(): world equality (names included) + replica zero-disk.
+Armor boot (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_POWER_SUIT 4 on both):
+  base_write_8 C: A2, personal saved with it, A1; client screen key 108 (client's C A2). Without the fix the host's C
+        is still A1 after W.
+  base_write_9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. Nothing changes on
+        either machine within 5 s. Without the read-only partner rule H takes the personal's grenades on the client's
+        screen.
+SEPARATE boot (labels 49423 / 49424, lobby 47925): base_write_10 (guard) client rename, Ctrl+1, loadout_save stay
+local.
+EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (soldier_layouts, get_soldiers, geo_state
+items, shared_stats, equip_layouts {index: 0}, read {index: 0}, stacks; both machines). A boot miss fails its rows
+"boot" with one CAPTURE line. Every row runs after a failure. ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json
@@ -37,17 +46,17 @@ import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screen
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen, stats3  # noqa: E402
 
-TAG_A, PORTS_A = "w2h20ba", (49421, 49422, 47924)
-TAG_C, PORTS_C = "w2h20bc", (49425, 49426, 47926)
-TAG_B, LABELS_B, LOBBY_B = "w2h20bb", (49423, 49424), "47925"
+TAG_SHARED, PORTS_SHARED = "base_writes_shared", (49421, 49422, 47924)
+TAG_ARMOR, PORTS_ARMOR = "base_writes_armor", (49425, 49426, 47926)
+TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "base_writes_separate", (49423, 49424), "47925"
 HB, CB, GEO = "HostBase", "ClientBase", "GeoscapeState"
 A0, A1, A2 = "STR_NONE_UC", "STR_PERSONAL_ARMOR_UC", "STR_POWER_SUIT_UC"
 I1, I2, GREN = "STR_PERSONAL_ARMOR", "STR_POWER_SUIT", "STR_GRENADE"
 W, KEY_W, SETTLE, KEY_SETTLE, SDLK_1 = 10.0, 5.0, 1.0, 0.3, 49
 NOT_YOURS = "not your soldier"
-ROWS_A = ["H20b-%d" % n for n in range(1, 8)]
-ROWS_C = ["H20b-8", "H20b-9"]
-ORDER = ROWS_A + ROWS_C + ["H20b-10"]
+ROWS_SHARED = ["base_write_%d" % n for n in range(1, 8)]
+ROWS_ARMOR = ["base_write_8", "base_write_9"]
+ORDER = ROWS_SHARED + ROWS_ARMOR + ["base_write_10"]
 
 
 def converge(pred, timeout=W):
@@ -184,7 +193,7 @@ def set_armor(r, x, sender, sid, arm, tag):
     return r.cell(f"guard: {tag} on both", rep.get("moved") is True and got, [rep, armor(x.host, sid), armor(x.client, sid)])
 
 
-def h20b_1(x, r):
+def row_client_renames_own(x, r):
     h, c, cid, first = x.host, x.client, x.ids["C"], x.first["C"]
     r.ev["start"] = x.three()
     n0 = {gc.name: names(gc) for gc in (h, c)}
@@ -193,7 +202,7 @@ def h20b_1(x, r):
     got, s = converge(lambda: names(h).get(cid) == "Ripley B") if cn == "Ripley B" else (False, 0.0)
     n1 = {gc.name: names(gc) for gc in (h, c)}
     r.ev.update({"wait s": s, "end": x.three()})
-    back = screen_rename(r, c, "Ripley B", first, "cleanup rename")  # cleanup, both builds
+    back = screen_rename(r, c, "Ripley B", first, "cleanup rename")  # cleanup, with or without the fix
     r.ev["cleanup"] = [back, converge(lambda: names(h).get(cid) == first)]
     r.evidence()
     nv = r.cell("non-vacuity: reply soldierName 'Ripley B'", rep.get("soldierName") == "Ripley B", rep)
@@ -205,24 +214,26 @@ def h20b_1(x, r):
     r.cell("another soldier's name changed", not other, [(i, n0["host"].get(i), n1["host"].get(i), n1["client"].get(i)) for i in other])
 
 
-def h20b_2(x, r):
+def row_partner_rename_refused(x, r):
     h, c, hid, first = x.host, x.client, x.ids["H"], x.first["H"]
     r.ev["start"] = x.three()
     rep = screen_rename(r, c, first, "Vasquez B", "rename")
     cn, hn = names(c).get(hid), names(h).get(hid)  # at once after the close
     r.ev.update({"at once": {"client": cn, "host": hn}})
-    if cn != first:  # cleanup (a build without EQ-3 S-A that kept the rename): rename H back on the client's screen
+    if cn != first:  # cleanup (a build without the read-only partner rule kept the rename): rename H back on the
+        # client's screen
         r.ev["cleanup"] = [screen_rename(r, c, "Vasquez B", first, "cleanup rename"), names(c).get(hid)]
     moved, s = converge(lambda: names(h).get(hid) != first)
     r.ev.update({"host watched s": s, "end": x.three()})
     r.evidence()
     # a partner's soldier on a SHARED base screen is read-only - the rename is refused before any write.
-    r.cell("the reply soldierName stays H's name (EQ-3 S-A: a partner's soldier is not renamed)", rep.get("soldierName") == first, rep)
+    r.cell("the reply soldierName stays H's name (a partner's soldier is not renamed)", rep.get("soldierName") == first,
+           rep)
     r.cell("the client's H changed at once", cn == first, f"client H {cn!r}, host H {hn!r}")
     r.cell("the host's H changed within W", not moved, names(h).get(hid))
 
 
-def h20b_3(x, r):
+def row_host_screen_keeps_rename(x, r):
     h, c, c2 = x.host, x.client, x.ids["C2"]
     r.ev["start"] = x.three()
     if not open_soldier_screen(r, h):
@@ -241,7 +252,7 @@ def h20b_3(x, r):
     r.cell("the host's base-screen OK put C2's old name back (no mark refresh)", nh == nc == "Hicks B", f"host {nh!r} client {nc!r}")
 
 
-def h20b_4(x, r):
+def row_layout_template_syncs(x, r):
     h, c = x.host, x.client
     r.ev["start"] = x.three()
     if not open_soldier_screen(r, c):
@@ -269,7 +280,7 @@ def h20b_4(x, r):
     r.cell("the host's (global, globalArmor, globalName) != the client's", hs == cs, [hs, cs])
 
 
-def h20b_5(x, r):
+def row_loadout_template_syncs(x, r):
     h, c = x.host, x.client
     sky = (next((cr for cr in q(c, {"cmd": "base_report", "base": HB}).get("crafts") or [] if cr.get("id") == x.sky), {})
            .get("items"))
@@ -297,7 +308,7 @@ def h20b_5(x, r):
            == [cr.get("loadout"), cr.get("loadoutName")], [hr, cr])
 
 
-def h20b_6(x, r):
+def row_partner_armor_refused(x, r):
     h, c, hid = x.host, x.client, x.ids["H"]
     r.ev["start"] = x.three()
     st0 = [items(h).get(I1, 0), items(c).get(I1, 0)]
@@ -309,13 +320,13 @@ def h20b_6(x, r):
     ah, ac, st1 = armor(h, hid), armor(c, hid), [items(h).get(I1, 0), items(c).get(I1, 0)]
     r.ev.update({"soldier_armor": rep, "settled": how, "wait s": s, "client failCount": [f0, s1.get("failCount")],
                  "lastFail": s1.get("lastFail"), "client stack": stack(c), "stock " + I1: [st0, st1], "end": x.three()})
-    if how == "applied":  # the red cleanup: the host re-armors H
+    if how == "applied":  # cleanup without the fix: the host re-armors H
         r.ev["cleanup"] = [q(h, {"cmd": "soldier_armor", "soldier_id": hid, "armor": A0, "base": HB}),
                            converge(lambda: armor(h, hid) == A0 and armor(c, hid) == A0)]
     r.evidence()
     if not r.cell("non-vacuity: reply moved", rep.get("moved") is True, rep):
         return
-    if not r.cell("the host applied the client's armor choice for the host's soldier (AUD-A48)", ah != A1,
+    if not r.cell("the host applied the client's armor choice for the host's soldier", ah != A1,
                   f"host H {ah}, client H {ac}"):
         return
     r.cell("the client's failCount did not grow by one", s1.get("failCount") == (f0 or 0) + 1, [f0, s1.get("failCount")])
@@ -324,7 +335,7 @@ def h20b_6(x, r):
     r.cell(f"the {I1} stock changed", st1 == st0, [st0, st1])
 
 
-def h20b_7(x, r):
+def row_world_equal(x, r):
     r.ev["start"] = r.ev["end"] = x.three()
     r.ev["world_diff now"] = shared_fixture.world_diff(x.host, x.client)
     r.ev["client save files now"] = session.save_files(x.js.client_dir)
@@ -335,14 +346,14 @@ def h20b_7(x, r):
         r.cell("js.finish", False, sbe.short(e, 1500))
 
 
-def snap8(x):
+def snap_personal(x):
     h, c = x.host, x.client
     return {"stocks": [stocks(h), stocks(c)], "lastSelectedArmor": [bso(g, op="read", index=0).get("lastSelectedArmor") for g in (h, c)],
             "client requests": q(c, {"cmd": "shared_resync_stats"}).get("requests"), "client failCount":
             q(c, {"cmd": "shared_stats"}).get("failCount"), "chkItems": [q(g, {"cmd": "shared_checksum"}).get("chkItems") for g in (h, c)]}
 
 
-def h20b_8(x, r):
+def row_personal_armor_syncs(x, r):
     h, c, cid, cn = x.host, x.client, x.ids["C"], x.first["C"]
     r.ev["start"] = x.three()
     if not set_armor(r, x, c, cid, A2, "setup C POWER"):
@@ -357,7 +368,7 @@ def h20b_8(x, r):
     if not (r.cell("guard: the client's personal of C saved with POWER", personal(c, cid)[1] == A2 and personal(c, cid)[0],
                    personal(c, cid)) and set_armor(r, x, c, cid, A1, "setup C PERSONAL")):
         return
-    b0 = snap8(x)
+    b0 = snap_personal(x)
     if not open_soldier_screen(r, c):
         return
     sel = bso(c, op="select", name=cn)
@@ -367,7 +378,7 @@ def h20b_8(x, r):
     got, s = converge(lambda: armor(h, cid) == A2) if worn else (False, 0.0)
     close_soldier_screen(r, c)
     time.sleep(SETTLE)
-    b1 = snap8(x)
+    b1 = snap_personal(x)
     r.ev.update({"select": sel, "key 108": k108, "client C POWER s": s5, "client stocks on screen": cst, "wait s": s,
                  "before": b0, "after": b1, "end": x.three()})
     r.evidence()
@@ -386,7 +397,7 @@ def h20b_8(x, r):
            [b0["client requests"], b1["client requests"]])
 
 
-def h20b_9(x, r):
+def row_partner_personal_readonly(x, r):
     h, c, hid, hn = x.host, x.client, x.ids["H"], x.first["H"]
     r.ev["start"] = x.three()
     if not set_armor(r, x, h, hid, A2, "setup H POWER"):
@@ -425,14 +436,15 @@ def h20b_9(x, r):
                  "armor client / host": [ac, ah], "client stocks": [s0, s1], "host applyCount": [a0, a1], "end": x.three()})
     r.evidence()
     # the personal-layout key does nothing on the host's soldier on the client's SHARED base screen.
-    r.cell("H's grenades changed on the client's screen within 5 s of key 108 (EQ-3 S-A: read-only)", not got, [g0, g1, want, s5])
+    r.cell("H's grenades changed on the client's screen within 5 s of key 108 (read-only)", not got,
+           [g0, g1, want, s5])
     r.cell("the client re-armored the host's soldier", ac == A1, f"client H {ac}, host H {ah}")
     r.cell("the client's stocks changed", s1 == s0, [s0, s1])
     r.cell("the host's applyCount changed within 1 s of the key", a1 == a0, [a0, a1])
     r.cell("the host's H is not PERSONAL", ah == A1, ah)
 
 
-def h20b_10(x, r):
+def row_separate_stays_local(x, r):
     h, c = x.host, x.client
     s0 = {gc.name: stats3(gc) for gc in (h, c)}
     L = q(c, {"cmd": "soldier_layouts", "base": CB}).get("soldiers") or []
@@ -485,7 +497,8 @@ def run_rows(x, rows, results, walls):
             fn(x, r)
         except Exception as e:
             r.cell(f"guard: {rid} exception", False, sbe.short(e))
-        for g in (x.host, x.client):  # a stopped row (or H20b-6's green refusal box, CoopState 556) leaves no screen behind
+        for g in (x.host, x.client):  # a stopped row (or base_write_6's refusal box with the fix, CoopState 556)
+            # leaves no screen behind
             before = stack(g)
             if (before or [""])[-1] != GEO:
                 rep = q(g, {"cmd": "close_screens"})
@@ -520,31 +533,36 @@ def shared_boot(tag, ports, gifts, rids, rows, results, walls):
             js.shutdown()
 
 
-def boot_b(results, walls):
+def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_B[0], make_user_dir(TAG_B + "_host"))
-    c = GameClient("client", LABELS_B[1], make_user_dir(TAG_B + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
     x = X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_B, campaign_mode="coop")
+            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
             geo.wait_both_ready(h, c)
             x.seats = {gc.name: q(gc, {"cmd": "get_coop"}).get("localSeat") for gc in (h, c)}
-            walls["boot B"] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails H20b-10 "boot" with ONE CAPTURE line
-            return boot_miss(TAG_B, e, ["H20b-10"], results, x)
-        run_rows(x, (("H20b-10", h20b_10),), results, walls)
+            walls["boot base_writes_separate"] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails base_write_10 "boot" with ONE CAPTURE line
+            return boot_miss(TAG_SEPARATE, e, ["base_write_10"], results, x)
+        run_rows(x, (("base_write_10", row_separate_stays_local),), results, walls)
     finally:
         shutdown_clients(h, c)
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    shared_boot(TAG_A, PORTS_A, [I1], ROWS_A, (("H20b-1", h20b_1), ("H20b-2", h20b_2), ("H20b-3", h20b_3), ("H20b-4", h20b_4),
-                                               ("H20b-5", h20b_5), ("H20b-6", h20b_6), ("H20b-7", h20b_7)), results, walls)
-    shared_boot(TAG_C, PORTS_C, [I1, I2], ROWS_C, (("H20b-8", h20b_8), ("H20b-9", h20b_9)), results, walls)
-    boot_b(results, walls)
+    shared_boot(TAG_SHARED, PORTS_SHARED, [I1], ROWS_SHARED,
+                (("base_write_1", row_client_renames_own), ("base_write_2", row_partner_rename_refused),
+                 ("base_write_3", row_host_screen_keeps_rename), ("base_write_4", row_layout_template_syncs),
+                 ("base_write_5", row_loadout_template_syncs), ("base_write_6", row_partner_armor_refused),
+                 ("base_write_7", row_world_equal)), results, walls)
+    shared_boot(TAG_ARMOR, PORTS_ARMOR, [I1, I2], ROWS_ARMOR,
+                (("base_write_8", row_personal_armor_syncs), ("base_write_9", row_partner_personal_readonly)),
+                results, walls)
+    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     print(f"\ntest_shared_base_writes: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) "
           f"walls {json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)
