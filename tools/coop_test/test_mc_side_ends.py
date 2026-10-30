@@ -8,7 +8,7 @@ outcome: the aliens' hold is released at their side's start, before the tally, s
 Constants: rewrite/w2h31-task0/CONSTANTS.md (TASK 0 boots Ga / Gb, Ca / Cb, Ca2 / Cb2).
 
 Boot G (gm3 parallel, key 48786; the host plays the aliens, seat 0): G3F.bring_up, gm3_census-mode and gm3_census-seats
-must pass, every unit's reactions 0, the B2 staging (MCT.stage_b2).
+must pass, every unit's reactions 0, the B2 staging (MCT.stage_open_ground).
   G3E  the partner's X-COM S holds the host's only alien A (the host psi_attack lever on S, SEED_G3):
        G3E-mc     (precondition) A faction 0, mcId S, coop 0 on both; both tops BattlescapeState
        G3E-end    the partner's END TURN alone: the host's side-phase counter +1 within SIDE_S
@@ -321,7 +321,7 @@ def run_boot(tag, key, boot_fn, staging_fn, rows, row_fns):
 
 def main():
     t0 = time.time()
-    fails = run_boot("g", KEY_G, boot_g, lambda h, c, rec: MCT.stage_b2(h, c), G_ROWS, (row_g3e,))
+    fails = run_boot("g", KEY_G, boot_g, lambda h, c, rec: MCT.stage_open_ground(h, c), G_ROWS, (row_g3e,))
     fails += run_boot("c", KEY_C, MCC.boot_seated, MCC.stage_tiles, C_ROWS, (row_cm,))
     print(f"test_mc_side_ends: {'PASS' if not fails else 'FAIL'} ({fails} failing cell(s)) wall "
           f"{time.time() - t0:.1f} s", flush=True)
