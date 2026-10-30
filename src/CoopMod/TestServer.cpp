@@ -8846,11 +8846,6 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["coopClientBStatePushes"] = coopClientBStatePushes();
 		resp["coopClientBStateLastSite"] = coopClientBStateLastSite();
 		resp["coopClientPanicSkipped"] = coopClientPanicSkipped();
-		// the SEPARATE client own-craft battle refusal
-		// probes (CoopBattleSetup.h). Process-lifetime, never reset; "" before any
-		// refusal, else "landing:<craftId>" / "cydonia:<craftId>" of the last one.
-		resp["coopClientBattleRefused"] = coopClientBattleRefused();
-		resp["coopClientBattleRefusedLast"] = coopClientBattleRefusedLast();
 		// The
 		// delta core's probes (CoopDelta.h), battle-scoped, reset by
 		// resetBattleAuthority(). Written by the delta core (host:

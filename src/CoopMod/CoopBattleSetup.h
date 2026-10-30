@@ -224,35 +224,4 @@ void coopDropMergedGuestVehicles(Game* game);
  */
 bool coopGuestTankRecovered(BattleUnit* unit);
 
-/**
- * The test-server
- * probes of the SEPARATE co-op client's own-craft battle refusal (TestServer
- * event_state `coopClientBattleRefused` / `coopClientBattleRefusedLast`).
- * Process-lifetime, never reset; written only on a SEPARATE co-op client by
- * the landing and Cydonia refusals (CoopState.cpp); never read by game logic.
- * coopClientBattleRefused() counts the refusals; coopClientBattleRefusedLast()
- * is "landing:<craftId>" or "cydonia:<craftId>" of the most recent one, ""
- * before any. Bodies live in CoopState.cpp, beside their statics.
- */
-int coopClientBattleRefused();
-std::string coopClientBattleRefusedLast();
-
-/**
- * on a SEPARATE co-op campaign's CLIENT
- * only (connected, not the server owner, gamemode 0/1), refuses an own-craft
- * landing: the craft returns to base (vanilla "No"), @a gs->popup() shows a
- * CraftErrorState with the host-craft-only text (CoopState.cpp), and the function
- * returns true so GeoscapeState never pushes ConfirmLandingState. False with
- * no effect anywhere else (host, SHARED, single player, PvP, PvE2).
- */
-bool coopRefuseSeparateClientLanding(Game* game, GeoscapeState* gs, Craft* craft);
-
-/**
- * the same refusal for Cydonia. Called
- * first in ConfirmCydoniaState::btnYesClick; when it returns true it has popped
- * ConfirmCydoniaState and pushed the CraftErrorState, and the craft is
- * untouched. False with no effect outside a SEPARATE co-op client.
- */
-bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft);
-
 } // namespace OpenXcom

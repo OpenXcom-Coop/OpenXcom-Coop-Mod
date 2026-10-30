@@ -3351,8 +3351,7 @@ void GeoscapeState::time5Seconds()
 								Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 								// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 								// SEAT instead of popping the dialog here. Battle authority does not move.
-								// a SEPARATE co-op client never starts a battle from its own craft.
-								if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
+								if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade))
 									popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 							}
 						}
@@ -3405,8 +3404,7 @@ void GeoscapeState::time5Seconds()
 						}
 						// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 						// SEAT instead of popping the dialog here. Battle authority does not move.
-						// a SEPARATE co-op client never starts a battle from its own craft.
-						if (!brokerSharedLanding(xcraft, missionTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
+						if (!brokerSharedLanding(xcraft, missionTexture, globeTexture, shade))
 							popup(new ConfirmLandingState(xcraft, missionTexture, globeTexture, shade));
 					}
 					else
@@ -3426,8 +3424,7 @@ void GeoscapeState::time5Seconds()
 							Texture* globeTexture = _game->getMod()->getGlobe()->getTexture(texture);
 							// PRD-J10 landing broker: if another seat commanded this craft, ASK THAT
 							// SEAT instead of popping the dialog here. Battle authority does not move.
-							// a SEPARATE co-op client never starts a battle from its own craft.
-							if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade) && !coopRefuseSeparateClientLanding(_game, this, xcraft))
+							if (!brokerSharedLanding(xcraft, globeTexture, globeTexture, shade))
 								popup(new ConfirmLandingState(xcraft, globeTexture, globeTexture, shade));
 						}
 						else

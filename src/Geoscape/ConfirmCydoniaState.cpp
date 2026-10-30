@@ -92,8 +92,6 @@ ConfirmCydoniaState::~ConfirmCydoniaState()
  */
 void ConfirmCydoniaState::btnYesClick(Action *)
 {
-	// a SEPARATE co-op client never starts a battle from its own craft.
-	if (coopRefuseSeparateClientCydonia(_game, _craft)) return;
 	if (connectionTCP::getCoopStatic())
 	{
 		// A one-world campaign client (Shared or Separate) asks the host to start

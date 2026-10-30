@@ -151,9 +151,6 @@ en-US:
   # zero battle units. The click-select ownership refusal deliberately reuses
   # STR_COOP_DENY_NOT_YOUR_UNIT above - same reason, same words as the wire deny.
   STR_COOP_SPECTATOR_MODE: "You command no soldiers - spectator mode"
-  # coop: shown only on a SEPARATE co-op campaign's
-  # CLIENT when its own craft reaches a landable target or confirms Cydonia.
-  STR_COOP_MISSION_HOST_CRAFT_ONLY: "In co-op only the host's craft can start a mission. Seat your soldiers on the host's craft to take part."
   STR_COOP_CHAT_SYSTEM: "System"
   STR_COOP_SYNCED_OPTION_CHANGED: "{0} changed {1} to {2}"
   STR_COOP_SYNCED_OPTION: "[Synced] {0}"
