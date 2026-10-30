@@ -1,32 +1,33 @@
-"""SEPARATE `old_bases`: a TRANSFER opened from
-the debriefing's loot page must leave the host's base list alone.
+"""SEPARATE campaign base list: a TRANSFER opened from the debriefing's loot
+page must leave the host's base list alone.
 
-Before the fix the Select Destination Base window swaps the live base list for a
-copy stored on the debriefing's base, which is empty when that base's screen was
-never opened: the list becomes empty (the campaign ends in defeat once the
-geoscape runs). After the fix the list keeps every own base and the partner's
+Without the fix the Select Destination Base window swaps the live base list for
+a copy stored on the debriefing's base, which is empty when that base's screen
+was never opened: the list becomes empty (the campaign ends in defeat once the
+geoscape runs). With the fix the list keeps every own base and the partner's
 mirror, and the window offers the partner's base too.
 
-One boot, one row (spec rewrite/prompts/w2h8_old_bases.md (f)):
+One boot, one row:
 
-  Boot G  D2  a SEPARATE guest battle with HostBase2 built before the mission;
-              the host aborts (the guest votes YES, R4-L1), reaches its debriefing, opens page 3 (LOOT),
-              TRANSFER, Cancel, then OK back to the geoscape. The base list is
-              read at the three points (TransferBaseState, after Cancel, the
-              geoscape) and the window's destination rows are read.
+  debrief_transfer  a SEPARATE guest battle with HostBase2 built before the
+                    mission; the host aborts (the guest votes YES), reaches its
+                    debriefing, opens page 3 (LOOT), TRANSFER, Cancel, then OK
+                    back to the geoscape. The base list is read at the three
+                    points (TransferBaseState, after Cancel, the geoscape) and
+                    the window's destination rows are read.
 
 The SEPARATE client stays in the battle after the host's abort, so the
 host clock is frozen: the row reads the list at the three points and
 asserts no ending.
 
-Named red on the pre-fix build (spec (f) + AMENDMENT H8-1 Q3): rows [] and
-host bases [] at TransferBaseState and after Cancel; at the geoscape the list
-is all mirrors [ClientBase, HostBase, HostBase2] (coopBase and coopIcon set) -
-the client, still in the battle on a copy of the host's world, reports the
-host's bases as its own - and the host's ending stays 0.
+Without the fix: rows [] and host bases [] at TransferBaseState and after
+Cancel; at the geoscape the list is all mirrors [ClientBase, HostBase,
+HostBase2] (coopBase and coopIcon set) - the client, still in the battle on a
+copy of the host's world, reports the host's bases as its own - and the host's
+ending stays 0.
 
-The row prints ONE "EVIDENCE D2:" line and then asserts; a fixture step that
-does not reach its state raises "PRECONDITION D2: ..." with both machines'
+The row prints ONE "EVIDENCE debrief_transfer:" line and then asserts; a fixture step that
+does not reach its state raises "PRECONDITION debrief_transfer: ..." with both machines'
 stacks and bases. A new crash log (before/after the boot) fails the row.
 
 Run:  python tools/coop_test/test_old_bases_debrief.py
@@ -41,7 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
 
-PORT_G = "48996"  # the lobby rendezvous key (harness.py: an in-process key, never a bound port)
+PORT = "48996"  # the lobby rendezvous key (harness.py: an in-process key, never a bound port)
 
 HOST_BASE = ("HostBase", False, False)
 CLIENT_MIRROR = ("ClientBase", True, True)
@@ -90,7 +91,7 @@ def dump(host, client):
 
 def precondition(ok, what, host, client):
     if not ok:
-        raise AssertionError("PRECONDITION D2: %s | %s" % (what, dump(host, client)))
+        raise AssertionError("PRECONDITION debrief_transfer: %s | %s" % (what, dump(host, client)))
 
 
 def wait_until(what, pred, host, client, timeout=10.0, interval=0.1):
@@ -128,8 +129,8 @@ def build2(host, client):
     print("build2: host bases %s client bases %s" % (blist(host), blist(client)), flush=True)
 
 
-def row_d2(host, client):
-    session.bring_up_separate_guest_battle(host, client, port=PORT_G, pre_mission_start=build2)
+def row_debrief_transfer(host, client):
+    session.bring_up_separate_guest_battle(host, client, port=PORT, pre_mission_start=build2)
     host.ok({"cmd": "battle_action", "action": "abort"})
     wait_until("host AbortMissionState", lambda: any("AbortMissionState" in s for s in stack(host)),
                host, client, timeout=30)
@@ -163,7 +164,7 @@ def row_d2(host, client):
     reached = session.drain_to_geoscape(host, deadline)
     precondition(reached is True, "host back on the geoscape after the debriefing OK", host, client)
     at_geoscape = blist(host)
-    print("EVIDENCE D2: hostBases=%s clientBases=%s hostEnding=%s clientEnding=%s hostTop=%s rows=%s "
+    print("EVIDENCE debrief_transfer: hostBases=%s clientBases=%s hostEnding=%s clientEnding=%s hostTop=%s rows=%s "
           "basesAtTransfer=%s basesAfterCancel=%s basesAtGeoscape=%s"
           % (blist(host), blist(client), ending(host), ending(client), top(host), rows,
              at_transfer, at_cancel, at_geoscape), flush=True)
@@ -173,7 +174,8 @@ def row_d2(host, client):
         if got != BASE0:
             fails.append("host bases %s %s != BASE0" % (what, got))
     if rows != ["ClientBase", "HostBase2"]:
-        fails.append("rows %s != ['ClientBase', 'HostBase2'] (D201 = b)" % rows)
+        fails.append("rows %s != ['ClientBase', 'HostBase2'] (the partner's bases are offered too, "
+                     "as on the base-screen TRANSFER)" % rows)
     if fails:
         raise AssertionError("%d failure(s): %s" % (len(fails), " | ".join(fails)))
 
@@ -183,10 +185,10 @@ def main():
     host = client = None
     err = None
     try:
-        host = GameClient("host", 1, make_user_dir("w2h8g_host"))
-        client = GameClient("client", 2, make_user_dir("w2h8g_client"))
+        host = GameClient("host", 1, make_user_dir("old_bases_debrief_host"))
+        client = GameClient("client", 2, make_user_dir("old_bases_debrief_client"))
         host.spawn(); client.spawn(); host.connect(); client.connect()
-        row_d2(host, client)
+        row_debrief_transfer(host, client)
     except Exception as e:  # the message is the verdict
         err = e
     finally:
@@ -203,11 +205,11 @@ def main():
         msg = "new crash log(s): %s" % new_crash
         err = AssertionError(msg if err is None else "%s | %s" % (err, msg))
     if err is None:
-        print("PASS D2", flush=True)
-        print("ALL W2-H8 old_bases debrief ROWS PASSED", flush=True)
+        print("PASS debrief_transfer", flush=True)
+        print("ALL test_old_bases_debrief ROWS PASSED", flush=True)
         return 0
     kind = "" if isinstance(err, AssertionError) else "%s: " % type(err).__name__
-    print("FAIL D2: %s%s" % (kind, err), flush=True)
+    print("FAIL debrief_transfer: %s%s" % (kind, err), flush=True)
     return 2
 
 
