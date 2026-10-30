@@ -1,83 +1,83 @@
 """test_shared_selection.py: in a SHARED campaign both players on the same Sell screen edit ONE
 shared list of pending amounts; the host holds the list and applies its current list at whoever's
-confirm (D203: a confirm racing an edit is let through), a second confirm of the same selection counts as done (MR8),
+confirm (a confirm racing an edit is let through), a second confirm of the same selection counts as done,
 the other player's screen stays open, rebuilt with the new stock and zero amounts, a world change on the
-base keeps the shared amounts, clamped, and the list covers the normal, page-3 and forced Sell screens (MR16)
-(docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8 sections 3-4: PR-37..PR-46; MR7, MR8, MR16;
-Q-P8-1..Q-P8-3 (a)).
+base keeps the shared amounts, clamped, and the list covers the normal, page-3 and forced Sell screens.
 
-Before S-C-E1 (design section 4, F2161, F6106): each machine's Sell screen keeps its own amounts - the other player
-never sees them, a confirm sends the confirmer's own list, a rebuild after any world change resets every amount to 0,
-and the store probe sel_state is an empty stub.
+Without the shared list, each machine's Sell screen keeps its own amounts - the other player never sees them, a
+confirm sends the confirmer's own list, a rebuild after any world change resets every amount to 0, and the store
+probe sel_state is an empty stub.
 
 Fixtures:
-  SEL  = shared_fixture.bring_up(tag, (0, 0, "47260")), geoscape only; X = STR_RIFLE, Y = STR_PISTOL; pre-cell (a
-         failure is a setup failure: one CAPTURE line, every row of the boot FAILs "pre-cell"): the first get_soldiers
-         soldier of base 0 owned by seat 1 (the client), taken off its craft by the host's craft_assign {on: false}
-         and off-craft on both machines. Each row starts by turning every hold off, dismissing any box and cancelling
-         any Sell screen on both machines, restages X and Y with give_items {+STAGE} on both (client first, S25), then
-         opens open_screen {screen: "sell"} on both (the real SellState, init() binds it); rows end both screens with
-         Cancel unless the row closes them.
-  FXST = test_shared_forced_storage.storage_fixture (FX-ST, AMENDMENT P7-7 section 3; boot 2's T pins) with OPTS =
-         {storageLimitsEnforced, canSellLiveAliens, oxceAutoSell} on BOTH user dirs (oxceAutoSell: P7-7 RULINGS R-D1-3,
+  sell_screen = shared_fixture.bring_up(tag, (0, 0, "47260")), geoscape only; X = STR_RIFLE, Y = STR_PISTOL;
+         pre-cell (a failure is a setup failure: one CAPTURE line, every row of the boot FAILs "pre-cell"): the first
+         get_soldiers soldier of base 0 owned by seat 1 (the client), taken off its craft by the host's craft_assign
+         {on: false} and off-craft on both machines. Each row starts by turning every hold off, dismissing any box and
+         cancelling any Sell screen on both machines, restages X and Y with give_items {+STAGE} on both (client
+         first), then opens open_screen {screen: "sell"} on both (the real SellState, init() binds it); rows end both
+         screens with Cancel unless the row closes them.
+  storage_debrief = test_shared_forced_storage.storage_fixture (its storage_page3 boot, with that boot's T values)
+         with OPTS = {storageLimitsEnforced, canSellLiveAliens, oxceAutoSell} on BOTH user dirs (oxceAutoSell:
          getAutosell reads false while the local option is off) and set_autosell {T, on: true} on both (client first)
          before the battle; pre-cell adds screen_rows {autosell: [T]} true on both after the client's adoption.
-  Probes / levers: sel_state (PR-46: {localSeat, keys: {key: {rows, editors, eseqs, rev, viewers}}}, key
+  Probes / test commands: sel_state ({localSeat, keys: {key: {rows, editors, eseqs, rev, viewers}}}, key
   "<screen>|<variant>|<baseIdx>|<extra>": `sell|n|0|` normal, `sell|d|0|` page 3, `sell|f|0|` forced), set_autosell
-  {item, on} (PR-46, TEST-ONLY world write), screen_rows / screen_set_amount (the top Sell screen; columns name,
+  {item, on} (a TEST-ONLY world write), screen_rows / screen_set_amount (the top Sell screen; columns name,
   remaining, amount, value), shared_update_defer {on} (a "hold": that machine's per-frame SharedEcon drain waits;
-  every client hold is released within HOLD_MAX_S of the host's world change, F4529 / F5840), the host's `sell` lever
-  (unbound: applied as sent, PR-39 (iv), F6126), click_widget on the real captions (Sell/Sack, Cancel, SELL), and
-  dismiss_popup ONLY on an ErrorMessageState top / coop_dialog_back ONLY on a CoopState top.
+  every client hold is released within HOLD_MAX_S of the host's world change), the host's `sell` test command
+  (unbound: applied as sent), click_widget on the real captions (Sell/Sack, Cancel, SELL), and dismiss_popup ONLY
+  on an ErrorMessageState top / coop_dialog_back ONLY on a CoopState top.
 
-Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot SEL (port 47260): E-a, E-e, E-c, E-d, E-b, E-f.
-  E-a (1) client X = 3 -> the host's X amount 3 within SEL_S.
+Rows (cells checked in order; a failed cell ends its row and the rest are reported "not reached"):
+  Boot sell_screen (port 47260): amounts_shared, rebuild_keeps_amounts, confirm_applies_host_list, duplicate_confirm,
+  soldier_sack_shared, leave_and_reopen.
+  amounts_shared (1) client X = 3 -> the host's X amount 3 within SEL_S.
       (2) host Y = 2 -> the client's Y amount 2 within SEL_S.
       (3) sel_state `sell|n|0|` on both: rows {i:STR_RIFLE: 3, i:STR_PISTOL: 2}, equal rev, viewers [0, 1]; both
           screens' "Value of Sales" text equal.
-  E-e (1) client X = 3, Y = 2 (local check only).
-      (2) the host's `sell {X, <stock - 2>}` (the lever): the client's top stays SellState (rebuilt: X lists the new
-          stock 2), its X amount 2 (clamped to the stock) and Y amount 2 (survived).
+  rebuild_keeps_amounts (1) client X = 3, Y = 2 (local check only).
+      (2) the host's `sell {X, <stock - 2>}` (the test command): the client's top stays SellState (rebuilt: X lists
+          the new stock 2), its X amount 2 (clamped to the stock) and Y amount 2 (survived).
       (3) the host's X amount 2 and Y amount 2.
-  E-c (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it (EVIDENCE only, never a
-          failed cell); host hold on; host X = 5; client Sell/Sack.
+  confirm_applies_host_list (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it
+          (EVIDENCE only, never a failed cell); host hold on; host X = 5; client Sell/Sack.
       (2) host hold off: within PAGE_S the client's SellState gone, no CoopState on either; X stock == before - 5 on
-          both (D203: the host applies its current list); the host's top SellState, every amount 0.
-  E-d (1) client X = 2; host screen_set_amount {X, 2} (no change when shared); client hold on; host Sell/Sack ->
-          the host's SellState gone within PAGE_S.
+          both (the host applies its current list); the host's top SellState, every amount 0.
+  duplicate_confirm (1) client X = 2; host screen_set_amount {X, 2} (no change when shared); client hold on; host
+          Sell/Sack -> the host's SellState gone within PAGE_S.
       (2) client Sell/Sack; client hold off: within PAGE_S its SellState gone, no CoopState on either, X stock ==
-          before - 2 on both (one sale, MR8), the client's shared_stats.lastFail == coop_sel_dup (PR-45).
-  E-b (1) client Y = 1 and its own soldier's row = 1; the host's screen_rows lists no row named after that soldier
-          (MR7); the host's sel_state rows hold s:<id>: 1 and i:STR_PISTOL: 1 within SEL_S.
+          before - 2 on both (one sale), the client's shared_stats.lastFail == coop_sel_dup.
+  soldier_sack_shared (1) client Y = 1 and its own soldier's row = 1; the host's screen_rows lists no row named after
+          that soldier; the host's sel_state rows hold s:<id>: 1 and i:STR_PISTOL: 1 within SEL_S.
       (2) host Sell/Sack: its SellState gone within PAGE_S; the client's top stays SellState (rebuilt), every amount
           0; Y stock -1 on both; that soldier gone from base 0 on both (get_soldiers); no CoopState.
-  E-f (1) client X = 1 -> the host's X amount 1 within SEL_S.
+  leave_and_reopen (1) client X = 1 -> the host's X amount 1 within SEL_S.
       (2) client Cancel: the host's sel_state viewers [0], rows {i:STR_RIFLE: 1}, its X amount 1.
       (3) host Cancel: the key absent from sel_state on both within SEL_S.
       (4) client open_screen sell: every amount 0; sel_state rows {} viewers [1] on both.
-  Boot FXST (port 47261): E-p (before the OKs), then E-s (after them).
-  E-p (1) the client's page-3 Sell (page 2 -> SELL): its T amount == T_QTY (vanilla's autosell pre-fill) and the
-          host's sel_state `sell|d|0|` rows == {i:T: T_QTY} within SEL_S (Q-P8-2 (a): the lone opener seeds).
+  Boot storage_debrief (port 47261): page3_prefill_seeds (before the OKs), then forced_screen_shared (after them).
+  page3_prefill_seeds (1) the client's page-3 Sell (page 2 -> SELL): its T amount == T_QTY (vanilla's autosell
+          pre-fill) and the host's sel_state `sell|d|0|` rows == {i:T: T_QTY} within SEL_S (the lone opener's
+          pre-fill seeds the list).
       (2) client T = 4; the host's page-3 Sell: its T amount 4 within SEL_S.
       (3) host Sell/Sack: its SellState gone within PAGE_S; the client's stays (rebuilt): T lists T_QTY - 4, amount
           0; recovered[T] == T_QTY - 4 and autosell[T] false on both.
-  E-s (1) test_shared_forced_storage.both_oks_forced: both forced SellStates, boxes dismissed; N = the fewest
-          rifles that clear the host's base (base_report usedStores / availableStores, rifle size 0.2, Base::
-          storesOverfull's integer rule), computed on each boot (first construction, red build: used 118.4 /
-          available 65 -> N 267; E-p's green sale of 4 corpses (size 0.4) changes the stores, so a literal would not
-          transfer, F6239).
+  forced_screen_shared (1) test_shared_forced_storage.both_oks_forced: both forced SellStates, boxes dismissed; N =
+          the fewest rifles that clear the host's base (base_report usedStores / availableStores, rifle size 0.2,
+          Base::storesOverfull's integer rule), computed on each boot (one construction measured used 118.4 /
+          available 65 -> N 267; page3_prefill_seeds' sale of 4 corpses (size 0.4) changes the stores, so a fixed
+          number would not carry over).
       (2) client Rifle = N - 1 (its OK stays hidden) -> the host's Rifle amount N - 1 within SEL_S, OK hidden on both.
       (3) host Rifle = N: OK visible on both; client Sell/Sack: both forced SellStates close themselves within
           SCREEN_S (tops GeoscapeState), world_diff empty, no CoopState.
-Guard on every row: no new crash log; FXST rows also host event_state.fatalVote.armed 0; the client zero-disk at
-each boot's end.
+Guard on every row: no new crash log; storage_debrief rows also host event_state.fatalVote.armed 0; the client
+zero-disk at each boot's end.
 
-RED (commit S-C-E1.1: probes, the autosell lever and these rows; product untouched): E-a, E-f fail on cell 1 (the
-host's X amount stays 0), E-e on cell 2 (the client's rebuilt amounts are 0), E-c on cell 2 (X stock before - 1: the
-client's own list was applied), E-d on cell 2 (X stock before - 4: two sales), E-b on cell 1 (the host's sel_state
-holds no key), E-p on cell 1 (the host's sel_state holds no key), E-s on cell 2 (the host's Rifle amount 0). GREEN
-(commit S-C-E1.2): every row passes.
+Without the shared list: amounts_shared and leave_and_reopen fail on cell 1 (the host's X amount stays 0),
+rebuild_keeps_amounts on cell 2 (the client's rebuilt amounts are 0), confirm_applies_host_list on cell 2 (X stock
+before - 1: the client's own list was applied), duplicate_confirm on cell 2 (X stock before - 4: two sales),
+soldier_sack_shared on cell 1 (the host's sel_state holds no key), page3_prefill_seeds on cell 1 (the host's sel_state
+holds no key), forced_screen_shared on cell 2 (the host's Rifle amount 0).
 Each row prints ONE "EVIDENCE <id>:" line (both machines' sel_state at the row's end), then "PASS <id>" or "FAIL
 <id>: <message>". ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
@@ -97,27 +97,29 @@ import test_battle_end_campaign as camp
 import test_shared_page3 as p3
 import test_shared_forced_storage as fst
 
-# ----- pins (AMENDMENT P7-8 section 4 / 4.1) -----
-X, Y = "STR_RIFLE", "STR_PISTOL"         # SEL: X and Y (looked up by type, S25)
-STAGE = 10                               # each SEL row's give_items {X, Y} on both (client first; >= 5 for E-c/E-d)
-SEL_KEY = "sell|n|0|"                    # SharedEcon::sellKey of base 0, normal (P7-7 PR-30 key format, P7-8 PR-37)
+# ----- fixture values -----
+X, Y = "STR_RIFLE", "STR_PISTOL"         # sell_screen: X and Y (looked up by type)
+STAGE = 10                               # each sell_screen row's give_items {X, Y} on both (client first; >= 5
+                                         # for confirm_applies_host_list / duplicate_confirm)
+SEL_KEY = "sell|n|0|"                    # SharedEcon::sellKey of base 0, normal
 PAGE3_KEY = "sell|d|0|"                  # base 0's page-3 Sell
 FORCED_KEY = "sell|f|0|"                 # base 0's forced storage Sell
-BOOT_PORT = {"SEL": "47260", "FXST": "47261"}   # AMENDMENT P7-8 section 4: E1 = 47260 (SEL), 47261 (FXST)
-OPTS_FXST = {"storageLimitsEnforced": True, "canSellLiveAliens": True, "oxceAutoSell": True}  # P7-8 section 4.1 FXST
-T, T_QTY = fst.T, fst.T_QTY              # FX-ST boot 2: STR_SECTOID_CORPSE, page-3 count 10 (the D2 file's pins)
-RIFLE, RIFLE_SIZE = fst.RIFLE, fst.RIFLE_SIZE   # CONSTANTS T0-S3 (ii): STR_RIFLE, size 0.2
-E_C_CLIENT, E_C_HOST = 1, 5              # P7-8 section 4.1 E-c's amounts
-E_P_SET = 4                              # P7-8 section 4.1 E-p (2)
-SEL_DUP = "coop_sel_dup"                 # PR-45: a duplicate confirm, answered as a success
+BOOT_PORT = {"sell_screen": "47260", "storage_debrief": "47261"}   # session keys
+OPTS_STORAGE = {"storageLimitsEnforced": True, "canSellLiveAliens": True, "oxceAutoSell": True}
+T, T_QTY = fst.T, fst.T_QTY              # storage_page3 boot: STR_SECTOID_CORPSE, page-3 count 10
+RIFLE, RIFLE_SIZE = fst.RIFLE, fst.RIFLE_SIZE   # STR_RIFLE, size 0.2
+CONFIRM_CLIENT, CONFIRM_HOST = 1, 5      # confirm_applies_host_list's amounts
+PAGE3_SET = 4                            # page3_prefill_seeds cell 2's amount
+SEL_DUP = "coop_sel_dup"                 # a duplicate confirm, answered as a success
 SELL_OK, CANCEL = "Sell/Sack", "Cancel"  # SellState's captions
 STORAGE_MARK = fst.STORAGE_MARK          # "STORAGE SPACE EXCEEDED"
-SEL_S = 3                                # P7-8 section 4: a cross-machine amount
+SEL_S = 3                                # a cross-machine amount
 PAGE_S = p3.PAGE_S                       # 5 s: a screen push / close after a real click or a release
 ANSWER_S = fst.ANSWER_S                  # 2.5 s
 SCREEN_S = fst.SCREEN_S                  # 10 s
 EQUAL_S = fst.EQUAL_S                    # 10 s: a shared_apply's effect may lag one round trip
-OFF_CRAFT_S = 30                         # SEL pre-cell: the soldier off its craft on both (test_shared_craft_capacity's wait)
+OFF_CRAFT_S = 30                         # sell_screen pre-cell: the soldier off its craft on both
+                                         # (test_shared_craft_capacity's wait)
 
 
 class FixtureMiss(Exception):
@@ -233,7 +235,7 @@ def no_coopstate(gc):
 
 
 def screen_ready(gc):
-    """Top SellState and its list built (init() ran, F5573)."""
+    """Top SellState and its list built (init() ran)."""
     if top(gc) != "SellState":
         return False
     r = rows(gc)
@@ -319,12 +321,13 @@ def settled_stock(host, client, item, timeout=EQUAL_S):
 
 
 def sel_pre(js, ctx):
-    """SEL pre-cell: the first base-0 soldier owned by seat 1, off its craft on both (host craft_assign {on: false})."""
+    """sell_screen pre-cell: the first base-0 soldier owned by seat 1, off its craft on both (host craft_assign
+    {on: false})."""
     host, client = js.host, js.client
     m = (host, client)
     own = [s for s in roster(host) if s.get("owner") == 1 and not s.get("dead")]
     if not own:
-        capture("SEL client soldier", f"no base-0 soldier owned by seat 1 (host roster {roster(host)})", m)
+        capture("sell_screen client soldier", f"no base-0 soldier owned by seat 1 (host roster {roster(host)})", m)
     s = own[0]
     ctx["soldier"] = {"id": s.get("id"), "name": s.get("name"), "craftId": s.get("craftId"), "craft": s.get("craft")}
     if s.get("craftId", -1) != -1:
@@ -340,12 +343,14 @@ def sel_pre(js, ctx):
     ok, v, secs = poll(off, OFF_CRAFT_S, 0.5)
     ctx["soldier"]["offCraft"] = {"ok": ok, "craftId": v, "secs": secs}
     if not ok:
-        capture("SEL soldier off craft", f"soldier {s['id']} craftId (host, client) {v} after {OFF_CRAFT_S}s", m)
+        capture("sell_screen soldier off craft", f"soldier {s['id']} craftId (host, client) {v} after {OFF_CRAFT_S}s",
+                m)
 
 
-def fxst_pre(js, ctx):
-    """FXST pre-cell: set_autosell {T, on} on both (client first) before the battle, fst.storage_fixture (FX-ST,
-    boot 2's T pins), then screen_rows {autosell: [T]} true on both after the client's adoption."""
+def storage_pre(js, ctx):
+    """storage_debrief pre-cell: set_autosell {T, on} on both (client first) before the battle,
+    fst.storage_fixture (its storage_page3 boot), then screen_rows {autosell: [T]} true on both after the client's
+    adoption."""
     host, client = js.host, js.client
     m = (host, client)
     sa = {}
@@ -354,17 +359,19 @@ def fxst_pre(js, ctx):
         sa[gc.name] = {k: r.get(k) for k in ("ok", "item", "autosell", "error")}
     ctx["setAutosell"] = sa
     if not all(v.get("ok") and v.get("autosell") is True for v in sa.values()):
-        capture("FXST set_autosell", f"set_autosell {T} on answered {sa} (want autosell True on both)", m)
+        capture("storage_debrief set_autosell", f"set_autosell {T} on answered {sa} (want autosell True on both)", m)
     fst.storage_fixture(js, ctx, "storage_page3")
     a = {gc.name: p3.autosell(gc, [T]).get(T) for gc in m}
     ctx["autosellAfterAdoption"] = a
     if not all(v is True for v in a.values()):
-        capture("FXST autosell", f"screen_rows autosell[{T}] {a} after the client's adoption (want True on both)", m)
+        capture("storage_debrief autosell",
+                f"screen_rows autosell[{T}] {a} after the client's adoption (want True on both)", m)
 
 
 def row_start(host, client, ctx, stage_items=True):
-    """SEL row hygiene: holds off, boxes dismissed, every Sell screen cancelled (both back on GeoscapeState); X and Y
-    restaged on both (client first); open_screen sell on both, ready. A miss is a setup failure (CAPTURE)."""
+    """sell_screen row hygiene: holds off, boxes dismissed, every Sell screen cancelled (both back on
+    GeoscapeState); X and Y restaged on both (client first); open_screen sell on both, ready. A miss is a setup
+    failure (CAPTURE)."""
     m = (host, client)
     h = {"holds": {gc.name: hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
     t0 = time.time()
@@ -455,10 +462,10 @@ def no_box(host, client, ctx, key):
     return [f"a CoopState on {cs}'s stack"] if cs else []
 
 
-# ===================== SEL rows =====================
+# ===================== sell_screen rows =====================
 
 
-def e_a_cells(host, client, ctx):
+def amounts_shared_cells(host, client, ctx):
     def c1():
         row_start(host, client, ctx)
         return set_ok(client, 3, ctx, "c1set", item=X) or cross(host, X, 3, ctx, "c1host")
@@ -490,7 +497,7 @@ def e_a_cells(host, client, ctx):
     ]
 
 
-def e_e_cells(host, client, ctx):
+def rebuild_keeps_amounts_cells(host, client, ctx):
     def c1():
         row_start(host, client, ctx)
         return set_ok(client, 3, ctx, "c1x", item=X) or set_ok(client, 2, ctx, "c1y", item=Y)
@@ -509,31 +516,31 @@ def e_e_cells(host, client, ctx):
                            SEL_S)
         ctx["c2amounts"] = {"ok": ok, "amounts": a, "secs": secs}
         return [] if ok else [f"the client's rebuilt amounts {a} {SEL_S}s after the rebuild (want {X} 2 (clamped to "
-                              f"its stock 2) and {Y} 2 (survived), F2161)"]
+                              f"its stock 2) and {Y} 2 (survived))"]
 
     def c3():
         return cross(host, X, 2, ctx, "c3x") + cross(host, Y, 2, ctx, "c3y")
     return [
         ("1 the client's local amounts X 3, Y 2", c1),
-        ("2 the host's lever sale rebuilds the client's screen; its amounts survive, clamped", c2),
+        ("2 the host's test-command sale rebuilds the client's screen; its amounts survive, clamped", c2),
         ("3 the host's screen shows the same amounts", c3),
     ]
 
 
-def e_c_cells(host, client, ctx):
+def confirm_applies_host_list_cells(host, client, ctx):
     def c1():
         row_start(host, client, ctx)
         ctx["before"] = {gc.name: stock(gc, X) for gc in (host, client)}
-        f = set_ok(client, E_C_CLIENT, ctx, "c1set", item=X)
+        f = set_ok(client, CONFIRM_CLIENT, ctx, "c1set", item=X)
         if f:
             return f
-        seen, rv, secs = poll(lambda: (lambda r: (bool(r) and r.get(f"i:{X}") == E_C_CLIENT, r))(sel_rows(host, SEL_KEY)),
-                              SEL_S)
+        seen, rv, secs = poll(lambda: (lambda r: (bool(r) and r.get(f"i:{X}") == CONFIRM_CLIENT, r))(
+            sel_rows(host, SEL_KEY)), SEL_S)
         ctx["c1hostSel"] = {"seen": seen, "rows": rv, "secs": secs}   # EVIDENCE only (never a failed cell)
         ctx["c1hold"] = hold(host, True)
         if ctx["c1hold"] is not True:
             return [f"host shared_update_defer on answered deferred={ctx['c1hold']!r}"]
-        f = set_ok(host, E_C_HOST, ctx, "c1hostSet", item=X)
+        f = set_ok(host, CONFIRM_HOST, ctx, "c1hostSet", item=X)
         if f:
             hold(host, False)
             return f
@@ -546,22 +553,22 @@ def e_c_cells(host, client, ctx):
         if f:
             return f
         ok, st, secs = settled_stock(host, client, X)
-        want = ctx["before"]["host"] - E_C_HOST
+        want = ctx["before"]["host"] - CONFIRM_HOST
         ctx["c2stock"] = {"ok": ok, "stock": st, "want": want, "secs": secs}
         if not (ok and st["host"] == want and st["client"] == want):
-            return [f"X stock (host, client) {st} after the confirm (want before {ctx['before']} - {E_C_HOST} = {want} "
-                    f"on both: the host applies its current list, D203)"]
+            return [f"X stock (host, client) {st} after the confirm (want before {ctx['before']} - {CONFIRM_HOST} = "
+                    f"{want} on both: the host applies its current list)"]
         ok, r, secs = poll(lambda: (lambda rr: (screen_ready(host) and all_zero(rr), amounts(rr)))(rows(host)),
                            SCREEN_S)
         ctx["c2host"] = {"ok": ok, "amounts": r, "top": top(host), "secs": secs}
-        return [] if ok else [f"the host's top {top(host)} amounts {r} (want SellState, every amount 0, D204)"]
+        return [] if ok else [f"the host's top {top(host)} amounts {r} (want SellState, every amount 0)"]
     return [
         ("1 client X 1; host held; host X 5; the client confirms", c1),
         ("2 released: the client's screen closes; the host applied its current list (5); host amounts 0", c2),
     ]
 
 
-def e_d_cells(host, client, ctx):
+def duplicate_confirm_cells(host, client, ctx):
     def c1():
         row_start(host, client, ctx)
         ctx["before"] = {gc.name: stock(gc, X) for gc in (host, client)}
@@ -590,17 +597,17 @@ def e_d_cells(host, client, ctx):
         ctx["c2stock"] = {"ok": ok, "stock": st, "want": want, "secs": secs}
         if not (ok and st["host"] == want and st["client"] == want):
             return [f"X stock (host, client) {st} after both confirms (want before {ctx['before']} - 2 = {want} on both: "
-                    f"one sale, MR8)"]
+                    f"one sale)"]
         ok, s, secs = poll(lambda: (lambda x: (x.get("lastFail") == SEL_DUP, x))(sstats(client)), ANSWER_S)
         ctx["c2stats"] = {"ok": ok, "stats": s, "secs": secs}
-        return [] if ok else [f"the client's shared_stats {s} (want lastFail {SEL_DUP!r}, PR-45)"]
+        return [] if ok else [f"the client's shared_stats {s} (want lastFail {SEL_DUP!r})"]
     return [
         ("1 both at X 2; client held; the host confirms and its screen closes", c1),
         ("2 the client's duplicate confirm: one sale, no box, coop_sel_dup", c2),
     ]
 
 
-def e_b_cells(host, client, ctx):
+def soldier_sack_shared_cells(host, client, ctx):
     sold = ctx["pre"]["soldier"] if "soldier" in ctx.get("pre", {}) else ctx["boot"]["soldier"]
 
     def c1():
@@ -619,7 +626,7 @@ def e_b_cells(host, client, ctx):
         hidx = soldier_row(hr, sold["name"])
         ctx["c1hostRow"] = hidx
         if hidx is not None:
-            return [f"the host's SellState lists the client's soldier {sold['name']!r} (row {hidx}; want none, MR7)"]
+            return [f"the host's SellState lists the client's soldier {sold['name']!r} (row {hidx}; want none)"]
         want = {f"s:{sold['id']}": 1, f"i:{Y}": 1}
         ok, got, secs = poll(lambda: (lambda r: (r == want, r))(sel_rows(host, SEL_KEY)), SEL_S)
         ctx["c1hostSel"] = {"ok": ok, "rows": got, "secs": secs}
@@ -637,7 +644,7 @@ def e_b_cells(host, client, ctx):
         ok, a, secs = poll(lambda: (lambda r: (all_zero(r), amounts(r)))(rows(client)), SEL_S)
         ctx["c2clientAmounts"] = {"ok": ok, "amounts": {k: v for k, v in (a or {}).items() if v}, "secs": secs}
         if not ok:
-            return [f"the client's rebuilt amounts {ctx['c2clientAmounts']['amounts']} (want every amount 0, D204)"]
+            return [f"the client's rebuilt amounts {ctx['c2clientAmounts']['amounts']} (want every amount 0)"]
         ok, st, secs = settled_stock(host, client, Y)
         ctx["c2stock"] = {"ok": ok, "stock": st, "before": y0, "secs": secs}
         if not (ok and st["host"] == y0["host"] - 1 and st["client"] == y0["client"] - 1):
@@ -647,16 +654,16 @@ def e_b_cells(host, client, ctx):
             EQUAL_S)
         ctx["c2soldier"] = {"ok": ok, "left": v, "secs": secs}
         if not ok:
-            return [f"soldier {sold['id']} still in base 0 {v} (want sacked on both, MR7: the client's row rode the "
+            return [f"soldier {sold['id']} still in base 0 {v} (want sacked on both: the client's row rode the "
                     f"host's confirm)"]
         return no_box(host, client, ctx, "c2stacks")
     return [
-        ("1 the client's Y 1 and own soldier row reach the host's store; the host's list hides the soldier (MR7)", c1),
+        ("1 the client's Y 1 and own soldier row reach the host's store; the host's list hides the soldier", c1),
         ("2 the host confirms the shared list: Y -1, the client's soldier sacked, the client's screen rebuilt at 0", c2),
     ]
 
 
-def e_f_cells(host, client, ctx):
+def leave_and_reopen_cells(host, client, ctx):
     def c1():
         row_start(host, client, ctx)
         return set_ok(client, 1, ctx, "c1set", item=X) or cross(host, X, 1, ctx, "c1host")
@@ -710,18 +717,18 @@ def e_f_cells(host, client, ctx):
     ]
 
 
-# ===================== FXST rows =====================
+# ===================== storage_debrief rows =====================
 
 
-def fxst_hygiene(host, client, ctx):
+def storage_hygiene(host, client, ctx):
     """Holds off, boxes dismissed, every Sell screen cancelled back to the debriefing (rows sharing a boot)."""
     fst.hygiene(host, client, ctx)
     ctx["backToDebrief"] = {gc.name: p3.back_to_debrief(gc) for gc in (host, client)}
 
 
-def e_p_cells(host, client, ctx):
+def page3_prefill_seeds_cells(host, client, ctx):
     def c1():
-        fxst_hygiene(host, client, ctx)
+        storage_hygiene(host, client, ctx)
         if not p3.to_page2(client):
             return [f"the client's debriefing did not reach page 2 (stack {stack(client)})"]
         f = p3.open_screen(client, "SELL", "SellState", ctx, "c1open")
@@ -736,10 +743,10 @@ def e_p_cells(host, client, ctx):
         ok, got, secs = poll(lambda: (lambda r: (r == want, r))(sel_rows(host, PAGE3_KEY)), SEL_S)
         ctx["c1hostSel"] = {"ok": ok, "rows": got, "secs": secs}
         return [] if ok else [f"the host's sel_state {PAGE3_KEY} rows {got} (want {want}: the lone opener's pre-fill "
-                              f"seeds the list, Q-P8-2 (a))"]
+                              f"seeds the list)"]
 
     def c2():
-        f = set_ok(client, E_P_SET, ctx, "c2set", item=T)
+        f = set_ok(client, PAGE3_SET, ctx, "c2set", item=T)
         if f:
             return f
         if not p3.to_page2(host):
@@ -747,25 +754,25 @@ def e_p_cells(host, client, ctx):
         f = p3.open_screen(host, "SELL", "SellState", ctx, "c2hostOpen")
         if f:
             return f
-        return cross(host, T, E_P_SET, ctx, "c2hostT")
+        return cross(host, T, PAGE3_SET, ctx, "c2hostT")
 
     def c3():
         ctx["c3click"] = click(host, SELL_OK)
         f = gone(host, ctx, "c3hostGone")
         if f:
             return f
-        f = stays_rebuilt(client, T, T_QTY - E_P_SET, ctx, "c3rebuilt")
+        f = stays_rebuilt(client, T, T_QTY - PAGE3_SET, ctx, "c3rebuilt")
         if f:
             return f
-        ok, ra, secs = poll(lambda: (lambda v: (v == (T_QTY - E_P_SET, 0), v))(row_of(rows(client), T)), SEL_S)
+        ok, ra, secs = poll(lambda: (lambda v: (v == (T_QTY - PAGE3_SET, 0), v))(row_of(rows(client), T)), SEL_S)
         ctx["c3clientT"] = {"ok": ok, "remainingAmount": ra, "secs": secs}
         if not ok:
-            return [f"the client's rebuilt page-3 {T} (remaining, amount) {ra} (want ({T_QTY - E_P_SET}, 0))"]
-        f = p3.count_is((host, client), T, T_QTY - E_P_SET, ctx, "c3count")
+            return [f"the client's rebuilt page-3 {T} (remaining, amount) {ra} (want ({T_QTY - PAGE3_SET}, 0))"]
+        f = p3.count_is((host, client), T, T_QTY - PAGE3_SET, ctx, "c3count")
         a = {gc.name: p3.autosell(gc, [T]).get(T) for gc in (host, client)}
         ctx["c3autosell"] = a
         if any(v is not False for v in a.values()):
-            f.append(f"autosell[{T}] {a} (want False on both: {E_P_SET} of {T_QTY} sold)")
+            f.append(f"autosell[{T}] {a} (want False on both: {PAGE3_SET} of {T_QTY} sold)")
         return f
     return [
         ("1 the client's pre-filled page-3 list seeds the host's store", c1),
@@ -786,9 +793,9 @@ def clear_n(b):
     return n
 
 
-def e_s_cells(host, client, ctx):
+def forced_screen_shared_cells(host, client, ctx):
     def c1():
-        fxst_hygiene(host, client, ctx)
+        storage_hygiene(host, client, ctx)
         f = fst.both_oks_forced(host, client, ctx, "c1", "SellState", STORAGE_MARK, fst.storage_record)
         if f:
             return f
@@ -872,7 +879,7 @@ def guard(host, client, crash0, ctx, last, battle):
     if battle:
         armed = (event_state(host).get("fatalVote") or {}).get("armed")
         if armed != 0:
-            f.append(f"host fatalVote.armed={armed!r} (want 0, F4544)")
+            f.append(f"host fatalVote.armed={armed!r} (want 0)")
     new_crash = sorted(session._crash_log_snapshot() - crash0)
     ctx["newCrashLogs"] = new_crash
     if new_crash:
@@ -889,8 +896,8 @@ def bring_up_sel(tag, port):
     return shared_fixture.bring_up(tag, (0, 0, port))
 
 
-def bring_up_fxst(tag, port):
-    return fst.bring_up(tag, port, OPTS_FXST)
+def bring_up_storage(tag, port):
+    return fst.bring_up(tag, port, OPTS_STORAGE)
 
 
 def run_boot(boot, tag, up_fn, pre_fn, rows_spec, battle, results, walls):
@@ -929,18 +936,22 @@ def run_boot(boot, tag, up_fn, pre_fn, rows_spec, battle, results, walls):
                 try:
                     gc.cmd({"cmd": "shared_update_defer", "on": False})
                 except Exception as e:
-                    print(f"[w2p7-sce1] release shared_update_defer: {short(e)}", flush=True)
+                    print(f"[shared_selection] release shared_update_defer: {short(e)}", flush=True)
             try:
                 js.shutdown()
             except Exception as e:
-                print(f"[w2p7-sce1] shutdown: {short(e)}", flush=True)
+                print(f"[shared_selection] shutdown: {short(e)}", flush=True)
         walls[boot] = round(time.time() - t0, 1)
 
 
-BOOTS = (("SEL", "w2p7sce1_sel", bring_up_sel, sel_pre,
-          (("E-a", e_a_cells), ("E-e", e_e_cells), ("E-c", e_c_cells), ("E-d", e_d_cells), ("E-b", e_b_cells),
-           ("E-f", e_f_cells)), False),
-         ("FXST", "w2p7sce1_fxst", bring_up_fxst, fxst_pre, (("E-p", e_p_cells), ("E-s", e_s_cells)), True))
+BOOTS = (("sell_screen", "shared_selection_sell", bring_up_sel, sel_pre,
+          (("amounts_shared", amounts_shared_cells), ("rebuild_keeps_amounts", rebuild_keeps_amounts_cells),
+           ("confirm_applies_host_list", confirm_applies_host_list_cells),
+           ("duplicate_confirm", duplicate_confirm_cells), ("soldier_sack_shared", soldier_sack_shared_cells),
+           ("leave_and_reopen", leave_and_reopen_cells)), False),
+         ("storage_debrief", "shared_selection_storage", bring_up_storage, storage_pre,
+          (("page3_prefill_seeds", page3_prefill_seeds_cells), ("forced_screen_shared", forced_screen_shared_cells)),
+          True))
 
 
 def main():
