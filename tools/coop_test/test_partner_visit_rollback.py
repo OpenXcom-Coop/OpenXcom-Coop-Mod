@@ -1,30 +1,36 @@
-"""W2-H65 S-B PVR (tools/coop_test/test_partner_visit_rollback.py): visiting a partner base whose marker is still unnamed shows
-"Save failed (MEMORY)" and rolls the visitor's world back (L-LTR61C-1, ruling R-H65-0; F19204, F19205). Spec docs
-rewrite/prompts/w2h65_sb_no_rollback.md (f) (stage S-B), bring-up B and the PINNED SETUP VALUES of rewrite/prompts/w2h65_sa_name_follows.md
-(f) (stage S-A), and the common file rewrite/prompts/w2h65_mirror_name_rollback.md (probe P0 globe_point); TASK 0 values in
-rewrite/w2h65-task0/sb/CONSTANTS.md.
-In a SEPARATE campaign the host's marker for a client base built while the client is still naming it has the name "" until the client
-places its lift. While it exists, saveCoopToMemory refuses every save of the host's own world (its check reads markers it
-never writes): the visit raises 995 "Save failed (MEMORY), please try again." and leaving the base reloads the session-start "basehost".
-ONE boot (key K1). Bring-up B: spawn + connect both; session.new_campaign (host base at HOST_POS); geo.slow_clock; geo.drain_popups; the
-window mapping per machine from INTERCEPT + its CANCEL (real clicks); TS0 = the host geo_state time.
-  Row R-3  host time >= TS0 + GAP_MIN, both on GeoscapeState [P3-2]; client BASES, BUILD NEW BASE, one globe click at PICK (globe_point),
-           OK -> BaseNameState, own base N1 "" [P3-0]; host INTERCEPT + CANCEL, WIN_S -> host marker N1 ""; client NAME1 (key presses), OK ->
-           PlaceLiftState; READ_S -> host marker N1 still "", the lift not placed [P3-1]; PRE (F0 host funds, T0 host time, C0 client time,
-           host own bases; host on GeoscapeState, client on PlaceLiftState); the host's click on marker N1 (CLICK rule); DLG = every top state
-           and CoopState code until BasescapeState + 3 s, the client still on PlaceLiftState then [P3-3]; a CoopState on top closed by its own
-           button; client LIFT, GEOSCAPE; host GEOSCAPE; session.wait_back_on_geoscape; POST_S; POST (F1, T1, C1, host bases) on GeoscapeState.
-    R-3a (FIX)   DLG holds no CoopState 995.
-    R-3b (FIX)   F1 == F0 (the host's funds kept).
-    R-3c (FIX)   T1 >= T0 (the host's clock never runs back).
-    R-3d (FIX)   C1 >= C0 (the client's clock never runs back).
-    R-3e (GUARD) the host's own bases after == before (ids and names).
-    R-3f (GUARD) the host shows exactly one marker with id N1 after.
-  END   CRASH (GUARD): no crash file new in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today: R-3a, R-3b, R-3c, R-3d FAIL; R-3e, R-3f, CRASH PASS. Green (EB1: the check skips markers): all PASS.
-mirrors = geo_state bases with coopIcon true; own = coopIcon and coopBase false. Every press is a real click_widget or inject_input (key
-or click); no visit, leave, dismiss or dialog-back lever. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict;
-a precondition miss ends the row (CAPTURE line, cells "not reached"); a boot miss fails every R-3 cell "boot" with ONE CAPTURE line.
+"""test_partner_visit_rollback.py: visiting a partner base whose marker is still unnamed shows "Save failed
+(MEMORY)" and rolls the visitor's world back. The setup (bring-up, PICK, LIFT and CLICK rules, NAME1) is
+test_partner_base_name's.
+In a SEPARATE campaign the host's marker for a client base built while the client is still naming it has the name ""
+until the client places its lift. While it exists, saveCoopToMemory refuses every save of the host's own world (its
+check reads markers it never writes): the visit raises 995 "Save failed (MEMORY), please try again." and leaving the
+base reloads the session-start "basehost".
+ONE boot (key KEY). The bring-up: spawn + connect both; session.new_campaign (host base at HOST_POS);
+geo.slow_clock; geo.drain_popups; the window mapping per machine from INTERCEPT + its CANCEL (real clicks); TS0 = the
+host geo_state time.
+  Row visit_unnamed_marker  host time >= TS0 + GAP_MIN, both on GeoscapeState [clock_past_gap]; client BASES, BUILD
+           NEW BASE, one globe click at PICK (globe_point), OK -> BaseNameState, own base N1 "" [client_name_screen];
+           host INTERCEPT + CANCEL, WIN_S -> host marker N1 ""; client NAME1 (key presses), OK -> PlaceLiftState;
+           READ_S -> host marker N1 still "", the lift not placed [marker_still_unnamed]; PRE (F0 host funds, T0 host
+           time, C0 client time, host own bases; host on GeoscapeState, client on PlaceLiftState); the host's click on
+           marker N1 (CLICK rule); DLG = every top state and CoopState code until BasescapeState + 3 s, the client
+           still on PlaceLiftState then [client_still_lifting]; a CoopState on top closed by its own button; client
+           LIFT, GEOSCAPE; host GEOSCAPE; session.wait_back_on_geoscape; POST_S; POST (F1, T1, C1, host bases) on
+           GeoscapeState.
+    no_save_failed_dialog (FIX)   DLG holds no CoopState 995.
+    host_funds_kept (FIX)         F1 == F0 (the host's funds kept).
+    host_clock_forward (FIX)      T1 >= T0 (the host's clock never runs back).
+    client_clock_forward (FIX)    C1 >= C0 (the client's clock never runs back).
+    host_bases_kept (GUARD)       the host's own bases after == before (ids and names).
+    one_host_marker (GUARD)       the host shows exactly one marker with id N1 after.
+  END   CRASH (GUARD): no crash file new in the lane's crash folder since the file start; both processes alive until
+        their shutdown.
+Without the fix: no_save_failed_dialog, host_funds_kept, host_clock_forward, client_clock_forward FAIL;
+host_bases_kept, one_host_marker, CRASH PASS. With the fix (the check skips markers): all PASS.
+mirrors = geo_state bases with coopIcon true; own = coopIcon and coopBase false. Every press is a real click_widget or
+inject_input (key or click); no visit, leave, dismiss or dialog-back test command. One EVIDENCE line per row, one
+PASS / FAIL line per cell, then the row verdict; a precondition miss ends the row (CAPTURE line, cells "not
+reached"); a boot miss fails every visit_unnamed_marker cell "boot" with ONE CAPTURE line.
 ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_partner_visit_rollback.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
@@ -35,10 +41,10 @@ import harness  # noqa: E402
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-K1 = "49233"
-K2 = "49234"                                # TASK 0's key (rewrite/w2h65-task0/sb); this file runs on K1 only
+KEY = "49233"
+SPARE_KEY = "49234"                         # a second key kept for this test; this file runs on KEY only
 HOST_POS = (0.90, -0.60)                    # rad: both bases on land, >= 0.15 rad apart
-NAME1 = "ltrnew"                            # lowercase: inject_input key = unicode sym
+NAME1 = "clientnew"                         # lowercase: inject_input key = unicode sym
 LIFTS = ((2, 2), (3, 2), (2, 3), (3, 3))    # LIFT, then its replacement tiles in order
 WIN_S, READ_S, STEP_CAP_S = 3.0, 2.0, 6.0   # +1 s steps up to STEP_CAP_S when the peer's reply is not handled yet
 GAP_MIN, GAP_POLL_S, GAP_STEP_S = 10, 60.0, 30.0
@@ -46,15 +52,17 @@ VISIT_S, VISIT_S2 = 20.0, 30.0
 POST_S, POST_CAP_S = 2.0, 5.0
 ZOOM_MIN, SYM_PLUS, SYM_ESC = 3, 43, 27
 NEEDLES = ("coop-ui] push", "coop-ui] pop", "Save failed", "basehost", "LoadGame", "[coop-session]")
-ROWS = (("R-3", ("R-3a", "R-3b", "R-3c", "R-3d", "R-3e", "R-3f")), ("END", ("CRASH",)))
-FIX = ("R-3a", "R-3b", "R-3c", "R-3d")
+ROWS = (("visit_unnamed_marker", ("no_save_failed_dialog", "host_funds_kept", "host_clock_forward",
+                                  "client_clock_forward", "host_bases_kept", "one_host_marker")),
+        ("END", ("CRASH",)))
+FIX = ("no_save_failed_dialog", "host_funds_kept", "host_clock_forward", "client_clock_forward")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
 class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
-# ----- probes and real input (copied from the capture rewrite/ltr6-1-cap/cap.py, never imported; ltr_globe -> P0 globe_point) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -119,8 +127,9 @@ def click_px(gc, bx, by, sc, until_not, offsets=((0, 0), (1, 0), (0, 1), (-1, 0)
 def globe(gc, **kw): return q(gc, dict({"cmd": "globe_point"}, **kw))
 def dist(a, b): return math.hypot((a[0] - b[0] + math.pi) % (2 * math.pi) - math.pi, a[1] - b[1])
 def pick_point(gc, avoid):
-    """PICK: nearest land point on the visible globe >= 0.15 rad from every base and marker; rings 0.20-0.50 rad step 0.05 around the
-    builder's first base, 16 directions; the point and its 8 neighbours at 0.02 rad land; inside the globe rect (10 px margin)."""
+    """PICK: nearest land point on the visible globe >= 0.15 rad from every base and marker; rings 0.20-0.50 rad step
+    0.05 around the building player's first base, 16 directions; the point and its 8 neighbours at 0.02 rad land;
+    inside the globe rect (10 px margin)."""
     c = avoid[0]
     for r in (0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50):
         for k in range(16):
@@ -136,7 +145,8 @@ def pick_point(gc, avoid):
     return None
 def n1m(gc, nid): return [m for m in mirrors(census(gc)) if m[0] == nid]
 def settle(ev, name, pred, base, cap):
-    """wait `base` s, then +1 s steps up to `cap` s until pred() (the pinned wait's replacement rule; a longer wait is logged)"""
+    """wait `base` s, then +1 s steps up to `cap` s until pred() (the replacement rule for a fixed wait; a longer wait
+    is logged)"""
     time.sleep(base)
     waited = base
     while not pred() and waited < cap:
@@ -160,8 +170,8 @@ def capture(b):
 # ----- the boot and the row -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h65b_r3_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h65b_r3_client"))
+        self.host = GameClient("host", None, make_user_dir("partner_visit_rollback_host"))
+        self.client = GameClient("client", None, make_user_dir("partner_visit_rollback_client"))
         self.aff, self.ts0 = {}, None
 class Row:
     def __init__(self, x, b, rid):
@@ -190,12 +200,12 @@ class Row:
         print(("PASS %s" % self.rid) if not fails else ("FAIL %s: %s" % (self.rid, " ".join(fails))), flush=True)
         self.x.fails += fails
 def bring_up(b):
-    """Bring-up B (S-A stage file (f)): one SEPARATE campaign, both on GeoscapeState, the window mapping per machine"""
+    """The bring-up: one SEPARATE campaign, both on GeoscapeState, the window mapping per machine"""
     for gc in (b.host, b.client):
         gc.spawn()
         gc.connect(timeout=240)
     session.HOST_LON, session.HOST_LAT = HOST_POS
-    session.new_campaign(b.host, b.client, port=K1)
+    session.new_campaign(b.host, b.client, port=KEY)
     geo.slow_clock(b.host, b.client)
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
@@ -208,9 +218,9 @@ def bring_up(b):
           and len(own(c)) == 1 and b.ts0 is not None)
     return ok, ev
 def click_mirror(b, r, m):
-    """CLICK rule: right-click the marker's pixel to centre (real input), '+' until zoom >= ZOOM_MIN, left-click its pixel (click_px
-    offsets). Replacement: pixel outside the globe rect or no centre -> P0's centerLon / centerLat view move; a MultipleTargetsState
-    left on top -> ESC, one more '+', re-click (logged)."""
+    """CLICK rule: right-click the marker's pixel to centre (real input), '+' until zoom >= ZOOM_MIN, left-click
+    its pixel (click_px offsets). Replacement: pixel outside the globe rect or no centre -> globe_point's centerLon /
+    centerLat view move; a MultipleTargetsState left on top -> ESC, one more '+', re-click (logged)."""
     h, sc, (lon, lat) = b.host, b.aff["host"], (m[2], m[3])
     out = {"g0": globe(h, lon=lon, lat=lat)}
     g = out["g0"]
@@ -224,7 +234,8 @@ def click_mirror(b, r, m):
         centred = g1.get("cenLon") is not None and dist((g1["cenLon"], g1["cenLat"]), (lon, lat)) < 0.05
     if not centred:
         g1 = globe(h, centerLon=lon, centerLat=lat)
-        r.ev["swaps"].append("CLICK: no right-click centre (%s) -> P0 view move to (%s, %s)" % (out.get("cen"), g1.get("cenLon"), g1.get("cenLat")))
+        r.ev["swaps"].append("CLICK: no right-click centre (%s) -> globe_point view move to (%s, %s)"
+                             % (out.get("cen"), g1.get("cenLon"), g1.get("cenLat")))
     zs = [globe(h).get("zoom")]
     while (zs[-1] or 0) < ZOOM_MIN and len(zs) < 7:
         key(h, SYM_PLUS)
@@ -241,10 +252,11 @@ def click_mirror(b, r, m):
         r.ev["swaps"].append("CLICK: MultipleTargetsState on top -> ESC, '+' (zoom %s), re-click" % g3.get("zoom"))
         out["tries"] += click_px(h, g3["x"], g3["y"], sc, "GeoscapeState")
     return out
-def row_r3(b, r):
-    """R-3 (S-B stage file (f)): the client builds a base, the host visits its unnamed marker"""
+def row_visit_unnamed_marker(b, r):
+    """visit_unnamed_marker: the client builds a base, the host visits its unnamed marker"""
     h, c, ev = b.host, b.client, r.ev
-    t0w, gap, stepped = time.time(), [], False  # P3-2 first, both on GeoscapeState: the clock holds while the client builds
+    # clock_past_gap first, both on GeoscapeState: the clock holds while the client builds
+    t0w, gap, stepped = time.time(), [], False
     while time.time() - t0w < GAP_POLL_S + GAP_STEP_S:
         gap.append([round(time.time() - t0w, 1), census(h)["time"]])
         if gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN:
@@ -255,20 +267,22 @@ def row_r3(b, r):
         time.sleep(1.0)
     if stepped:
         geo.slow_clock(h, c)
-    ev["P3-2"] = {"TS0": b.ts0, "polls": len(gap), "last": gap[-1]}
-    r.need(gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN, "P3-2: host time %s < TS0 %s + GAP_MIN" % (gap[-1][1], b.ts0))
+    ev["clock_past_gap"] = {"TS0": b.ts0, "polls": len(gap), "last": gap[-1]}
+    r.need(gap[-1][1] is not None and gap[-1][1] >= b.ts0 + GAP_MIN,
+           "clock_past_gap: host time %s < TS0 %s + GAP_MIN" % (gap[-1][1], b.ts0))
     ev["clientBases"], ev["clientNewBase"] = cw(c, "BASES")["after"], cw(c, "NEW BASE")["after"]
-    r.need(top(c) == "BuildNewBaseState", "P3-0: client top %s after BUILD NEW BASE" % top(c))
+    r.need(top(c) == "BuildNewBaseState", "client_name_screen: client top %s after BUILD NEW BASE" % top(c))
     cc = census(c)
     pick = ev["pick"] = pick_point(c, [(x[4], x[5]) for x in cc["bases"] if not x[2]] + [(x[4], x[5]) for x in cc["bases"] if x[2]])
-    r.need(pick, "P3-0: no land point for PICK")
+    r.need(pick, "client_name_screen: no land point for PICK")
     ev["globeClick"] = click_px(c, pick["x"], pick["y"], b.aff["client"], "BuildNewBaseState")
-    r.need(top(c) == "ConfirmNewBaseState", "P3-0: client top %s after the globe click" % top(c))
+    r.need(top(c) == "ConfirmNewBaseState", "client_name_screen: client top %s after the globe click" % top(c))
     ev["confirmOk"] = cw(c, "OK")["after"]
     cc = census(c)
     new = [x for x in own(cc) if x[1] == ""]
-    ev["P3-0"] = {"t": now(), "clientOwn": own(cc), "stack": cc["stack"]}
-    r.need(top(c) == "BaseNameState" and len(new) == 1, "P3-0: client on BaseNameState with one own base named \"\" (%s, %s)" % (top(c), own(cc)))
+    ev["client_name_screen"] = {"t": now(), "clientOwn": own(cc), "stack": cc["stack"]}
+    r.need(top(c) == "BaseNameState" and len(new) == 1,
+           "client_name_screen: client on BaseNameState with one own base named \"\" (%s, %s)" % (top(c), own(cc)))
     n1 = ev["N1"] = new[0][0]
     ev["hostCycle"] = [cw(h, "INTERCEPT")["after"][-1:], cw(h, "CANCEL", ready=True)["after"][-1:]]
     settle(ev, "WIN_S", lambda: n1m(h, n1), WIN_S, STEP_CAP_S)
@@ -281,10 +295,12 @@ def row_r3(b, r):
     time.sleep(0.4)
     ev["nameOk"] = cw(c, "OK")["after"]
     r.need(top(c) == "PlaceLiftState", "client top %s after the name's OK" % top(c))
-    settle(ev, "READ_S", lambda: n1m(h, n1), READ_S, STEP_CAP_S)  # S45 / F19891: the lift's marker names marker N1,
-    m = n1m(h, n1)                                                 # so the lift waits until the host's visit save has run (P3-3)
-    ev["P3-1"] = {"t": now(), "mirrorN1": m, "clientOwn": own(census(c)), "clientTop": top(c)}
-    r.need(m == [[n1, ""]] and top(c) == "PlaceLiftState", "P3-1: host marker N1 still \"\" after the name, lift not placed (%s)" % m)
+    # placing the lift names marker N1, so the lift waits until the host's visit save has run (client_still_lifting)
+    settle(ev, "READ_S", lambda: n1m(h, n1), READ_S, STEP_CAP_S)
+    m = n1m(h, n1)
+    ev["marker_still_unnamed"] = {"t": now(), "mirrorN1": m, "clientOwn": own(census(c)), "clientTop": top(c)}
+    r.need(m == [[n1, ""]] and top(c) == "PlaceLiftState",
+           "marker_still_unnamed: host marker N1 still \"\" after the name, lift not placed (%s)" % m)
     ph, pc = census(h), census(c)
     m = [x for x in ph["bases"] if x[0] == n1 and x[2]]
     ev["PRE"] = {"t": now(), "F0": ph["funds"], "T0": ph["time"], "C0": pc["time"], "hostOwn": own(ph), "hostMirrors": mirrors(ph),
@@ -309,7 +325,9 @@ def row_r3(b, r):
     if bs_at and bs_at - t1 > VISIT_S:
         ev["swaps"].append("VISIT_S %.0f -> %.0f s" % (VISIT_S, VISIT_S2))
     r.need(bs_at is not None, "no BasescapeState within VISIT_S (%s)" % trace)
-    r.need(ev["clientTopAtBs"] == "PlaceLiftState", "P3-3: client top %s at the host's BasescapeState (want PlaceLiftState)" % ev["clientTopAtBs"])
+    r.need(ev["clientTopAtBs"] == "PlaceLiftState",
+           "client_still_lifting: client top %s at the host's BasescapeState (want PlaceLiftState)"
+           % ev["clientTopAtBs"])
     ev["close"] = []
     for _ in range(3):
         if top(h) != "CoopState":
@@ -337,15 +355,19 @@ def row_r3(b, r):
                   "stacks": [qh["stack"], qc["stack"]]}
     r.need(qh["stack"] == ["GeoscapeState"] and qc["stack"] == ["GeoscapeState"], "POST: both on GeoscapeState (%s)" % ev["POST"]["stacks"])
     pre, post = ev["PRE"], ev["POST"]
-    r.cell("R-3a", 995 not in codes, "CoopState codes from the click to BasescapeState + 3 s: %s (want no 995)" % codes)
-    r.cell("R-3b", post["F1"] == pre["F0"], "host funds F0 %s -> F1 %s (want equal)" % (pre["F0"], post["F1"]))
-    r.cell("R-3c", post["T1"] is not None and pre["T0"] is not None and post["T1"] >= pre["T0"],
+    r.cell("no_save_failed_dialog", 995 not in codes,
+           "CoopState codes from the click to BasescapeState + 3 s: %s (want no 995)" % codes)
+    r.cell("host_funds_kept", post["F1"] == pre["F0"],
+           "host funds F0 %s -> F1 %s (want equal)" % (pre["F0"], post["F1"]))
+    r.cell("host_clock_forward", post["T1"] is not None and pre["T0"] is not None and post["T1"] >= pre["T0"],
            "host time T0 %s -> T1 %s (want T1 >= T0; TS0 %s)" % (pre["T0"], post["T1"], b.ts0))
-    r.cell("R-3d", post["C1"] is not None and pre["C0"] is not None and post["C1"] >= pre["C0"],
+    r.cell("client_clock_forward", post["C1"] is not None and pre["C0"] is not None and post["C1"] >= pre["C0"],
            "client time C0 %s -> C1 %s (want C1 >= C0)" % (pre["C0"], post["C1"]))
-    r.cell("R-3e", post["hostOwn"] == pre["hostOwn"], "host own bases before %s, after %s (want equal)" % (pre["hostOwn"], post["hostOwn"]))
+    r.cell("host_bases_kept", post["hostOwn"] == pre["hostOwn"],
+           "host own bases before %s, after %s (want equal)" % (pre["hostOwn"], post["hostOwn"]))
     n1_after = [x for x in post["hostMirrors"] if x[0] == n1]
-    r.cell("R-3f", len(n1_after) == 1, "host markers with id N1 %s after: %s (want exactly one)" % (n1, n1_after))
+    r.cell("one_host_marker", len(n1_after) == 1,
+           "host markers with id N1 %s after: %s (want exactly one)" % (n1, n1_after))
 
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
@@ -354,7 +376,7 @@ def main():
     T0[0] = time.time()
     try:
         b = Boot()
-        ev = {"key": K1, "slot": harness.HARNESS_SLOT, "cpu": cpu(), "t": now()}
+        ev = {"key": KEY, "slot": harness.HARNESS_SLOT, "cpu": cpu(), "t": now()}
         try:
             ok, bev = bring_up(b)
             ev.update(bev)
@@ -363,13 +385,13 @@ def main():
         print("EVIDENCE boot: %s" % js(ev), flush=True)
         if not ok:
             print("CAPTURE boot: %s" % js(capture(b)), flush=True)
-            for cid in dict(ROWS)["R-3"]:
+            for cid in dict(ROWS)["visit_unnamed_marker"]:
                 print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                 x.fails.append(cid)
         else:
-            r = Row(x, b, "R-3")
+            r = Row(x, b, "visit_unnamed_marker")
             try:
-                row_r3(b, r)
+                row_visit_unnamed_marker(b, r)
                 r.finish()
             except Stop as e:
                 r.finish(str(e))
@@ -390,8 +412,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H65 S-B PVR: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                               sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_partner_visit_rollback: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
