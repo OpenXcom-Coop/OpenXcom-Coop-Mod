@@ -1,23 +1,22 @@
-"""Shared helpers of the W2-H70 S-C tests (spec docs rewrite/prompts/w2h70_sc_window_67.md (f) and Appendix B; TASK 0
-rewrite/w2h70-task0/sc/CONSTANTS.md; lead L-H70-2, ruling R-H70-4; F20441-F20448): the 67 window, the second host save, the host's
-visit of the client base, the base-screen steps, the leave, the probes and the row runner that test_visit_window_67.py (rows R11,
-G11, R12) and test_visit_window_67_edits.py (rows R13, R14, R15) import (R-H70-2: one non-test module). Built on
-gift_helpers.py (GH: boot, stage_guest, picker, visit, baseline, trigger54, host_cancel, real_click, the probes; imported,
-unchanged); the window, second-save, watch, leave, crew, MOVE and host-picker steps are copied from the capture rewrite/lh70-2-cap/cap.py
-(CAP70, never imported). Every press is real (click_widget on visible text, inject_input at a TextList pixel times the clicking
-machine's scale); the one lever is R15's rename_soldier. A construction step that misses its precondition raises Stop (its
-row ends there, later cells "not reached"); the steps after a row's last precondition only record and never press a 53 / 995 /
-Disconnect control. No reload, no rejoin. one foreground run per invocation; exit 0 only when
-every cell passes, else 2."""
+"""Shared helpers of the 67-window tests: the 67 window, the second host save, the host's visit of the client base,
+the base-screen steps, the leave, the probes and the row runner that test_visit_window_67.py (rows
+second_save_on_soldiers, second_save_on_base, host_visit) and test_visit_window_67_edits.py (rows crew_change,
+guest_moved, guest_renamed) import (one non-test module). Built on gift_helpers.py (boot, stage_guest, picker, visit,
+baseline, trigger54, host_cancel, real_click, the probes; imported, unchanged). Every press is real (click_widget on
+visible text, inject_input at a TextList pixel times the clicking machine's scale); the one test command is
+guest_renamed's rename_soldier. A construction step that misses its precondition raises Stop (its row ends there,
+later cells "not reached"); the steps after a row's last precondition only record and never press a 53 / 995 /
+Disconnect control. No reload, no rejoin. One foreground run per invocation; exit 0 only when every cell passes, else
+2."""
 import json, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
-from gift_helpers import *  # noqa: E402,F401,F403 (GH, R-H70-2)
+from gift_helpers import *  # noqa: E402,F401,F403 (the gift helpers)
 
 HOLD_P, HOLD_W, HOLD_V, HOLD_L, W_CONTRIB = 1.5, 3.0, 2.0, 2.0, 10.0
 RENAMES = ("Zzz Renamed", "Zzz Renamed2")
 SUBS = ("SoldiersState", "SoldierInfoState", "CraftSoldiersState", "CraftInfoState", "CraftsState")
-LAST = {}  # the last row's evidence (a TASK 0 script reads it)
+LAST = {}  # the last row's evidence, for a script that imports this module
 
 def code(gc, st=None):
     """the top dialog's CoopState code; None when the top is not a CoopState"""
@@ -32,7 +31,7 @@ def has_key(gc, k):
     return bool(k) and q(gc, {"cmd": "coop_file_info", "key": k}).get("present") is True
 
 def ids(x):
-    """both machines' saveID [host, client] (T0-S, F20445)"""
+    """both machines' saveID [host, client]"""
     return [coop(x.host).get("saveID"), coop(x.client).get("saveID")]
 
 def snap(x):
@@ -47,7 +46,7 @@ def snap(x):
             "K0": has_key(c, x.K0), "hostCopy": (blob(h) or {}).get("fnv1a64")}
 
 def where(gc, name=None, gid=None):
-    """[base, own / coop, id, name, coopBase, craft] of every live-world soldier named name (or with id gid) (CAP70 guest_where)"""
+    """[base, own / coop, id, name, coopBase, craft] of every live-world soldier named name (or with id gid)"""
     return [[b.get("name"), "coop" if (b.get("coopBaseFlag") or b.get("coopIcon")) else "own", z.get("id"), z.get("name"),
              z.get("coopBase"), z.get("craft")] for b in soldiers(gc) for z in b.get("soldiers", [])
             if (name is not None and z.get("name") == name) or (gid is not None and z.get("id") == gid)]
@@ -58,11 +57,11 @@ def texts(gc):
             if w.get("visible") is True and w.get("hidden") is False and (w.get("text") or "").strip()]
 
 def contrib(gc):
-    """the host's guest-roster store (event_state.guestContrib; T0-W4 only)"""
+    """the host's guest-roster store (event_state.guestContrib)"""
     return pick(q(gc, {"cmd": "event_state"}).get("guestContrib") or {}, ("sent", "recvSeats", "soldiers"))
 
 def own_key(x, ev):
-    """B: K0 = the client's role own_world key (present; read by name later, F20702), the guest's id and record in the view"""
+    """B: K0 = the client's role own_world key (present; read by name later), the guest's id and record in the view"""
     c = x.client
     ow = q(c, {"cmd": "coop_file_info", "role": "own_world"})
     x.K0 = ow.get("key") if ow.get("present") is True else None
@@ -73,8 +72,8 @@ def own_key(x, ev):
         raise Stop("K0 or the guest's one view record not present at B: %s" % ev["K0"])
 
 def first_window(x, ev, sub):
-    """the window: sub on top; the host's 54 and the client's 67 (GH trigger54); the client's real OK back to sub with insideCoopBase
-    false within W_UI; the host's real CANCEL (QUICK within W_SAVE, GH host_cancel); HOLD_P"""
+    """the window: sub on top; the host's 54 and the client's 67 (trigger54); the client's real OK back to sub with
+    insideCoopBase false within W_UI; the host's real CANCEL (QUICK within W_SAVE, host_cancel); HOLD_P"""
     c = x.client
     if top(c) != sub:
         raise Stop("the window's sub-screen %s not on top: %s" % (sub, stack(c)))
@@ -91,8 +90,7 @@ def first_window(x, ev, sub):
 
 def second_save(x, ev):
     """the host's second quick save in the window: its 54 within SEEN54_S (the row's last precondition); then the client's (top, code,
-    depth) trace every 0.05 s until HOLD_W after its first CoopState code (W_67 without one); the HOLD_W record (CAP70 second_save +
-    watch)"""
+    depth) trace every 0.05 s until HOLD_W after its first CoopState code (W_67 without one); the HOLD_W record"""
     h, c = x.host, x.client
     x.F0 = files(h)
     q(h, {"cmd": "save_game_ui", "type": "quick"})
@@ -141,15 +139,15 @@ def leave_window(x, ev):
     return lv["left s"] is not None
 
 def write_after(x, ev):
-    """QUICK written within W_SAVE of the leave with no host press (GH written against x.F0); HOLD_L; the record"""
+    """QUICK written within W_SAVE of the leave with no host press (written against x.F0); HOLD_L; the record"""
     v, s = written(x, W_SAVE)
     ev["write"] = {"s": s if v else None, "file": files(x.host).get(QUICK)}
     time.sleep(HOLD_L)
     ev["after write"] = snap(x)
 
 def host_picker(x, ev):
-    """before the visit: the client's own base (GH own_base); the host's globe from the probe save's host world, its screen (GH
-    geometry) and its window scale from a select-destination CANCEL on its own craft (CAP70 host_pk)"""
+    """before the visit: the client's own base (own_base); the host's globe from the probe save's host world, its screen
+    (geometry) and its window scale from a select-destination CANCEL on its own craft"""
     h = x.host
     x.cb = own_base(x.client)
     loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
@@ -167,9 +165,9 @@ def host_picker(x, ev):
         raise Stop("the host picker missed: %s" % ev["host picker"])
 
 def host_view(x, ev):
-    """B2 = the client's "basehost" fnv; the host's real globe click on the client base (GH CLICKS offsets) while the client's (top,
-    code) is traced every 0.05 s; the host's BasescapeState within W_VISIT (the row's last precondition); the trace to HOLD_V; the
-    host's base_report (coop), the client's fnv (CAP70 row_c2)"""
+    """B2 = the client's "basehost" fnv; the host's real globe click on the client base (CLICKS offsets) while the
+    client's (top, code) is traced every 0.05 s; the host's BasescapeState within W_VISIT (the row's last precondition);
+    the trace to HOLD_V; the host's base_report (coop), the client's fnv"""
     h, c = x.host, x.client
     x.B2 = ev["B2"] = fnvb(c)
     tr, t0, hit, v = [], time.time(), None, None
@@ -208,7 +206,8 @@ def host_view(x, ev):
                   "at": snap(x)}
 
 def host_back(x, ev):
-    """after R12's record: the client's OK on a 995 if up (R12's construction), the host's GEOSCAPE; HOLD_P"""
+    """after host_visit's record: the client's OK on a 995 if up (host_visit's construction), the host's GEOSCAPE;
+    HOLD_P"""
     c, h = x.client, x.host
     ev["back"] = {"995 OK": real_click(c, dlg(c).get("backText") or "OK", W_UI) if code(c) == 995 else None,
                   "host GEOSCAPE": real_click(h, "GEOSCAPE", W_UI) if top(h) == "BasescapeState" else None}
@@ -216,7 +215,7 @@ def host_back(x, ev):
     ev["back"]["at"] = snap(x)
 
 def row_click(x, gc, row):
-    """a TextList row: inject_input at (x + 30, y + 3 + 8 * row) times the clicking machine's scale, + 1 (CAP70 row_click)"""
+    """a TextList row: inject_input at (x + 30, y + 3 + 8 * row) times the clicking machine's scale, + 1"""
     tl, sc = textlist(gc), x.pk["scale"]
     if tl:
         q(gc, {"cmd": "inject_input", "kind": "click", "x": int((tl["x"] + 30) * sc["x"] + 1), "y": int((tl["y"] + 3 + 8 * row) * sc["y"] + 1)})
@@ -230,7 +229,7 @@ def press(gc, text, want, steps, label):
     return bool(v)
 
 def open_crew(x, ev, equip):
-    """EQUIP CRAFT, craft row 0 (rows 1, 2), CREW: CraftSoldiersState on top (CAP70 open_crew)"""
+    """EQUIP CRAFT, craft row 0 (rows 1, 2), CREW: CraftSoldiersState on top"""
     c, st = x.client, ev.setdefault("steps", [])
     if not press(c, equip, "CraftsState", st, equip):
         raise Stop("%s opened no CraftsState: %s" % (equip, stack(c)))
@@ -245,7 +244,7 @@ def open_crew(x, ev, equip):
         raise Stop("CREW opened no CraftSoldiersState: %s" % stack(c))
 
 def toggle_seat(x, ev):
-    """the guest's crew row (row 0, then rows 1, 2): its craft in get_soldiers changes within W_UI (CAP70 toggle_seat)"""
+    """the guest's crew row (row 0, then rows 1, 2): its craft in get_soldiers changes within W_UI"""
     c, before = x.client, where(x.client, x.gift)
     for row in range(3):
         row_click(x, c, row)
@@ -256,8 +255,8 @@ def toggle_seat(x, ev):
     raise Stop("no crew row changed %s's craft: %s" % (x.gift, before))
 
 def move_home(x, ev, move):
-    """SoldiersState rows 0..7 until SackSoldierState names GIFTNAME; MOVE, OK; SoldiersState back (the row's last precondition); the
-    fnv after the MOVE's OK (CAP70 sack_guest)"""
+    """SoldiersState rows 0..7 until SackSoldierState names GIFTNAME; MOVE, OK; SoldiersState back (the row's last
+    precondition); the fnv after the MOVE's OK"""
     c, tried = x.client, []
     for row in range(8):
         row_click(x, c, row)
@@ -282,8 +281,8 @@ def move_home(x, ev, move):
     raise Stop("no soldier row reached a MOVE window naming %s: %s" % (x.gift, tried))
 
 def rename_guest(x, ev):
-    """R15's lever: rename_soldier GIFTNAME -> RENAME (the first of RENAMES in neither roster) on the client; the view
-    lists RENAME within W_UI (the row's last precondition)"""
+    """guest_renamed's test command: rename_soldier GIFTNAME -> RENAME (the first of RENAMES in neither roster) on the
+    client; the view lists RENAME within W_UI (the row's last precondition)"""
     c = x.client
     names = {z.get("name") for gc in (x.host, c) for b in soldiers(gc) for z in b.get("soldiers", [])}
     x.rename = next((n for n in RENAMES if n not in names), None)
@@ -293,19 +292,20 @@ def rename_guest(x, ev):
     if not v:
         raise Stop("the view does not list the renamed guest: %s" % ev["rename"])
 
-def read_c(x):
+def read_end(x):
     """the read: both machines alive, the crash folder since B, the record"""
     al = [alive(x.host), alive(x.client)]
     return {"alive": al, "crash": crash_new(x.c0), "at": snap(x) if all(al) else None}
 
-def common_c(rid, rd):
+def common_cell(rid, rd):
     cr = rd.get("crash") or {}
     return (rid + "-common", "GUARD", "both machines alive at the read, no new .dmp since B", rd.get("alive") == [True, True] and cr.get("dmp") == [])
 
-def run_row_c(rid, tag, key, pre, post, ids_, cellfn, label, hostpk=False):
-    """one row: boot (a miss fails the row "boot" with ONE CAPTURE line); the prefix P (GH stage_guest, picker, [host_picker], visit,
-    baseline B, own_key K0); pre (to the row's last precondition; a Stop ends the row); post (records only); the read; shutdown; ONE
-    EVIDENCE line, one PASS / FAIL line per cell, the row verdict -> (passed, wall, shutdown failures)"""
+def run_window_row(rid, tag, key, pre, post, ids_, cellfn, label, hostpk=False):
+    """one row: boot (a miss fails the row "boot" with ONE CAPTURE line); the prefix P (stage_guest, picker,
+    [host_picker], visit, baseline B, own_key K0); pre (to the row's last precondition; a Stop ends the row); post
+    (records only); the read; shutdown; ONE EVIDENCE line, one PASS / FAIL line per cell, the row verdict -> (passed,
+    wall, shutdown failures)"""
     r, ev, cap = Row(rid, ["%s-%s" % (rid, c) for c in ids_]), {}, None
     LAST.clear()
     x = boot(tag, key)
@@ -337,7 +337,7 @@ def run_row_c(rid, tag, key, pre, post, ids_, cellfn, label, hostpk=False):
                     post(x, ev)
                 except Exception as e:  # after the last precondition: recorded, never raised
                     ev["post"] = short(e, 600)
-            ev["read"] = read_c(x)
+            ev["read"] = read_end(x)
     finally:
         failed += shut(x)
     LAST.update(ev=ev, tag=tag, shut=failed)

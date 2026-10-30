@@ -1,26 +1,27 @@
-"""W2-H70 S-C (spec docs rewrite/prompts/w2h70_sc_window_67.md (f); TASK 0 rewrite/w2h70-task0/sc/CONSTANTS.md; lead L-H70-2, ruling
-R-H70-4; F20447, F20448, F20706): a change a co-op visitor makes on a base screen of the host's base after it pressed OK on the
-host's "Go to Geoscape to begin saving progress." (CoopState 67; the 67 window), SEPARATE co-op. Rows (one fresh boot pair each, key
-"49578", dirs w2h70c_<row>_host / _client; prefix P: the guest staged, the picker, the visit, B, K0; real presses only; the one lever is
-R15's rename_soldier, QH70C-5; no reload, no rejoin):
-  R13 (W3 seat, CAP70 C3) EQUIP CRAFT, craft row 0, CREW; the window over CraftSoldiersState; B3 = the client's "basehost" fnv; the
-      guest's crew row (its craft changes = the last precondition); OK, OK (CraftInfoState's), OK, the leave; HOLD_L; the re-visit:
-      R13-write (the fnv after CraftInfoState's OK != B3), R13-seat (the guest has a craft in the re-visit's view).
-  R14 (W3 MOVE, CAP70 C3SACK) SOLDIERS; the window; B3; the guest's row, MOVE, OK (SoldiersState back = the last precondition); the
-      leave; HOLD_L: R14-write (the fnv after the MOVE's OK != B3), R14-home (the guest on the client's own base with coopBase -1).
-  R15 (W3 rename) SOLDIERS; the window; B3; rename_soldier GIFTNAME -> RENAME (the view lists it = the last precondition); SoldiersState's
-      OK; the leave; HOLD_L: R15-write (the fnv after SoldiersState's OK != B3), R15-name (the own-base soldier with B's guest id is
-      named RENAME).
-Cells: X-pre GUARD; the FIX cells above; X-common GUARD (both machines alive at the read, no new .dmp since B). 12 cells; red (commit
-R1): RED exactly on R13-write, R13-seat, R14-write, R14-home, R15-write, R15-name. Never in one K=2 batch with
-test_manual_promotion.py (its port tuple shares 49290, F20703). ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row
-verdict; every row runs; exit 0 only when every cell passes, else 2. one foreground run per invocation.
+"""test_visit_window_67_edits.py: a change a co-op visitor makes on a base screen of the host's base after it pressed
+OK on the host's "Go to Geoscape to begin saving progress." (CoopState 67; the 67 window), SEPARATE co-op. Rows (one
+fresh boot pair each, key "49578", dirs window67_<row>_host / _client; prefix P: the guest staged, the picker, the
+visit, B, K0; real presses only; the one test command is guest_renamed's rename_soldier; no reload, no rejoin):
+  crew_change: EQUIP CRAFT, craft row 0, CREW; the window over CraftSoldiersState; B3 = the client's "basehost" fnv;
+      the guest's crew row (its craft changes = the last precondition); OK, OK (CraftInfoState's), OK, the leave;
+      HOLD_L; the re-visit: crew_change-write (the fnv after CraftInfoState's OK != B3), crew_change-seat (the guest
+      has a craft in the re-visit's view).
+  guest_moved: SOLDIERS; the window; B3; the guest's row, MOVE, OK (SoldiersState back = the last precondition); the
+      leave; HOLD_L: guest_moved-write (the fnv after the MOVE's OK != B3), guest_moved-home (the guest on the
+      client's own base with coopBase -1).
+  guest_renamed: SOLDIERS; the window; B3; rename_soldier GIFTNAME -> RENAME (the view lists it = the last
+      precondition); SoldiersState's OK; the leave; HOLD_L: guest_renamed-write (the fnv after SoldiersState's OK !=
+      B3), guest_renamed-name (the own-base soldier with B's guest id is named RENAME).
+Cells: <row>-pre GUARD; the FIX cells above; <row>-common GUARD (both machines alive at the read, no new .dmp since
+B). 12 cells; when broken, exactly crew_change-write, -seat, guest_moved-write, -home, guest_renamed-write and -name
+FAIL. ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs; exit 0 only when
+every cell passes, else 2. One foreground run per invocation.
 Run: python tools/coop_test/test_visit_window_67_edits.py
 """
 
 import os, sys  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from visit_window_helpers import *  # noqa: E402,F401,F403 (the helpers, run_row_c, main; R-H70-2)
+from visit_window_helpers import *  # noqa: E402,F401,F403 (the helpers, run_window_row, main)
 KEY = "49578"
 EQUIP, MOVE = "EQUIP CRAFT", "MOVE"
 
@@ -31,14 +32,15 @@ def leave_hold(x, ev):
     ev["after leave"] = snap(x)
     ev["census"] = {"name": own(x.client, x.gift), "id": [e for e in where(x.client, gid=x.gid) if e[1] == "own"]}
 
-def pre_r13(x, ev):
-    """R13: EQUIP CRAFT, craft row 0, CREW; the window over CraftSoldiersState; B3; the guest's crew row (its craft changes)"""
+def pre_crew_change(x, ev):
+    """crew_change: EQUIP CRAFT, craft row 0, CREW; the window over CraftSoldiersState; B3; the guest's crew row (its
+    craft changes)"""
     open_crew(x, ev, EQUIP)
     first_window(x, ev, "CraftSoldiersState")
     ev["B3"] = fnvb(x.client)
     toggle_seat(x, ev)
 
-def post_r13(x, ev):
+def post_crew_change(x, ev):
     """OK (CraftInfoState), OK (CraftsState; the fnv after CraftInfoState's OK), OK (BasescapeState); the leave; HOLD_L; the re-visit"""
     c, st = x.client, ev.setdefault("after", [])
     for want in ("CraftInfoState", "CraftsState", "BasescapeState"):
@@ -49,69 +51,79 @@ def post_r13(x, ev):
     try:
         visit(x, rv)
         time.sleep(HOLD_L)
-    except Exception as e:  # recorded: R13-seat reads the view
+    except Exception as e:  # recorded: crew_change-seat reads the view
         rv["miss"] = short(e, 300)
     rv["view"] = where(c, x.gift)
 
-def pre_r14(x, ev):
-    """R14: SOLDIERS; the window; B3; the guest's row, MOVE, OK (SoldiersState back)"""
+def pre_guest_moved(x, ev):
+    """guest_moved: SOLDIERS; the window; B3; the guest's row, MOVE, OK (SoldiersState back)"""
     to_soldiers(x, ev)
     first_window(x, ev, "SoldiersState")
     ev["B3"] = fnvb(x.client)
     move_home(x, ev, MOVE)
 
-def pre_r15(x, ev):
-    """R15: SOLDIERS; the window; B3; rename_soldier GIFTNAME -> RENAME (the view lists it)"""
+def pre_guest_renamed(x, ev):
+    """guest_renamed: SOLDIERS; the window; B3; rename_soldier GIFTNAME -> RENAME (the view lists it)"""
     to_soldiers(x, ev)
     first_window(x, ev, "SoldiersState")
     ev["B3"] = fnvb(x.client)
     rename_guest(x, ev)
 
-def post_r15(x, ev):
+def post_guest_renamed(x, ev):
     """SoldiersState's OK (BasescapeState; the fnv after it); the leave; HOLD_L"""
     st = ev.setdefault("after", [])
     press(x.client, "OK", "BasescapeState", st, "SoldiersState OK")
     st[-1].append(fnvb(x.client))
     leave_hold(x, ev)
 
-def cells_w3(rid, ev):
+def cells_edits(rid, ev):
     b3, cs = ev.get("B3"), ev.get("census") or {}
     after = ev.get("after") or []
-    if rid == "R13":
+    if rid == "crew_change":
         f = after[1][3] if len(after) > 1 and len(after[1]) > 3 else None
         view = (ev.get("revisit") or {}).get("view") or []
-        out = [("R13-write", "FIX", "the client's \"basehost\" fnv after CraftInfoState's OK %s != B3 %s (red today: equal, F20447)" % (f, b3),
+        out = [("crew_change-write", "FIX",
+                "the client's \"basehost\" fnv after CraftInfoState's OK %s != B3 %s (when broken: equal)" % (f, b3),
                 bool(b3) and bool(f) and f != b3),
-               ("R13-seat", "FIX", "on the re-visit the guest has a craft in the view (%s; red today: none, F20447)" % view,
+               ("crew_change-seat", "FIX",
+                "on the re-visit the guest has a craft in the view (%s; when broken: none)" % view,
                 len(view) == 1 and bool(view[0][5]))]
-    elif rid == "R14":
+    elif rid == "guest_moved":
         f, hm = (ev.get("move") or {}).get("fnv"), cs.get("name")
-        out = [("R14-write", "FIX", "the client's \"basehost\" fnv after the MOVE's OK %s != B3 %s (red today: equal, F20448)" % (f, b3),
+        out = [("guest_moved-write", "FIX",
+                "the client's \"basehost\" fnv after the MOVE's OK %s != B3 %s (when broken: equal)" % (f, b3),
                 bool(b3) and bool(f) and f != b3),
-               ("R14-home", "FIX", "HOLD_L after the leave: the guest on the client's own base with coopBase -1 (%s; red today: the host "
-                "base's coop id, F20448)" % hm, bool(hm) and len(hm) == 1 and hm[0][3] == -1)]
+               ("guest_moved-home", "FIX",
+                "HOLD_L after the leave: the guest on the client's own base with coopBase -1 "
+                "(%s; when broken: the host base's coop id)" % hm, bool(hm) and len(hm) == 1 and hm[0][3] == -1)]
     else:
         f, rn, byid = after[0][3] if after and len(after[0]) > 3 else None, (ev.get("rename") or {}).get("name"), cs.get("id")
-        out = [("R15-write", "FIX", "the client's \"basehost\" fnv after SoldiersState's OK %s != B3 %s (red today: equal, CANDIDATE "
-                "F20706)" % (f, b3), bool(b3) and bool(f) and f != b3),
-               ("R15-name", "FIX", "HOLD_L after the leave: the own-base soldier with B's guest id is named %r (%s; red today: GIFTNAME, "
-                "CANDIDATE F20706)" % (rn, byid), bool(byid) and len(byid) == 1 and byid[0][3] == rn)]
-    return out + [common_c(rid, ev.get("read") or {})]
+        out = [("guest_renamed-write", "FIX",
+                "the client's \"basehost\" fnv after SoldiersState's OK %s != B3 %s (when "
+                "broken: equal)" % (f, b3), bool(b3) and bool(f) and f != b3),
+               ("guest_renamed-name", "FIX",
+                "HOLD_L after the leave: the own-base soldier with B's guest id is named %r "
+                "(%s; when broken: GIFTNAME)" % (rn, byid), bool(byid) and len(byid) == 1 and byid[0][3] == rn)]
+    return out + [common_cell(rid, ev.get("read") or {})]
 
-PRE = {"R13": "the guest staged, the visit, B, K0, EQUIP CRAFT, craft row, CREW, the window over CraftSoldiersState, the guest's "
-              "craft changed by its crew row",
-       "R14": "the guest staged, the visit, B, K0, SOLDIERS, the window, the guest's MOVE window, its OK, SoldiersState back",
-       "R15": "the guest staged, the visit, B, K0, SOLDIERS, the window, the guest renamed in the view"}
+PRE = {"crew_change": "the guest staged, the visit, B, K0, EQUIP CRAFT, craft row, CREW, the window over "
+                      "CraftSoldiersState, the guest's craft changed by its crew row",
+       "guest_moved": "the guest staged, the visit, B, K0, SOLDIERS, the window, the guest's MOVE window, its OK, "
+                      "SoldiersState back",
+       "guest_renamed": "the guest staged, the visit, B, K0, SOLDIERS, the window, the guest renamed in the view"}
 
-def row_r13():
-    return run_row_c("R13", "w2h70c_r13", KEY, pre_r13, post_r13, ("pre", "write", "seat", "common"), cells_w3, PRE["R13"])
+def row_crew_change():
+    return run_window_row("crew_change", "window67_crew_change", KEY, pre_crew_change, post_crew_change,
+                          ("pre", "write", "seat", "common"), cells_edits, PRE["crew_change"])
 
-def row_r14():
-    return run_row_c("R14", "w2h70c_r14", KEY, pre_r14, leave_hold, ("pre", "write", "home", "common"), cells_w3, PRE["R14"])
+def row_guest_moved():
+    return run_window_row("guest_moved", "window67_guest_moved", KEY, pre_guest_moved, leave_hold,
+                          ("pre", "write", "home", "common"), cells_edits, PRE["guest_moved"])
 
-def row_r15():
-    return run_row_c("R15", "w2h70c_r15", KEY, pre_r15, post_r15, ("pre", "write", "name", "common"), cells_w3, PRE["R15"])
+def row_guest_renamed():
+    return run_window_row("guest_renamed", "window67_guest_renamed", KEY, pre_guest_renamed, post_guest_renamed,
+                          ("pre", "write", "name", "common"), cells_edits, PRE["guest_renamed"])
 
-ROWS = (("R13", row_r13), ("R14", row_r14), ("R15", row_r15))
+ROWS = (("crew_change", row_crew_change), ("guest_moved", row_guest_moved), ("guest_renamed", row_guest_renamed))
 if __name__ == "__main__":
     sys.exit(main("test_visit_window_67_edits", ROWS))
