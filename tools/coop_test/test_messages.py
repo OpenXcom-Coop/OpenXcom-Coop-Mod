@@ -1,129 +1,93 @@
-"""test_messages.py: the battle messages on both machines (owner
-D132: you get vanilla's boxes for your own soldiers; a message about your
-partner's soldier is a short notice that fades by itself, and the host no longer
-pauses the shared battle for it; D170 (a): vanilla boxes on both machines for a
-unit no player owns), plus the stale entry notice F1270 - spec docs
-rewrite/prompts/w2p6_display_two.md: `## P6a PINNED STAGE TEXT` (b), the W2-P6a
-plan review section 2 (rows MR1, QR2, MR2, MR2b, MR7), AMENDMENT P6a-1 (ST3 (a):
-MR2b), AMENDMENT P6a-2 (F1726: the order MR1, MR2, MR7, MR2b; F1728 the texts),
-AMENDMENT P6-5 section 3 (C-M3, C-M6: this file's ports), AMENDMENT P6-6 (Q1:
-QR2, Q1 (b): QR2r; Q3 (a): relative seqs), P6-6b S-M RED RULINGS SM-1/SM-2.
+"""test_messages.py: the battle messages on both machines. A player gets vanilla's boxes for its own soldiers; a
+message about the partner's soldier is a short notice that fades by itself, and the host does not pause the shared
+battle for it; a unit no player owns gets vanilla's boxes on both machines. Two rows check that the host's entry
+notice does not outlive its cause.
 
-Before S-M.2 the second player's machine shows no message at all (connectionTCP
-holds no InfoboxState / InfoboxOKState / warningLongRaw), and the host shows
-vanilla's boxes for BOTH players' soldiers - an OK box waits for the host
-player's click, a 2 s box pauses the shared battle.
+Without the fix the second player's machine shows no message at all (connectionTCP holds no InfoboxState /
+InfoboxOKState / warningLongRaw), and the host shows vanilla's boxes for BOTH players' soldiers: an OK box waits for
+the host player's click, a 2 s box pauses the shared battle.
 
-Boot M: five rows, in this order (boot R, row QR2r, follows; see below). The
-default NEW BATTLE map as test_turn_cues.py boots it (set_seed SEED_ROSTER
-on the host right before its open_new_battle, set_seed SEED_MAP right before
-newbattle_ok, seat_count 2, SEATED = the client's C (8) and C2 (9); H (10) the
-host's; A the only alien, pinned by session.pin_ai_neutral), with
-`battleNotifyDeath: true` in both instances' options (ST3 (a): vanilla's "has
-been killed" box is off by default).
-Every host infobox that appears is recorded (its texts) and closed host-only (an
-InfoboxOKState by its OK button, any other by dismiss_popup). Every END TURN
-cycle: the client presses first, the host presses once it paints END TURN 1/2,
-NextTurnStates are closed through their real close() on both machines.
+The main boot: five rows, in this order (the rejoin boot's row, rejoin_entry_notice, follows; see below). The default
+NEW BATTLE map as test_turn_cues.py boots it (set_seed SEED_ROSTER on the host right before its open_new_battle,
+set_seed SEED_MAP right before newbattle_ok, seat_count 2, SEATED = the client's C (8) and C2 (9); H (10) the host's;
+A the only alien, pinned by session.pin_ai_neutral), with `battleNotifyDeath: true` in both instances' options
+(vanilla's "has been killed" box is off by default). Every host infobox that appears is recorded (its texts) and
+closed host-only (an InfoboxOKState by its OK button, any other by dismiss_popup). Every END TURN cycle: the client
+presses first, the host presses once it paints END TURN 1/2, NextTurnStates are closed through their real close() on
+both machines.
+  client_bleeds_out: C2's fatal wound (cycle 1, nothing pressed before it). C2 health STAGE_HEALTH with fatalWounds
+      STAGE_WOUNDS (battle_set_unit_state, both). C2 bleeds out at the turn-2 player side start: death {unit C2,
+      damageType 0 (DT_NONE), outcome dead} at seq0+7, corpse at seq0+8. Want: host ring +1 {C2,
+      STR_HAS_DIED_FROM_A_FATAL_WOUND, partner, notice}; the host never showed an infobox in the cycle; the host's
+      warningText == TEXT_CLIENT_FATAL; client ring +1 {C2, same key, own, okbox, queued QUEUED_CLIENT_FATAL} shown
+      (shownAtMs > 0); the client's top InfoboxOKState with TEXT_CLIENT_FATAL, closed by its OK button; C2 DEAD on
+      both. Without the fix: both rings empty; the host's InfoboxOKState with TEXT_CLIENT_FATAL recorded and closed by
+      its OK button; no client box.
+  no_stale_entry_notice: after client_bleeds_out's cycle coopWaitText == "" on both (a fresh battle raises no
+      EQUIP_FROZEN notice; the host's mid-battle-resume case is rejoin_entry_notice below). It passes with and without
+      the fix.
+  host_bleeds_out: H's fatal wound (cycle 2), the same staging on H. Want: host ring +1 {H,
+      STR_HAS_DIED_FROM_A_FATAL_WOUND, own, okbox} and the host's OK box with TEXT_HOST_FATAL recorded, closed by its
+      OK button (the only host box of the cycle); client ring +1 {H, same key, partner, notice, queued
+      QUEUED_HOST_FATAL}; the client's warningText == TEXT_HOST_FATAL. Without the fix: both rings empty.
+  alien_panics: alien panic (cycle 3; a unit no player owns). A morale 0 (both); host set_seed SEED_PANIC right before
+      its END TURN press; A panics (mode PANIC_MODE) at the hostile side start: panic {unit A, mode PANIC_MODE} then
+      its bt_action_end (seq0+3, seq0+4). Want: host ring +1 {A, PANIC_KEY, other, box} and the host's box with
+      TEXT_ALIEN_PANIC recorded (vanilla on the host); client ring +1 {A, PANIC_KEY, other, box}. Without the fix:
+      both rings empty.
+  client_killed: battleNotifyDeath: host battle_action kill_unit_real {unit C} (DT_AP): death {unit C, damageType 1,
+      outcome dead} at seq0+1, corpse at seq0+2. Want: host ring +1 {C, STR_HAS_BEEN_KILLED, partner, notice}; no host
+      infobox; the host's warningText == TEXT_CLIENT_KILLED; client ring +1 {C, same key, own, box, queued
+      QUEUED_CLIENT_KILLED}. Without the fix: both rings empty; the host's InfoboxState with TEXT_CLIENT_KILLED
+      recorded.
 
-  MR1  C2's fatal wound (cycle 1, nothing pressed before it). C2 health
-       STAGE_HEALTH with fatalWounds STAGE_WOUNDS (battle_set_unit_state, both).
-       C2 bleeds out at the turn-2 player side start: death {unit C2,
-       damageType 0 (DT_NONE), outcome dead} at seq0+7, corpse at seq0+8.
-       GREEN: host ring +1 {C2, STR_HAS_DIED_FROM_A_FATAL_WOUND, partner,
-       notice}; the host never showed an infobox in the cycle; the host's
-       warningText == TEXT_MR1; client ring +1 {C2, same key, own, okbox, queued
-       Q_MR1} shown (shownAtMs > 0); the client's top InfoboxOKState with
-       TEXT_MR1, closed by its OK button; C2 DEAD on both.
-       RED: both rings empty; the host's InfoboxOKState with TEXT_MR1 recorded
-       and closed by its OK button; no client box.
-  QR2  F1270 (declared green at red, AMENDMENT P6-6 Q1): after MR1's cycle
-       coopWaitText == "" on both (fresh battles no longer raise EQUIP_FROZEN
-       since W2-P8b, F3918/F3919/F4002; the host's mid-battle-resume branch is
-       QR2r below).
-  MR2  H's fatal wound (cycle 2), the same staging on H. GREEN: host ring +1
-       {H, STR_HAS_DIED_FROM_A_FATAL_WOUND, own, okbox} and the host's OK box
-       with TEXT_MR2 recorded, closed by its OK button (the only host box of the
-       cycle); client ring +1 {H, same key, partner, notice, queued Q_MR2}; the
-       client's warningText == TEXT_MR2. RED: both rings empty.
-  MR7  alien panic (cycle 3, D170 (a)). A morale 0 (both); host set_seed
-       SEED_MR7 right before its END TURN press; A panics (mode MR7_MODE) at the
-       hostile side start: panic {unit A, mode MR7_MODE} then its bt_action_end
-       (seq0+3, seq0+4). GREEN: host ring +1 {A, MR7_KEY, other, box} and the
-       host's box with TEXT_MR7 recorded (vanilla on the host); client ring +1
-       {A, MR7_KEY, other, box}. RED: both rings empty.
-  MR2b battleNotifyDeath (ST3 (a)): host battle_action kill_unit_real {unit C}
-       (DT_AP): death {unit C, damageType 1, outcome dead} at seq0+1, corpse at
-       seq0+2. GREEN: host ring +1 {C, STR_HAS_BEEN_KILLED, partner, notice}; no
-       host infobox; the host's warningText == TEXT_MR2B; client ring +1 {C, same
-       key, own, box, queued Q_MR2B}. RED: both rings empty; the host's
-       InfoboxState with TEXT_MR2B recorded.
+rejoin_entry_notice runs on its OWN boot, the rejoin boot, once the main boot's instances are shut down (after
+client_killed the client's seat has no live soldier left for a two-seat END TURN cycle): test_rejoin_end_turn's
+parallel boot (test_death_side's default map) on lobby PORT_REJOIN, one END TURN cycle, the client leaves, a fresh
+process (client2) arms hold_battle_ready {on: true} and rejoins, the host presses RESUME and stays in phase Handshake
+(client2's battle_ready stashed).
+  (a) ONE real host map input (HOME) in Handshake: the host's coopWaitText == TEXT_WAITING_FOR_JOIN and its
+      coopHostInputFrozenRefusals grew. (b) client2's hold_battle_ready {on: false} sends battle_ready: phase Active
+      on both, the notice still up (the host's peerAbsent false, battleId unchanged). (c) ONE END TURN cycle (client2
+      presses first): turn +1 and the player side on both, coopEndTurnPhaseCounter equal on both, desyncSeen false on
+      both, no cycle note. (d) the host's coopWaitText == "" after its first own-side side_begin
+      (CoopBattleUi::clearEntryNotices): the host's evs after the cycle's seq0 carry CYCLE_SIDE_TRANSITIONS
+      side_begins (hostile, neutral, then player: the last is its own side's; no ev payload probe names the side). (e)
+      hash clean on both (full). The host's banner transitions during the cycle are recorded, not asserted. A
+      construction step past its bound is a setup failure: one CAPTURE line (every machine's event_state,
+      battle_state, dialog, stack).
 
-QR2r (AMENDMENT P6-6 Q1 (b); SM-1, SM-2; re-added after W2-H14) runs on its
-OWN boot R once boot M's instances are shut down (after MR2b the client's seat
-has no live soldier left for a two-seat END TURN cycle): test_rejoin_end_turn's
-parallel boot P (test_death_side's default map) on lobby PORT_QR2R, one END
-TURN cycle, the client leaves, a fresh process (client2) arms
-hold_battle_ready {on: true} and rejoins, the host presses RESUME and stays in
-phase Handshake (client2's battle_ready stashed).
-  QR2r (a) ONE real host map input (HOME) in Handshake: the host's
-       coopWaitText == TEXT_WAITING_FOR_JOIN and its
-       coopHostInputFrozenRefusals grew. (b) client2's hold_battle_ready
-       {on: false} sends battle_ready: phase Active on both, the notice still
-       up (the host's peerAbsent false, battleId unchanged). (c) ONE END TURN
-       cycle (client2 presses first): turn +1 and the player side on both,
-       coopEndTurnPhaseCounter equal on both, desyncSeen false on both, no
-       cycle note. (d) the host's coopWaitText == "" after its first own-side
-       side_begin (S-M's clearEntryNotices): the host's evs after the cycle's
-       seq0 carry CYCLE_SIDE_TRANSITIONS side_begins (hostile, neutral, then
-       player: the last is its own side's; no ev payload probe names the
-       side). (e) hash clean on both (full). The host's
-       banner transitions during the cycle are recorded, not asserted. A
-       construction step past its bound is a setup failure: one CAPTURE line
-       (every machine's event_state, battle_state, dialog, stack).
-The EQUIP_FROZEN next-stage clear has no caller since MG-A (a stage change
-re-offers its equip phase, F5097).
+No row covers an EQUIP_FROZEN notice carried into a next stage: a stage change re-offers its equip phase, so that
+clear has no caller.
 
-Every MR row asserts the exact new ring records (unit, key, owner, presenter;
-`queued` where pinned) on each machine, in order, and nothing else for the row.
-`queued` (T0a-3, two runs on the S-M.1 build, the client's `seen` records): the
-decision for a death is made at its corpse (OR2 (a)), which applied under
-BattlescapeState in MR1, MR2 and MR2b (Q_MR1, Q_MR2, Q_MR2B false; the deaths
-themselves applied under the client's NextTurnState in MR1 and MR2); MR7's panic
-applied under the client's NextTurnState in both runs, but by a one-frame race
-(the host panics in its first frame after its own NextTurnState closes while the
-cycle closes the client's NextTurnState two round trips later), so MR7's
-`queued` is recorded, never asserted. The relative ev pins are T0a-2r's
-(F4000/F4001: equal relative to each row's seq0 on two runs; the absolute seqs
-are read from the run and printed). After every row the client's message queue
-is empty and its top is BattlescapeState within MSG_QUIET_S (a bounded wait, so
-a 2 s client box never spans two rows; recorded). Common asserts per row: every
-bucket EQUAL, desyncSeen false on both.
+Every message row asserts the exact new ring records (unit, key, owner, presenter; `queued` where pinned) on each
+machine, in order, and nothing else for the row. `queued` (measured on two runs from the client's `seen` records): the
+decision for a death is made at its corpse, which applied under BattlescapeState in client_bleeds_out, host_bleeds_out
+and client_killed (QUEUED_CLIENT_FATAL, QUEUED_HOST_FATAL, QUEUED_CLIENT_KILLED false; the deaths themselves applied
+under the client's NextTurnState in client_bleeds_out and host_bleeds_out); alien_panics' panic applied under the
+client's NextTurnState in both runs, but by a one-frame race (the host panics in its first frame after its own
+NextTurnState closes while the cycle closes the client's NextTurnState two round trips later), so its `queued` is
+recorded, never asserted. The ev pins are relative to each row's seq0 (equal on two runs; the absolute seqs are read
+from the run and printed). After every row the client's message queue is empty and its top is BattlescapeState within
+MSG_QUIET_S (a bounded wait, so a 2 s client box never spans two rows; recorded). Common asserts per row: every bucket
+EQUAL, desyncSeen false on both.
 
-Probe (commit S-M.1, CoopBattleUi.h messagesProbe()): event_state `messages`
-{counts: {box, okbox, notice, pause, none, queued, droppedAtBattleEnd},
-queueDepth, ring: [{seq, kind, unit, key, owner, presenter, queued, queuedAtMs,
-shownAtMs}], seen: [{seq, kind, unit, top}] (client)}. A row's new records are
-the ring's tail by the presenter counts' growth. The EVIDENCE line of each row
-carries the client's `seen` records (T0a-3: the client's top state at each
-applied death / corpse / panic / psi / spawn).
+Probe (CoopBattleUi.h messagesProbe()): event_state `messages` {counts: {box, okbox, notice, pause, none, queued,
+droppedAtBattleEnd}, queueDepth, ring: [{seq, kind, unit, key, owner, presenter, queued, queuedAtMs, shownAtMs}],
+seen: [{seq, kind, unit, top}] (client)}. A row's new records are the ring's tail by the presenter counts' growth. The
+EVIDENCE line of each row carries the client's `seen` records (the client's top state at each applied death / corpse /
+panic / psi / spawn).
 
-Ports (AMENDMENT P6-5 C-M6, F3205): GameClient 49990 / 49991, lobby PORT 48639.
-Boot R: lobby PORT_QR2R 48649 (0 uses in tools/coop_test at 3a69eab19); its
-GameClient ports are labels only (each instance writes its own port file).
+Ports: GameClient 49990 / 49991, lobby PORT 48639. The rejoin boot: lobby PORT_REJOIN 48649; its instances pick their
+own GameClient ports (each writes its own port file).
 
-RED-THEN-GREEN (spec section (d) row S-M; P6a review section 3 as amended by
-P6-6 section 5 with Q1 (a)). Commit S-M.1 is run ONCE: exit 2 with exactly MR1,
-MR2, MR7 and MR2b failing (each on its RED above) and QR2 passing. Commit S-M.2
-is run ONCE: all five pass. Commit S-M.3 (QR2r, after W2-H14) is run ONCE: all
-six pass. Each row prints ONE "EVIDENCE <id>:" line before its
-conditions are checked; main() runs every row even after an earlier one failed
-and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait
-that times out is recorded in the EVIDENCE line and fails the row.
+Without the fix the four message rows fail (each as described above) and no_stale_entry_notice passes; with it all six
+rows pass. Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked; main() runs every row even
+after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a wait that times
+out is recorded in the EVIDENCE line and fails the row.
 
-one run is the result. No skip path, no retry boot, no
-alternative map or actor. Exit 0 only when all six rows pass, 2 otherwise (a
-bring-up failure is also 2). run in the foreground to completion.
+One run is the result. No skip path, no retry boot, no alternative map or actor. Exit 0 only when all six rows pass, 2
+otherwise (a bring-up failure is also 2). Run in the foreground to completion.
 
 Run:  python tools/coop_test/test_messages.py
 """
@@ -146,8 +110,8 @@ from test_delta_core import end_turn_cycle
 from test_skirmish_rejoin_battle import (drop_client_mid_battle, rejoin_skirmish, dialog, in_battle_save, has,
                                          COOP_DLG_WAIT_PLAYERS, COOP_DLG_CLIENT_RESUME_HOLD)
 
-# ----- bring-up (the test_turn_cues.py default-map boot; W2-P6a TASK 0a T0a-2, re-measured by T0a-2r) -----
-PORT = "48639"                   # AMENDMENT P6-5 C-M6 (F3205: 0 uses at the tip)
+# ----- bring-up (the test_turn_cues.py default-map boot) -----
+PORT = "48639"                   # no other test uses this lobby port
 HOST_PORT, CLIENT_PORT = 49990, 49991
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint
@@ -157,54 +121,54 @@ C_ID, C2_ID, H_ID, A_ID = 8, 9, 10, 1000000
 NAMES = {8: "Henryk Pawlowski", 9: "Holger Schwarz", 10: "Henryk Kaminski", 1000000: "Sectoid Soldier"}   # SEED_ROSTER
 FACTION_PLAYER = 0
 STATUS_DEAD = 6                  # src/Mod/Unit.h UnitStatus
-OPTIONS = {"battleNotifyDeath": True}   # ST3 (a), both instances
+OPTIONS = {"battleNotifyDeath": True}   # both instances: vanilla's "has been killed" box is off by default
 
-# ----- the rows (T0a-2 / T0a-2r; F1728: "\n" between the name and the phrase, capital P) -----
+# ----- the rows (the texts: "\n" between the name and the phrase, capital P in "Panicked") -----
 STAGE_HEALTH = 1
 STAGE_WOUNDS = [0, 1, 0, 0, 0, 0]        # head, torso, rarm, larm, rleg, lleg: one torso wound
 KEY_FATAL = "STR_HAS_DIED_FROM_A_FATAL_WOUND"
 KEY_KILLED = "STR_HAS_BEEN_KILLED"
 KEY_PANICKED = "STR_HAS_PANICKED"
 KEY_BERSERK = "STR_HAS_GONE_BERSERK"
-TEXT_MR1 = "Holger Schwarz\nhas died from a fatal wound"
-TEXT_MR2 = "Henryk Kaminski\nhas died from a fatal wound"
-TEXT_MR2B = "Henryk Pawlowski\nhas been killed"
-SEED_MR7 = 1                     # host set_seed right before its cycle-3 END TURN press
-MR7_MODE = "flee"                # PIN: re-measured under F1726's order on the S-M.1 build, two runs
-MR7_KEY = KEY_PANICKED           # flee / freeze -> STR_HAS_PANICKED; berserk -> STR_HAS_GONE_BERSERK
-TEXT_MR7 = "Sectoid Soldier\nhas Panicked"
-# PIN (T0a-3, two runs): the client's top at each row's decision point - a death's corpse (OR2 (a)) - was
-# BattlescapeState (MR7's panic: a one-frame race, recorded only)
-Q_MR1 = False
-Q_MR2 = False
-Q_MR2B = False
-# the host's evs after each row's seq0, as (kind, actionId) - T0a-2r, equal relative to seq0
+TEXT_CLIENT_FATAL = "Holger Schwarz\nhas died from a fatal wound"
+TEXT_HOST_FATAL = "Henryk Kaminski\nhas died from a fatal wound"
+TEXT_CLIENT_KILLED = "Henryk Pawlowski\nhas been killed"
+SEED_PANIC = 1                   # host set_seed right before its cycle-3 END TURN press
+PANIC_MODE = "flee"              # measured on two runs with the rows in this order
+PANIC_KEY = KEY_PANICKED         # flee / freeze -> STR_HAS_PANICKED; berserk -> STR_HAS_GONE_BERSERK
+TEXT_ALIEN_PANIC = "Sectoid Soldier\nhas Panicked"
+# measured on two runs: the client's top at each row's decision point - a death's corpse - was
+# BattlescapeState (alien_panics' panic: a one-frame race, recorded only)
+QUEUED_CLIENT_FATAL = False
+QUEUED_HOST_FATAL = False
+QUEUED_CLIENT_KILLED = False
+# the host's evs after each row's seq0, as (kind, actionId) - equal relative to seq0 on two runs
 CYCLE_ST = [("side_transition", 0), ("side_begin", 0)]
-MR1_EVS = CYCLE_ST * 3 + [("death", 0), ("corpse", 0)]
-MR2_EVS = MR1_EVS
-MR2B_EVS = [("death", 0), ("corpse", 0)]
-MR7_KINDS = ["side_transition", "side_begin", "panic", "bt_action_end", "side_transition", "side_begin",
-             "side_transition", "side_begin"]
+CLIENT_FATAL_EVS = CYCLE_ST * 3 + [("death", 0), ("corpse", 0)]
+HOST_FATAL_EVS = CLIENT_FATAL_EVS
+KILLED_EVS = [("death", 0), ("corpse", 0)]
+PANIC_KINDS = ["side_transition", "side_begin", "panic", "bt_action_end", "side_transition", "side_begin",
+               "side_transition", "side_begin"]
 
-# ----- QR2r: boot R -----
-PORT_QR2R = "48649"              # boot R's lobby port (0 uses in tools/coop_test at 3a69eab19)
+# ----- rejoin_entry_notice: the rejoin boot -----
+PORT_REJOIN = "48649"            # the rejoin boot's lobby port (no other test uses it)
 TEXT_WAITING_FOR_JOIN = "Waiting for the other player to join the battle"   # STR_COOP_WAITING_FOR_JOIN (en-US)
 SDLK_HOME = 278                  # Options::keyBattleCenterUnit default: the ONE real host map input
-QR2R_NOTICE_S = 5.0              # the notice up and the refusal counted after the HOME key
-QR2R_ACTIVE_S = 30.0             # phase Active on both after the release
+REJOIN_NOTICE_S = 5.0            # the notice up and the refusal counted after the HOME key
+REJOIN_ACTIVE_S = 30.0           # phase Active on both after the release
 
 # ----- waits -----
 CYCLE_TIMEOUT_S = 90
 SETTLE_TIMEOUT_S = 30
 CLIENT_SETTLE_S = 20
-OK_BOX_WAIT_S = 5.0              # MR1: the client's OK box comes up (green); at red the wait runs out
+OK_BOX_WAIT_S = 5.0              # client_bleeds_out: the client's OK box comes up (without the fix the wait runs out)
 MSG_QUIET_S = 10.0               # the client's message queue empty and BattlescapeState on top after a row
 
 PRESENTERS = ("box", "okbox", "notice", "pause", "none")
 INFOBOX_RE = re.compile(r"\[coop-ui\] push class OpenXcom::(Infobox\w*) depth=(\d+)")
 
 
-# ===================== the messages probe (shared with the other S-M files) =====================
+# ===================== the messages probe (other message tests import it) =====================
 
 
 def messages(gc):
@@ -214,12 +178,12 @@ def messages(gc):
 
 
 def msg_probe_fails(gc):
-    """[] when this machine carries the S-M.1 `messages` probe with its full shape."""
+    """[] when this machine carries the `messages` probe with its full shape."""
     m = messages(gc)
     c = m.get("counts") if isinstance(m.get("counts"), dict) else {}
     if (not all(k in c for k in PRESENTERS + ("queued", "droppedAtBattleEnd")) or "queueDepth" not in m
             or not isinstance(m.get("ring"), list) or not isinstance(m.get("seen"), list)):
-        return [f"{gc.name} event_state lacks the `messages` probe (S-M.1): {m!r}"]
+        return [f"{gc.name} event_state lacks the `messages` probe: {m!r}"]
     return []
 
 
@@ -269,7 +233,7 @@ def msg_delta(before, after):
 
 
 def seen_since(m, seq0):
-    """The client's `seen` records after seq0 as (seq, kind, unit, top) - T0a-3's reading."""
+    """The client's `seen` records after seq0 as (seq, kind, unit, top)."""
     return [(r.get("seq"), r.get("kind"), r.get("unit"), r.get("top")) for r in (m or {}).get("seen") or []
             if (r.get("seq") or 0) > seq0]
 
@@ -501,13 +465,13 @@ def dead_fails(rec, uid, what):
 
 
 def death_fails(rec, uid, damage_type, evs, what):
-    """The fixture premise (T0a-2r, relative to seq0): the host's evs and the death / corpse payloads."""
+    """The fixture premise (relative to seq0): the host's evs and the death / corpse payloads."""
     fails = []
     got = [(o, k, a) for o, k, a in rel_evs(rec)]
     want_evs = [(i + 1, k, a) for i, (k, a) in enumerate(evs)]
     if got != want_evs:
         fails.append(f"{what}: precondition: host evs after seq0 {rec['seq0']} (offset, kind, actionId) {got} (want "
-                     f"{want_evs}, T0a-2r)")
+                     f"{want_evs})")
     d = payload_of(rec, "death", uid)
     c = payload_of(rec, "corpse", uid)
     dp = d[0][1] if d else {}
@@ -531,14 +495,14 @@ def finish(fails):
 # ===================== rows =====================
 
 
-def mr1_fatal_wound_client(host, client, ctx):
-    rec = begin(host, client, "MR1")
+def row_client_bleeds_out(host, client, ctx):
+    rec = begin(host, client, "client_bleeds_out")
     staged = stage_wounds(host, client, C2_ID)
     staged_diff = diff_buckets(host, client)
     cycle(host, client, None, rec, "cycle 1")
     end(host, client, rec)
-    ctx["qr2"] = {"after": rec["bannersAfter"], "notes": list(rec["notes"])}
-    # the client's OK box (green): a bounded wait, then its texts; closed by its OK button after the reads
+    ctx["first_cycle"] = {"after": rec["bannersAfter"], "notes": list(rec["notes"])}
+    # the client's OK box: a bounded wait, then its texts; closed by its OK button after the reads
     box = {"top0": top(client)}
     try:
         client.wait_for("the client's OK box", lambda: top(client) == "InfoboxOKState" or None, timeout=OK_BOX_WAIT_S)
@@ -559,46 +523,50 @@ def mr1_fatal_wound_client(host, client, ctx):
             box["closeWait"] = short(e)
         box["after"] = top(client)
     quiet = client_quiet(client)
-    print(f"EVIDENCE MR1: staged C2 {staged} stagedDiff={staged_diff}; client box={box}; quiet={quiet}; "
+    print(f"EVIDENCE client_bleeds_out: staged C2 {staged} stagedDiff={staged_diff}; client box={box}; quiet={quiet}; "
           f"{evidence(rec)}", flush=True)
     fails = list(rec["notes"])
     if staged_diff:
-        fails.append(f"MR1: buckets differ after the staging: {staged_diff} (want none)")
-    fails += death_fails(rec, C2_ID, 0, MR1_EVS, "MR1")
-    fails += msg_rows_fails("MR1", "host", d["host"], [want(C2_ID, KEY_FATAL, "partner", "notice")])
-    fails += msg_rows_fails("MR1", "client", dc, [want(C2_ID, KEY_FATAL, "own", "okbox", queued=Q_MR1)])
+        fails.append(f"client_bleeds_out: buckets differ after the staging: {staged_diff} (want none)")
+    fails += death_fails(rec, C2_ID, 0, CLIENT_FATAL_EVS, "client_bleeds_out")
+    fails += msg_rows_fails("client_bleeds_out", "host", d["host"], [want(C2_ID, KEY_FATAL, "partner", "notice")])
+    fails += msg_rows_fails("client_bleeds_out", "client", dc,
+                            [want(C2_ID, KEY_FATAL, "own", "okbox", queued=QUEUED_CLIENT_FATAL)])
     if dc and not (dc[0].get("shownAtMs") or 0) > 0:
-        fails.append(f"MR1: the client's record {msg_view(dc[0])} was never shown (want shownAtMs > 0)")
+        fails.append(f"client_bleeds_out: the client's record {msg_view(dc[0])} was never shown (want shownAtMs > 0)")
     if rec["hostBoxes"] or rec["logBoxes"]:
-        fails.append(f"MR1: the host showed infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) (want none: "
-                     f"a message about the partner's soldier never pauses the host, D132)")
-    if rec["bannersAfter"]["host"]["warningText"] != TEXT_MR1:
-        fails.append(f"MR1: the host's warningText {rec['bannersAfter']['host']['warningText']!r} (want the notice "
-                     f"{TEXT_MR1!r})")
-    if box["top"] != "InfoboxOKState" or TEXT_MR1 not in (box.get("texts") or []):
-        fails.append(f"MR1: the client's top {box['top']!r} texts {box.get('texts')} (want InfoboxOKState with "
-                     f"{TEXT_MR1!r}: vanilla's OK box for its own soldier)")
+        fails.append(f"client_bleeds_out: the host showed infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) "
+                     f"(want none: a message about the partner's soldier never pauses the host)")
+    if rec["bannersAfter"]["host"]["warningText"] != TEXT_CLIENT_FATAL:
+        fails.append(f"client_bleeds_out: the host's warningText {rec['bannersAfter']['host']['warningText']!r} (want "
+                     f"the notice {TEXT_CLIENT_FATAL!r})")
+    if box["top"] != "InfoboxOKState" or TEXT_CLIENT_FATAL not in (box.get("texts") or []):
+        fails.append(f"client_bleeds_out: the client's top {box['top']!r} texts {box.get('texts')} (want "
+                     f"InfoboxOKState with {TEXT_CLIENT_FATAL!r}: vanilla's OK box for its own soldier)")
     elif box.get("after") != "BattlescapeState":
-        fails.append(f"MR1: the client's OK box did not close by its OK button (top after {box.get('after')!r})")
+        fails.append(f"client_bleeds_out: the client's OK box did not close by its OK button (top after "
+                     f"{box.get('after')!r})")
     if not quiet["ok"]:
-        fails.append(f"MR1: the client's message queue / top after the row {quiet} (want empty, BattlescapeState)")
-    fails += dead_fails(rec, C2_ID, "MR1")
-    fails += common_fails(rec, "MR1")
+        fails.append(f"client_bleeds_out: the client's message queue / top after the row {quiet} (want empty, "
+                     f"BattlescapeState)")
+    fails += dead_fails(rec, C2_ID, "client_bleeds_out")
+    fails += common_fails(rec, "client_bleeds_out")
     finish(fails)
 
 
-def qr2_entry_notice(host, client, ctx):
-    q = ctx.get("qr2")
-    print(f"EVIDENCE QR2: MR1's cycle banners after={q}", flush=True)
+def row_no_stale_entry_notice(host, client, ctx):
+    q = ctx.get("first_cycle")
+    print(f"EVIDENCE no_stale_entry_notice: client_bleeds_out's cycle banners after={q}", flush=True)
     if q is None:
-        finish(["QR2: precondition: MR1's cycle never ran"])
+        finish(["no_stale_entry_notice: precondition: client_bleeds_out's cycle never ran"])
     got = (q["after"]["host"]["coopWaitText"], q["after"]["client"]["coopWaitText"])
     if got != ("", ""):
-        finish([f"QR2: coopWaitText host/client after cycle 1 {got} (want '' on both: no stale entry notice, F1270)"])
+        finish([f"no_stale_entry_notice: coopWaitText host/client after cycle 1 {got} (want '' on both: no stale entry "
+                f"notice)"])
 
 
-def mr2_fatal_wound_host(host, client, ctx):
-    rec = begin(host, client, "MR2")
+def row_host_bleeds_out(host, client, ctx):
+    rec = begin(host, client, "host_bleeds_out")
     staged = stage_wounds(host, client, H_ID)
     staged_diff = diff_buckets(host, client)
     cycle(host, client, None, rec, "cycle 2")
@@ -606,102 +574,108 @@ def mr2_fatal_wound_host(host, client, ctx):
     quiet = client_quiet(client)
     rec["ma"]["client"] = messages(client)
     d = msg_delta(rec["mb"], rec["ma"])
-    print(f"EVIDENCE MR2: staged H {staged} stagedDiff={staged_diff}; quiet={quiet}; {evidence(rec)}", flush=True)
+    print(f"EVIDENCE host_bleeds_out: staged H {staged} stagedDiff={staged_diff}; quiet={quiet}; "
+          f"{evidence(rec)}", flush=True)
     fails = list(rec["notes"])
     if staged_diff:
-        fails.append(f"MR2: buckets differ after the staging: {staged_diff} (want none)")
-    fails += death_fails(rec, H_ID, 0, MR2_EVS, "MR2")
-    fails += msg_rows_fails("MR2", "host", d["host"], [want(H_ID, KEY_FATAL, "own", "okbox")])
-    fails += msg_rows_fails("MR2", "client", d["client"], [want(H_ID, KEY_FATAL, "partner", "notice", queued=Q_MR2)])
-    boxes = [(b["top"], TEXT_MR2 in (b["texts"] or []), b["closed"][0]) for b in rec["hostBoxes"]]
+        fails.append(f"host_bleeds_out: buckets differ after the staging: {staged_diff} (want none)")
+    fails += death_fails(rec, H_ID, 0, HOST_FATAL_EVS, "host_bleeds_out")
+    fails += msg_rows_fails("host_bleeds_out", "host", d["host"], [want(H_ID, KEY_FATAL, "own", "okbox")])
+    fails += msg_rows_fails("host_bleeds_out", "client", d["client"],
+                            [want(H_ID, KEY_FATAL, "partner", "notice", queued=QUEUED_HOST_FATAL)])
+    boxes = [(b["top"], TEXT_HOST_FATAL in (b["texts"] or []), b["closed"][0]) for b in rec["hostBoxes"]]
     if boxes != [("InfoboxOKState", True, "ok button")] or rec["logBoxes"] != ["InfoboxOKState"]:
-        fails.append(f"MR2: the host's infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) (want exactly its "
-                     f"own OK box with {TEXT_MR2!r}, closed by its OK button)")
-    if rec["bannersAfter"]["client"]["warningText"] != TEXT_MR2:
-        fails.append(f"MR2: the client's warningText {rec['bannersAfter']['client']['warningText']!r} (want the "
-                     f"notice {TEXT_MR2!r})")
+        fails.append(f"host_bleeds_out: the host's infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) (want "
+                     f"exactly its own OK box with {TEXT_HOST_FATAL!r}, closed by its OK button)")
+    if rec["bannersAfter"]["client"]["warningText"] != TEXT_HOST_FATAL:
+        fails.append(f"host_bleeds_out: the client's warningText {rec['bannersAfter']['client']['warningText']!r} "
+                     f"(want the notice {TEXT_HOST_FATAL!r})")
     if not quiet["ok"]:
-        fails.append(f"MR2: the client's message queue / top after the row {quiet} (want empty, BattlescapeState)")
-    fails += dead_fails(rec, H_ID, "MR2")
-    fails += common_fails(rec, "MR2")
+        fails.append(f"host_bleeds_out: the client's message queue / top after the row {quiet} (want empty, "
+                     f"BattlescapeState)")
+    fails += dead_fails(rec, H_ID, "host_bleeds_out")
+    fails += common_fails(rec, "host_bleeds_out")
     finish(fails)
 
 
-def mr7_alien_panic(host, client, ctx):
-    rec = begin(host, client, "MR7")
+def row_alien_panics(host, client, ctx):
+    rec = begin(host, client, "alien_panics")
     m = both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "morale": 0}, ("morale",))
     staged_diff = diff_buckets(host, client)
-    cycle(host, client, SEED_MR7, rec, "cycle 3")
+    cycle(host, client, SEED_PANIC, rec, "cycle 3")
     end(host, client, rec)
     quiet = client_quiet(client)
     rec["ma"]["client"] = messages(client)
     d = msg_delta(rec["mb"], rec["ma"])
     panics = payload_of(rec, "panic", A_ID)
-    print(f"EVIDENCE MR7: A morale response={m.get('morale')} stagedDiff={staged_diff}; seed {SEED_MR7}; A panics "
-          f"(seq, payload)={panics}; quiet={quiet}; {evidence(rec)}", flush=True)
+    print(f"EVIDENCE alien_panics: A morale response={m.get('morale')} stagedDiff={staged_diff}; seed {SEED_PANIC}; A "
+          f"panics (seq, payload)={panics}; quiet={quiet}; {evidence(rec)}", flush=True)
     fails = list(rec["notes"])
     if m.get("morale") != 0 or staged_diff:
-        fails.append(f"MR7: staging morale {m.get('morale')} diff {staged_diff} (want 0, none)")
+        fails.append(f"alien_panics: staging morale {m.get('morale')} diff {staged_diff} (want 0, none)")
     kinds = [k for _, k, _ in rec["hev"]]
     ids = {k: a for _, k, a in rec["hev"] if k in ("panic", "bt_action_end")}
-    if kinds != MR7_KINDS or not ids.get("panic") or ids.get("panic") != ids.get("bt_action_end") \
+    if kinds != PANIC_KINDS or not ids.get("panic") or ids.get("panic") != ids.get("bt_action_end") \
             or [(s - rec["seq0"]) for s, k, _ in rec["hev"] if k == "panic"] != [3]:
-        fails.append(f"MR7: precondition: host evs after seq0 {rec['seq0']} {rec['hev']} (want kinds {MR7_KINDS}, the "
-                     f"panic at seq0+3 and its bt_action_end in one context, T0a-2r)")
-    if len(panics) != 1 or panics[0][1].get("mode") != MR7_MODE:
-        fails.append(f"MR7: precondition: A's panic cues {panics} (want one with mode {MR7_MODE!r})")
-    fails += msg_rows_fails("MR7", "host", d["host"], [want(A_ID, MR7_KEY, "other", "box")])
-    fails += msg_rows_fails("MR7", "client", d["client"], [want(A_ID, MR7_KEY, "other", "box")])
-    boxes = [(b["top"], TEXT_MR7 in (b["texts"] or [])) for b in rec["hostBoxes"]]
+        fails.append(f"alien_panics: precondition: host evs after seq0 {rec['seq0']} {rec['hev']} (want kinds "
+                     f"{PANIC_KINDS}, the panic at seq0+3 and its bt_action_end in one context)")
+    if len(panics) != 1 or panics[0][1].get("mode") != PANIC_MODE:
+        fails.append(f"alien_panics: precondition: A's panic cues {panics} (want one with mode {PANIC_MODE!r})")
+    fails += msg_rows_fails("alien_panics", "host", d["host"], [want(A_ID, PANIC_KEY, "other", "box")])
+    fails += msg_rows_fails("alien_panics", "client", d["client"], [want(A_ID, PANIC_KEY, "other", "box")])
+    boxes = [(b["top"], TEXT_ALIEN_PANIC in (b["texts"] or [])) for b in rec["hostBoxes"]]
     if boxes != [("InfoboxState", True)] or rec["logBoxes"] != ["InfoboxState"]:
-        fails.append(f"MR7: the host's infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) (want exactly "
-                     f"vanilla's box with {TEXT_MR7!r}, D170 (a))")
+        fails.append(f"alien_panics: the host's infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) (want "
+                     f"exactly vanilla's box with {TEXT_ALIEN_PANIC!r}: a unit no player owns)")
     if not quiet["ok"]:
-        fails.append(f"MR7: the client's message queue / top after the row {quiet} (want empty, BattlescapeState)")
-    fails += common_fails(rec, "MR7")
+        fails.append(f"alien_panics: the client's message queue / top after the row {quiet} (want empty, "
+                     f"BattlescapeState)")
+    fails += common_fails(rec, "alien_panics")
     finish(fails)
 
 
-def mr2b_killed(host, client, ctx):
-    rec = begin(host, client, "MR2b")
+def row_client_killed(host, client, ctx):
+    rec = begin(host, client, "client_killed")
     r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": C_ID})
-    lever = {k: r.get(k) for k in ("ok", "killed", "error")}
+    kill = {k: r.get(k) for k in ("ok", "killed", "error")}
     deadline = time.time() + 6
     while time.time() < deadline and not rec["hostBoxes"]:
-        poll_host_box(host, rec, "MR2b")
-        if (event_state(host).get("lastSeqEmitted") or 0) >= rec["seq0"] + len(MR2B_EVS) and host_idle(host):
+        poll_host_box(host, rec, "client_killed")
+        if (event_state(host).get("lastSeqEmitted") or 0) >= rec["seq0"] + len(KILLED_EVS) and host_idle(host):
             break
         time.sleep(0.03)
-    settle(host, client, rec, "MR2b")
+    settle(host, client, rec, "client_killed")
     end(host, client, rec)
     quiet = client_quiet(client)
     rec["ma"]["client"] = messages(client)
     d = msg_delta(rec["mb"], rec["ma"])
-    print(f"EVIDENCE MR2b: lever={lever}; quiet={quiet}; {evidence(rec)}", flush=True)
+    print(f"EVIDENCE client_killed: kill={kill}; quiet={quiet}; {evidence(rec)}", flush=True)
     fails = list(rec["notes"])
-    if not lever["ok"]:
-        fails.append(f"MR2b: precondition: kill_unit_real {lever}")
-    fails += death_fails(rec, C_ID, 1, MR2B_EVS, "MR2b")
-    fails += msg_rows_fails("MR2b", "host", d["host"], [want(C_ID, KEY_KILLED, "partner", "notice")])
-    fails += msg_rows_fails("MR2b", "client", d["client"], [want(C_ID, KEY_KILLED, "own", "box", queued=Q_MR2B)])
+    if not kill["ok"]:
+        fails.append(f"client_killed: precondition: kill_unit_real {kill}")
+    fails += death_fails(rec, C_ID, 1, KILLED_EVS, "client_killed")
+    fails += msg_rows_fails("client_killed", "host", d["host"], [want(C_ID, KEY_KILLED, "partner", "notice")])
+    fails += msg_rows_fails("client_killed", "client", d["client"],
+                            [want(C_ID, KEY_KILLED, "own", "box", queued=QUEUED_CLIENT_KILLED)])
     if rec["hostBoxes"] or rec["logBoxes"]:
-        fails.append(f"MR2b: the host showed infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) (want none, "
-                     f"D132)")
-    if rec["bannersAfter"]["host"]["warningText"] != TEXT_MR2B:
-        fails.append(f"MR2b: the host's warningText {rec['bannersAfter']['host']['warningText']!r} (want the notice "
-                     f"{TEXT_MR2B!r})")
+        fails.append(f"client_killed: the host showed infoboxes {rec['hostBoxes']} (log pushes {rec['logBoxes']}) "
+                     f"(want none: a message about the partner's soldier never pauses the host)")
+    if rec["bannersAfter"]["host"]["warningText"] != TEXT_CLIENT_KILLED:
+        fails.append(f"client_killed: the host's warningText {rec['bannersAfter']['host']['warningText']!r} (want the "
+                     f"notice {TEXT_CLIENT_KILLED!r})")
     if not quiet["ok"]:
-        fails.append(f"MR2b: the client's message queue / top after the row {quiet} (want empty, BattlescapeState)")
-    fails += dead_fails(rec, C_ID, "MR2b")
-    fails += common_fails(rec, "MR2b")
+        fails.append(f"client_killed: the client's message queue / top after the row {quiet} (want empty, "
+                     f"BattlescapeState)")
+    fails += dead_fails(rec, C_ID, "client_killed")
+    fails += common_fails(rec, "client_killed")
     finish(fails)
 
 
-# ===================== QR2r: boot R =====================
+# ===================== rejoin_entry_notice: the rejoin boot =====================
 
 
 def hold(gc, **kw):
-    """The test-only client lever hold_battle_ready: {on: true} arms it (the handshake stashes
+    """The client test command hold_battle_ready: {on: true} arms it (the handshake stashes
     battle_ready), {on: false} disarms it and sends the stash; without `on` it only reports."""
     req = {"cmd": "hold_battle_ready"}
     req.update(kw)
@@ -709,8 +683,8 @@ def hold(gc, **kw):
     return {k: r.get(k) for k in ("ok", "error", "armed", "held", "sent")}
 
 
-def qr2r_probe(gc):
-    """One machine's QR2r reading."""
+def rejoin_probe(gc):
+    """One machine's reading for rejoin_entry_notice."""
     b, e = battle_state(gc), event_state(gc)
     a = b.get("authority") or {}
     return {"top": top(gc), "phase": b.get("phase"), "turn": b.get("turn"), "side": b.get("side"),
@@ -719,9 +693,9 @@ def qr2r_probe(gc):
             "desyncSeen": e.get("desyncSeen")}
 
 
-def qr2r_cycle(host, c2, rec):
-    """cycle() for boot R (client2 presses first, the host once it paints END TURN 1/2, NextTurnStates closed on
-    both, both settled), with the host's banner sampled at every poll: (where, coopWaitText, side, turn) appended
+def rejoin_cycle(host, c2, rec):
+    """cycle() for the rejoin boot (client2 presses first, the host once it paints END TURN 1/2, NextTurnStates closed
+    on both, both settled), with the host's banner sampled at every poll: (where, coopWaitText, side, turn) appended
     when it changes. Bounded; a timeout goes to rec["notes"]. Returns the host's turn before the presses."""
     turn0 = battle_state(host).get("turn")
     samples = rec["samples"]
@@ -741,7 +715,7 @@ def qr2r_cycle(host, c2, rec):
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
         deadline = time.time() + CYCLE_TIMEOUT_S
         while True:
-            poll_host_box(host, rec, "QR2r cycle")
+            poll_host_box(host, rec, "rejoin_entry_notice cycle")
             dismiss_next_turn_if_present(host)
             dismiss_next_turn_if_present(c2)
             a, b = sample("cycle"), battle_state(c2)
@@ -749,20 +723,22 @@ def qr2r_cycle(host, c2, rec):
                     and b.get("side") == FACTION_PLAYER and (b.get("turn") or -1) >= turn0 + 1):
                 break
             if time.time() > deadline:
-                raise TimeoutError(f"QR2r cycle: no player turn {turn0 + 1} on both within {CYCLE_TIMEOUT_S}s: "
-                                   f"host=({a.get('turn')},{a.get('side')}) client2=({b.get('turn')},{b.get('side')})")
+                raise TimeoutError(f"rejoin_entry_notice cycle: no player turn {turn0 + 1} on both within "
+                                   f"{CYCLE_TIMEOUT_S}s: host=({a.get('turn')},{a.get('side')}) "
+                                   f"client2=({b.get('turn')},{b.get('side')})")
             time.sleep(0.05)
-        settle(host, c2, rec, "QR2r cycle")
+        settle(host, c2, rec, "rejoin_entry_notice cycle")
         sample("settled")
     except Exception as e:
-        rec["notes"].append(f"QR2r cycle: {short(e)}")
+        rec["notes"].append(f"rejoin_entry_notice cycle: {short(e)}")
     return turn0
 
 
-def qr2r_drive(host, client, m, rec, ev):
-    """Boot R's construction (each step bounded; a miss is a setup failure with one CAPTURE line of every machine in
-    `m`), the HOME key, the release and the END TURN cycle. Fills `ev`; returns the failing cells."""
-    rej.step("QR2r boot R (test_rejoin_end_turn boot P)", lambda: rej.boot(host, client, PORT_QR2R, False), m)
+def rejoin_drive(host, client, m, rec, ev):
+    """The rejoin boot's construction (each step bounded; a miss is a setup failure with one CAPTURE line of every
+    machine in `m`), the HOME key, the release and the END TURN cycle. Fills `ev`; returns the failing cells."""
+    rej.step("rejoin_entry_notice boot (test_rejoin_end_turn's parallel boot)",
+             lambda: rej.boot(host, client, PORT_REJOIN, False), m)
     pre, notes = {"host": rej.snap(host), "client": rej.snap(client)}, []
     end_turn_cycle(host, client, notes)       # the host's side-phase counter is past 0 at the pause
     post = {"host": rej.snap(host), "client": rej.snap(client)}
@@ -774,26 +750,26 @@ def qr2r_drive(host, client, m, rec, ev):
                 or b[rej.PC] != rej.K_PARALLEL or b["desyncSeen"]:
             bad.append(f"{w} turn/side {a['turn']}/{a['side']} -> {b['turn']}/{b['side']} {rej.PC} {b[rej.PC]} "
                        f"desyncSeen {b['desyncSeen']} (want +1, player, K_PARALLEL = {rej.K_PARALLEL}, false)")
-    rej.check("QR2r pre-leave END TURN cycle", bad, m)
+    rej.check("rejoin_entry_notice pre-leave END TURN cycle", bad, m)
     bid0 = (battle_state(host).get("authority") or {}).get("battleId")
-    rej.step("QR2r 1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
+    rej.step("rejoin_entry_notice 1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
     ev["pause"] = rej.snap(host)
-    c2 = GameClient("rejoin", None, make_user_dir("w2p6a_messages_qr2r_rejoin", options=OPTIONS))
+    c2 = GameClient("rejoin", None, make_user_dir("messages_rejoin_client2", options=OPTIONS))
     m.append(c2)
-    rej.step("QR2r 3 client2 spawn and connect", lambda: (c2.spawn(), c2.connect()), m)
+    rej.step("rejoin_entry_notice 3 client2 spawn and connect", lambda: (c2.spawn(), c2.connect()), m)
     ev["arm"] = hold(c2, on=True)
-    rej.check("QR2r hold_battle_ready {on: true} on client2", [] if (
+    rej.check("rejoin_entry_notice hold_battle_ready {on: true} on client2", [] if (
         ev["arm"]["ok"] and ev["arm"]["armed"] is True and not ev["arm"]["held"]) else [f"arm {ev['arm']}"], m)
-    rej.step("QR2r 4 rejoin_skirmish", lambda: rejoin_skirmish(c2, PORT_QR2R), m)
+    rej.step("rejoin_entry_notice 4 rejoin_skirmish", lambda: rejoin_skirmish(c2, PORT_REJOIN), m)
 
-    def s5():
+    def back_in_battle():
         c2.wait_for("client2 back in the battle", lambda: in_battle_save(c2) or None, timeout=240)
         c2.wait_for("client2 held on dialog 68 over BattlescapeState",
                     lambda: (has(c2, "BattlescapeState")
                              and dialog(c2).get("code") == COOP_DLG_CLIENT_RESUME_HOLD) or None,
                     timeout=60, interval=0.5)
 
-    def s6():
+    def resume_offered():
         def offered():
             if session.has_state(host, "Profile"):        # the join's popup sits over the dialog
                 return host.cmd({"cmd": "profile_ok"}) and None
@@ -802,19 +778,20 @@ def qr2r_drive(host, client, m, rec, ev):
         d = dialog(host)
         assert d.get("code") == COOP_DLG_WAIT_PLAYERS and d.get("backText") == "RESUME", f"host dialog {d}"
 
-    def s7():
+    def press_resume():
         host.ok({"cmd": "coop_dialog_back"})
         for gc in (host, c2):
             gc.wait_for(f"{gc.name} top BattlescapeState", lambda gc=gc: (top(gc) == "BattlescapeState") or None,
                         timeout=120, interval=0.5)
-    rej.step("QR2r 5 client2 in the battle, held on dialog 68", s5, m)
+    rej.step("rejoin_entry_notice 5 client2 in the battle, held on dialog 68", back_in_battle, m)
     ev["held"] = hold(c2)
-    rej.step("QR2r 6 host offers RESUME", s6, m)
-    ev["hostBeforeResume"] = dict(qr2r_probe(host), dialog=dialog(host))
-    rej.step("QR2r 7 RESUME, both tops BattlescapeState", s7, m)
-    ev["afterResume"] = {"host": qr2r_probe(host), "client2": qr2r_probe(c2), "hold": hold(c2)}
+    rej.step("rejoin_entry_notice 6 host offers RESUME", resume_offered, m)
+    ev["hostBeforeResume"] = dict(rejoin_probe(host), dialog=dialog(host))
+    rej.step("rejoin_entry_notice 7 RESUME, both tops BattlescapeState", press_resume, m)
+    ev["afterResume"] = {"host": rejoin_probe(host), "client2": rejoin_probe(c2), "hold": hold(c2)}
     h = ev["afterResume"]["host"]
-    rej.check("QR2r the host held in phase Handshake after RESUME (client2's battle_ready stashed)", [] if (
+    rej.check("rejoin_entry_notice the host held in phase Handshake after RESUME (client2's battle_ready "
+              "stashed)", [] if (
         h["phase"] == "Handshake" and ev["afterResume"]["hold"]["held"] is True) else [
         f"host phase {h['phase']!r}, client2 hold {ev['afterResume']['hold']} (want Handshake, held true)"], m)
 
@@ -825,105 +802,109 @@ def qr2r_drive(host, client, m, rec, ev):
         host.wait_for("the host's entry notice and its refusal after the HOME key", lambda: (
             (event_state(host).get("coopHostInputFrozenRefusals") or 0) > r0
             and battle_state(host).get("coopWaitText") == TEXT_WAITING_FOR_JOIN) or None,
-            timeout=QR2R_NOTICE_S, interval=0.1)
+            timeout=REJOIN_NOTICE_S, interval=0.1)
     except Exception as e:
         ev["noticeWait"] = short(e)
-    ev["afterInput"] = qr2r_probe(host)
+    ev["afterInput"] = rejoin_probe(host)
 
     # (b) the release: battle_ready sent, phase Active on both, the notice still up
     ev["release"] = hold(c2, on=False)
-    rej.check("QR2r hold_battle_ready {on: false} sends client2's battle_ready", [] if (
+    rej.check("rejoin_entry_notice hold_battle_ready {on: false} sends client2's battle_ready", [] if (
         ev["release"]["ok"] and ev["release"]["sent"] is True) else [f"release {ev['release']}"], m)
     try:
         for gc in (host, c2):
             gc.wait_for(f"{gc.name} phase Active", lambda gc=gc: (battle_state(gc).get("phase") == "Active") or None,
-                        timeout=QR2R_ACTIVE_S, interval=0.1)
+                        timeout=REJOIN_ACTIVE_S, interval=0.1)
     except Exception as e:
-        rec["notes"].append(f"QR2r phase Active: {short(e)}")
-    ev["afterRelease"] = {"host": qr2r_probe(host), "client2": qr2r_probe(c2)}
+        rec["notes"].append(f"rejoin_entry_notice phase Active: {short(e)}")
+    ev["afterRelease"] = {"host": rejoin_probe(host), "client2": rejoin_probe(c2)}
     try:
         session.wait_host_idle(host, c2, timeout=30)
     except Exception as e:
-        rec["notes"].append(f"QR2r wait_host_idle before the cycle: {short(e)}")
+        rec["notes"].append(f"rejoin_entry_notice wait_host_idle before the cycle: {short(e)}")
 
     # (c)/(d) ONE END TURN cycle; the host's first own-side side_begin clears the notice
-    ev["S0"] = {"host": rej.snap(host), "client2": rej.snap(c2)}
+    ev["cycleStart"] = {"host": rej.snap(host), "client2": rej.snap(c2)}
     seq0 = event_state(host).get("lastSeqEmitted") or 0
-    turn0 = qr2r_cycle(host, c2, rec)
+    turn0 = rejoin_cycle(host, c2, rec)
     hev = evs_since(host, seq0)
     begins = [e["seq"] for e in hev if e["kind"] == "side_begin"]   # hostile, neutral, then player (own side)
-    after = ev["after"] = {"host": qr2r_probe(host), "client2": qr2r_probe(c2)}
+    after = ev["after"] = {"host": rejoin_probe(host), "client2": rejoin_probe(c2)}
     ev["cycle"] = {"seq0": seq0, "turn0": turn0, "hostEvs": [(e["seq"], e["kind"], e["actionId"]) for e in hev],
                    "sideBeginSeqs": begins, "client2Seeded": rej.seeded(c2)}
     # (e) hash clean on both
     hashf = []
     try:
-        assert_hash_clean(host, c2, full=True, what="after QR2r")
+        assert_hash_clean(host, c2, full=True, what="after rejoin_entry_notice")
     except AssertionError as e:
-        hashf = [f"QR2r (e): hash after the cycle: {short(e, 500)}"]
+        hashf = [f"rejoin_entry_notice (e): hash after the cycle: {short(e, 500)}"]
     ev["hash"] = hashf
     ev["desyncRecords"] = {gc.name: desync_record(gc, True) for gc in (host, c2) if event_state(gc).get("desyncSeen")}
 
     fails = list(rec["notes"])
     a = ev["afterInput"]
     if (a["phase"], a["coopWaitText"]) != ("Handshake", TEXT_WAITING_FOR_JOIN) or not (a["refusals"] or 0) > r0:
-        fails.append(f"QR2r (a): after the HOME key the host's phase {a['phase']!r} coopWaitText {a['coopWaitText']!r} "
-                     f"refusals {r0} -> {a['refusals']} (want Handshake, {TEXT_WAITING_FOR_JOIN!r}, grown)")
+        fails.append(f"rejoin_entry_notice (a): after the HOME key the host's phase {a['phase']!r} coopWaitText "
+                     f"{a['coopWaitText']!r} refusals {r0} -> {a['refusals']} (want Handshake, "
+                     f"{TEXT_WAITING_FOR_JOIN!r}, grown)")
     ar = ev["afterRelease"]
     if (ar["host"]["phase"], ar["client2"]["phase"], ar["host"]["coopWaitText"]) != (
             "Active", "Active", TEXT_WAITING_FOR_JOIN):
-        fails.append(f"QR2r (b): after the release phase host/client2 {ar['host']['phase']!r}/"
+        fails.append(f"rejoin_entry_notice (b): after the release phase host/client2 {ar['host']['phase']!r}/"
                      f"{ar['client2']['phase']!r}, the host's coopWaitText {ar['host']['coopWaitText']!r} (want Active "
                      f"on both, {TEXT_WAITING_FOR_JOIN!r})")
     if ar["host"]["peerAbsent"] is not False or not (ar["host"]["battleId"] == ar["client2"]["battleId"] == bid0):
-        fails.append(f"QR2r (b): host peerAbsent {ar['host']['peerAbsent']} battleId before={bid0} host="
+        fails.append(f"rejoin_entry_notice (b): host peerAbsent {ar['host']['peerAbsent']} battleId before={bid0} host="
                      f"{ar['host']['battleId']} client2={ar['client2']['battleId']} (want false, unchanged)")
-    s0 = ev["S0"]
-    for w, b0, b1 in (("host", s0["host"], after["host"]), ("client2", s0["client2"], after["client2"])):
+    start = ev["cycleStart"]
+    for w, b0, b1 in (("host", start["host"], after["host"]), ("client2", start["client2"], after["client2"])):
         if b0["turn"] is None or b1["turn"] != b0["turn"] + 1 or b1["side"] != FACTION_PLAYER:
-            fails.append(f"QR2r (c): {w} turn/side {b0['turn']}/{b0['side']} -> {b1['turn']}/{b1['side']} (want +1, "
-                         f"player)")
+            fails.append(f"rejoin_entry_notice (c): {w} turn/side {b0['turn']}/{b0['side']} -> "
+                         f"{b1['turn']}/{b1['side']} (want +1, player)")
         if b1["desyncSeen"]:
-            fails.append(f"QR2r (c): desyncSeen true on {w}: {ev['desyncRecords']}")
+            fails.append(f"rejoin_entry_notice (c): desyncSeen true on {w}: {ev['desyncRecords']}")
     if after["host"]["phaseCounter"] is None or after["host"]["phaseCounter"] != after["client2"]["phaseCounter"]:
-        fails.append(f"QR2r (c): {rej.PC} host {after['host']['phaseCounter']} client2 "
+        fails.append(f"rejoin_entry_notice (c): {rej.PC} host {after['host']['phaseCounter']} client2 "
                      f"{after['client2']['phaseCounter']} (want equal)")
     if len(begins) != rej.CYCLE_SIDE_TRANSITIONS:
-        fails.append(f"QR2r (d): the host's side_begin seqs after seq0 {seq0} {begins} (want "
+        fails.append(f"rejoin_entry_notice (d): the host's side_begin seqs after seq0 {seq0} {begins} (want "
                      f"{rej.CYCLE_SIDE_TRANSITIONS}, the last = its own (player) side's, the clear point)")
     if after["host"]["coopWaitText"] != "":
-        fails.append(f"QR2r (d): the host's coopWaitText after the cycle {after['host']['coopWaitText']!r} (want '': "
-                     f"the entry notice clears at the host's first own-side side_begin, F1727)")
+        fails.append(f"rejoin_entry_notice (d): the host's coopWaitText after the cycle "
+                     f"{after['host']['coopWaitText']!r} (want '': the entry notice clears at the host's first "
+                     f"own-side side_begin)")
     return fails + hashf
 
 
-def qr2r_resume_entry():
-    """Row QR2r on boot R: its own three instances, shut down before the verdict. Prints ONE EVIDENCE line, then
-    raises AssertionError on a failing cell (a setup failure fails the row after its CAPTURE line)."""
-    host = GameClient("host", None, make_user_dir("w2p6a_messages_qr2r_host", options=OPTIONS))
-    client = GameClient("client", None, make_user_dir("w2p6a_messages_qr2r_client", options=OPTIONS))
+def row_rejoin_entry_notice():
+    """Row rejoin_entry_notice on the rejoin boot: its own three instances, shut down before the verdict. Prints ONE
+    EVIDENCE line, then raises AssertionError on a failing cell (a setup failure fails the row after its CAPTURE
+    line)."""
+    host = GameClient("host", None, make_user_dir("messages_rejoin_host", options=OPTIONS))
+    client = GameClient("client", None, make_user_dir("messages_rejoin_client", options=OPTIONS))
     m = [host, client]
     rec = {"hostBoxes": [], "notes": [], "samples": []}
     ev = {}
     try:
-        fails = qr2r_drive(host, client, m, rec, ev)
+        fails = rejoin_drive(host, client, m, rec, ev)
     except rej.FixtureMiss as e:
-        fails = [f"QR2r: SETUP-FAILURE {e}"]
+        fails = [f"rejoin_entry_notice: SETUP-FAILURE {e}"]
     except Exception as e:
-        fails = [f"QR2r: {type(e).__name__}: {short(e, 600)}"]
+        fails = [f"rejoin_entry_notice: {type(e).__name__}: {short(e, 600)}"]
     finally:
         for gc in m:
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p6a-sm] shutdown {gc.name}: {short(e)}", flush=True)
-    print(f"EVIDENCE QR2r: {ev}; hostBoxes={rec['hostBoxes']}; host banner samples (where, coopWaitText, side, "
-          f"turn)={rec['samples']}; notes={rec['notes']}", flush=True)
+                print(f"[test_messages] shutdown {gc.name}: {short(e)}", flush=True)
+    print(f"EVIDENCE rejoin_entry_notice: {ev}; hostBoxes={rec['hostBoxes']}; host banner samples (where, "
+          f"coopWaitText, side, turn)={rec['samples']}; notes={rec['notes']}", flush=True)
     finish(fails)
 
 
-SCENARIOS = (("MR1", mr1_fatal_wound_client), ("QR2", qr2_entry_notice), ("MR2", mr2_fatal_wound_host),
-             ("MR7", mr7_alien_panic), ("MR2b", mr2b_killed))
+SCENARIOS = (("client_bleeds_out", row_client_bleeds_out), ("no_stale_entry_notice", row_no_stale_entry_notice),
+             ("host_bleeds_out", row_host_bleeds_out), ("alien_panics", row_alien_panics),
+             ("client_killed", row_client_killed))
 
 
 # ===================== bring-up =====================
@@ -942,23 +923,23 @@ def boot(host, client):
     assert order == (UNIT_ORDER, UNIT_ORDER), f"unit order host/client {order} (baked {UNIT_ORDER})"
     names = {u["id"]: u.get("name") for u in hs.get("units", []) if u["id"] in NAMES}
     assert names == NAMES, f"unit names {names} (baked {NAMES}: the pinned texts carry them)"
-    pinned = pin_ai_neutral(host, client, tag="w2p6a-sm")
+    pinned = pin_ai_neutral(host, client, tag="test_messages")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (want [{A_ID}])"
     for gc in (host, client):
         f = msg_probe_fails(gc)
         assert not f, f[0]
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2p6a-sm] boot ok: default map MAP_FP={MAP_FP!r} turn={hs.get('turn')} seated={SEATED} pinned={pinned} "
-          f"names={names} messages host={messages(host)} client={messages(client)}",
+    print(f"[test_messages] boot ok: default map MAP_FP={MAP_FP!r} turn={hs.get('turn')} seated={SEATED} "
+          f"pinned={pinned} names={names} messages host={messages(host)} client={messages(client)}",
           flush=True)
     return {}
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", HOST_PORT, make_user_dir("w2p6a_messages_host", options=OPTIONS))
-    client = GameClient("client", CLIENT_PORT, make_user_dir("w2p6a_messages_client", options=OPTIONS))
+    host = GameClient("host", HOST_PORT, make_user_dir("messages_host", options=OPTIONS))
+    client = GameClient("client", CLIENT_PORT, make_user_dir("messages_client", options=OPTIONS))
     results = {}
     ctx = {}
     try:
@@ -981,17 +962,17 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p6a-sm] shutdown {gc.name}: {short(e)}", flush=True)
-    # QR2r: boot R, after boot M's instances are shut down
+                print(f"[test_messages] shutdown {gc.name}: {short(e)}", flush=True)
+    # rejoin_entry_notice: the rejoin boot, after the main boot's instances are shut down
     try:
-        qr2r_resume_entry()
-        results["QR2r"] = True
-        print("PASS QR2r", flush=True)
+        row_rejoin_entry_notice()
+        results["rejoin_entry_notice"] = True
+        print("PASS rejoin_entry_notice", flush=True)
     except Exception as e:
-        results["QR2r"] = False
+        results["rejoin_entry_notice"] = False
         kind = "" if isinstance(e, AssertionError) else f"{type(e).__name__}: "
-        print(f"FAIL QR2r: {kind}{e}", flush=True)
-    rows = [n for n, _ in SCENARIOS] + ["QR2r"]
+        print(f"FAIL rejoin_entry_notice: {kind}{e}", flush=True)
+    rows = [n for n, _ in SCENARIOS] + ["rejoin_entry_notice"]
     passed = [n for n in rows if results.get(n)]
     failed = [n for n in rows if not results.get(n)]
     print(f"\ntest_messages: {len(passed)}/{len(rows)} passed (pass={passed} fail={failed}) in "
