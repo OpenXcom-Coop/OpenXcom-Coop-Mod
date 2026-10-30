@@ -1,13 +1,17 @@
-"""S3 (D-22 mode fidelity + D100(b) exact baton + degrades),
-S4 (same-version refusal, M1) and S5 (client Save disabled in battle, M6).
+"""test_midbattle_resume.py: resuming a mid-battle co-op save, in three scenarios.
+  resume_turn_mode: the battle's turn mode and the exact END TURN baton holder come back from the save, even when the
+      host's turn-mode option changed; a save without the baton key restarts the baton at the first live seat, and one
+      without the mode key too resumes in parallel mode, without a refusal.
+  protocol_stamp: a mid-battle save carrying another battle protocol stamp is refused; one without the stamp (an older
+      version's shape) converts and loads; a geoscape co-op save and a solo battle save carry no stamp.
+  client_save_disabled: the client cannot save in battle (its save writes no file and its pause menu hides SAVE GAME);
+      the host's own save still writes.
 
-S3, S4 and S5 each build their OWN small live battle (S3: traditional-mode
-SEPARATE guest battle to exercise the baton; S4/S5: a plain SEPARATE guest
-battle, no walk needed - both scenarios save at an already-quiescent moment)
-rather than depending on test_coop_resume_battle_control.py's own S1 process
-(WV-D95: every scenario runs to completion inside its own foreground
-invocation - a save file from an already-exited process is not something a
-later invocation can reach back for).
+Each scenario builds its OWN small live battle (resume_turn_mode: a traditional-mode SEPARATE guest battle to exercise
+the baton; the other two: a plain SEPARATE guest battle, no walk needed, both saving at an already-quiescent moment)
+rather than reuse test_coop_resume_battle_control.py's separate_resume process: every scenario runs to completion
+inside its own foreground invocation, and a later invocation cannot reach back for a save file from an already-exited
+process.
 
 Run:  python tools/coop_test/test_midbattle_resume.py
 Exit 0 = pass; 2 = failure.
@@ -40,8 +44,8 @@ def _wait_new_save(user_dir, before, timeout=10, interval=0.2):
 
 def _strip_yaml_keys(src_path, dst_path, keys):
     """Copy `src_path` to `dst_path`, dropping any line whose stripped text
-    starts with one of `keys` + ':' (S3's spec text: "each key is on its own
-    line"). Returns {key: lines_removed}."""
+    starts with one of `keys` + ':' (each key is on its own line). Returns
+    {key: lines_removed}."""
     with open(src_path, encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
     removed = {k: 0 for k in keys}
@@ -62,8 +66,7 @@ def _strip_yaml_keys(src_path, dst_path, keys):
 def _rewrite_protocol(src_path, dst_path, mode):
     """Copy `src_path` to `dst_path`. mode="zero" rewrites coopBattleProtocol's
     value to 0; mode="delete" drops the line entirely. Returns True if the key
-    was found (S4 vacuity guard: the save actually carried the key to begin
-    with)."""
+    was found (a guard against a vacuous pass: the save carried the key to begin with)."""
     with open(src_path, encoding="utf-8", errors="replace") as f:
         lines = f.readlines()
     found = False
@@ -82,12 +85,13 @@ def _rewrite_protocol(src_path, dst_path, mode):
     return found
 
 
-# =========================== S3 ==============================================
+# =========================== resume_turn_mode ==============================================
 
-def run_s3():
-    print("\n===== SCENARIO S3: D-22 mode fidelity + D100(b) exact baton + degrades =====")
-    host_dir = make_user_dir("s18mr_s3_host", options={"CoopTurnMode": "traditional"})
-    client_dir = make_user_dir("s18mr_s3_client")
+def run_resume_turn_mode():
+    print("\n===== SCENARIO resume_turn_mode: the saved turn mode and baton holder come back; missing keys degrade "
+          "=====")
+    host_dir = make_user_dir("midbattle_resume_mode_host", options={"CoopTurnMode": "traditional"})
+    client_dir = make_user_dir("midbattle_resume_mode_client")
     host = GameClient("host", 48920, host_dir)
     client = GameClient("client", 48921, client_dir)
     host2 = client2 = None
@@ -96,7 +100,7 @@ def run_s3():
         host.spawn(); client.spawn(); host.connect(); client.connect()
         session.bring_up_separate_guest_battle(host, client, port="48922")
 
-        # pass the baton: host (seat 0, first holder per D-23) -> seat 1
+        # pass the baton: host (seat 0, the first live seat holds it first) -> seat 1
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         def _baton_at_1():
@@ -124,10 +128,11 @@ def run_s3():
         print(f"PASS quiescent save written -> {savefile}")
         host.shutdown(); client.shutdown()
 
-        # ---- (i) D-22 survival (host option flips to parallel before relaunch)
-        # + D100(b) exact baton -------------------------------------------------
-        host2 = GameClient("host", 48923, make_user_dir("s18mr_s3_host_i", options={"CoopTurnMode": "parallel"}))
-        client2 = GameClient("client", 48924, make_user_dir("s18mr_s3_client_i"))
+        # ---- (i) the saved turn mode survives (the host option flips to parallel before relaunch)
+        # and the exact baton holder comes back -----------------------------
+        host2 = GameClient("host", 48923, make_user_dir("midbattle_resume_mode_host_kept",
+                                                        options={"CoopTurnMode": "parallel"}))
+        client2 = GameClient("client", 48924, make_user_dir("midbattle_resume_mode_client_kept"))
         shutil.copyfile(savepath, os.path.join(host2.user_dir, savefile))
         host2.spawn(); client2.spawn(); host2.connect(); client2.connect()
         session.resume_campaign_battle(host2, client2, os.path.basename(savefile),
@@ -135,7 +140,7 @@ def run_s3():
         for gc, tag in ((host2, "host"), (client2, "client")):
             es = session.event_state(gc)
             assert es.get("turnMode") == "traditional", (
-                f"{tag}: turnMode={es.get('turnMode')!r} after resume, want 'traditional' (D-22 survived)")
+                f"{tag}: turnMode={es.get('turnMode')!r} after resume, want 'traditional' (the saved mode survived)")
         assert session.event_state(host2).get("optionTurnMode") == "parallel", (
             f"host optionTurnMode={session.event_state(host2).get('optionTurnMode')!r}, "
             "want 'parallel' (the OPTION, unconsumed - the block's value won)")
@@ -143,19 +148,19 @@ def run_s3():
             tally = session.event_state(gc).get("coopEndTurnTally", {})
             assert tally.get("activeSeat") == 1 and tally.get("needed") == 1, (
                 f"{tag}: tally after resume = {tally}, want activeSeat=1 needed=1 "
-                "(the EXACT holder came back, not a D-23 re-seed to 0)")
+                "(the EXACT holder came back, not a re-seed to the first live seat 0)")
         assert session.battle_state(client2).get("coopOffBatonGray") is False, (
             "client coopOffBatonGray not False after resume")
         assert session.battle_state(host2).get("coopOffBatonGray") is True, (
             "host coopOffBatonGray not True after resume")
-        print("PASS S3(i): turnMode survives as 'traditional' despite optionTurnMode='parallel'; "
+        print("PASS resume_turn_mode (i): turnMode survives as 'traditional' despite optionTurnMode='parallel'; "
               "the exact baton holder (seat 1) came back")
         host2.shutdown(); client2.shutdown()
         host2 = client2 = None
 
         # ---- (ii) DEGRADE (baton): strip only coopActiveSeat -------------------
-        host2 = GameClient("host", 48926, make_user_dir("s18mr_s3_host_ii"))
-        client2 = GameClient("client", 48927, make_user_dir("s18mr_s3_client_ii"))
+        host2 = GameClient("host", 48926, make_user_dir("midbattle_resume_mode_host_no_seat"))
+        client2 = GameClient("client", 48927, make_user_dir("midbattle_resume_mode_client_no_seat"))
         removed = _strip_yaml_keys(savepath, os.path.join(host2.user_dir, savefile), ("coopActiveSeat",))
         assert removed["coopActiveSeat"] >= 1, f"coopActiveSeat line not found to strip: {removed}"
         host2.spawn(); client2.spawn(); host2.connect(); client2.connect()
@@ -166,14 +171,14 @@ def run_s3():
             assert es.get("turnMode") == "traditional", f"{tag}: turnMode={es.get('turnMode')!r}"
             tally = es.get("coopEndTurnTally", {})
             assert tally.get("activeSeat") == 0, (
-                f"{tag}: DEGRADE(baton) activeSeat={tally.get('activeSeat')}, want 0 (D-23 first live seat)")
-        print("PASS S3(ii) DEGRADE(baton): missing coopActiveSeat -> D-23 first live seat (0)")
+                f"{tag}: DEGRADE(baton) activeSeat={tally.get('activeSeat')}, want 0 (the first live seat)")
+        print("PASS resume_turn_mode (ii) DEGRADE(baton): missing coopActiveSeat -> the first live seat (0)")
         host2.shutdown(); client2.shutdown()
         host2 = client2 = None
 
         # ---- (iii) DEGRADE (mode): strip coopTurnMode + coopActiveSeat --------
-        host2 = GameClient("host", 48929, make_user_dir("s18mr_s3_host_iii"))
-        client2 = GameClient("client", 48930, make_user_dir("s18mr_s3_client_iii"))
+        host2 = GameClient("host", 48929, make_user_dir("midbattle_resume_mode_host_no_keys"))
+        client2 = GameClient("client", 48930, make_user_dir("midbattle_resume_mode_client_no_keys"))
         removed = _strip_yaml_keys(savepath, os.path.join(host2.user_dir, savefile),
                                    ("coopTurnMode", "coopActiveSeat"))
         assert removed["coopTurnMode"] >= 1 and removed["coopActiveSeat"] >= 1, (
@@ -184,11 +189,11 @@ def run_s3():
         for gc, tag in ((host2, "host"), (client2, "client")):
             es = session.event_state(gc)
             assert es.get("turnMode") == "parallel", (
-                f"{tag}: turnMode={es.get('turnMode')!r}, want 'parallel' (D-26 default, no refusal)")
+                f"{tag}: turnMode={es.get('turnMode')!r}, want 'parallel' (the default, no refusal)")
             tally = es.get("coopEndTurnTally", {})
             assert tally.get("activeSeat") == -1, (
                 f"{tag}: DEGRADE(mode) activeSeat={tally.get('activeSeat')}, want -1")
-        print("PASS S3(iii) DEGRADE(mode): missing both keys -> parallel (D-26), "
+        print("PASS resume_turn_mode (iii) DEGRADE(mode): missing both keys -> parallel (the default), "
               "activeSeat=-1, no refusal")
     finally:
         host.shutdown(); client.shutdown()
@@ -198,11 +203,11 @@ def run_s3():
             client2.shutdown()
 
 
-# =========================== S4 ==============================================
+# =========================== protocol_stamp ==============================================
 
 def _build_midbattle_save(tag, port_base):
     """A plain SEPARATE guest battle, saved at an already-quiescent moment (no
-    walk needed - S4/S5 test the save/load funnel, not the drain gate)."""
+    walk needed - protocol_stamp/client_save_disabled test the save/load funnel, not the drain gate)."""
     host_dir = make_user_dir(f"{tag}_host")
     client_dir = make_user_dir(f"{tag}_client")
     host = GameClient("host", port_base, host_dir)
@@ -249,15 +254,15 @@ def _assert_refused(user_dir, port, savefile_basename, variant):
                 text = f.read()
         assert "different version of the mod" in text, (
             f"{variant}: refusal text not found in the log ({logp})")
-        print(f"PASS S4 {variant}: refused (ErrorMessageState, no battle/HostMenu pushed, "
+        print(f"PASS protocol_stamp {variant}: refused (ErrorMessageState, no battle/HostMenu pushed, "
               f"main menu, log carries the refusal text)")
     finally:
         h.shutdown()
 
 
 def _assert_converted(user_dir, port, savefile_basename, variant):
-    """D246-U (owner D246 (b), narrowing FW-7): a mid-battle co-op save WITHOUT the coopBattleProtocol stamp is an
-    older version's shape - the host's load converts it and reaches the host window; never the refusal."""
+    """A mid-battle co-op save WITHOUT the coopBattleProtocol stamp is an older version's shape: the host's load
+    converts it and reaches the host window, never the refusal."""
     convert_line = "[coop-convert] an older version's mid-battle co-op save converted"
     h = GameClient("host", port, user_dir)
     try:
@@ -279,36 +284,36 @@ def _assert_converted(user_dir, port, savefile_basename, variant):
         text = h.wait_for(f"{variant}: the conversion log line", _logged, timeout=10, interval=0.25)
         assert "different version of the mod" not in text, f"{variant}: the refusal text is in the log ({logp})"
         assert text.count(convert_line) == 1, f"{variant}: {text.count(convert_line)} conversion log lines (want 1)"
-        print(f"PASS S4 {variant}: converted (HostMenu, no refusal, one conversion log line)")
+        print(f"PASS protocol_stamp {variant}: converted (HostMenu, no refusal, one conversion log line)")
     finally:
         h.shutdown()
 
-def run_s4():
-    print("\n===== SCENARIO S4: same-version refusal (M1) =====")
-    savepath = _build_midbattle_save("s18mr_s4_src", 48940)
+def run_protocol_stamp():
+    print("\n===== SCENARIO protocol_stamp: a mid-battle save from another protocol version is refused =====")
+    savepath = _build_midbattle_save("midbattle_resume_stamp_src", 48940)
     savefile = os.path.basename(savepath)
 
     # (i) coopBattleProtocol: 1 -> 0
-    d1 = make_user_dir("s18mr_s4_zero")
-    found = _rewrite_protocol(savepath, os.path.join(d1, "xcom1", savefile), "zero")
+    zero_dir = make_user_dir("midbattle_resume_stamp_zero")
+    found = _rewrite_protocol(savepath, os.path.join(zero_dir, "xcom1", savefile), "zero")
     assert found, "coopBattleProtocol key not found in the source save to rewrite"
-    _assert_refused(d1, 48945, savefile, "protocol=0")
+    _assert_refused(zero_dir, 48945, savefile, "protocol=0")
 
     # (ii) coopBattleProtocol key deleted - an OLDER version's shape: it converts and loads
-    d2 = make_user_dir("s18mr_s4_deleted")
-    found = _rewrite_protocol(savepath, os.path.join(d2, "xcom1", savefile), "delete")
+    deleted_dir = make_user_dir("midbattle_resume_stamp_deleted")
+    found = _rewrite_protocol(savepath, os.path.join(deleted_dir, "xcom1", savefile), "delete")
     assert found, "coopBattleProtocol key not found in the source save to delete"
-    _assert_converted(d2, 48946, savefile, "protocol-deleted")
+    _assert_converted(deleted_dir, 48946, savefile, "protocol-deleted")
 
-    # (iii) CONTROL: a GEOSCAPE coop save (no battle) - unaffected, resumes as today
-    ctl_host_dir = make_user_dir("s18mr_s4_ctl_host")
-    ctl_client_dir = make_user_dir("s18mr_s4_ctl_client")
+    # (iii) CONTROL: a GEOSCAPE coop save (no battle) - unaffected, resumes normally
+    ctl_host_dir = make_user_dir("midbattle_resume_stamp_geo_host")
+    ctl_client_dir = make_user_dir("midbattle_resume_stamp_geo_client")
     ctl_host = GameClient("host", 48947, ctl_host_dir)
     ctl_client = GameClient("client", 48948, ctl_client_dir)
     try:
         ctl_host.spawn(); ctl_client.spawn(); ctl_host.connect(); ctl_client.connect()
         session.new_campaign(ctl_host, ctl_client, port="48949")
-        CTLSAVE = "s4_geoscape_ctl.sav"
+        CTLSAVE = "geoscape_control.sav"
         ctl_host.ok({"cmd": "save_game", "file": CTLSAVE})
         ctlpath = os.path.join(ctl_host_dir, "xcom1", CTLSAVE)
         assert os.path.exists(ctlpath), "geoscape control save not on disk"
@@ -319,16 +324,16 @@ def run_s4():
         ctl_host.shutdown(); ctl_client.shutdown()
 
         ctl_host = GameClient("host", 48950, ctl_host_dir)
-        ctl_client = GameClient("client", 48951, make_user_dir("s18mr_s4_ctl_client2"))
+        ctl_client = GameClient("client", 48951, make_user_dir("midbattle_resume_stamp_geo_client2"))
         ctl_host.spawn(); ctl_client.spawn(); ctl_host.connect(); ctl_client.connect()
         session.resume_campaign(ctl_host, ctl_client, CTLSAVE, port="48952")
-        print("PASS S4(iii) CONTROL: a geoscape coop save (no coopBattleProtocol) "
-              "loads and resumes as today")
+        print("PASS protocol_stamp (iii) CONTROL: a geoscape coop save (no coopBattleProtocol) "
+              "loads and resumes normally")
     finally:
         ctl_host.shutdown(); ctl_client.shutdown()
 
     # (iv) SP CONTROL: a solo mid-battle save's header is byte-identical
-    sp_dir = make_user_dir("s18mr_s4_sp")
+    sp_dir = make_user_dir("midbattle_resume_stamp_solo")
     sp = GameClient("sp", 48953, sp_dir)
     try:
         sp.spawn(); sp.connect()
@@ -358,26 +363,21 @@ def run_s4():
             text = f.read()
         count = text.count("coopBattleProtocol")
         assert count == 0, f"SP CONTROL: solo save carries coopBattleProtocol {count} time(s) - not byte-identical"
-        print("PASS S4(iv) SP CONTROL: solo mid-battle save carries zero occurrences "
+        print("PASS protocol_stamp (iv) SP CONTROL: solo mid-battle save carries zero occurrences "
               "of coopBattleProtocol")
     finally:
         sp.shutdown()
 
 
-# =========================== S5 ==============================================
+# =========================== client_save_disabled ==============================================
 
 def _wait_client_with_host_keepalive(client, host, desc, predicate, timeout=10, interval=0.2):
-    """CAPTURED (WV-D77, this file's own diagnostic): a plain client.wait_for()
-    here left the HOST completely unpoked (no TestServer command at all) for
-    the whole wait, and - reliably, only after S3+S4's process churn, never in
-    isolation - the client's own peer-liveness check eventually decided
-    "onClientDrop"/host connection lost and tore the battle down, well before
-    this wait's own timeout. Periodically poking the host (get_state) during
-    the wait, exactly like this file's diagnostic script did, prevents it every
-    time. Not a retry over a red predicate - `predicate` is still polled to
-    completion or TimeoutError exactly as wait_for would; this only adds a
-    side, read-only host heartbeat so the SUT does not go idle-starved while
-    the CLIENT is what is actually under test."""
+    """A plain client.wait_for() here leaves the HOST unpoked (no TestServer command at all) for the whole wait,
+    and, reliably after the two earlier scenarios' process churn but never in isolation, the client's own
+    peer-liveness check then decided the host connection was lost ("onClientDrop") and tore the battle down well
+    before this wait's own timeout. Poking the host (get_state) during the wait prevents it every time. This is not a
+    retry over a failing predicate: `predicate` is still polled to completion or TimeoutError exactly as wait_for
+    would; this only adds a read-only host heartbeat so the game does not go idle while the CLIENT is under test."""
     deadline = time.time() + timeout
     last = None
     while time.time() < deadline:
@@ -392,10 +392,10 @@ def _wait_client_with_host_keepalive(client, host, desc, predicate, timeout=10, 
     raise TimeoutError(f"client: timed out waiting for {desc} (last={last!r})")
 
 
-def run_s5():
-    print("\n===== SCENARIO S5: client Save disabled in battle (M6) =====")
-    host_dir = make_user_dir("s18mr_s5_host")
-    client_dir = make_user_dir("s18mr_s5_client")
+def run_client_save_disabled():
+    print("\n===== SCENARIO client_save_disabled: the client cannot save in battle =====")
+    host_dir = make_user_dir("midbattle_resume_client_save_host")
+    client_dir = make_user_dir("midbattle_resume_client_save_client")
     host = GameClient("host", 48960, host_dir)
     client = GameClient("client", 48961, client_dir)
     try:
@@ -407,8 +407,8 @@ def run_s5():
         time.sleep(2.0)
         after_client = set(session.save_files(client_dir))
         assert after_client == before_client, (
-            f"M6 VACUITY: the client's user dir gained a save file: {after_client - before_client}")
-        print("PASS M6: client's quick_battle save wrote nothing (zero-disk)")
+            f"client_save_disabled: the client's user dir gained a save file: {after_client - before_client}")
+        print("PASS client_save_disabled: client's quick_battle save wrote nothing (zero-disk)")
 
         client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         _wait_client_with_host_keepalive(
@@ -420,16 +420,15 @@ def run_s5():
         assert save_widget is not None, f"no 'SAVE GAME' widget found in the client PauseState: {lw}"
         assert save_widget.get("visible") is False, (
             f"client PauseState's SAVE GAME button is VISIBLE (should be hidden): {save_widget}")
-        print("PASS M6: client's PauseState hides SAVE GAME")
+        print("PASS client_save_disabled: client's PauseState hides SAVE GAME")
 
-        # CAPTURED: a second ESCAPE sent immediately after list_widgets
-        # (no intervening round trip) was reliably swallowed - PauseState never
-        # closed until the unrelated peer-liveness teardown eventually fired
-        # ~10s later. Every probed diagnostic run that happened to insert an
-        # extra round trip here closed within 1s. A short settle before the
-        # close press clears it every time - the same class of UI-settle wait
-        # this codebase already uses elsewhere (e.g. the click-ready settle in
-        # session.assert_seat_commands), not a retry over a failed assertion.
+        # A second ESCAPE sent right after list_widgets (no round trip between
+        # them) was reliably swallowed: PauseState stayed open until the
+        # unrelated peer-liveness teardown fired ~10 s later, while every
+        # diagnostic run with an extra round trip here closed it within 1 s. A
+        # short settle before the close press clears it every time: the same
+        # kind of UI-settle wait as the click-ready settle in
+        # session.assert_seat_commands, not a retry over a failed assertion.
         time.sleep(0.5)
         client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         _wait_client_with_host_keepalive(
@@ -440,17 +439,17 @@ def run_s5():
         host.ok({"cmd": "save_game_ui", "type": "quick_battle"})
         new_host_files = _wait_new_save(host_dir, before_host, timeout=15)
         assert new_host_files, "the host's OWN quick_battle save never wrote"
-        print(f"PASS M6 control: the host's own quick_battle save DOES write -> {new_host_files}")
-        print("ALL S5 ASSERTIONS PASSED")
+        print(f"PASS client_save_disabled control: the host's own quick_battle save DOES write -> {new_host_files}")
+        print("ALL client_save_disabled ASSERTIONS PASSED")
     finally:
         host.shutdown(); client.shutdown()
 
 
 def main():
-    run_s3()
-    run_s4()
-    run_s5()
-    print("\nALL SPEC 18 (S3/S4/S5) MIDBATTLE RESUME TESTS PASSED")
+    run_resume_turn_mode()
+    run_protocol_stamp()
+    run_client_save_disabled()
+    print("\nALL MIDBATTLE RESUME TESTS PASSED")
 
 
 if __name__ == "__main__":
