@@ -1,48 +1,46 @@
-"""test_multistage_end.py: a co-op stage change through the abort route, and a final stage that ends
-with both debriefs (owner D158 (a), D226 (a), D156 (a); spec docs rewrite/prompts/mga_multistage_handoff.md (f) rows
-MS2 and MS3 as AMENDMENT MG-A-1 section 5 restates them for stage S-A2, Q5 (a), Q6 (a), QA2; TASK 0 constants docs
-rewrite/mga-task0/a2/CONSTANTS.md).
+"""test_multistage_end.py: a co-op stage change through the abort route, and a final stage that ends with both
+debriefs.
 
 TWO boots, one per row, each shut down before the next:
 
-  MS2  the abort route, a partner soldier left behind (boot B, lobby PORT_B): the classic skirmish on the stock
-       Cydonia landing (STR_MARS_CYDONIA_LANDING), set_seed SEED_B right before newbattle_ok, MAP_FP_B pinned,
-       pin_ai_neutral, hash clean. tile_census (one z level per call) reads the floor special type of every tile on
-       both machines: the END_POINT (13) tiles are the pinned EXIT_TILES_B (QA2; the exit area is END_POINT, never the
-       craft's START_POINT, F9821). battle_teleport_unit (client soldiers first, each applied to the client, then
-       the host) puts C1 (8) and the five host soldiers on EXIT_TARGETS_B; C2 (9) stays on its spawn, a START_POINT
-       tile. Hash clean. The host presses ABORT (battle_action abort), confirms AbortMissionState and the partner votes
-       YES (R4-L1; the pass runs setAborted(true) + finishBattle(true, 6) -> vanilla's next-stage branch). Entry cells as
-       MS1: the client shows the stage-2 BriefingState within ENTRY_S of the host's confirm, its missionType is
-       STR_MARS_THE_FINAL_ASSAULT, the client's `stage` record applied 1, the host's emitted 1 (read right after the
-       confirm). Then the stage-2 spine (session.briefings_to_battlescape) and the green cells: the host's record
-       aborted true and inExitArea IN_EXIT_B (the soldiers on the exit; MS1 owns the record's other keys); both
-       turn 1 on STR_MARS_THE_FINAL_ASSAULT; the living X-COM ids are STAGE2_LIVING_B on both (C2 9 is not among
-       them, C1 8 is; owner V3), seat tags kept; hash_now full all buckets EQUAL; desyncSeen false on both; the
-       host is alive; no new crash file.
-  MS3  the final stage ends with both debriefs (boot C, lobby PORT_C, the test mod Coop_MultiStage_Test on both
-       machines; Q5 (a)): STR_COOP_MULTISTAGE_TEST (stage 1, one alien) -> STR_COOP_MULTISTAGE_TEST_P2 (stage 2, one
-       alien, no cutscene, no objective). set_seed SEED_C, MAP_FP_C, pin_ai_neutral, hash clean; both logs name the
-       mod active (no invalid-mod line) and derive the stage-1 deployment. Kill-all (as MS1) -> the stage-entry cells
-       with missionType STR_COOP_MULTISTAGE_TEST_P2 -> the stage-2 spine -> both turn 1 on _P2, mapSizeXYZ
-       STAGE2_TILES, hash clean -> kill-all again -> the host's battle_end: host record emitted 1, reason
-       aliensDown, aborted false; the client's applied 1 with the host's seq, resultReceived 1, debriefDisplayOnly 1;
-       the host's DebriefingState (shown, on top, not display-only) and the client's display-only DebriefingState
-       with the host's seven content fields (W2-P7 S-B1 cells) -> the client presses OK, then the host (D156 (a), the
-       order of test_battle_end's client_leaves_first): each OK handled by DebriefingState and each machine reaches
-       the main menu.
+  abort_route: the abort route, a partner soldier left behind (the abort boot, lobby PORT_ABORT): the classic skirmish
+      on the stock Cydonia landing (STR_MARS_CYDONIA_LANDING), set_seed SEED_ABORT right before newbattle_ok,
+      MAP_FP_ABORT pinned, pin_ai_neutral, hash clean. tile_census (one z level per call) reads the floor special type
+      of every tile on both machines: the END_POINT (13) tiles are the pinned EXIT_TILES (the exit area is END_POINT,
+      never the craft's START_POINT). battle_teleport_unit (client soldiers first, each applied to the client, then
+      the host) puts C1 (8) and the five host soldiers on EXIT_TARGETS; C2 (9) stays on its spawn, a START_POINT tile.
+      Hash clean. The host presses ABORT (battle_action abort), confirms AbortMissionState and the partner votes YES
+      (the vote passes and runs setAborted(true) + finishBattle(true, 6) -> vanilla's next-stage branch). Entry cells
+      as test_multistage.py's stage_two_for_both: the client shows the stage-2 BriefingState within ENTRY_S of the
+      host's confirm, its missionType is STR_MARS_THE_FINAL_ASSAULT, the client's `stage` record applied 1, the host's
+      emitted 1 (read right after the confirm). Then the stage-2 spine (session.briefings_to_battlescape) and the
+      stage-2 cells: the host's record aborted true and inExitArea IN_EXIT (the soldiers on the exit;
+      stage_two_for_both checks the record's other keys); both turn 1 on STR_MARS_THE_FINAL_ASSAULT; the living X-COM
+      ids are STAGE2_LIVING on both (C2 9 is not among them, C1 8 is), seat tags kept; hash_now full all buckets
+      EQUAL; desyncSeen false on both; the host is alive; no new crash file.
+  final_stage_debriefs: the final stage ends with both debriefs (the test mod boot, lobby PORT_MOD, the test mod
+      Coop_MultiStage_Test on both machines): STR_COOP_MULTISTAGE_TEST (stage 1, one alien) ->
+      STR_COOP_MULTISTAGE_TEST_P2 (stage 2, one alien, no cutscene, no objective). set_seed SEED_MOD, MAP_FP_MOD,
+      pin_ai_neutral, hash clean; both logs name the mod active (no invalid-mod line) and derive the stage-1
+      deployment. Kill-all (as stage_two_for_both) -> the stage-entry cells with missionType
+      STR_COOP_MULTISTAGE_TEST_P2 -> the stage-2 spine -> both turn 1 on _P2, mapSizeXYZ STAGE2_TILES, hash clean ->
+      kill-all again -> the host's battle_end: host record emitted 1, reason aliensDown, aborted false; the client's
+      applied 1 with the host's seq, resultReceived 1, debriefDisplayOnly 1; the host's DebriefingState (shown, on
+      top, not display-only) and the client's display-only DebriefingState with the host's seven content fields
+      (test_battle_end's DEBRIEF_FIELDS) -> the client presses OK, then the host (the order of test_battle_end's
+      client_leaves_first): each OK handled by DebriefingState and each machine reaches the main menu.
 
-RED on S-A2's commit 1 (S-A1's red base: no stage writer; TASK 0 T0-7 / the red pre-walks measured on this build):
-each row fails exactly its four stage-entry cells (no client stage-2 briefing within ENTRY_S, client missionType not
-the stage-2 mission, client stage.applied 0, host stage.emitted 0); every pre-stage cell passes. The host dies after
-the stage change (F5081: died at 16 / 25 / 29 s on MS2's shape, 2 s on MS3's), so host liveness and crash files are
-EVIDENCE only until stage 2 is reached; the host's event_state read itself can fault on the freed stage-1 screen.
-battle_state is never probed unless a BattlescapeState is on that machine's stack.
+Without the fix (no stage writer): each row fails exactly its four stage-entry cells (no client stage-2 briefing
+within ENTRY_S, client missionType not the stage-2 mission, client stage.applied 0, host stage.emitted 0); every
+pre-stage cell passes. The host dies after the stage change (at 16 / 25 / 29 s on abort_route's shape, 2 s on
+final_stage_debriefs'), so host liveness and crash files are EVIDENCE only until stage 2 is reached; the host's
+event_state read itself can fault on the freed stage-1 screen. battle_state is never probed unless a BattlescapeState
+is on that machine's stack.
 
-Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a
-FAIL, ONE "CAPTURE <id>:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past
-its bound fails the row `boot` with one CAPTURE line. Every row runs after a failure. ONE
-foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise.
+Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a FAIL,
+ONE "CAPTURE <id>:" line (both machines' event_state, battle_state, stack and log tail). A bring-up step past its
+bound fails the row `boot` with one CAPTURE line. Every row runs after a failure. ONE foreground run, no skip path;
+exit 0 only when both rows pass, 2 otherwise.
 
 Run:  python tools/coop_test/test_multistage_end.py
 """
@@ -62,40 +60,41 @@ from test_battle_end import (debrief_view, press_ok, left_menu, DEBRIEF_FIELDS, 
                                 OK_LEAVE_S)
 
 MISSION_LANDING, MISSION_FINAL = "STR_MARS_CYDONIA_LANDING", "STR_MARS_THE_FINAL_ASSAULT"
-SEATS = {8: 1, 9: 1, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0}   # X-COM id -> coop seat at bring-up (T0-4, both boots)
+SEATS = {8: 1, 9: 1, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0}   # X-COM id -> coop seat at bring-up (both boots)
 END_POINT = 13                                             # src/Mod/MapData.h enum SpecialTileType
 
-# ----- boot B (MS2; TASK 0 T0-4 / T0-7: SEED_B 1, fingerprint 4/4, END_POINT list 3/3, targets 3/3) -----
-PORT_B, GC_B = "48572", (49676, 49677)
-SEED_B = 1
-MAP_FP_B = 2.509715288832488e+18
-MAP_B_XYZ = (50, 50, 4)
-ALIENS_B = list(range(1000000, 1000012))
-EXIT_TILES_B = [(x, y, 0) for y in range(32, 38) for x in range(22, 28)]   # the 36 END_POINT tiles, census order
+# ----- the abort boot (abort_route; SEED_ABORT 1: the same fingerprint on 4 of 4 boots; the END_POINT list and
+# the targets 3 of 3) -----
+PORT_ABORT, GC_ABORT = "48572", (49676, 49677)
+SEED_ABORT = 1
+MAP_FP_ABORT = 2.509715288832488e+18
+MAP_XYZ_ABORT = (50, 50, 4)
+ALIENS_ABORT = list(range(1000000, 1000012))
+EXIT_TILES = [(x, y, 0) for y in range(32, 38) for x in range(22, 28)]     # the 36 END_POINT tiles, census order
 C1, C2 = 8, 9                                              # the client's soldiers: C1 to the exit, C2 left behind
-EXIT_TARGETS_B = [(8, (22, 32, 0)), (10, (23, 32, 0)), (11, (24, 32, 0)), (12, (25, 32, 0)), (13, (26, 32, 0)),
-                  (14, (27, 32, 0))]
-IN_EXIT_B = 6
-STAGE2_LIVING_B = {u: SEATS[u] for u, _ in EXIT_TARGETS_B}  # {8: 1, 10..14: 0}
+EXIT_TARGETS = [(8, (22, 32, 0)), (10, (23, 32, 0)), (11, (24, 32, 0)), (12, (25, 32, 0)), (13, (26, 32, 0)),
+                (14, (27, 32, 0))]
+IN_EXIT = 6
+STAGE2_LIVING = {u: SEATS[u] for u, _ in EXIT_TARGETS}     # {8: 1, 10..14: 0}
 
-# ----- boot C (MS3; TASK 0 T0-1m / T0-2m / T0-4: SEED_C 1, fingerprint 4/4) -----
+# ----- the test mod boot (final_stage_debriefs; SEED_MOD 1: the same fingerprint on 4 of 4 boots) -----
 MOD_NAME = "Coop_MultiStage_Test"
 MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_NAME)
 MOD_ACTIVE_LINE = "- Coop_MultiStage_Test v1.0"
-MISSION_C1, MISSION_C2 = "STR_COOP_MULTISTAGE_TEST", "STR_COOP_MULTISTAGE_TEST_P2"
+MISSION_MOD, MISSION_MOD_P2 = "STR_COOP_MULTISTAGE_TEST", "STR_COOP_MULTISTAGE_TEST_P2"
 DEPLOYMENT_LINE = 'BriefingState deployment: VANILLA "STR_COOP_MULTISTAGE_TEST"'
-PORT_C, GC_C = "48573", (49678, 49679)
-SEED_C = 1
-MAP_FP_C = 2.509715288832488e+18
-ALIENS_C = [1000000]
-STAGE2_TILES = 7200                                        # 60x60x2 (T0-2m, 3/3)
+PORT_MOD, GC_MOD = "48573", (49678, 49679)
+SEED_MOD = 1
+MAP_FP_MOD = 2.509715288832488e+18
+ALIENS_MOD = [1000000]
+STAGE2_TILES = 7200                                        # 60x60x2 (measured 3 of 3)
 
 
 def bview(gc):
     """battle_state, only while a BattlescapeState is on the stack."""
     st = stack(gc)
     if not has_bstate(st):
-        return {"skipped": f"no BattlescapeState on the stack (F9920): {st}"}
+        return {"skipped": f"no BattlescapeState on the stack: {st}"}
     b = battle_state(gc)
     units = b.get("units") or []
     xcom = [u for u in units if u.get("faction") == FACTION_PLAYER and not u.get("isOut")]
@@ -118,7 +117,7 @@ def log_has(gc, needle):
 
 def boot_classic(host, client, port, mission, seed, map_fp, aliens, tag):
     """raw.bring_up_lobby + drive_to_battlescape(seat_count=2, set_seed right before newbattle_ok), the pins,
-    pin_ai_neutral, idle, hash clean (S-A1's boot_a shape)."""
+    pin_ai_neutral, idle, hash clean (test_multistage.boot_landing's shape)."""
     m = [host, client]
     step("bring_up_lobby", lambda: raw.bring_up_lobby(host, client, port), m)
     step("drive_to_battlescape", lambda: session.drive_to_battlescape(
@@ -195,7 +194,7 @@ def kill_all(host, client, aliens, g, what):
 
 
 def entry_cells(host, client, ctx, mission2):
-    """The stage-entry cells (RED on commit 1), read after the close / confirm at ctx["t_close"]."""
+    """The stage-entry cells (they fail without the fix), read after the close / confirm at ctx["t_close"]."""
     seen, _secs = wait_until(lambda: any("BriefingState" in s for s in stack(client)),
                              max(0.0, ENTRY_S - (time.time() - ctx["t_close"])), 0.25)
     ctx["clientBriefingS"] = round(time.time() - ctx["t_close"], 2) if seen else None
@@ -219,8 +218,9 @@ def entry_cells(host, client, ctx, mission2):
 
 
 def record_cells(host, client, ctx, f, want_h):
-    """After the stage-2 spine: the host's `stage` record holds `want_h` (the row's own cells; MS1 owns the rest of
-    the record), desyncSeen false on both (STOP-IF 5). Returns both event_states for the EVIDENCE line."""
+    """After the stage-2 spine: the host's `stage` record holds `want_h` (the row's own cells; test_multistage.py's
+    stage_two_for_both checks the rest of the record), desyncSeen false on both. Returns both event_states for the
+    EVIDENCE line."""
     he, ce = eview(host), eview(client)
     hs = he.get("stage") or {}
     ctx["b2"] = he.get("battleId")
@@ -242,12 +242,12 @@ def liveness_cells(host, ctx, crash0, f):
         f.append(f"new crash file(s) {new_crash}")
 
 
-# ===================== MS2 =====================
+# ===================== abort_route =====================
 
 
 def census_exit(gc):
     """Every END_POINT tile of the stage-1 map on this machine (tile_census, one z level per call)."""
-    x, y, z = MAP_B_XYZ
+    x, y, z = MAP_XYZ_ABORT
     eps = []
     for zz in range(z):
         r = gc.cmd({"cmd": "tile_census", "x0": 0, "x1": x - 1, "y0": 0, "y1": y - 1, "z0": zz, "z1": zz})
@@ -262,26 +262,26 @@ def tile_special(gc, p):
     return ((r.get("tiles") or [{}])[0] or {}).get("special")
 
 
-def ms2(host, client, ctx, crash0):
+def row_abort_route(host, client, ctx, crash0):
     g = []
     stage_guards(host, client, ctx, g)
     eps = {gc.name: census_exit(gc) for gc in (host, client)}
     ctx["exitTiles"] = len(eps["host"])
     for name in ("host", "client"):
-        if eps[name] != EXIT_TILES_B:
-            g.append(f"{name} END_POINT tiles {eps[name]} (want the pinned {len(EXIT_TILES_B)}: {EXIT_TILES_B})")
+        if eps[name] != EXIT_TILES:
+            g.append(f"{name} END_POINT tiles {eps[name]} (want the pinned {len(EXIT_TILES)}: {EXIT_TILES})")
     c2_at = bview(host).get("pos", {}).get(C2)
     ctx["c2"] = {"pos": c2_at,
                  "special": {gc.name: tile_special(gc, c2_at) for gc in (host, client)} if c2_at else None}
     if not c2_at or any(s == END_POINT for s in ctx["c2"]["special"].values()):
         g.append(f"C2 {C2} spawn {ctx['c2']} (want a non-END_POINT tile)")
-    for uid, tile in EXIT_TARGETS_B:
+    for uid, tile in EXIT_TARGETS:
         for gc in (client, host):                          # client first
             r = gc.cmd({"cmd": "battle_teleport_unit", "unit": uid, "x": tile[0], "y": tile[1], "z": tile[2]})
             if not r.get("ok"):
                 g.append(f"{gc.name} battle_teleport_unit {uid} -> {tile}: {r}")
     hp, cp = bview(host).get("pos"), bview(client).get("pos")
-    want_pos = {u: t for u, t in EXIT_TARGETS_B}
+    want_pos = {u: t for u, t in EXIT_TARGETS}
     want_pos[C2] = c2_at
     if hp != cp or {u: hp.get(u) for u in want_pos} != want_pos:
         g.append(f"X-COM positions host={hp} client={cp} (want {want_pos} on both)")
@@ -299,9 +299,9 @@ def ms2(host, client, ctx, crash0):
     d = host.cmd({"cmd": "dismiss_popup"})
     if d.get("handled") != "AbortMissionState":
         g.append(f"host dismiss_popup answered {d} (want handled AbortMissionState)")
-    # R4-L1 S-A (AMENDMENT R4-L1-1 section 4, chain rule A.10): the OK opens the abort vote; the partner's YES passes
-    # it and the host applies it at quiescence, so t_close and the two AtClose reads follow the host's stage record
-    # newly emitted with aborted true (R-L1-A-3, F10833: stage 2's initBattleAuthority clears the abortVote record).
+    # The OK opens the abort vote; the partner's YES passes it and the host applies it at quiescence, so t_close and
+    # the two AtClose reads follow the host's stage record newly emitted with aborted true (the abortVote record cannot
+    # be read instead: stage 2's initBattleAuthority clears it).
     try:
         st0 = (eview(host).get("stage") or {}).get("emitted") or 0
         session.abort_vote_yes(host, client)
@@ -315,39 +315,40 @@ def ms2(host, client, ctx, crash0):
     ctx["hostStageAtClose"] = eview(host).get("stage")    # finishBattle ran in the vote's apply
     ctx["hostRcAtClose"] = rc(host)
     if g:
-        evidence("MS2", {"guards": g, "ctx": ctx})
+        evidence("abort_route", {"guards": g, "ctx": ctx})
         return [f"pre-stage: {m}" for m in g]
     fails = entry_cells(host, client, ctx, MISSION_FINAL)
-    green = {}
+    stage_two = {}
     if not fails:
         ctx["inStage2"] = True
         try:
             _pressed, ctx["spineS"] = run_spine(host, client)
-            green = record_cells(host, client, ctx, fails, {"aborted": True, "inExitArea": IN_EXIT_B})
+            stage_two = record_cells(host, client, ctx, fails, {"aborted": True, "inExitArea": IN_EXIT})
             hb, cb = bview(host), bview(client)
-            green["battle"] = {"host": hb, "client": cb}
+            stage_two["battle"] = {"host": hb, "client": cb}
             for name, b in (("host", hb), ("client", cb)):
                 if b.get("turn") != 1 or b.get("missionType") != MISSION_FINAL:
                     fails.append(f"{name} turn/missionType={b.get('turn')}/{b.get('missionType')} "
                                  f"(want 1/{MISSION_FINAL})")
-                if b.get("xcom") != STAGE2_LIVING_B:
-                    fails.append(f"{name} stage-2 living X-COM id -> seat {b.get('xcom')} (want {STAGE2_LIVING_B}: "
-                                 f"C1 {C1} carried, C2 {C2} left behind, V3)")
+                if b.get("xcom") != STAGE2_LIVING:
+                    fails.append(f"{name} stage-2 living X-COM id -> seat {b.get('xcom')} (want {STAGE2_LIVING}: "
+                                 f"C1 {C1} carried, C2 {C2} left behind)")
             try:
-                assert_hash_clean(host, client, full=True, what="MS2 stage 2 turn 1")
+                assert_hash_clean(host, client, full=True, what="abort_route stage 2 turn 1")
             except AssertionError as e:
                 fails.append(f"hash at stage-2 turn 1: {short(e, 500)}")
         except Exception as e:
             fails.append(f"stage-2 spine / cells: {short(e, 600)}")
     liveness_cells(host, ctx, crash0, fails)
-    evidence("MS2", {"b1": ctx.get("b1"), "exitTiles": ctx.get("exitTiles"), "c2": ctx.get("c2"),
-                     "abortDialog": ctx.get("abortDialog"), "entry": ctx.get("entry"),
-                     "clientBriefingS": ctx.get("clientBriefingS"), "spineS": ctx.get("spineS"), "green": green,
-                     "hostRc": rc(host), "newCrashFiles": ctx.get("newCrashFiles")})
+    evidence("abort_route", {
+        "b1": ctx.get("b1"), "exitTiles": ctx.get("exitTiles"), "c2": ctx.get("c2"),
+        "abortDialog": ctx.get("abortDialog"), "entry": ctx.get("entry"),
+        "clientBriefingS": ctx.get("clientBriefingS"), "spineS": ctx.get("spineS"), "stage_two": stage_two,
+        "hostRc": rc(host), "newCrashFiles": ctx.get("newCrashFiles")})
     return fails
 
 
-# ===================== MS3 =====================
+# ===================== final_stage_debriefs =====================
 
 
 def mod_view(gc):
@@ -358,7 +359,7 @@ def mod_view(gc):
 
 
 def final_debriefs(host, client, ctx, f):
-    """Stage 2's kill-all through W2-P7: battle_end, both debriefs (S-B1), the client's OK then the host's."""
+    """Stage 2's kill-all through the battle end: battle_end, both debriefs, the client's OK then the host's."""
     g = []
     for name, gc in (("host", host), ("client", client)):
         be = event_state(gc).get("battleEnd") or {}
@@ -410,46 +411,47 @@ def final_debriefs(host, client, ctx, f):
     ctx["leave"] = leave
 
 
-def ms3(host, client, ctx, crash0):
+def row_final_stage_debriefs(host, client, ctx, crash0):
     g = []
     stage_guards(host, client, ctx, g)
-    kill_all(host, client, ALIENS_C, g, "stage 1")
+    kill_all(host, client, ALIENS_MOD, g, "stage 1")
     ctx["t_close"] = close_end_turn(host, client, g)
     ctx["hostStageAtClose"] = eview(host).get("stage")
     ctx["hostRcAtClose"] = rc(host)
     if g:
-        evidence("MS3", {"guards": g, "ctx": ctx})
+        evidence("final_stage_debriefs", {"guards": g, "ctx": ctx})
         return [f"pre-stage: {m}" for m in g]
-    fails = entry_cells(host, client, ctx, MISSION_C2)
-    green = {}
+    fails = entry_cells(host, client, ctx, MISSION_MOD_P2)
+    stage_two = {}
     if not fails:
         ctx["inStage2"] = True
         try:
             _pressed, ctx["spineS"] = run_spine(host, client)
-            green = record_cells(host, client, ctx, fails, {})
+            stage_two = record_cells(host, client, ctx, fails, {})
             hb, cb = bview(host), bview(client)
-            green["battle"] = {"host": hb, "client": cb}
+            stage_two["battle"] = {"host": hb, "client": cb}
             for name, b in (("host", hb), ("client", cb)):
-                if b.get("turn") != 1 or b.get("missionType") != MISSION_C2 or b.get("mapSizeXYZ") != STAGE2_TILES:
+                if b.get("turn") != 1 or b.get("missionType") != MISSION_MOD_P2 or b.get("mapSizeXYZ") != STAGE2_TILES:
                     fails.append(f"{name} turn/missionType/mapSizeXYZ={b.get('turn')}/{b.get('missionType')}/"
-                                 f"{b.get('mapSizeXYZ')} (want 1/{MISSION_C2}/{STAGE2_TILES})")
+                                 f"{b.get('mapSizeXYZ')} (want 1/{MISSION_MOD_P2}/{STAGE2_TILES})")
             try:
-                assert_hash_clean(host, client, full=True, what="MS3 stage 2 turn 1")
+                assert_hash_clean(host, client, full=True, what="final_stage_debriefs stage 2 turn 1")
             except AssertionError as e:
                 fails.append(f"hash at stage-2 turn 1: {short(e, 500)}")
             final_debriefs(host, client, ctx, fails)
         except Exception as e:
             fails.append(f"stage 2 / the final debriefs: {short(e, 600)}")
     liveness_cells(host, ctx, crash0, fails)
-    evidence("MS3", {"b1": ctx.get("b1"), "mod": ctx.get("mod"), "entry": ctx.get("entry"),
-                     "clientBriefingS": ctx.get("clientBriefingS"), "spineS": ctx.get("spineS"), "green": green,
-                     "final": ctx.get("final"), "leave": ctx.get("leave"), "hostRc": rc(host),
-                     "newCrashFiles": ctx.get("newCrashFiles")})
+    evidence("final_stage_debriefs", {
+        "b1": ctx.get("b1"), "mod": ctx.get("mod"), "entry": ctx.get("entry"),
+        "clientBriefingS": ctx.get("clientBriefingS"), "spineS": ctx.get("spineS"), "stage_two": stage_two,
+        "final": ctx.get("final"), "leave": ctx.get("leave"), "hostRc": rc(host),
+        "newCrashFiles": ctx.get("newCrashFiles")})
     return fails
 
 
-def boot_c(host, client):
-    info = boot_classic(host, client, PORT_C, MISSION_C1, SEED_C, MAP_FP_C, ALIENS_C, "mga-a2-c")
+def boot_mod(host, client):
+    info = boot_classic(host, client, PORT_MOD, MISSION_MOD, SEED_MOD, MAP_FP_MOD, ALIENS_MOD, "test_multistage_end")
     mv = {gc.name: mod_view(gc) for gc in (host, client)}
     for name, m in mv.items():
         if MOD_ACTIVE_LINE not in m["active"] or m["invalid"] or not m["deployment"]:
@@ -463,27 +465,28 @@ def boot_c(host, client):
 
 
 def run_row(rid, results):
-    ports, tag = (GC_B, "b") if rid == "MS2" else (GC_C, "c")
-    mods = [] if rid == "MS2" else [MOD_DIR]
-    host = GameClient("host", ports[0], make_user_dir(f"mga_ms_{tag}_host", mods=mods))
-    client = GameClient("client", ports[1], make_user_dir(f"mga_ms_{tag}_client", mods=mods))
+    ports, tag = (GC_ABORT, "abort") if rid == "abort_route" else (GC_MOD, "mod")
+    mods = [] if rid == "abort_route" else [MOD_DIR]
+    host = GameClient("host", ports[0], make_user_dir(f"multistage_end_{tag}_host", mods=mods))
+    client = GameClient("client", ports[1], make_user_dir(f"multistage_end_{tag}_client", mods=mods))
     crash0 = session._crash_log_snapshot()
     ctx = {}
     try:
         try:
-            if rid == "MS2":
-                info = boot_classic(host, client, PORT_B, MISSION_LANDING, SEED_B, MAP_FP_B, ALIENS_B, "mga-a2-b")
+            if rid == "abort_route":
+                info = boot_classic(host, client, PORT_ABORT, MISSION_LANDING, SEED_ABORT, MAP_FP_ABORT, ALIENS_ABORT,
+                                    "test_multistage_end")
             else:
-                info = boot_c(host, client)
+                info = boot_mod(host, client)
                 ctx["mod"] = info.get("mod")
-            print(f"[mga-a2] boot {tag.upper()} ok: {info}", flush=True)
+            print(f"[test_multistage_end] boot {tag.upper()} ok: {info}", flush=True)
         except Exception as e:
             results[rid] = False
             print(f"FAIL {rid}: boot (setup failure) {short(e, 600)}", flush=True)
             capture(rid, [host, client], short(e, 600))
             return
         try:
-            fails = (ms2 if rid == "MS2" else ms3)(host, client, ctx, crash0)
+            fails = (row_abort_route if rid == "abort_route" else row_final_stage_debriefs)(host, client, ctx, crash0)
         except FixtureMiss as e:
             fails = [f"SETUP-FAILURE {e}"]
             evidence(rid, {"setupFailure": str(e), "ctx": ctx})
@@ -501,13 +504,13 @@ def run_row(rid, results):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[mga-a2] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[test_multistage_end] shutdown {gc.name}: {short(e)}", flush=True)
 
 
 def main():
     t0 = time.time()
     results = {}
-    order = ["MS2", "MS3"]
+    order = ["abort_route", "final_stage_debriefs"]
     for rid in order:
         run_row(rid, results)
     passed = [r for r in order if results.get(r)]

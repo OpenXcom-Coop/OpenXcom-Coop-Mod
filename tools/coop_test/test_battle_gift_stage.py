@@ -44,8 +44,8 @@ import test_multistage_end as MSE  # noqa: E402
 
 KEY = "48648"
 STEP_S = 30                               # every bounded wait (measured: steps <= 3 s; MSE's ENTRY_S bounds the entry)
-SEED = MSE.SEED_C                         # 1, right before newbattle_ok
-MISSION_1, MISSION_2 = MSE.MISSION_C1, MSE.MISSION_C2
+SEED = MSE.SEED_MOD                       # 1, right before newbattle_ok
+MISSION_1, MISSION_2 = MSE.MISSION_MOD, MSE.MISSION_MOD_P2
 MAP_FP = 2.509715288832488e+18            # stage 1, both machines, on two capture boots
 TANK, C1, C2, H = GF.TANK, GF.C1, GF.C2, GF.H
 SEATS = {TANK: 0, C1: 1, C2: 1, H: 0}     # X-COM id -> seat at bring-up (two capture boots)
@@ -59,7 +59,7 @@ not_reached = OWN.not_reached
 
 def bring_up(host, client, key):
     """test_multistage_end.boot_classic with the lobby key and the pre_seat hook as parameters, the pins, then MSE's
-    mod / deployment check (boot_c)."""
+    mod / deployment check (boot_mod)."""
     m, pre, seated = (host, client), {}, {}
     GF.guarded("boot", lambda: RAW.bring_up_lobby(host, client, key), m)
     GF.guarded("boot", lambda: session.drive_to_battlescape(
