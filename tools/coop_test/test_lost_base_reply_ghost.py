@@ -4,23 +4,22 @@ base request never brings the lost base back as a marker on the partner's globe 
 BaseDestroyedState tells the partner at once that the base is gone (delete_base, its constructor) but erases the base from
 the loser's own list only at its OK. Every co-op GeoscapeState::init sends a base request; the loser's answer lists every
 own base, the lost one included, and the partner's handler re-creates the mirror and never drops one a later answer
-leaves out. Today closing any window on the partner's side while the message is open brings the lost base back as a
-mirror (same id, same name) that stays after the OK and after the next re-init.
+leaves out. Without the fix, closing any window on the partner's side while the message is open brings the lost base
+back as a mirror (same id, same name) that stays after the OK and after the next re-init. test_lost_first_base.py covers
+a player losing its first base.
 
-ONE boot, lobby key "49693" (user dirs w2h87_g_*), slot from OXC_HARNESS_SLOT. Spec
-rewrite/prompts/w2h87_lost_first_base_revert.md (f) (ruling R-H87-1: QH87-1 .. QH87-8 (a)); pins from
-rewrite/w2h87-task0/sa/CONSTANTS.md (TASK 0 boots h87t0_r_g red, h87t0_g_g green). F23069 captured by h83c-red
-(rewrite/w2h83-task0/sc); spec findings F23200-F23215 (F23209: the host-side ghost). The same unit's F23065 (R-LF23065-1,
-VL-H87-1: losing a first base reverts the campaign) is test_lost_first_base.py.
+ONE boot, lobby key "49693" (user dirs lost_base_reply_ghost_*), slot from OXC_HARNESS_SLOT.
 
-  SETUP-G host builds HostBase2, client builds ClientBase2 (build_new_base lever), each listed by the partner
-  RL-4   the host loses HostBase (soldiers stripped, spawn_ufo, trigger_base_defense: setup levers) and leaves its
-         BaseDestroyedState open; the client CYCLEs (real INTERCEPT, real CANCEL); the host's real OK; the client
-         CYCLEs again                                                       RL4-pre RL4-open RL4-after
-  RL-4c  the same with roles swapped (the client loses ClientBase, the host CYCLEs)  RL4c-pre RL4c-open RL4c-after
-  end    shutdown                                                            CRASH
-RED on the unchanged build: RL4-open, RL4-after, RL4c-open, RL4c-after (4 of 7). The ghost cells compare
-coopBaseIds, never names (a ghost keeps the lost base's name).
+  SETUP         the host builds HostBase2, the client builds ClientBase2 (build_new_base test command), each listed by
+                the partner
+  host_loses    the host loses HostBase (soldiers stripped, spawn_ufo, trigger_base_defense: setup test commands) and
+                leaves its BaseDestroyedState open; the client CYCLEs (real INTERCEPT, real CANCEL); the host's real OK;
+                the client CYCLEs again. Cells host_loses-pre, host_loses-open, host_loses-after.
+  client_loses  the same with roles swapped (the client loses ClientBase, the host CYCLEs). Cells client_loses-pre,
+                client_loses-open, client_loses-after.
+  end           shutdown. Cell CRASH.
+Without the fix host_loses-open, host_loses-after, client_loses-open and client_loses-after FAIL (4 of 7). The ghost
+cells compare coopBaseIds, never names (a ghost keeps the lost base's name).
 
 Each row prints ONE "EVIDENCE <row>:" line, one "PASS <cell>" / "FAIL <cell>: <why>" line per cell and "ROW <row>:
 PASS|FAIL". Every row runs after a failure; a precondition miss ends its row (its later cells FAIL "not reached") with ONE
@@ -40,13 +39,14 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
 KEY = "49693"
-B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)   # the host's second base (land, accepted; TASK 0)
-B2C = (LAND_LON + 0.09, LAND_LAT + 0.03)  # the client's second base (land, accepted; TASK 0)
+B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)   # the host's second base (land, where a build is accepted)
+B2C = (LAND_LON + 0.09, LAND_LAT + 0.03)  # the client's second base (land, where a build is accepted)
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 W_BDS, GONE, POP, RT_SETTLE = 6.0, 1.0, 10.0, 3.0
-ROWCELLS = (("RL-4", ("RL4-pre", "RL4-open", "RL4-after")), ("RL-4c", ("RL4c-pre", "RL4c-open", "RL4c-after")))
+ROWCELLS = (("host_loses", ("host_loses-pre", "host_loses-open", "host_loses-after")),
+            ("client_loses", ("client_loses-pre", "client_loses-open", "client_loses-after")))
 CELLS = [c for _, cs in ROWCELLS for c in cs] + ["CRASH"]
 RESULT = {}
 
@@ -55,7 +55,7 @@ class Pre(Exception):
     """A fixture step missed its precondition: ends its row."""
 
 
-# --------------------------------------------------------------------------- probes and presses (copied from docs rewrite/lf23065-cap/cap.py)
+# --------------------------------------------------------------------------- probes and presses
 
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
 def crashes(): return set(glob.glob(os.path.join(harness.CRASH_DIR, "**", "crash_*"), recursive=True))
@@ -150,7 +150,7 @@ def affine(r1, r2):
 
 
 def scale(gc):
-    """the window scale per machine (the Boot of the spec's (f); CAP bring_up): INTERCEPT, CANCEL"""
+    """the window scale per machine from a real INTERCEPT and CANCEL"""
     a = cw(gc, "INTERCEPT")
     wait(lambda: top(gc) == "InterceptState", 5)
     session.wait_widget_ready(gc, "CANCEL")
@@ -197,10 +197,11 @@ def cycle(gc):
     time.sleep(RT_SETTLE)
 
 
-# --------------------------------------------------------------------------- setup levers (logged)
+# --------------------------------------------------------------------------- setup test commands (logged)
 
 def build(x, actor, name, pos):
-    """build_new_base lever; a BasescapeState it leaves on top is closed by a real GEOSCAPE; the partner lists it within 30 s"""
+    """build_new_base test command; a BasescapeState it leaves on top is closed by a real GEOSCAPE; the partner lists it
+    within 30 s"""
     other = x.client if actor is x.host else x.host
     r = q(actor, {"cmd": "build_new_base", "lon": pos[0], "lat": pos[1], "name": name})
     if not r.get("ok"):
@@ -251,7 +252,7 @@ def ghost(x, ev, v, rid, loser, cycler, base, keep):
     `keep` = the loser's other own base id (it must survive on both sides)."""
     p = rid.replace("-", "")
     if not keep:
-        raise Pre("SETUP-G: the loser's second base is missing")
+        raise Pre("SETUP: the loser's second base is missing")
     ev["lose"] = lose(loser, cycler, base)
     cycle(cycler)
     ls, c1, l1 = stk(loser), census(cycler), census(loser)
@@ -272,28 +273,28 @@ def ghost(x, ev, v, rid, loser, cycler, base, keep):
                        "after the OK and a second CYCLE: %s (lost id %s)" % (ev["after"], base[0]))
 
 
-def row_rl4(x, ev, v):
-    """SETUP-G + RL-4: the host loses HostBase, the client cycles while the host's message is open"""
+def row_host_loses(x, ev, v):
+    """SETUP + host_loses: the host loses HostBase, the client cycles while the host's message is open"""
     x.hb2 = build(x, x.host, "HostBase2", B2)
     x.cb2 = build(x, x.client, "ClientBase2", B2C)
     ev["setup"] = "HB %s CB %s HB2 %s CB2 %s" % (x.hb, x.cb, x.hb2, x.cb2)
-    ghost(x, ev, v, "RL-4", x.host, x.client, x.hb, x.hb2)
+    ghost(x, ev, v, "host_loses", x.host, x.client, x.hb, x.hb2)
 
 
-def row_rl4c(x, ev, v):
-    """RL-4c: the client loses ClientBase, the host cycles while the client's message is open"""
-    ghost(x, ev, v, "RL-4c", x.client, x.host, x.cb, x.cb2)
+def row_client_loses(x, ev, v):
+    """client_loses: the client loses ClientBase, the host cycles while the client's message is open"""
+    ghost(x, ev, v, "client_loses", x.client, x.host, x.cb, x.cb2)
 
 
-ROWS = (("RL-4", row_rl4), ("RL-4c", row_rl4c))
+ROWS = (("host_loses", row_host_loses), ("client_loses", row_client_loses))
 
 # --------------------------------------------------------------------------- driver
 
 
 class X:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h87_g_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h87_g_client"))
+        self.host = GameClient("host", None, make_user_dir("lost_base_reply_ghost_host"))
+        self.client = GameClient("client", None, make_user_dir("lost_base_reply_ghost_client"))
         self.hb = self.cb = self.hb2 = self.cb2 = None
         self.sc = {}
 
