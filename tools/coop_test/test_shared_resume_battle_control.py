@@ -1,13 +1,13 @@
-"""SPEC 18 (r4 T4) S2 - SHARED twin of test_coop_resume_battle_control.py's S1.
+"""SHARED mid-battle save / resume: the SHARED twin of test_coop_resume_battle_control.py.
 
-Same invariant, same E72/D121 Lightning-roof mid-walk fixture, on a SHARED
+Same invariant, same Lightning-roof mid-walk fixture, on a SHARED
 campaign: seat 0 (host-owned, coop==0) + seat 1 (client-owned, coop==1) on
 the SAME shared craft - no two-world merge, so the seat-1 soldier is the
 CLIENT's own roster entry directly rather than a merged battle copy. The
 SHARED arm of `request_load_progress` (connectionTCP.cpp) is what this
 scenario proves reaches the SAME disk-resume fork as SEPARATE.
 
-Reuses test_coop_resume_battle_control's rewritten split_report/assert_split/
+Reuses test_coop_resume_battle_control's split_report/assert_split/
 settle_and_assert and its stage_alien_and_walk/_sav_status_pos helpers
 (the Lightning-roof recipe is identical once a live battle exists - only the
 BRING-UP differs between SEPARATE and SHARED).
@@ -24,8 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import shared_fixture
 import session
-# reuse the rewritten split probe/assertion + the Lightning-roof staging
-# helpers from the SEPARATE test (SAME invariant, same fixture recipe).
+# reuse the split probe/assertion + the Lightning-roof staging helpers
+# from the SEPARATE test (SAME invariant, same fixture recipe).
 import test_coop_resume_battle_control as rc
 
 PORTS = (48780, 48781, 48082)   # host test / client test / coop session
@@ -41,8 +41,8 @@ def _roster(gc):
 
 def bring_up_lightning_roof_shared(js):
     """SHARED twin of test_coop_resume_battle_control.bring_up_lightning_roof_separate
-    (E72.4: confirmed the SHARED bring-up hits the same clustered-spawn problem
-    on a rolled map - the same Lightning + landed-UFO recipe fixes it here).
+    (the SHARED bring-up hits the same clustered-spawn problem on a rolled
+    map - the same Lightning + landed-UFO recipe fixes it here).
 
     Returns (host_squad_id, client_seat_id, name_by_squad): the shared craft's
     seat-0 (host) and seat-1 (client) soldier ids, and {name: seat} for
@@ -114,7 +114,7 @@ def main():
         host_seat_id, client_seat_id, expected_names = bring_up_lightning_roof_shared(js)
 
         expected_seats = {host_seat_id: 0, client_seat_id: 1}
-        session.assert_control_split(host, client, expected_seats, what="S2 pre-save live split")
+        session.assert_control_split(host, client, expected_seats, what="shared_resume pre-save live split")
 
         walker_id = next(u["id"] for u in rc.battle(host)["units"]
                          if u.get("soldierId") == host_seat_id and not u.get("isOut"))
@@ -126,18 +126,17 @@ def main():
         before_files = set(session.save_files(host_dir))
         deferrals_before = rc.battle(host).get("coopSaveDeferrals")
         r = host.ok({"cmd": "save_game_ui", "type": "quick_battle"})
-        # DEFERRAL (D101/M8), read from the game's own record. F448 (owner
-        # D136 = (b), WV-D77; captured on both twins under REGRESSION K=2):
-        # the old check had to OBSERVE the latch armed with no file yet, a
-        # window that closes when the walk drains - an off-screen walk that
-        # halts on TU drains within ~25-200 ms, and each battle_state
-        # reply reaches the test ~50 ms late, so the first look can
-        # land after the deferred write. The game now records every deferral
+        # DEFERRAL (mid_walk_save), read from the game's own record. Observing
+        # the latch armed with no file yet is not reliable: that window closes
+        # when the walk drains - an off-screen walk that halts on TU drains
+        # within ~25-200 ms, and each battle_state reply reaches the test
+        # after the game handled it, so the first look can land after the
+        # deferred write. The game records every deferral
         # (`coopSaveDeferrals`) and the tick of the deferred write
         # (`coopSaveDeferredWrittenAt`); the host's `lastWalk.endTick` is the
-        # tick its walk ended. Wait for the new file (the F406 bound,
-        # unchanged - SaveGameState::think()'s 10-frame warmup still runs
-        # first and K=2 slows frames), assert the save was deferred exactly
+        # tick its walk ended. Wait for the new file (30 s:
+        # SaveGameState::think()'s 10-frame warmup runs first and two tests
+        # at once slow frames), assert the save was deferred exactly
         # once across the request, and - after the file exists (below) - that
         # the deferred write came no earlier than the walk's end. Same shape
         # as the SEPARATE twin test_coop_resume_battle_control.py.
@@ -154,10 +153,10 @@ def main():
         elapsed = time.time() - t_start
         deferrals_after = rc.battle(host).get("coopSaveDeferrals")
         assert isinstance(deferrals_before, int) and deferrals_after == deferrals_before + 1, (
-            f"M8 VACUITY: the mid-walk save request (pending={pending}) was not deferred "
+            f"mid_walk_save VACUITY: the mid-walk save request (pending={pending}) was not deferred "
             f"exactly once - coopSaveDeferrals {deferrals_before} -> {deferrals_after} "
             f"after {poll_iters} poll(s)/{elapsed:.1f}s: {r}")
-        print(f"PASS M8 deferral: coopSaveDeferrals {deferrals_before} -> {deferrals_after} "
+        print(f"PASS mid_walk_save deferral: coopSaveDeferrals {deferrals_before} -> {deferrals_after} "
               f"(pending={pending}, new file after {poll_iters} poll(s)/{elapsed:.1f}s)")
 
         for _ in range(150):
@@ -177,8 +176,8 @@ def main():
             if sp_after is False and new_files:
                 break
             time.sleep(0.2)
-        assert sp_after is False, f"M8: coopSavePending never cleared: {sp_after}"
-        assert len(new_files) == 1, f"M8: expected exactly one new save file, got {sorted(new_files)}"
+        assert sp_after is False, f"mid_walk_save: coopSavePending never cleared: {sp_after}"
+        assert len(new_files) == 1, f"mid_walk_save: expected exactly one new save file, got {sorted(new_files)}"
         savpath = os.path.join(host_dir, next(iter(new_files)))
 
         # the deferred write came no earlier than the walk's end -
@@ -188,19 +187,19 @@ def main():
         written_at = rec.get("coopSaveDeferredWrittenAt")
         assert (isinstance(walk_end, int) and walk_end > 0 and isinstance(written_at, int)
                 and written_at >= walk_end), (
-            f"M8: the deferred save was not written after the walk ended (deferral broken): "
+            f"mid_walk_save: the deferred save was not written after the walk ended (deferral broken): "
             f"coopSaveDeferredWrittenAt={written_at} lastWalk.endTick={walk_end} "
             f"coopSaveDeferredAt={rec.get('coopSaveDeferredAt')}")
-        print(f"PASS M8 write-after-walk-end: coopSaveDeferredWrittenAt={written_at} >= "
+        print(f"PASS mid_walk_save write-after-walk-end: coopSaveDeferredWrittenAt={written_at} >= "
               f"lastWalk.endTick={walk_end} (deferred at {rec.get('coopSaveDeferredAt')})")
 
         sav_status, sav_pos, sav_block = rc._sav_status_pos(savpath, walker_id)
         assert sav_status == rc.STATUS_STANDING, (
-            f"M8: written save walker status={sav_status} (want STANDING), file does not hold "
+            f"mid_walk_save: written save walker status={sav_status} (want STANDING), file does not hold "
             f"the post-walk state:\n{sav_block}")
         assert sav_pos == pos_after, (
-            f"M8: written save walker pos={sav_pos} != live post-drain pos {pos_after}:\n{sav_block}")
-        print(f"PASS M8: the .sav holds the walker's exact post-drain state "
+            f"mid_walk_save: written save walker pos={sav_pos} != live post-drain pos {pos_after}:\n{sav_block}")
+        print(f"PASS mid_walk_save: the .sav holds the walker's exact post-drain state "
               f"(status={sav_status}, pos={sav_pos})")
 
         def _snapshot(gc):
@@ -266,8 +265,8 @@ def main():
             assert snap == post, (
                 f"{tag}: post-resume snapshot != pre-quit `post`:\n  post={post}\n  {tag}={snap}")
         # "never replay the walk": see test_coop_resume_battle_control.py's
-        # own note (WV-D77 capture) - lastSeqApplied is not 0 after a resume
-        # (SS2.W5's entry-side-begin reveal restate legitimately advances it);
+        # own note - lastSeqApplied is not 0 after a resume (the battle-entry
+        # side-begin reveal restate legitimately advances it);
         # the snapshot equality above already proves no WALK replay, and this
         # confirms no walk EVENT was applied on the client either.
         client_events = session.event_log(client2, tail=100)
@@ -277,8 +276,8 @@ def main():
         print("PASS resumed state == post-drain snapshot on both machines; no walk replay")
 
         # PARALLEL mode reset-default tally (see test_coop_resume_battle_
-        # control.py's own note, cross-checked against test_end_turn_
-        # tally.py L1: "parallel emits NOTHING at entry").
+        # control.py's own note; parallel emits nothing at entry, as
+        # test_end_turn_tally.py also checks).
         RESET_TALLY = {"turn": 0, "side": "", "count": 0, "needed": 0, "ready": [], "activeSeat": -1}
         for gc, tag in ((host2, "host"), (client2, "client")):
             tally = session.event_state(gc).get("coopEndTurnTally", {})
@@ -292,17 +291,17 @@ def main():
                         lambda gc=gc: (rc.top(gc) == "BattlescapeState") or None, timeout=60, interval=0.5)
             assert not rc.has(gc, "HostMenu") and not rc.has(gc, "LobbyMenu"), (
                 f"{tag}: HostMenu/LobbyMenu still on stack after RESUME: {rc.states(gc)}")
-        print("PASS M4: both machines on BattlescapeState after RESUME, no HostMenu/LobbyMenu")
+        print("PASS resume_click: both machines on BattlescapeState after RESUME, no HostMenu/LobbyMenu")
 
-        # E63.3's T-CMD reuse is scoped to the ADMIT + DENY legs only (the host
-        # click-select-refusal leg is SPEC 19's own fresh-entry coverage) -
+        # Only the ADMIT + DENY legs of the seat-command check run here (the
+        # host's click-select refusal leg is covered on a fresh battle entry) -
         # see test_coop_resume_battle_control.py's own note.
         session.assert_seat_commands(host2, client2, client_seat_id, host_seat_id,
-                             host_check=False, what="S2 after resume")
+                             host_check=False, what="shared_resume after resume")
 
         session.assert_client_zero_disk(client2.user_dir)
         print("PASS zero-disk: resumed client user dir clean")
-        print("ALL SPEC 18 S2 SHARED MID-BATTLE RESUME TESTS PASSED")
+        print("ALL SHARED MID-BATTLE RESUME TESTS PASSED")
     except Exception as e:
         fail = e
         print(f"[FAIL] {e}")
