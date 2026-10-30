@@ -302,7 +302,7 @@
   "test_rejoin_lost_restream": 31.9,
   "test_rejoin_reveal_rearm": 27.5,
   "test_rejoin_send_failure": 66.3,
-  "test_removed_base_holders": 45.7,
+  "test_removed_base_holders": 17.6,
   "test_removed_base_holders_shared": 24.0,
   "test_removed_base_views": 94.7,
   "test_removed_base_windows": 85.3,
