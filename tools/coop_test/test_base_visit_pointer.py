@@ -1,16 +1,17 @@
 """test_base_visit_pointer.py: in a SEPARATE campaign, while the base's owner and a visiting partner are both on that
 base's Soldiers inventory, each sees the other's pointer and name, and the visitor's held pile item leaves the owner's
 pile and is drawn under the visitor's pointer, exactly as they are drawn in SHARED (test_base_partner_pointer,
-test_base_partner_held). This holds only on the same pile: the key is the base's _coop_base_id (the owner's base and the
-visitor's mirror carry the same id) + the pile. No SEPARATE equip sync is added, and the read-only partner view
-(test_base_partner_view) stays SHARED-only.
+test_base_partner_held). This holds only on the same pile: the key is the base's _coop_base_id (in the one shared
+SEPARATE world both machines hold the same base) + the pile. No SEPARATE equip sync is added, and the read-only partner
+view (test_base_partner_view) stays SHARED-only.
 The boot (SEPARATE, key 49418, dirs base_visit_pointer_host / _client): settle session.new_campaign +
 geo.wait_both_ready; guest_move the fixture's own step (a visitor sees only its own soldiers at a peer base, as
-test_coop_peer_equip_screens shows, so the host first transfers one of its soldiers to ClientBase); host_visit the host
-visits ClientBase from its geoscape (insideCoopBase, the guest listed); owner_screen the client (OWNER) opens
-ClientBase's Soldiers inventory; visitor_screen the host (VISITOR) opens its view of it (the mirror). Preconditions: an
-InventoryState on top of both; PILE_TYPE's cell >= 2 entries on both screens (preferred value + test_base_partner_held's
-rule, logged). A spine miss = every row FAIL "spine" with ONE CAPTURE line.
+test_coop_peer_equip_screens shows, so the host first transfers one of its soldiers to ClientBase: shared_transfer +
+force_transfer_arrivals, as test_coop_transferred_equipment does; the soldier stays the host's); host_visit the host
+opens ClientBase's base screen (open_screen basescape, as a click on the partner base's marker does; the guest listed);
+owner_screen the client (OWNER) opens ClientBase's Soldiers inventory; visitor_screen the host (VISITOR) opens it too.
+Preconditions: an InventoryState on top of both; PILE_TYPE's cell >= 2 entries on both screens (preferred value +
+test_base_partner_held's rule, logged). A spine miss = every row FAIL "spine" with ONE CAPTURE line.
 Reads: drawn = event_state.equip.presence.drawn; keys / snapshots = event_state.equip.basePresence (localKey, peer, recv,
 held; absent or unregistered reads "" / -1 / false, as on a build without this feature); a cell's count =
 inventory_view.ground entries at (x, y); the inventory offset = the observer's cursor_pos; move(gc, pt) =
@@ -22,7 +23,7 @@ test_base_partner_pointer's real motion recipe.
                      count one lower within W_PTR while the host holds), owner_draws_held_item (the client draws its
                      held.local under the host's pointer), owner_pile_back (the count back within W_PTR of the right
                      click, owner_pile_drops seen first)
-  visitor_leaves     the host's real OK, soldiers_ok, leave_base, session.wait_back_on_geoscape; poll the client up to
+  visitor_leaves     the host's real OK, soldiers_ok, the real GEOSCAPE, GeoscapeState on top; poll the client up to
                      W_PTR: leave_sends_pointer_off (the client's peer = the host's explicit on false, a new receive),
                      pointer_hidden_after_leave (guard: the client's drawn.ptr false)
   different_bases    the host opens HostBase's Soldiers inventory (its own base), move(host, PT1); watch the client for
@@ -60,7 +61,7 @@ PT1, PT2 = bpp.PT1, bpp.PT2        # test_base_partner_pointer's points: on the 
 HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"  # session.new_campaign's names; the overlay names the peer
 NAME_DX, NAME_DY = bpp.NAME_DX, bpp.NAME_DY
 PILE_PIN = "STR_PISTOL_CLIP"       # preferred; else the first type (by its lowest host cell) with a cell of >= 2 entries on both
-W_PTR, W, VISIT_S, POLL = 2.0, 10.0, 60.0, 0.05
+W_PTR, W, POLL = 2.0, 10.0, 0.05
 CELLS = {
     "both_pointers": ["client_pointer_on_host", "host_pointer_on_client"],
     "visitor_held_item": ["owner_pile_drops", "owner_draws_held_item", "owner_pile_back"],
@@ -148,6 +149,15 @@ def pick_pile(x):
             "PILE_TYPE": [PILE_PIN, x.pile], "pileCell": x.pile_cell}
 
 
+def settle_geo(gc, timeout=10.0):
+    """close arrival popups (dismiss_popup) until GeoscapeState is on top; returns the stack"""
+    t0 = time.time()
+    while time.time() - t0 < timeout and bpp.top(gc) != GEO:
+        q(gc, {"cmd": "dismiss_popup"})
+        time.sleep(0.2)
+    return stack(gc)
+
+
 def spine(x):
     h, c, sp = x.host, x.client, {}
     for gc in (h, c):
@@ -159,14 +169,15 @@ def spine(x):
     g = next((s for s in sol if s.get("craft") == -1), sol[0] if sol else {})
     x.guest = g.get("name")
     sp["guest_move guest"] = [g.get("id"), x.guest, g.get("craft")]
-    sp["guest_move transfer"] = q(h, {"cmd": "transfer_to_coop_base", "name": x.guest or "?", "toBase": CB})
+    sp["guest_move transfer"] = q(h, {"cmd": "shared_transfer", "soldier_id": g.get("id"), "fromBase": HB, "toBase": CB})
+    sp["guest_move arrive"] = q(h, {"cmd": "force_transfer_arrivals", "base": CB})
     listed = lambda gc, req: any(s.get("name") == x.guest for s in q(gc, req).get("soldiers") or [])  # noqa: E731
     sp["guest_move client lists the guest"] = sbe.converge(lambda: listed(c, {"cmd": "base_report", "base": CB}))
-    sp["host_visit visit"] = q(h, {"cmd": "visit_coop_base", "base": CB})
-    sp["host_visit inside"] = bpp.poll(lambda: q(h, {"cmd": "get_coop"}).get("insideCoopBase") is True, VISIT_S)
+    sp["guest_move host lists the guest"] = sbe.converge(lambda: listed(h, {"cmd": "base_report", "base": CB}))
+    sp["guest_move geoscape"] = {gc.name: settle_geo(gc) for gc in (h, c)}
+    sp["host_visit visit"] = q(h, {"cmd": "open_screen", "screen": "basescape", "base": CB})
     sp["host_visit basescape"] = bpp.poll(lambda: bpp.top(h) == "BasescapeState", 30.0)
-    sp["host_visit host lists the guest"] = sbe.converge(lambda: listed(h, {"cmd": "base_report", "coop": True}))
-    rep = {"owner": q(c, {"cmd": "base_report", "base": CB}), "visitor": q(h, {"cmd": "base_report", "coop": True})}
+    rep = {"owner": q(c, {"cmd": "base_report", "base": CB}), "visitor": q(h, {"cmd": "base_report", "base": CB})}
     sp["base ids"] = {k: [v.get("name"), v.get("coopBaseFlag"), v.get("coopBaseId"), v.get("totalSoldiers")] for k, v in rep.items()}
     sh = bpp.Shim()
     sp["owner_screen client open"] = open_soldier_screen(sh, c, base=CB)
@@ -246,8 +257,8 @@ def row_visitor_leaves(x, r):
     r.ev["after OK first true (s)"] = bph.seen({"off": off, "hidden": hidden}, W_PTR)
     r.ev["soldiers_ok"] = q(h, {"cmd": "soldiers_ok"}).get("ok")
     sbe.wait_until(lambda: "SoldiersState" not in stack(h), W, POLL)
-    r.ev["leave_base"] = q(h, {"cmd": "leave_base"})
-    r.ev["back on geoscape"] = session.wait_back_on_geoscape(h, "the host back on its own geoscape")
+    r.ev["geoscape click"] = q(h, {"cmd": "click_widget", "match": "GEOSCAPE"}).get("ok")
+    r.ev["back on geoscape"] = sbe.wait_until(lambda: bpp.top(h) == GEO, W, POLL)
     first = r.ev["first true (s)"] = bph.seen({"off": off, "hidden": hidden}, W_PTR)
     lk = r.ev["look"] = look(x)
     r.cell("leave_sends_pointer_off", first["off"] is not None,
