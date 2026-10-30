@@ -1,122 +1,92 @@
-"""test_prebattle_equip_tools.py: the pre-battle bulk tools for the second
-player (stage S-C). every pre-battle tool works for the second player,
-each executed by the host - the template buttons, the personal and the global
-layouts, clear and auto-equip become ONE tracked `inv_bulk` order each (op apply /
-clear / autoequip) that the host performs; Q9 (a) / D209 a: a layout the second
-player SAVES is host-executed in SHARED only - in a skirmish it stays local and is
-lost after the battle (spec docs rewrite/prompts/w2p8b_prebattle_equip.md: the
-draft's (f) EQ16-EQ20; AMENDMENT P8b-1 section 4 S-C (the pinned stage text),
-section 5 (Boot C, rows EQ16-EQ20 (L)) and section 8; AMENDMENT P8b-2 (the TASK 0
-constants F3326/F3327: staged items, never stock ids)).
+"""test_prebattle_equip_tools.py: the pre-battle bulk tools for the second player. Every pre-battle tool works for the
+second player, each executed by the host: the template buttons, the personal and the global layouts, clear and
+auto-equip become ONE tracked `inv_bulk` order each (op apply / clear / autoequip) that the host performs. A layout
+the second player SAVES is host-executed in SHARED only (test_prebattle_equip_shared.py): in a skirmish it stays local
+and is lost after the battle. Every item a row uses is staged by this test, never a stock item id (stock ids vary per
+boot).
 
-Before S-C.2 (product untouched, commit S-C.1) every one of these tools runs vanilla's
-code on the second player's own machine: the client's copy of the soldier changes,
-nothing is sent, the host's copy stays as it was (P8b-1 section 5's FIX cell
-"client-local writes / nothing sent"). The rows are (L) rows (P8b-1 section 5): at
-red each one writes on the client alone. They share this boot, so at red the
-divergence accumulates; each row's FIX cell is therefore judged on its OWN per-machine
-change - the host's target soldier unchanged by the row, the client's changed by it,
-no `inv_bulk` sent - never on a state an earlier row left behind. At red nothing is
-sent at all, so no host ev reaches the client and no in-game desync freezes it.
+Without the fix every one of these tools runs vanilla's code on the second player's own machine: the client's copy of
+the soldier changes, nothing is sent, the host's copy stays as it was ("client-local writes / nothing sent"). The rows
+share this boot, so without the fix the divergence accumulates; each row's first check is therefore judged on its OWN
+per-machine change - the host's target soldier unchanged by the row, the client's changed by it, no `inv_bulk` sent -
+never on a state an earlier row left behind. Without the fix nothing is sent at all, so no host ev reaches the client
+and no in-game desync freezes it.
 
-Boot C (ONE boot, parallel turn mode, rows in this order; each row ONE run): the
-roster-pinned lobby (set_seed SEED_ROSTER before open_new_battle),
-session.bring_up_to_briefings (the client seated C1, C2; the host keeps H), set_seed
-SEED_MAP right before newbattle_ok, the host's mapFingerprint = MAP_FP. The fixture
-spine is fixed at red and green:
-  [both briefings up] -> [staging] -> [EQ27's staging] -> [client close_briefing, host
-  close_briefing: both pre-battle screens up, the host's equip-open announce] -> [the
-  client saves C2's personal layout] -> EQ16 -> EQ17 -> EQ18 -> EQ19 -> EQ20 -> EQ27.
-Staging (both briefings up, client first, F607; staged items only, P8b-2): C1 and C2
-stripped on both machines; C1 gets L1 = a rifle loaded with a rifle clip in
-STR_RIGHT_HAND + a grenade on STR_BELT (0,0); C2 gets L2 = a pistol loaded with a
-pistol clip in STR_LEFT_HAND + a smoke grenade on STR_BELT (1,0) (battle_give); one
-rifle, one rifle clip and one grenade dropped on PILE (battle_drop), so every apply
-finds its types on the pile whatever the stock pile holds. A layout is
-compared by its signature: per item (type, slot, slotX/slotY (hands: none), loaded
-ammo types, fuse), sorted.
-The personal save (spine): the client's screen on C2, key keyInvSavePersonalEquipment
-(vanilla btnCreatePersonalTemplateClick; Q9 a: a skirmish save is the client's own).
-Keys: the harness options.cfg (make_user_dir's HERMETIC_OPTIONS) pins none of the
-inventory keys, so each is Options.cpp's default (read from the client's options.cfg
-when present, else the pinned default below); the equip_layouts probe's live Options
-values must equal them on both machines (a fixture check). The global layout keys are
-vanilla's digits (InventoryState::handle: Ctrl+1..9 saves, 1..9 applies; key 1 = index
-0).
-  EQ16  template (the template buttons): the client's screen on C1 -> inventory_click
-        {widget: create_template} (UI-local, vanilla) -> NEXT to C2 -> inventory_click
-        {widget: apply_template}. GREEN: C2's layout = L1 on the host AND the client
-        (the same item ids), the host's C2 changed, one `inv_bulk` sent (client
-        coopIntentsSent) and received (host intentsReceivedLog), none denied; C1
-        unchanged on both.
-  EQ17  personal (keyInvLoadPersonalEquipment, a plain key: InteractiveSurface
-        keyboardPress fires only without Ctrl/Alt/Shift): the client's screen on C2
-        (L1 after EQ16) -> the key. GREEN: C2 = L2 (its personal layout) on both, the
-        host's C2 changed, one `inv_bulk`; and the spine's save landed per Q9 (a) in a
-        skirmish: the client's C2 personal layout = L2, the host's unchanged, no
-        `inv_bulk` sent by the save.
-  EQ18  global (P8b-1 section 5 "global Ctrl+1 then 1"): the client's screen on C1 ->
-        Ctrl+1 (vanilla saveGlobalLayout(0)) -> NEXT to C2 -> 1 (loadGlobalLayout(0)).
-        The save is made on C1 and applied on C2: saving and applying C2's own layout
-        would leave C2 as it was and prove nothing. GREEN: C2 = L1 on both, the host's C2
-        changed, one `inv_bulk` for the apply; the save landed per Q9 (a) in a
-        skirmish: the client's global layout 0 = L1, the host's unchanged, no
-        `inv_bulk` sent by the save.
-  EQ19  clear (keyInvClear): the client's screen on C1 -> the key. GREEN: C1 empty on
-        both, its items on PILE on both, one `inv_bulk`.
-  EQ20  auto-equip (keyInvAutoEquip): the client's screen on C1 (empty after EQ19) ->
-        the key. GREEN: C1 holds items (vanilla autoEquip from the pile) - the same ids
-        and fields on both - the host's C1 changed, one `inv_bulk`.
-  RED (commit S-C.1): exactly EQ16-EQ20 fail, each on its FIX cell - the host's target
-  soldier unchanged by the row while the client's changed to the tool's result, and no
-  `inv_bulk` sent (buckets then differ). A row whose tool did not change the client's
-  own copy fails for another reason (FIXTURE, stated in its message).
-  EQ27  (stage S-C.3, P8b-2c ruling SC-4, follows vanilla): a template the pile cannot fill
-        shows vanilla's STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE line ("Not enough items to copy
-        template!", InventoryState::_applyInventoryTemplate) on the screen of the player
-        who applied it - the `inv_bulk` answer carries the flag. The template is TWO
-        proximity grenades (PROX_T) and the pile holds exactly ONE when the client applies
-        it, so exactly one template item is missing:
-          staging (the spine step after the S-C staging, both briefings up): the pile's
-          stock PROX_T counted, then PROX_T dropped on PILE until it holds EQ27_PILE_PROX
-          (3); H1 and H2 stripped, H1 = PROX_T on STR_BELT (0,0) and (1,0), H2 = PROX_T on
-          STR_BELT (0,0) (battle_give; the host control below);
-          the row: the client clears C1 and C2 (keyInvClear, EQ19's tool: C1's EQ20 items
-          and C2's L1 go to the pile, so the pile holds all EQ27_PILE_PROX) -> on C2 two
-          Ctrl-clicks on the pile's PROX_T cell (vanilla's ctrl_fit: two inv_move orders,
-          C2 = two PROX_T, the pile keeps ONE) -> inventory_click {widget:
-          create_template} (UI-local, vanilla) -> NEXT to C1 (empty) -> inventory_click
-          {widget: apply_template}: the host finds one PROX_T for two template cells.
-        GREEN: the client's line shows the text (inventory_view lineText + lineVisible,
-        polled from the press until LINE_READ_S after the answer: the line fades 1.2 s
-        after a show, F3112, so it is read inside that window; the +LINE_READ_S read is
-        recorded as evidence only - P8b-2d SC-8); the host's and the client's C1 are equal
-        and hold the partial template
-        (one PROX_T in one of C2's two template cells), the pile holds no PROX_T on either
-        machine, one `inv_bulk` sent and received, none denied. RED (product untouched,
-        the host logs "not every template item was on the ground" and answers without the
-        flag): the client's line never shows the text - the partial apply itself already
-        happens.
-        CONTROL (vanilla, passes at red): the HOST applies the same short template (its
-        screen on H1 -> create_template -> NEXT to H2 -> apply_template; H2's own PROX_T is
-        the only one it finds) and the host's own line shows the text.
-  RED (commit S-C.3a): exactly EQ27 fails, on its FIX cell; EQ16-EQ20 pass (S-C.2).
+The boot (ONE boot, parallel turn mode, rows in this order; each row ONE run): the roster-pinned lobby (set_seed
+SEED_ROSTER before open_new_battle), session.bring_up_to_briefings (the client seated C1, C2; the host keeps H),
+set_seed SEED_MAP right before newbattle_ok, the host's mapFingerprint = MAP_FP. The fixture spine is the same with
+and without the fix:
+  [both briefings up] -> [staging] -> [short_template_line's staging] -> [client close_briefing, host close_briefing:
+  both pre-battle screens up, the host's equip-open announce] -> [the client saves C2's personal layout] ->
+  template_buttons -> personal_layout -> global_layout -> clear_soldier -> auto_equip -> short_template_line.
+Staging (both briefings up, client first; staged items only): C1 and C2 stripped on both machines; C1 gets L1 = a
+rifle loaded with a rifle clip in STR_RIGHT_HAND + a grenade on STR_BELT (0,0); C2 gets L2 = a pistol loaded with a
+pistol clip in STR_LEFT_HAND + a smoke grenade on STR_BELT (1,0) (battle_give); one rifle, one rifle clip and one
+grenade dropped on PILE (battle_drop), so every apply finds its types on the pile whatever the stock pile holds. A
+layout is compared by its signature: per item (type, slot, slotX/slotY (hands: none), loaded ammo types, fuse),
+sorted.
+The personal save (spine): the client's screen on C2, key keyInvSavePersonalEquipment (vanilla
+btnCreatePersonalTemplateClick; a skirmish save is the client's own).
+Keys: the harness options.cfg (make_user_dir's HERMETIC_OPTIONS) pins none of the inventory keys, so each is
+Options.cpp's default (read from the client's options.cfg when present, else the pinned default below); the
+equip_layouts probe's live Options values must equal them on both machines (a fixture check). The global layout keys
+are vanilla's digits (InventoryState::handle: Ctrl+1..9 saves, 1..9 applies; key 1 = index 0).
+  template_buttons: the client's screen on C1 -> inventory_click {widget: create_template} (UI-local, vanilla) -> NEXT
+        to C2 -> inventory_click {widget: apply_template}. Pass: C2's layout = L1 on the host AND the client (the same
+        item ids), the host's C2 changed, one `inv_bulk` sent (client coopIntentsSent) and received (host
+        intentsReceivedLog), none denied; C1 unchanged on both.
+  personal_layout (keyInvLoadPersonalEquipment, a plain key: InteractiveSurface keyboardPress fires only without
+        Ctrl/Alt/Shift): the client's screen on C2 (L1 after template_buttons) -> the key. Pass: C2 = L2 (its personal
+        layout) on both, the host's C2 changed, one `inv_bulk`; and the spine's save landed as a skirmish save does:
+        the client's C2 personal layout = L2, the host's unchanged, no `inv_bulk` sent by the save.
+  global_layout ("global Ctrl+1 then 1"): the client's screen on C1 -> Ctrl+1 (vanilla saveGlobalLayout(0)) -> NEXT to
+        C2 -> 1 (loadGlobalLayout(0)). The save is made on C1 and applied on C2: saving and applying C2's own layout
+        would leave C2 as it was and prove nothing. Pass: C2 = L1 on both, the host's C2 changed, one `inv_bulk` for
+        the apply; the save landed as a skirmish save does: the client's global layout 0 = L1, the host's unchanged,
+        no `inv_bulk` sent by the save.
+  clear_soldier (keyInvClear): the client's screen on C1 -> the key. Pass: C1 empty on both, its items on PILE on
+        both, one `inv_bulk`.
+  auto_equip (keyInvAutoEquip): the client's screen on C1 (empty after clear_soldier) -> the key. Pass: C1 holds items
+        (vanilla autoEquip from the pile) - the same ids and fields on both - the host's C1 changed, one `inv_bulk`.
+  Without the fix: exactly template_buttons .. auto_equip fail, each on its first check - the host's target soldier
+  unchanged by the row while the client's changed to the tool's result, and no `inv_bulk` sent (buckets then differ).
+  A row whose tool did not change the client's own copy fails for another reason (FIXTURE, stated in its message).
+  short_template_line (follows vanilla): a template the pile cannot fill shows vanilla's
+        STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE line ("Not enough items to copy template!",
+        InventoryState::_applyInventoryTemplate) on the screen of the player who applied it - the `inv_bulk` answer
+        carries the flag. The template is TWO proximity grenades (PROX_T) and the pile holds exactly ONE when the
+        client applies it, so exactly one template item is missing:
+          staging (the spine step after the first staging, both briefings up): the pile's stock PROX_T counted, then
+          PROX_T dropped on PILE until it holds SHORT_PILE_PROX (3); H1 and H2 stripped, H1 = PROX_T on STR_BELT (0,0)
+          and (1,0), H2 = PROX_T on STR_BELT (0,0) (battle_give; the host control below);
+          the row: the client clears C1 and C2 (keyInvClear, clear_soldier's tool: C1's auto_equip items and C2's L1
+          go to the pile, so the pile holds all SHORT_PILE_PROX) -> on C2 two Ctrl-clicks on the pile's PROX_T cell
+          (vanilla's ctrl_fit: two inv_move orders, C2 = two PROX_T, the pile keeps ONE) -> inventory_click {widget:
+          create_template} (UI-local, vanilla) -> NEXT to C1 (empty) -> inventory_click {widget: apply_template}: the
+          host finds one PROX_T for two template cells.
+        Pass: the client's line shows the text (inventory_view lineText + lineVisible, polled from the press until
+        LINE_READ_S after the answer: the line fades 1.2 s after a show, so it is read inside that window; the
+        +LINE_READ_S read is recorded as evidence only); the host's and the client's C1 are equal and hold the partial
+        template (one PROX_T in one of C2's two template cells), the pile holds no PROX_T on either machine, one
+        `inv_bulk` sent and received, none denied. Without the fix (the host logs "not every template item was on the
+        ground" and answers without the flag): the client's line never shows the text - the partial apply itself
+        already happens.
+        CONTROL (vanilla, passes without the fix too): the HOST applies the same short template (its screen on H1 ->
+        create_template -> NEXT to H2 -> apply_template; H2's own PROX_T is the only one it finds) and the host's own
+        line shows the text.
 
-Common asserts, every row: hash_now {full:true} every bucket EQUAL after the queues
-drain; desyncSeen false on both; the client's turnMirrorFired 0; coopClientBStatePushes
-0 on both; the client's invLocalWrites 0; both pre-battle screens still up and turn 0
-on both; the client's pre-battle ground ids = its own PILE ids (STOP-IF 8: the screen
-shows the pile) and the PILE ids equal on both machines.
+Common asserts, every row: hash_now {full:true} every bucket EQUAL after the queues drain; desyncSeen false on both;
+the client's turnMirrorFired 0; coopClientBStatePushes 0 on both; the client's invLocalWrites 0; both pre-battle
+screens still up and turn 0 on both; the client's pre-battle ground ids = its own PILE ids (the screen shows the pile)
+and the PILE ids equal on both machines.
 
-Constants: SEED_ROSTER 1,
-SEED_MAP 1, MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) - imported from
-test_prebattle_equip.py (Boot A's bring-up, the same seed).
+Constants: SEED_ROSTER 1, SEED_MAP 1, MAP_FP, C [8, 9], H [10..14], PILE (14, 19, 1) - imported from
+test_prebattle_equip.py (its bring-up, the same seed).
 
-Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then
-"PASS <id>" / "FAIL <id>: <message>" (the FIX cell first); main() runs every row even
-after an earlier one failed. Every wait is bounded. one run is the
-result; no skip path, no second boot. Exit 0 only when every row passes, 2 otherwise (a
-bring-up or spine failure is also 2). run in the foreground to completion.
+Each row prints ONE "EVIDENCE <id>:" line before its conditions are checked, then "PASS <id>" / "FAIL <id>: <message>"
+(the check the fix decides first); main() runs every row even after an earlier one failed. Every wait is bounded. One
+run is the result; no skip path, no second boot. Exit 0 only when every row passes, 2 otherwise (a bring-up or spine
+failure is also 2). Run in the foreground to completion.
 
 Run:  python tools/coop_test/test_prebattle_equip_tools.py
 """
@@ -151,21 +121,21 @@ L2_GIVE = ((PISTOL_T, {"slot": "left", "ammo": PISTOL_CLIP_T}),           # STR_
            (SMOKE_T, {"slot": BELT, "slotX": 1, "slotY": 0}))
 PILE_DROPS = (RIFLE_T, CLIP_T, GRENADE_T)   # L1's types on the pile, whatever the stock pile holds
 
-# the inventory keys (Options.cpp at 8b17af3c5 :357-360 and :540-541; harness.py HERMETIC_OPTIONS :327-342 sets
-# none of them): SDL syms, used only when the client's options.cfg does not carry the key
-KEY_DEFAULTS = {"keyInvCreateTemplate": 99,           # SDLK_c (EQ16 clicks the button instead)
-                "keyInvApplyTemplate": 118,           # SDLK_v (EQ16 clicks the button instead)
-                "keyInvClear": 120,                   # SDLK_x (EQ19)
-                "keyInvAutoEquip": 122,               # SDLK_z (EQ20)
+# the inventory keys (Options.cpp's defaults; harness.py's HERMETIC_OPTIONS sets none of them): SDL syms, used only
+# when the client's options.cfg does not carry the key
+KEY_DEFAULTS = {"keyInvCreateTemplate": 99,           # SDLK_c (template_buttons clicks the button instead)
+                "keyInvApplyTemplate": 118,           # SDLK_v (template_buttons clicks the button instead)
+                "keyInvClear": 120,                   # SDLK_x (clear_soldier)
+                "keyInvAutoEquip": 122,               # SDLK_z (auto_equip)
                 "keyInvSavePersonalEquipment": 115,   # SDLK_s (the spine's personal save)
-                "keyInvLoadPersonalEquipment": 108}   # SDLK_l (EQ17)
+                "keyInvLoadPersonalEquipment": 108}   # SDLK_l (personal_layout)
 SDLK_1 = 49                        # InventoryState::handle: SDLK_0..SDLK_9; key 1 = global layout index 0
 GLOBAL_INDEX = 0
 KEY_SETTLE_S = 0.3
-# EQ27 (S-C.3, SC-4): the short template = two PROX_T; the pile holds EQ27_PILE_PROX of them after the staging, two
-# go to C2 (the template), ONE is left for C1's apply
+# short_template_line: the short template = two PROX_T; the pile holds SHORT_PILE_PROX of them after the staging,
+# two go to C2 (the template), ONE is left for C1's apply
 PROX_T = "STR_PROXIMITY_GRENADE"
-EQ27_PILE_PROX = 3
+SHORT_PILE_PROX = 3
 H1, H2 = H_IDS[0], H_IDS[1]        # the host control: H1 = the template source, H2 = its target
 TEXT_SHORT = "Not enough items to copy template!"   # STR_NOT_ENOUGH_ITEMS_FOR_TEMPLATE (xcom1 en-US / en-GB)
 LINE_READ_S = 1.5                  # the line fades 1.2 s after a show; read inside it, record +1.5 s
@@ -285,7 +255,7 @@ def tail_fails(host, client, what):
     ih, ic = items_by_id(host), items_by_id(client)
     cv = inv_view(client)
     if cv.get("open") and cv.get("preBattle") and ground_ids(cv) != pile_ids(ic):
-        fails.append(f"{what}: STOP-IF 8 - the client's pre-battle ground {ground_ids(cv)} is not its own pile "
+        fails.append(f"{what}: the client's pre-battle ground {ground_ids(cv)} is not its own pile "
                      f"{PILE} {pile_ids(ic)}")
     if pile_ids(ih) != pile_ids(ic):
         fails.append(f"{what}: the pile ids differ: host {pile_ids(ih)} client {pile_ids(ic)}")
@@ -296,7 +266,7 @@ def tail_fails(host, client, what):
 
 
 def spine_both_briefings(host, client, ctx):
-    """Both machines hold the battle with their briefings up (D210 b; S-A built it)."""
+    """Both machines hold the battle with their briefings up."""
     got, dt = wait_until(lambda: has(client, "BriefingState") and in_battle(client), CLIENT_BRIEFING_WAIT_S, 0.1)
     rec = {"clientBriefingWithin": dt if got else None, "hostStack": stack(host), "clientStack": stack(client),
            "turn": [turn(host), turn(client)], "mapFingerprint": battle_state(client).get("mapFingerprint")}
@@ -309,7 +279,7 @@ def spine_both_briefings(host, client, ctx):
 
 
 def spine_stage(host, client, ctx):
-    """Staging (client first, F607; staged items only, P8b-2), the keys, the saved-layout baselines."""
+    """Staging (client first; staged items only), the keys, the saved-layout baselines."""
     rec = {"ids": {}}
     ctx["staged"] = rec
     try:
@@ -360,21 +330,21 @@ def prox_on_pile(its):
     return sorted(i for i in pile_ids(its) if its[i].get("type") == PROX_T)
 
 
-def spine_stage_eq27(host, client, ctx):
-    """EQ27's staging (both briefings up, client first, F607; staged items only, P8b-2): the pile's stock PROX_T
-    counted, then PROX_T dropped on PILE until it holds EQ27_PILE_PROX; H1 and H2 stripped, then H1 = PROX_T on
+def spine_stage_short_template(host, client, ctx):
+    """short_template_line's staging (both briefings up, client first; staged items only): the pile's stock PROX_T
+    counted, then PROX_T dropped on PILE until it holds SHORT_PILE_PROX; H1 and H2 stripped, then H1 = PROX_T on
     STR_BELT (0,0) and (1,0) (the host control's template source) and H2 = PROX_T on STR_BELT (0,0) (its target)."""
     rec = {}
-    ctx["eq27"] = rec
+    ctx["short_template"] = rec
     try:
         ih, ic = items_by_id(host), items_by_id(client)
         rec["stockOnPile"] = {"host": prox_on_pile(ih), "client": prox_on_pile(ic)}
         if rec["stockOnPile"]["host"] != rec["stockOnPile"]["client"]:
             raise AssertionError(f"the pile's stock {PROX_T} differs: {rec['stockOnPile']}")
-        need = EQ27_PILE_PROX - len(rec["stockOnPile"]["host"])
+        need = SHORT_PILE_PROX - len(rec["stockOnPile"]["host"])
         if need < 0:
             raise AssertionError(f"the pile already holds {rec['stockOnPile']['host']} {PROX_T} (want <= "
-                                 f"{EQ27_PILE_PROX})")
+                                 f"{SHORT_PILE_PROX})")
         drops = []
         for _ in range(need):
             d = both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1], "z": PILE[2], "item": PROX_T},
@@ -396,13 +366,13 @@ def spine_stage_eq27(host, client, ctx):
         rec["sigH1H2Client"] = [unit_sig(ic, H1), unit_sig(ic, H2)]
     except Exception as e:
         rec["error"] = short(e, 400)
-    print(f"STAGE EQ27 {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
+    print(f"STAGE short template {json.dumps(rec, sort_keys=True, default=str)}", flush=True)
     if rec.get("error"):
-        raise AssertionError(f"spine: EQ27's staging failed: {rec['error']}")
+        raise AssertionError(f"spine: the short template's staging failed: {rec['error']}")
     if rec["diff"]:
-        raise AssertionError(f"spine: buckets differ after EQ27's staging: {rec['diff']}")
-    if len(rec["pileProx"]["host"]) != EQ27_PILE_PROX or rec["pileProx"]["host"] != rec["pileProx"]["client"]:
-        raise AssertionError(f"spine: the pile's {PROX_T} {rec['pileProx']} (want {EQ27_PILE_PROX}, equal)")
+        raise AssertionError(f"spine: buckets differ after the short template's staging: {rec['diff']}")
+    if len(rec["pileProx"]["host"]) != SHORT_PILE_PROX or rec["pileProx"]["host"] != rec["pileProx"]["client"]:
+        raise AssertionError(f"spine: the pile's {PROX_T} {rec['pileProx']} (want {SHORT_PILE_PROX}, equal)")
     if rec["sigH1H2Client"] != [rec["sigH1"], rec["sigH2"]] or len(rec["sigH1"]) != 2 or len(rec["sigH2"]) != 1:
         raise AssertionError(f"spine: H1 {rec['sigH1']} H2 {rec['sigH2']} client {rec['sigH1H2Client']} (want two and "
                              f"one {PROX_T}, equal)")
@@ -431,7 +401,8 @@ def spine_open_screens(host, client, ctx):
 
 def spine_save_personal(host, client, ctx):
     """The client's screen on C2 (L2), its personal-save key: vanilla btnCreatePersonalTemplateClick on the client
-    (Q9 a in a skirmish). EQ17 judges where it landed; here only that the client's own copy took it."""
+    (a skirmish save is the client's own). personal_layout judges where it landed; here only that the client's own
+    copy took it."""
     rec = {}
     ctx["personal"] = rec
     nav = []
@@ -483,9 +454,9 @@ def snapshot(host, client):
 
 
 def run_tool(host, client, ctx, row, target, other, press, want, want_text):
-    """Press one bulk tool on the client (`press(ev)`), then wait (bounded) for the green outcome: the host's
+    """Press one bulk tool on the client (`press(ev)`), then wait (bounded) for the passing outcome: the host's
     `target` layout satisfies `want(sig, host_pre_sig)`, the client's copy of `target` equals the host's (ids and
-    fields), the pile ids equal, nothing in flight. Returns (ev, fails) with the FIX cell first."""
+    fields), the pile ids equal, nothing in flight. Returns (ev, fails) with the check the fix decides first."""
     b = snapshot(host, client)
     ev = {"target": target, "want": want_text}
     press(ev)
@@ -515,9 +486,9 @@ def run_tool(host, client, ctx, row, target, other, press, want, want_text):
                "turn": [turn(host), turn(client)]})
     fails = []
     if hpost == hpre:
-        fails.append(f"{row}: the host's {target} did not change ({hpre}) - FIX: the client wrote alone (the client's "
-                     f"{target} {cpre} -> {cpost}) and sent {sent} inv_bulk (want: the host performs one inv_bulk, "
-                     f"{want_text})")
+        fails.append(f"{row}: the host's {target} did not change ({hpre}) - without the fix: the client wrote alone "
+                     f"(the client's {target} {cpre} -> {cpost}) and sent {sent} inv_bulk (want: the host performs "
+                     f"one inv_bulk, {want_text})")
     elif not want(hpost, hpre):
         fails.append(f"{row}: the host's {target} {hpre} -> {hpost} (want {want_text})")
     if not want(cpost, cpre):
@@ -549,11 +520,11 @@ def is_sig(want_sig):
     return lambda sig, pre: sig == want_sig
 
 
-def eq16_template(host, client, ctx):
-    fails, nav = row_pre(host, client, ctx, "EQ16", C1)
+def row_template_buttons(host, client, ctx):
+    fails, nav = row_pre(host, client, ctx, "template_buttons", C1)
     if fails:
-        evidence("EQ16", {"nav": nav})
-        finish([f.replace("EQ16: ", "EQ16: precondition absent - ") for f in fails])
+        evidence("template_buttons", {"nav": nav})
+        finish([f.replace("template_buttons: ", "template_buttons: precondition absent - ") for f in fails])
     s = ctx["staged"]
 
     def press(ev):
@@ -565,56 +536,57 @@ def eq16_template(host, client, ctx):
         time.sleep(KEY_SETTLE_S)
         ev["apply"] = click(client, widget="apply_template")
 
-    ev, fails = run_tool(host, client, ctx, "EQ16", C2, C1, press, is_sig(s["sigL1"]),
+    ev, fails = run_tool(host, client, ctx, "template_buttons", C2, C1, press, is_sig(s["sigL1"]),
                          f"C1's staged layout L1 {s['sigL1']}")
-    evidence("EQ16", ev)
+    evidence("template_buttons", ev)
     if not ev["toC2"]["reached"]:
-        fails.append(f"EQ16: NEXT never reached C2 ({ev['toC2']})")
-    fails += tail_fails(host, client, "EQ16")
+        fails.append(f"template_buttons: NEXT never reached C2 ({ev['toC2']})")
+    fails += tail_fails(host, client, "template_buttons")
     finish(fails)
 
 
-def eq17_personal(host, client, ctx):
-    fails, nav = row_pre(host, client, ctx, "EQ17", C2)
+def row_personal_layout(host, client, ctx):
+    fails, nav = row_pre(host, client, ctx, "personal_layout", C2)
     p = ctx.get("personal") or {}
     if not p.get("within"):
-        fails.append(f"EQ17: the spine's personal save did not land on the client ({p.get('after')})")
+        fails.append(f"personal_layout: the spine's personal save did not land on the client ({p.get('after')})")
     if fails:
-        evidence("EQ17", {"nav": nav, "personal": p})
-        finish([f.replace("EQ17: ", "EQ17: precondition absent - ") for f in fails])
+        evidence("personal_layout", {"nav": nav, "personal": p})
+        finish([f.replace("personal_layout: ", "personal_layout: precondition absent - ") for f in fails])
     s = ctx["staged"]
     base = s["baseline"]["host"]["C2"]
-    q9 = {"clientPersonal": layout_sig(layouts(client, C2).get("personal")),
-          "hostPersonal": layout_sig(layouts(host, C2).get("personal")),
-          "hostBaseline": layout_sig(base.get("personal")), "saveSentBulk": p.get("sentBulk"),
-          "clientSoldier": layouts(client, C2).get("soldier"), "hostSoldier": base.get("soldier")}
+    skirmish_save = {"clientPersonal": layout_sig(layouts(client, C2).get("personal")),
+                     "hostPersonal": layout_sig(layouts(host, C2).get("personal")),
+                     "hostBaseline": layout_sig(base.get("personal")), "saveSentBulk": p.get("sentBulk"),
+                     "clientSoldier": layouts(client, C2).get("soldier"), "hostSoldier": base.get("soldier")}
 
     def press(ev):
         time.sleep(KEY_SETTLE_S)
         ev["press"] = key(client, ctx["keys"]["keyInvLoadPersonalEquipment"])
 
-    ev, fails = run_tool(host, client, ctx, "EQ17", C2, C1, press, is_sig(s["sigL2"]),
+    ev, fails = run_tool(host, client, ctx, "personal_layout", C2, C1, press, is_sig(s["sigL2"]),
                          f"C2's personal layout = its staged layout L2 {s['sigL2']}")
-    ev["q9"] = q9
-    evidence("EQ17", ev)
-    # Q9 (a) / D209 a in a skirmish: the save is the client's own - landed on its copy, not on the host's, not sent
-    if q9["clientPersonal"] != s["sigL2"]:
-        fails.append(f"EQ17: the client's C2 personal layout {q9['clientPersonal']} (want L2 {s['sigL2']}: the save "
-                     f"landed on the client, Q9 a)")
-    if q9["hostPersonal"] != q9["hostBaseline"]:
-        fails.append(f"EQ17: the host's C2 personal layout {q9['hostBaseline']} -> {q9['hostPersonal']} (want "
-                     f"unchanged: a skirmish save stays on the client, Q9 a / D209 a)")
+    ev["skirmish_save"] = skirmish_save
+    evidence("personal_layout", ev)
+    # in a skirmish the save is the client's own: landed on its copy, not on the host's, not sent
+    if skirmish_save["clientPersonal"] != s["sigL2"]:
+        fails.append(f"personal_layout: the client's C2 personal layout {skirmish_save['clientPersonal']} (want L2 "
+                     f"{s['sigL2']}: the save landed on the client)")
+    if skirmish_save["hostPersonal"] != skirmish_save["hostBaseline"]:
+        fails.append(f"personal_layout: the host's C2 personal layout {skirmish_save['hostBaseline']} -> "
+                     f"{skirmish_save['hostPersonal']} (want unchanged: a skirmish save stays on the client)")
     if (p.get("sentBulk") or [0, 0])[1] != (p.get("sentBulk") or [0, 0])[0]:
-        fails.append(f"EQ17: the personal save sent inv_bulk {p.get('sentBulk')} (want nothing sent in a skirmish)")
-    fails += tail_fails(host, client, "EQ17")
+        fails.append(f"personal_layout: the personal save sent inv_bulk {p.get('sentBulk')} (want nothing sent in a "
+                     f"skirmish)")
+    fails += tail_fails(host, client, "personal_layout")
     finish(fails)
 
 
-def eq18_global(host, client, ctx):
-    fails, nav = row_pre(host, client, ctx, "EQ18", C1)
+def row_global_layout(host, client, ctx):
+    fails, nav = row_pre(host, client, ctx, "global_layout", C1)
     if fails:
-        evidence("EQ18", {"nav": nav})
-        finish([f.replace("EQ18: ", "EQ18: precondition absent - ") for f in fails])
+        evidence("global_layout", {"nav": nav})
+        finish([f.replace("global_layout: ", "global_layout: precondition absent - ") for f in fails])
     s = ctx["staged"]
     base = s["baseline"]["host"]["C1"]
     save = {"hostBefore": layout_sig(layouts(host).get("global")),
@@ -636,32 +608,33 @@ def eq18_global(host, client, ctx):
         time.sleep(KEY_SETTLE_S)
         ev["press1"] = key(client, SDLK_1)
 
-    ev, fails = run_tool(host, client, ctx, "EQ18", C2, C1, press, is_sig(s["sigL1"]),
+    ev, fails = run_tool(host, client, ctx, "global_layout", C2, C1, press, is_sig(s["sigL1"]),
                          f"global layout {GLOBAL_INDEX} = C1's layout L1 {s['sigL1']}")
     save["hostLate"] = layout_sig(layouts(host).get("global"))
     save["hostBaseline"] = layout_sig(base.get("global"))
     ev["save"] = save
-    evidence("EQ18", ev)
+    evidence("global_layout", ev)
     if not ev["toC2"]["reached"]:
-        fails.append(f"EQ18: NEXT never reached C2 ({ev['toC2']})")
-    # Q9 (a) / D209 a in a skirmish: the save is the client's own - landed on its copy, not on the host's, not sent
+        fails.append(f"global_layout: NEXT never reached C2 ({ev['toC2']})")
+    # in a skirmish the save is the client's own: landed on its copy, not on the host's, not sent
     if save.get("savedWithin") is None or save["clientAfter"] != s["sigL1"]:
-        fails.append(f"EQ18: the client's global layout {GLOBAL_INDEX} after Ctrl+1 {save['clientAfter']} (want C1's "
-                     f"layout L1 {s['sigL1']}: the save landed on the client, Q9 a)")
+        fails.append(f"global_layout: the client's global layout {GLOBAL_INDEX} after Ctrl+1 {save['clientAfter']} "
+                     f"(want C1's layout L1 {s['sigL1']}: the save landed on the client)")
     if save["hostAfter"] != save["hostBaseline"] or save["hostLate"] != save["hostBaseline"]:
-        fails.append(f"EQ18: the host's global layout {GLOBAL_INDEX} {save['hostBaseline']} -> {save['hostAfter']} / "
-                     f"{save['hostLate']} (want unchanged: a skirmish save stays on the client, Q9 a / D209 a)")
+        fails.append(f"global_layout: the host's global layout {GLOBAL_INDEX} {save['hostBaseline']} -> "
+                     f"{save['hostAfter']} / {save['hostLate']} (want unchanged: a skirmish save stays on the client)")
     if save["sentBulk"][1] != save["sentBulk"][0]:
-        fails.append(f"EQ18: the Ctrl+1 save sent inv_bulk {save['sentBulk']} (want nothing sent in a skirmish)")
-    fails += tail_fails(host, client, "EQ18")
+        fails.append(f"global_layout: the Ctrl+1 save sent inv_bulk {save['sentBulk']} (want nothing sent in a "
+                     f"skirmish)")
+    fails += tail_fails(host, client, "global_layout")
     finish(fails)
 
 
-def eq19_clear(host, client, ctx):
-    fails, nav = row_pre(host, client, ctx, "EQ19", C1)
+def row_clear_soldier(host, client, ctx):
+    fails, nav = row_pre(host, client, ctx, "clear_soldier", C1)
     if fails:
-        evidence("EQ19", {"nav": nav})
-        finish([f.replace("EQ19: ", "EQ19: precondition absent - ") for f in fails])
+        evidence("clear_soldier", {"nav": nav})
+        finish([f.replace("clear_soldier: ", "clear_soldier: precondition absent - ") for f in fails])
 
     def press(ev):
         time.sleep(KEY_SETTLE_S)
@@ -669,32 +642,32 @@ def eq19_clear(host, client, ctx):
 
     b_items = items_by_id(host)
     c1_ids = sorted(unit_items(b_items, C1))
-    ev, fails = run_tool(host, client, ctx, "EQ19", C1, C2, press, is_sig([]), "C1 empty")
+    ev, fails = run_tool(host, client, ctx, "clear_soldier", C1, C2, press, is_sig([]), "C1 empty")
     ih, ic = items_by_id(host), items_by_id(client)
     ev["c1ItemsOnPile"] = {"ids": c1_ids, "host": [i for i in c1_ids if i in pile_ids(ih)],
                            "client": [i for i in c1_ids if i in pile_ids(ic)]}
-    evidence("EQ19", ev)
+    evidence("clear_soldier", ev)
     if ev["c1ItemsOnPile"]["host"] != c1_ids or ev["c1ItemsOnPile"]["client"] != c1_ids:
-        fails.append(f"EQ19: C1's items {c1_ids} on the pile: host {ev['c1ItemsOnPile']['host']} client "
+        fails.append(f"clear_soldier: C1's items {c1_ids} on the pile: host {ev['c1ItemsOnPile']['host']} client "
                      f"{ev['c1ItemsOnPile']['client']} (want all of them on both)")
-    fails += tail_fails(host, client, "EQ19")
+    fails += tail_fails(host, client, "clear_soldier")
     finish(fails)
 
 
-def eq20_autoequip(host, client, ctx):
-    fails, nav = row_pre(host, client, ctx, "EQ20", C1)
+def row_auto_equip(host, client, ctx):
+    fails, nav = row_pre(host, client, ctx, "auto_equip", C1)
     if fails:
-        evidence("EQ20", {"nav": nav})
-        finish([f.replace("EQ20: ", "EQ20: precondition absent - ") for f in fails])
+        evidence("auto_equip", {"nav": nav})
+        finish([f.replace("auto_equip: ", "auto_equip: precondition absent - ") for f in fails])
 
     def press(ev):
         time.sleep(KEY_SETTLE_S)
         ev["press"] = key(client, ctx["keys"]["keyInvAutoEquip"])
 
-    ev, fails = run_tool(host, client, ctx, "EQ20", C1, C2, press, lambda sig, pre: bool(sig) and sig != pre,
+    ev, fails = run_tool(host, client, ctx, "auto_equip", C1, C2, press, lambda sig, pre: bool(sig) and sig != pre,
                          "C1 auto-equipped from the pile (non-empty, changed)")
-    evidence("EQ20", ev)
-    fails += tail_fails(host, client, "EQ20")
+    evidence("auto_equip", ev)
+    fails += tail_fails(host, client, "auto_equip")
     finish(fails)
 
 
@@ -726,22 +699,22 @@ def watch_line(gc, text, t0, stop):
         time.sleep(0.05)
 
 
-def eq27_template_short(host, client, ctx):
-    fails = pre_screen_fails(host, client, "EQ27", host_too=True)
-    st = ctx.get("eq27") or {}
+def row_short_template_line(host, client, ctx):
+    fails = pre_screen_fails(host, client, "short_template_line", host_too=True)
+    st = ctx.get("short_template") or {}
     if st.get("error") or st.get("diff") or not st.get("gives") or not ctx.get("keys"):
-        fails.append(f"EQ27: the staging did not complete (EQ27 {st.get('error')}, diff {st.get('diff')}, keys "
-                     f"{bool(ctx.get('keys'))})")
+        fails.append(f"short_template_line: the staging did not complete (error {st.get('error')}, diff "
+                     f"{st.get('diff')}, keys {bool(ctx.get('keys'))})")
     ev = {"staged": {k: st.get(k) for k in ("stockOnPile", "drops", "gives", "pileProx")}}
     if fails:
-        evidence("EQ27", ev)
-        finish([f.replace("EQ27: ", "EQ27: precondition absent - ") for f in fails])
-    known_prox = set(st["stockOnPile"]["host"]) | set(st["drops"])   # C7: the staging record's ids
+        evidence("short_template_line", ev)
+        finish([f.replace("short_template_line: ", "short_template_line: precondition absent - ") for f in fails])
+    known_prox = set(st["stockOnPile"]["host"]) | set(st["drops"])   # the staging record's ids
     keys = ctx["keys"]
     setup = {}
     ev["setup"] = setup
     pre = []
-    # 1. the client clears C1 (EQ20's items) and C2 (L1): every PROX_T of the pile is on the pile again
+    # 1. the client clears C1 (auto_equip's items) and C2 (L1): every PROX_T of the pile is on the pile again
     for uid in (C1, C2):
         nav = []
         rec = {"reached": goto_unit(client, uid, C_IDS, nav), "nav": nav}
@@ -752,12 +725,13 @@ def eq27_template_short(host, client, ctx):
             rec["emptyWithin"] = dt if got else None
         setup[f"clear{uid}"] = rec
         if not rec.get("emptyWithin"):
-            pre.append(f"EQ27: the client's clear of {uid} did not land empty on both ({rec})")
+            pre.append(f"short_template_line: the client's clear of {uid} did not land empty on both ({rec})")
     ih, ic = items_by_id(host), items_by_id(client)
     setup["pileProx"] = {"host": prox_on_pile(ih), "client": prox_on_pile(ic)}
-    if not pre and (len(setup["pileProx"]["host"]) != EQ27_PILE_PROX
+    if not pre and (len(setup["pileProx"]["host"]) != SHORT_PILE_PROX
                     or setup["pileProx"]["host"] != setup["pileProx"]["client"]):
-        pre.append(f"EQ27: the pile's {PROX_T} after the clears {setup['pileProx']} (want {EQ27_PILE_PROX}, equal)")
+        pre.append(f"short_template_line: the pile's {PROX_T} after the clears {setup['pileProx']} (want "
+                   f"{SHORT_PILE_PROX}, equal)")
     # 2. on C2: two Ctrl-clicks on the pile's PROX_T cell (vanilla ctrl_fit, two inv_move orders)
     moves = []
     setup["moves"] = moves
@@ -765,7 +739,7 @@ def eq27_template_short(host, client, ctx):
         nav = []
         setup["toC2"] = {"reached": goto_unit(client, C2, C_IDS, nav), "nav": nav}
         if not setup["toC2"]["reached"]:
-            pre.append(f"EQ27: PREV/NEXT never reached C2 on the client ({nav})")
+            pre.append(f"short_template_line: PREV/NEXT never reached C2 on the client ({nav})")
     for n in ((1, 2) if not pre else ()):
         m = {}
         moves.append(m)
@@ -774,7 +748,7 @@ def eq27_template_short(host, client, ctx):
                  if (its.get(g.get("id")) or {}).get("type") == PROX_T]
         m["cells"] = cells
         if not cells or cells[0][0] is None or cells[0][0] >= GROUND_COLS:
-            pre.append(f"EQ27: no {PROX_T} cell on the first page of the client's ground ({cells})")
+            pre.append(f"short_template_line: no {PROX_T} cell on the first page of the client's ground ({cells})")
             break
         time.sleep(KEY_SETTLE_S)
         m["click"] = click(client, slot=GROUND, x=cells[0][0], y=cells[0][1], mod="ctrl")
@@ -782,7 +756,7 @@ def eq27_template_short(host, client, ctx):
                              LAND_WAIT_S, 0.1)
         m["within"] = dt if got else None
         if not got:
-            pre.append(f"EQ27: Ctrl-click {n} did not land a {PROX_T} on C2 on both ({m})")
+            pre.append(f"short_template_line: Ctrl-click {n} did not land a {PROX_T} on C2 on both ({m})")
             break
     ih, ic = items_by_id(host), items_by_id(client)
     tmpl = unit_sig(ih, C2)
@@ -794,9 +768,9 @@ def eq27_template_short(host, client, ctx):
                     or len(setup["pileProxAfterMoves"]["host"]) != 1
                     or setup["pileProxAfterMoves"]["host"] != setup["pileProxAfterMoves"]["client"]
                     or not set(setup["c2Ids"]) <= known_prox):
-        pre.append(f"EQ27: C2 {tmpl} (client {setup['c2Client']}, ids {setup['c2Ids']} of the staged {sorted(known_prox)}) "
-                   f"/ the pile's {PROX_T} {setup['pileProxAfterMoves']} (want C2 = two {PROX_T} on both, ONE left on the "
-                   f"pile)")
+        pre.append(f"short_template_line: C2 {tmpl} (client {setup['c2Client']}, ids {setup['c2Ids']} of the staged "
+                   f"{sorted(known_prox)}) / the pile's {PROX_T} {setup['pileProxAfterMoves']} (want C2 = two "
+                   f"{PROX_T} on both, ONE left on the pile)")
     # 3. create the template on C2 (UI-local), NEXT to C1 (empty)
     if not pre:
         time.sleep(KEY_SETTLE_S)
@@ -805,11 +779,11 @@ def eq27_template_short(host, client, ctx):
         nav = []
         setup["toC1"] = {"reached": goto_unit(client, C1, C_IDS, nav), "nav": nav}
         if not setup["toC1"]["reached"] or inv_view(client).get("selectedItem") != -1:
-            pre.append(f"EQ27: the client's screen never showed C1 with an empty cursor ({setup['toC1']}, cursor "
-                       f"{inv_view(client).get('selectedItem')})")
+            pre.append(f"short_template_line: the client's screen never showed C1 with an empty cursor "
+                       f"({setup['toC1']}, cursor {inv_view(client).get('selectedItem')})")
     if pre:
-        evidence("EQ27", ev)
-        finish([f.replace("EQ27: ", "EQ27: precondition absent - ") for f in pre])
+        evidence("short_template_line", ev)
+        finish([f.replace("short_template_line: ", "short_template_line: precondition absent - ") for f in pre])
 
     # 4. the client applies the short template on C1
     b = snapshot(host, client)
@@ -874,47 +848,47 @@ def eq27_template_short(host, client, ctx):
     ctl["h1Cells"] = prox_cells(ih, H1)
     ev["views"] = {"host": view_brief(inv_view(host)), "client": view_brief(inv_view(client))}
     ev["turn"] = [turn(host), turn(client)]
-    evidence("EQ27", ev)
+    evidence("short_template_line", ev)
 
     if seen is None:
-        fails.append(f"EQ27: the client's line never showed {TEXT_SHORT!r} after its apply (last read {last}, "
-                     f"+{LINE_READ_S}s read {at_read}) - FIX: the inv_bulk answer carries no 'not enough items' flag "
-                     f"(the partial apply itself landed: C1 {ev['c1']['host']}, {ev['missing']} template item(s) "
-                     f"missing)")
+        fails.append(f"short_template_line: the client's line never showed {TEXT_SHORT!r} after its apply (last read "
+                     f"{last}, +{LINE_READ_S}s read {at_read}) - without the fix: the inv_bulk answer carries no "
+                     f"'not enough items' flag (the partial apply itself landed: C1 {ev['c1']['host']}, "
+                     f"{ev['missing']} template item(s) missing)")
     if landed_at is None:
-        fails.append(f"EQ27: the apply never landed on C1 on both within {LAND_WAIT_S}s (host {ev['c1']['host']}, "
-                     f"client {ev['c1']['client']}, inFlight {es(client).get('inFlight')})")
+        fails.append(f"short_template_line: the apply never landed on C1 on both within {LAND_WAIT_S}s (host "
+                     f"{ev['c1']['host']}, client {ev['c1']['client']}, inFlight {es(client).get('inFlight')})")
     if not ev["c1DumpEqual"] or ev["c1"]["host"] != ev["c1"]["client"]:
-        fails.append(f"EQ27: C1 differs: host {ev['c1']['host']} client {ev['c1']['client']}")
+        fails.append(f"short_template_line: C1 differs: host {ev['c1']['host']} client {ev['c1']['client']}")
     if len(c1_cells) != 1 or c1_cells[0] not in tmpl_cells or len(ev["c1"]["host"]) != 1 \
             or not set(ev["c1Ids"]) <= known_prox:
-        fails.append(f"EQ27: C1 {ev['c1']['host']} (ids {ev['c1Ids']}) is not the partial template: want ONE {PROX_T} "
-                     f"in one of the template cells {tmpl_cells}")
+        fails.append(f"short_template_line: C1 {ev['c1']['host']} (ids {ev['c1Ids']}) is not the partial template: "
+                     f"want ONE {PROX_T} in one of the template cells {tmpl_cells}")
     if ev["missing"] != 1:
-        fails.append(f"EQ27: {ev['missing']} template item(s) missing (want exactly 1: the pile held one {PROX_T} for "
-                     f"two cells)")
+        fails.append(f"short_template_line: {ev['missing']} template item(s) missing (want exactly 1: the pile held "
+                     f"one {PROX_T} for two cells)")
     if ev["pileProx"]["host"] or ev["pileProx"]["client"]:
-        fails.append(f"EQ27: the pile still holds {PROX_T} {ev['pileProx']} (want none on both)")
+        fails.append(f"short_template_line: the pile still holds {PROX_T} {ev['pileProx']} (want none on both)")
     if ev["invBulkSent"] != 1:
-        fails.append(f"EQ27: client coopIntentsSent.inv_bulk +{ev['invBulkSent']} (want +1: the apply)")
+        fails.append(f"short_template_line: client coopIntentsSent.inv_bulk +{ev['invBulkSent']} (want +1: the apply)")
     if len(new_log) != 1:
-        fails.append(f"EQ27: the host received {len(new_log)} inv_bulk ({new_log}; want 1)")
+        fails.append(f"short_template_line: the host received {len(new_log)} inv_bulk ({new_log}; want 1)")
     if ev["hostInvBulkDenied"][1] != ev["hostInvBulkDenied"][0]:
-        fails.append(f"EQ27: the host denied inv_bulk {ev['hostInvBulkDenied']} (want none)")
+        fails.append(f"short_template_line: the host denied inv_bulk {ev['hostInvBulkDenied']} (want none)")
     if ctl.get("lineSeen") is None:
-        fails.append(f"EQ27: CONTROL - the host's own apply of the short template never showed {TEXT_SHORT!r} on the "
-                     f"host's line ({ctl})")
+        fails.append(f"short_template_line: CONTROL - the host's own apply of the short template never showed "
+                     f"{TEXT_SHORT!r} on the host's line ({ctl})")
     if ctl["h2After"]["host"] != ctl["h2After"]["client"] or ctl["h2Cells"] != [(BELT, 0, 0)] \
             or ctl["h1Cells"] != [(BELT, 0, 0), (BELT, 1, 0)]:
-        fails.append(f"EQ27: CONTROL - H2 host {ctl['h2After']['host']} client {ctl['h2After']['client']} cells "
-                     f"{ctl['h2Cells']}, H1 cells {ctl['h1Cells']} (want H2 = its one {PROX_T} in the template's first "
-                     f"cell on both, H1 unchanged)")
+        fails.append(f"short_template_line: CONTROL - H2 host {ctl['h2After']['host']} client "
+                     f"{ctl['h2After']['client']} cells {ctl['h2Cells']}, H1 cells {ctl['h1Cells']} (want H2 = its "
+                     f"one {PROX_T} in the template's first cell on both, H1 unchanged)")
     for side, v in ev["views"].items():
         if not (v.get("open") and v.get("top") and v.get("preBattle")):
-            fails.append(f"EQ27: the {side}'s pre-battle screen is not on top ({v})")
+            fails.append(f"short_template_line: the {side}'s pre-battle screen is not on top ({v})")
     if ev["turn"] != [0, 0]:
-        fails.append(f"EQ27: turn host/client {ev['turn']} (want 0 on both)")
-    fails += tail_fails(host, client, "EQ27")
+        fails.append(f"short_template_line: turn host/client {ev['turn']} (want 0 on both)")
+    fails += tail_fails(host, client, "short_template_line")
     finish(fails)
 
 
@@ -922,15 +896,15 @@ def eq27_template_short(host, client, ctx):
 # run, and the rows after it fail on their own preconditions).
 STEPS = ((None, spine_both_briefings),
          (None, spine_stage),
-         (None, spine_stage_eq27),
+         (None, spine_stage_short_template),
          (None, spine_open_screens),
          (None, spine_save_personal),
-         ("EQ16", eq16_template),
-         ("EQ17", eq17_personal),
-         ("EQ18", eq18_global),
-         ("EQ19", eq19_clear),
-         ("EQ20", eq20_autoequip),
-         ("EQ27", eq27_template_short))
+         ("template_buttons", row_template_buttons),
+         ("personal_layout", row_personal_layout),
+         ("global_layout", row_global_layout),
+         ("clear_soldier", row_clear_soldier),
+         ("auto_equip", row_auto_equip),
+         ("short_template_line", row_short_template_line))
 ROWS = [n for n, _ in STEPS if n]
 
 
@@ -951,15 +925,15 @@ def boot(host, client):
     h_ids = sorted(u["id"] for u in hb["units"] if u.get("coop") == COOP_SEAT_0
                    and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
     assert h_ids == H_IDS, f"host-seat soldiers {h_ids} (baked H {H_IDS})"
-    print(f"[w2p8b-sc] boot C ok: MAP_FP={MAP_FP!r} mission={hb.get('missionType')} seated={seated_uids} H={h_ids} "
-          f"host stack={stack(host)} client stack={stack(client)}", flush=True)
+    print(f"[prebattle_equip_tools] boot ok: MAP_FP={MAP_FP!r} mission={hb.get('missionType')} seated={seated_uids} "
+          f"H={h_ids} host stack={stack(host)} client stack={stack(client)}", flush=True)
     return {}
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49924, make_user_dir("w2p8b_prebattle_equip_tools_host"))
-    client = GameClient("client", 49925, make_user_dir("w2p8b_prebattle_equip_tools_client"))
+    host = GameClient("host", 49924, make_user_dir("prebattle_equip_tools_host"))
+    client = GameClient("client", 49925, make_user_dir("prebattle_equip_tools_client"))
     results = {}
     spine_ok = True
     try:
@@ -987,7 +961,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p8b-sc] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[prebattle_equip_tools] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n in ROWS if results.get(n)]
     failed = [n for n in ROWS if not results.get(n)]
     print(f"\ntest_prebattle_equip_tools: {len(passed)}/{len(ROWS)} passed (pass={passed} fail={failed}"
