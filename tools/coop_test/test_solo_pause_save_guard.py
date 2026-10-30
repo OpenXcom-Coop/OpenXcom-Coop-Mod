@@ -1,20 +1,22 @@
-"""W2-H63 (R-H63-0, lead L-MGB-1, F18926): a single-player battle's pause menu hides SAVE GAME while an action runs and
-during the enemy turn, as vanilla OpenXcom does (PauseState's "ENOUGH!" guard, OXCE 4a6ade5ef). The co-op build's
-"re-show Load / Save when this machine is truly solo" blocks (the constructor and init()) turn SAVE GAME back on in every
-single-player battle. Spec: docs repo rewrite/prompts/w2h63_solo_pause_save_guard.md ((f), QH63-1 .. QH63-6 (a));
-constants rewrite/w2h63-task0/sa/CONSTANTS.md (TASK 0 boots a, b red and c green at b63def857). No lobby key.
+"""A single-player battle's pause menu hides SAVE GAME while an action runs and during the enemy turn, as vanilla
+OpenXcom does (PauseState's "ENOUGH!" guard, OXCE 4a6ade5ef). Without the fix, the co-op build's "re-show Load / Save
+when this machine is truly solo" blocks (the constructor and init()) turn SAVE GAME back on in every single-player
+battle. No lobby key.
 
-ONE solo boot (w2h63_spg_host): a settled New Battle (set_seed 1). Every read = open_pause_coop (a real
+ONE solo boot (solo_pause_save_guard_host): a settled New Battle (set_seed 1). Every read = open_pause_coop (a real
 PauseState(OPT_BATTLESCAPE) and its CO-OP click), pop the HostMenu it opened, wait until every interactive PauseState
 widget reads `hidden` false (the window popup ends after init()), then ONE list_widgets and ONE battle_state.
-Row R: R-rest SAVE GAME visible at rest. Then WALK (the first soldier with TU >= 30 to the first open tile 12..6 tiles
-away on a straight line) and the read with the walk in flight (precondition: pendingStates > 0 after the read and
-GAME OPTIONS hidden, the constructor saw busy): R-busy-save SAVE GAME hidden, R-busy-load LOAD GAME shown.
-Row T: the walk ended, END TURN (battle_action end_turn_button), the read over the "Side: Aliens" NextTurnState
-(precondition: side 1 after the read; the aliens never move): T-enemy-save SAVE GAME hidden, T-enemy-load LOAD GAME shown.
-C-crash: no new file in the lane crash folder since the boot started and no DebriefingState seen.
-CO-OP's visibility is EVIDENCE only (MG-B's cell, D238 (a)). No save is written.
-RED on the unchanged product: R-busy-save, T-enemy-save. GREEN (E1-E3): every cell PASS.
+Row own_turn: rest_save_shown SAVE GAME visible at rest. Then WALK (the first soldier with TU >= 30 to the first open
+tile 12..6 tiles away on a straight line) and the read with the walk in flight (precondition: pendingStates > 0 after
+the read and GAME OPTIONS hidden, the constructor saw busy): busy_save_hidden SAVE GAME hidden, busy_load_shown LOAD
+GAME shown.
+Row enemy_turn: the walk ended, END TURN (battle_action end_turn_button), the read over the "Side: Aliens"
+NextTurnState (precondition: side 1 after the read; the aliens never move): enemy_save_hidden SAVE GAME hidden,
+enemy_load_shown LOAD GAME shown.
+Row crash_check, no_crash: no new file in this harness slot's crash folder since the boot started and no
+DebriefingState seen.
+CO-OP's visibility is EVIDENCE only. No save is written.
+Without the fix busy_save_hidden and enemy_save_hidden fail; with it every cell passes.
 One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure. A precondition
 miss ends its row (later cells FAIL "not reached (<step>)", ONE CAPTURE line). A boot miss fails every cell "boot" with
 ONE CAPTURE line. run in the foreground to completion. ONE run is the result, no skip path;
@@ -31,11 +33,12 @@ import harness  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 import session  # noqa: E402
 
-SEED = 1                                            # set_seed right before newbattle_ok (TASK 0 boots a, b, c)
+SEED = 1                                            # set_seed right before newbattle_ok
 TU_WALK, WALK_FAR, WALK_NEAR = 30, 12, 6
-GEN_S, STEP_S, BUSY_S, SETTLE_S, NTS_S = 180, 30, 5, 5, 10   # bounds (s); TASK 0: 2.5, 3.0, 0.05, 0.2, 0.1
+GEN_S, STEP_S, BUSY_S, SETTLE_S, NTS_S = 180, 30, 5, 5, 10   # bounds (s); measured: 2.5, 3.0, 0.05, 0.2, 0.1
 SAVE, LOAD, OPTS, COOP = "SAVE GAME", "LOAD GAME", "GAME OPTIONS", "CO-OP"
-R_CELLS, T_CELLS, C_CELLS = ("R-rest", "R-busy-save", "R-busy-load"), ("T-enemy-save", "T-enemy-load"), ("C-crash",)
+OWN_TURN_CELLS, ENEMY_TURN_CELLS, CRASH_CELLS = (("rest_save_shown", "busy_save_hidden", "busy_load_shown"),
+                                                 ("enemy_save_hidden", "enemy_load_shown"), ("no_crash",))
 stack, bs = session.states_stripped, session.battle_state
 
 
@@ -103,7 +106,7 @@ def report(row, order, cells, ev):
 
 
 def order_walk(gc):
-    """WALK (spec PINNED SETUP VALUES; its own level, then the one below; a refused line moves on to the next)."""
+    """WALK (its own level, then the one below; a refused line moves on to the next)."""
     units, tried = bs(gc).get("units", []), []
     occupied = {(u["x"], u["y"], u["z"]) for u in units if not u.get("isOut")}
     for u in [u for u in units if u.get("faction") == 0 and not u.get("isOut") and (u.get("tu") or 0) >= TU_WALK]:
@@ -127,14 +130,14 @@ def settled(gc):
 
 
 def pause_read(gc, seen):
-    """The read: lever, pop its HostMenu, settle, ONE list_widgets + ONE battle_state."""
+    """The read: open_pause_coop, pop its HostMenu, settle, ONE list_widgets + ONE battle_state."""
     b0 = bs(gc)
-    r = {"pendingAtLever": b0.get("pendingStates"), "sideAtLever": b0.get("side")}
+    r = {"pendingAtOpen": b0.get("pendingStates"), "sideAtOpen": b0.get("side")}
     gc.ok({"cmd": "open_pause_coop"})
-    r["lever"] = stack(gc)
-    seen.update(r["lever"])
-    if r["lever"][-2:] != ["PauseState", "HostMenu"]:
-        raise Miss("READ", f"open_pause_coop left {r['lever']} (want PauseState, HostMenu on top)")
+    r["openStack"] = stack(gc)
+    seen.update(r["openStack"])
+    if r["openStack"][-2:] != ["PauseState", "HostMenu"]:
+        raise Miss("READ", f"open_pause_coop left {r['openStack']} (want PauseState, HostMenu on top)")
     gc.ok({"cmd": "pop_state"})
     ok, r["settleS"] = wait_until(lambda: settled(gc), SETTLE_S, 0.1)
     if not ok:
@@ -161,11 +164,11 @@ def end_row(row, cells, order, step, why, gc):
         cells.setdefault(c, (False, f"not reached ({step})"))
 
 
-def row_r(host, seen, ev):
+def row_own_turn(host, seen, ev):
     cells = {}
     try:
         r = ev["rest"] = pause_read(host, seen)
-        cells["R-rest"] = (vis(r, SAVE) is True, f"SAVE GAME visible {vis(r, SAVE)} at rest (want True)")
+        cells["rest_save_shown"] = (vis(r, SAVE) is True, f"SAVE GAME visible {vis(r, SAVE)} at rest (want True)")
         ev["restPops"] = pop_to(host, "BattlescapeState")
         ev["walk"] = order_walk(host)
         busy, ev["busyS"] = wait_until(lambda: (bs(host).get("pendingStates") or 0) > 0, BUSY_S, 0.05)
@@ -175,19 +178,20 @@ def row_r(host, seen, ev):
         if not ((r["pendingAfterRead"] or 0) > 0 and vis(r, OPTS) is False):
             raise Miss("WALK", f"pendingStates {r['pendingAfterRead']} after the read, GAME OPTIONS visible "
                                f"{vis(r, OPTS)} (want > 0 and False: the constructor saw busy); walk {ev['walk']}")
-        at = f"with pendingStates {r['pendingAtLever']} at the lever, {r['pendingAfterRead']} after the read"
-        cells["R-busy-save"] = (vis(r, SAVE) is False, f"{'SAVE GAME shows while an action runs: ' if vis(r, SAVE) else ''}"
-                                f"SAVE GAME visible {vis(r, SAVE)} {at} (want False, vanilla's guard)")
-        cells["R-busy-load"] = (vis(r, LOAD) is True, f"LOAD GAME visible {vis(r, LOAD)} {at} (want True)")
+        at = f"with pendingStates {r['pendingAtOpen']} when the menu opened, {r['pendingAfterRead']} after the read"
+        cells["busy_save_hidden"] = (vis(r, SAVE) is False,
+                                     f"{'SAVE GAME shows while an action runs: ' if vis(r, SAVE) else ''}"
+                                     f"SAVE GAME visible {vis(r, SAVE)} {at} (want False, vanilla's guard)")
+        cells["busy_load_shown"] = (vis(r, LOAD) is True, f"LOAD GAME visible {vis(r, LOAD)} {at} (want True)")
     except Miss as e:
-        end_row("R", cells, R_CELLS, e.step, e.why, host)
+        end_row("own_turn", cells, OWN_TURN_CELLS, e.step, e.why, host)
     except Exception as e:
-        end_row("R", cells, R_CELLS, "raised", f"{type(e).__name__}: {str(e)[:600]}", host)
+        end_row("own_turn", cells, OWN_TURN_CELLS, "raised", f"{type(e).__name__}: {str(e)[:600]}", host)
     ev["endPops"] = pop_to(host, "BattlescapeState")
-    return report("R", R_CELLS, cells, ev)
+    return report("own_turn", OWN_TURN_CELLS, cells, ev)
 
 
-def row_t(host, seen, ev, t_boot):
+def row_enemy_turn(host, seen, ev, t_boot):
     cells = {}
     try:
         ev["startPops"] = pop_to(host, "BattlescapeState")
@@ -204,15 +208,16 @@ def row_t(host, seen, ev, t_boot):
         if r["side"] != 1:
             raise Miss("TURN", f"side {r['side']} after the read (want 1, the aliens' turn)")
         at = f"over the NextTurnState with side {r['side']}, turn {r['turn']}, pendingStates {r['pendingAfterRead']}"
-        cells["T-enemy-save"] = (vis(r, SAVE) is False, f"{'SAVE GAME shows during the enemy turn: ' if vis(r, SAVE) else ''}"
-                                 f"SAVE GAME visible {vis(r, SAVE)} {at} (want False, vanilla's guard)")
-        cells["T-enemy-load"] = (vis(r, LOAD) is True, f"LOAD GAME visible {vis(r, LOAD)} {at} (want True)")
+        cells["enemy_save_hidden"] = (vis(r, SAVE) is False,
+                                      f"{'SAVE GAME shows during the enemy turn: ' if vis(r, SAVE) else ''}"
+                                      f"SAVE GAME visible {vis(r, SAVE)} {at} (want False, vanilla's guard)")
+        cells["enemy_load_shown"] = (vis(r, LOAD) is True, f"LOAD GAME visible {vis(r, LOAD)} {at} (want True)")
     except Miss as e:
-        end_row("T", cells, T_CELLS, e.step, e.why, host)
+        end_row("enemy_turn", cells, ENEMY_TURN_CELLS, e.step, e.why, host)
     except Exception as e:
-        end_row("T", cells, T_CELLS, "raised", f"{type(e).__name__}: {str(e)[:600]}", host)
+        end_row("enemy_turn", cells, ENEMY_TURN_CELLS, "raised", f"{type(e).__name__}: {str(e)[:600]}", host)
     ev["endPops"] = pop_to(host, "NextTurnState")
-    return report("T", T_CELLS, cells, ev)
+    return report("enemy_turn", ENEMY_TURN_CELLS, cells, ev)
 
 
 def boot(host, seen):
@@ -234,23 +239,24 @@ def boot(host, seen):
 
 
 def main():
-    host = GameClient("host", 0, make_user_dir("w2h63_spg_host"))
+    host = GameClient("host", 0, make_user_dir("solo_pause_save_guard_host"))
     before, seen, fails, t_boot = crash_files(), set(), 0, time.time()
-    ev_r, ev_t, booted = {}, {}, False
+    ev_own, ev_enemy, booted = {}, {}, False
     try:
         try:
-            ev_r["settleS"] = boot(host, seen)
+            ev_own["settleS"] = boot(host, seen)
             booted = True
         except Exception as e:
             capture("boot", f"{type(e).__name__}: {str(e)[:600]}", host)
         if not booted:
-            for row, order in (("R", R_CELLS), ("T", T_CELLS), ("C", C_CELLS)):
+            for row, order in (("own_turn", OWN_TURN_CELLS), ("enemy_turn", ENEMY_TURN_CELLS),
+                               ("crash_check", CRASH_CELLS)):
                 fails += report(row, order, {c: (False, "boot (see the CAPTURE boot line)") for c in order},
                                 {"boot": "miss"})
             return fails
-        ev_r["mapFingerprint"] = bs(host).get("mapFingerprint")
-        fails += row_r(host, seen, ev_r)
-        fails += row_t(host, seen, ev_t, t_boot)
+        ev_own["mapFingerprint"] = bs(host).get("mapFingerprint")
+        fails += row_own_turn(host, seen, ev_own)
+        fails += row_enemy_turn(host, seen, ev_enemy, t_boot)
         seen.update(stack(host))
     finally:
         try:
@@ -258,16 +264,18 @@ def main():
             shut = "rc 0"
         except RuntimeError as e:
             shut = str(e)[:300]
-            print(f"[spg] shutdown: {shut}", flush=True)
+            print(f"[solo_pause_save_guard] shutdown: {shut}", flush=True)
     new = sorted(set(crash_files()) - set(before))
     debrief = "DebriefingState" in seen
-    fails += report("C", C_CELLS, {"C-crash": (not new and not debrief, f"new crash files {new} in {harness.CRASH_DIR}; "
-                                               f"DebriefingState seen {debrief}; shutdown {shut} (want none, False)")},
+    fails += report("crash_check", CRASH_CELLS,
+                    {"no_crash": (not new and not debrief, f"new crash files {new} in {harness.CRASH_DIR}; "
+                                                           f"DebriefingState seen {debrief}; shutdown {shut} "
+                                                           f"(want none, False)")},
                     {"crashDir": harness.CRASH_DIR, "new": new, "statesSeen": sorted(seen)})
     return fails
 
 
 if __name__ == "__main__":
     n = main()
-    print(f"SPG {'PASS' if not n else 'FAIL'}: {n} of 6 cells failed", flush=True)
+    print(f"solo_pause_save_guard {'PASS' if not n else 'FAIL'}: {n} of 6 cells failed", flush=True)
     sys.exit(0 if n == 0 else 2)
