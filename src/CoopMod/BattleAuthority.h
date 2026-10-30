@@ -189,7 +189,7 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 /// writes in every co-op battle (coopTurnMode, coopItemIdCtr), game mode 0 / 1, a unit of another original faction carrying the
 /// `coop` key (older versions write it on EVERY unit, this build only on a seated one) and a unit tagged 1 (the second
 /// player's). A Custom Battle save has no header `coop`, so SavedGame::load()'s campaign gate never sees it; the load then runs
-/// coopConvertOlderBattleSave() on it. A release single-player save loads as saved. The game mode may be 0-4: PvP (2 / 3)
+/// coopConvertOlderBattleSave() on it. An older version's single-player save loads as saved. The game mode may be 0-4: PvP (2 / 3)
 /// and PvE2 (4) saves convert by their mode's arm.
 bool coopOlderCustomBattleSave(const YAML::YamlNodeReader& body);
 

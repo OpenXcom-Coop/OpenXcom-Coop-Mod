@@ -765,8 +765,8 @@ public:
 	/// called from load()) is the read-back: it restores that pass's write on
 	/// a soldier-linked unit when a battle document is loaded.
 	void setOriginalFaction(UnitFaction f) { _originalFaction = f; }
-	/// Sets the unit's type string. Thin setter, no logic - the release
-	/// line's PvE2 re-skin of an AI-side X-COM soldier (MALE_CIVILIAN /
+	/// Sets the unit's type string. Thin setter, no logic - older
+	/// versions' PvE2 re-skin of an AI-side X-COM soldier (MALE_CIVILIAN /
 	/// FEMALE_CIVILIAN: no rank on the unit-info screen, a blank enemy name, no
 	/// fatal wounds unless the Alien Bleeding option is on) in
 	/// assignSeatsAndFactions(), and its read-back in

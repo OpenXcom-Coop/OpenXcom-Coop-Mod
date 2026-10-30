@@ -8619,8 +8619,8 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 			// gm4 arm does (the aliens PLAYER without AI, the X-COM side HOSTILE). Each alien keeps the player it had (tag 1 = the
 			// second player's seat 1, else the host's seat 0); the X-COM side and civilians are nobody's (the host's AI); an X-COM
 			// soldier is re-typed MALE_ / FEMALE_CIVILIAN as at generation.
-			// coop: the release
-			// line built its gm4 X-COM side with the Soldier constructor (the soldier's maximum armor), but its save reloads those
+			// coop: an older
+			// version built its gm4 X-COM side with the Soldier constructor (the soldier's maximum armor), but its save reloads those
 			// units as rules units of original faction HOSTILE, whose maximum this build derives through the difficulty adjustment
 			// (BattleUnit::adjustStats), so the saved current armor can sit above it. coopLoadBuiltValues() applies the host's
 			// maximum on the partner and clamps the current armor there, and the two machines would differ. Every unit whose
@@ -10516,7 +10516,7 @@ static std::uint32_t g_coopLastTimedOutIseq = 0;    // the most recent one
 static std::uint32_t g_coopLateAnswersIgnored = 0;  // late ack/deny dropped
 
 // The busy-owner LATCH
-// (_coopBusyOwnerSeat), re-homed
+// (_coopBusyOwnerSeat), moved
 // from a vanilla per-frame method into CoopMod. Resolved ONCE per busy window;
 // dropped the moment the window closes. Latching (rather than re-deriving each
 // tick) is load-bearing: consequence
@@ -10914,7 +10914,7 @@ static std::string coopHex64(std::uint64_t v)
 // The `h:{unitsStats}` bucket every turn/kneel ev and
 // action_end carries. One bucket only (one cheap bucket buys
 // per-event divergence attribution). Built
-// via SharedEcon::computeBattleHashes() - the ported hash sweep - never a
+// via SharedEcon::computeBattleHashes() - the shared hash sweep - never a
 // second hand-rolled hasher.
 static Json::Value coopBuildUnitsStatsHash(SavedBattleGame* save, bool withSynced)
 {
@@ -30575,7 +30575,7 @@ static std::string coopSha256Hex(const std::string& data)
 }
 
 // The canonical saveBlob bucket, via SharedEcon::computeSaveBlobHash() (the
-// ported SharedEcon bucket function - "don't hand-roll a second hasher"; see it
+// SharedEcon bucket function - "don't hand-roll a second hasher"; see it
 // for what the bucket covers and excludes). It stays correct at any point in
 // the battle, not just at the t=0 handshake.
 static std::string coopComputeSaveBlobBucketHex(SavedBattleGame* battle)
