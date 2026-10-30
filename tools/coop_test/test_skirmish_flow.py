@@ -249,7 +249,7 @@ def test_skirmish_full_flow():
         host.wait_for("host at battle settings again",
                       lambda: (not session.has_state(host, "LobbyMenu")) or None)
 
-        # 7. FX-1 emits the battle offer only after the host's briefing OK.
+        # 7. the battle offer goes out only after the host's briefing OK.
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing",
                       lambda: session.has_state(host, "BriefingState"), timeout=120)
@@ -344,33 +344,13 @@ def test_failed_join_clears_connecting():
         client.shutdown()
 
 
-# UNBLOCKED BY W1-P3 (2026-09-02). History, kept because it explains both the
-# guard's shape and what actually fixed it:
-#
-# W1-P1 replaced a MODULE-SCOPE SKIP-PENDING(R4-P1) guard - which sat two lines
-# ABOVE this file's own sys.path.insert and ran sys.exit(0) at IMPORT time, so
-# every module that did "import pvp_fixture" (pvp_fixture.py:19 imports this
-# file) died silently with EXIT CODE 0 before its first assertion - with the
-# function-scope SKIP_FULL_FLOW guard below, and re-ran the file at 8c53c2592
-# instead of guessing what was left. Steps 1-6 PASSED; step 7 failed on exactly
-# one assertion:
-#
-#   AssertionError: client left sitting on a dead lobby it cannot dismiss:
-#   ['MainMenuState', 'NewBattleState', 'ServerList', 'LobbyMenu',
-#    'BattlescapeState']
-#
-# That was NOT a stale test assumption - it was the client battle-entry shape:
-# CoopHandshake's client entry pushed a bare BattlescapeState on top of whatever
-# stack the client was holding and never tore the lobby down. W1-P3 (ruling D3 /
-# WV-D9) converges the client's entry onto the host's - it unwinds the client's
-# pre-battle menu stack with the existing bounded coopUnwindToSafeState() helper
-# and then pushes BattlescapeState + a read-only BriefingState over it, so the
-# client now lands on ['MainMenuState', 'BattlescapeState', 'BriefingState'].
-# The assertion below is UNCHANGED from the day it failed; only the code moved.
-#
-# Step 7's in_battle() predicate already accepted BriefingState, so the client
-# reaching its own briefing needs no test change either.
-# the dormant SKIP_FULL_FLOW flag and its branch were removed; main() runs all three scenarios.
+# Step 7's client check: the client's battle entry follows the host's - it unwinds the client's pre-battle
+# menu stack with the bounded coopUnwindToSafeState() helper and then pushes BattlescapeState + a read-only
+# BriefingState over it, so the client lands on ['MainMenuState', 'BattlescapeState', 'BriefingState'] with
+# no lobby left. Without that unwind the client sits on a dead lobby it cannot dismiss:
+#   ['MainMenuState', 'NewBattleState', 'ServerList', 'LobbyMenu', 'BattlescapeState']
+# in_battle() accepts BriefingState, so the client reaching its own briefing counts as in battle.
+# pvp_fixture.py and other tests import this file: nothing here runs or exits at import time.
 
 
 def main():
