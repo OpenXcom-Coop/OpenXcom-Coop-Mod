@@ -1,25 +1,24 @@
-"""RV-U2 rows K1-K5 (boot K): `map_tile_click` probes a battlescape tile and pushes the click on ONE pump pass, so the
-click resolves against the camera the pixel was computed for (owner D60, POST-REWRITE-REVISIT rows 2 and 17).
+"""test_tile_click.py: `map_tile_click` probes a battlescape tile and pushes the click on ONE pump pass, so the click
+resolves against the camera the pixel was computed for.
 
-Spec: docs repo rewrite/prompts/rvu2_one_shot_click.md section (f) (QV2-1 (a); orchestrator ruling R-V2-A-1 for K4's staging).
-Constants: rewrite/rvu2-task0/sa/CONSTANTS.md (TASK 0 boots Ka' and Kb', every pin equal).
+The boot (key 48696): the host sets SEED_ROSTER before its lobby, STR_TERROR_MISSION, two soldiers seated to the
+client, map seed SEED_MAP (test_host_combat's pinned boot), pin_ai_neutral; staging: H on TILE_H facing T_W's
+direction (hash-gated place_deterministic), U / C / C2 on their tiles facing 2 (client first), every one at full TU,
+every bucket EQUAL.
+  host_select           the host click-selects its own soldier U (H selected first).
+  client_select         the client click-selects its own soldier C2 (C selected first).
+  refused_click         the client's click on the host's soldier H is refused: "Not one of your soldiers", selection
+                        kept.
+  far_camera_walk       the host walks H one tile after the probe had to re-centre a far camera. Staging: every live
+                        hostile to corner NE (hash-gated battle_teleport_all), each at Chebyshev >= 21 from H's tile
+                        and T_W.
+  unverified_tile       a tile the probe cannot verify (-5, -5, 0) is not clicked: nothing changes.
+Every click is ONE `map_tile_click` (never `.ok`: an error answer is a FAIL line). Common cell after each row: every
+hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
 
-Boot K (key 48696): the host sets SEED_ROSTER before its lobby, STR_TERROR_MISSION, two soldiers seated to the client, map
-seed SEED_MAP (test_host_combat's pinned boot), pin_ai_neutral; staging: H on TILE_H facing T_W's direction (hash-gated
-place_deterministic), U / C / C2 on their tiles facing 2 (client first), every one at full TU, every bucket EQUAL.
-  K1  the host click-selects its own soldier U (H selected first).
-  K2  the client click-selects its own soldier C2 (C selected first).
-  K3  the client's click on the host's soldier H is refused: "Not one of your soldiers", selection kept.
-  K4  the host walks H one tile after the probe had to re-centre a far camera (the row-17 shape). Staging: every
-      live hostile to corner NE (hash-gated battle_teleport_all), each at Chebyshev >= 21 from H's tile and T_W.
-  K5  a tile the probe cannot verify (-5, -5, 0) is not clicked: nothing changes.
-Every click is ONE `map_tile_click` (never `.ok`: an error answer is a FAIL line). Common cell after each row: every hash
-bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
-
-One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot
-step past its bound prints ONE CAPTURE line and fails every row "boot". No retry, skip or attempt loop (aud-0911-A8).
-run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
-cell passes, else 2.
+One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A
+boot step past its bound prints ONE CAPTURE line and fails every row "boot". No retry, skip or attempt loop. Run in
+the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_tile_click.py
 """
@@ -40,19 +39,21 @@ from test_seat_pacing import tab_select  # noqa: E402
 KEY = "48696"
 H, U, C, C2 = 10, 11, 8, 9                 # host seat [10..14] (U = the next host-seat id), client seat [8, 9]
 HOST_SEAT, CLIENT_SEAT = [10, 11, 12, 13, 14], [8, 9]
-TILE_H, TILE_U, TILE_C, TILE_C2 = (12, 26, 0), (12, 23, 0), (12, 29, 0), (10, 26, 0)   # the first four open STAGE tiles
+# the first four open staging tiles
+TILE_H, TILE_U, TILE_C, TILE_C2 = (12, 26, 0), (12, 23, 0), (12, 29, 0), (10, 26, 0)
 T_W, DIR_TW = (12, 25, 0), 0               # H's dir-0 neighbour: path_probe reachable, 1 step, tuCost 4
 STAGE_DIR = 2                              # U, C, C2 facing
-HOSTILE_CORNER, HOSTILE_FACING, MIN_CHEB = "NE", 1, 21   # 13 hostiles to (45..49, 0..4); min Chebyshev 33 (Ka', Kb')
-K5_TILE = (-5, -5, 0)                      # never round-trips (Camera clamps, F11091)
+HOSTILE_CORNER, HOSTILE_FACING, MIN_CHEB = "NE", 1, 21   # 13 hostiles to (45..49, 0..4); min Chebyshev 33 (measured)
+UNVERIFIED_TILE = (-5, -5, 0)              # never round-trips (Camera clamps)
 NOT_YOURS = "Not one of your soldiers"
 STEP_S, SEL_S, WALK_S = 30, 2.0, 20
 ANS = ("ok", "verified", "clicked", "centered", "button", "winX", "winY", "baseX", "baseY", "viewLevel", "error")
-ROWS = (("K1", ("K1-pre", "K1-click", "K1-effect", "K1-common")),
-        ("K2", ("K2-pre", "K2-click", "K2-effect", "K2-common")),
-        ("K3", ("K3-pre", "K3-click", "K3-effect", "K3-common")),
-        ("K4", ("K4-pre", "K4-click", "K4-effect", "K4-common")),
-        ("K5", ("K5-click", "K5-effect", "K5-common")))
+ROWS = (("host_select", ("host_select-pre", "host_select-click", "host_select-effect", "host_select-common")),
+        ("client_select", ("client_select-pre", "client_select-click", "client_select-effect", "client_select-common")),
+        ("refused_click", ("refused_click-pre", "refused_click-click", "refused_click-effect", "refused_click-common")),
+        ("far_camera_walk", ("far_camera_walk-pre", "far_camera_walk-click", "far_camera_walk-effect",
+                             "far_camera_walk-common")),
+        ("unverified_tile", ("unverified_tile-click", "unverified_tile-effect", "unverified_tile-common")))
 
 
 class Miss(Exception):
@@ -187,16 +188,16 @@ def shut(*gcs):
             if gc is not None and gc.proc is not None and gc.proc.poll() is None:
                 gc.shutdown()
         except Exception as e:
-            print(f"[rvu2] shutdown {gc.name}: {type(e).__name__}: {str(e)[:200]}", flush=True)
+            print(f"[tile_click] shutdown {gc.name}: {type(e).__name__}: {str(e)[:200]}", flush=True)
 
 
-# ===================== boot K =====================
+# ===================== boot =====================
 
 
 def boot(host, client):
     m = (host, client)
-    guarded("K", lambda: HC.bring_up_lobby_roster_pinned(host, client, KEY), m)
-    guarded("K", lambda: session.drive_to_battlescape(host, client, {}, mission=HC.MISSION, seat_count=2,
+    guarded("boot", lambda: HC.bring_up_lobby_roster_pinned(host, client, KEY), m)
+    guarded("boot", lambda: session.drive_to_battlescape(host, client, {}, mission=HC.MISSION, seat_count=2,
                                                       pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": HC.SEED_MAP})), m)
 
     def census():
@@ -207,16 +208,17 @@ def boot(host, client):
             assert b.get("mapFingerprint") == HC.MAP_FP and seats == [HOST_SEAT, CLIENT_SEAT], (
                 f"{gc.name} mapFingerprint {b.get('mapFingerprint')} (want {HC.MAP_FP}), seats {seats} "
                 f"(want {[HOST_SEAT, CLIENT_SEAT]})")
-    guarded("K", census, m)
-    pinned = guarded("K", lambda: session.pin_ai_neutral(host, client, tag="rvu2"), m)
+    guarded("boot", census, m)
+    pinned = guarded("boot", lambda: session.pin_ai_neutral(host, client, tag="tile_click"), m)
     if not pinned:
-        capture("K", "pin_ai_neutral pinned no unit", m)
-        raise Miss("K")
-    guarded("K", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
+        capture("boot", "pin_ai_neutral pinned no unit", m)
+        raise Miss("boot")
+    guarded("boot", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
 
     def stage():
         session.place_deterministic(host, client, [{"cmd": "battle_teleport_unit", "unit": H, "x": TILE_H[0],
-                                                    "y": TILE_H[1], "z": TILE_H[2], "dir": DIR_TW}], what="rvu2 H")
+                                                    "y": TILE_H[1], "z": TILE_H[2], "dir": DIR_TW}],
+                                    what="tile_click H")
         for uid, t in ((U, TILE_U), (C, TILE_C), (C2, TILE_C2)):
             place(host, client, uid, t, STAGE_DIR)
         for uid in (H, U, C, C2):
@@ -225,18 +227,19 @@ def boot(host, client):
         got = {uid: [pos(host, uid), pos(client, uid)] for uid in (H, U, C, C2)}
         want = {uid: [t, t] for uid, t in ((H, TILE_H), (U, TILE_U), (C, TILE_C), (C2, TILE_C2))}
         assert got == want, f"staged positions host/client {got} (want {want})"
-        assert_hash_clean(host, client, full=True, what="rvu2 staging")
+        assert_hash_clean(host, client, full=True, what="tile_click staging")
         return got
-    staged = guarded("K", stage, m)
-    print(f"[rvu2] boot K ok: MAP_FP {HC.MAP_FP} seats {HOST_SEAT}/{CLIENT_SEAT} pinned {len(pinned)} staged {staged}",
-          flush=True)
+    staged = guarded("boot", stage, m)
+    print(f"[tile_click] boot ok: MAP_FP {HC.MAP_FP} seats {HOST_SEAT}/{CLIENT_SEAT} pinned {len(pinned)} "
+          f"staged {staged}", flush=True)
 
 
 # ===================== rows =====================
 
 
 def row_select(gc, actor, target_tile, want_sel, row, host, client, crash0):
-    """K1 / K2: `gc` selects `actor` by TAB, then ONE map_tile_click on its own soldier's tile selects `want_sel`."""
+    """host_select / client_select: `gc` selects `actor` by TAB, then ONE map_tile_click on its own soldier's tile
+    selects `want_sel`."""
     ev = {"tab": tab_select(gc, actor), "sel0": sel(gc), "arm0": es(gc, "coopWalkArmEntered"), "cam0": cams(host, client)}
     ev["answer"] = a = click(gc, target_tile)
     ok, ev["selS"] = wait_until(lambda: sel(gc) == want_sel, SEL_S)
@@ -249,27 +252,28 @@ def row_select(gc, actor, target_tile, want_sel, row, host, client, crash0):
             f"{row}-common": common(host, client, crash0)}, ev
 
 
-def row_k3(host, client, crash0):
+def row_refused_click(host, client, crash0):
     ev = {"tab": tab_select(client, C2), "sel0": sel(client), "arm0": es(client, "coopWalkArmEntered"),
           "blocked0": es(client, "coopLocalExecBlocked"), "cam0": cams(host, client)}
     ev["answer"] = a = click(client, TILE_H)
     ok, ev["bannerS"] = wait_until(lambda: battle_state(client).get("coopWaitText") == NOT_YOURS, SEL_S)
     ev.update(banner=battle_state(client).get("coopWaitText"), sel1=sel(client), arm1=es(client, "coopWalkArmEntered"),
               blocked1=es(client, "coopLocalExecBlocked"), cam1=cams(host, client))
-    return {"K3-pre": (ev["sel0"] == C2, f"client selectedId {ev['sel0']} (want {C2})"),
-            "K3-click": (clicked(a), f"client map_tile_click {TILE_H}: {a} (want ok, verified, clicked)"),
-            "K3-effect": (ok and ev["sel1"] == C2 and ev["arm1"] == ev["arm0"] and ev["blocked1"] == ev["blocked0"],
+    return {"refused_click-pre": (ev["sel0"] == C2, f"client selectedId {ev['sel0']} (want {C2})"),
+            "refused_click-click": (clicked(a), f"client map_tile_click {TILE_H}: {a} (want ok, verified, clicked)"),
+            "refused_click-effect": (ok and ev["sel1"] == C2 and ev["arm1"] == ev["arm0"]
+                                     and ev["blocked1"] == ev["blocked0"],
                           f"client banner {ev['banner']!r} after {ev['bannerS']} s (want {NOT_YOURS!r} within {SEL_S} s); "
                           f"selectedId {ev['sel1']} (want {C2}); coopWalkArmEntered {ev['arm0']} -> {ev['arm1']}, "
                           f"coopLocalExecBlocked {ev['blocked0']} -> {ev['blocked1']} (want both unchanged)"),
-            "K3-common": common(host, client, crash0)}, ev
+            "refused_click-common": common(host, client, crash0)}, ev
 
 
-def row_k4(host, client, crash0):
+def row_far_camera_walk(host, client, crash0):
     ev = {"tab": tab_select(host, H), "sel0": sel(host), "Hdir": (live(host).get(H) or {}).get("direction")}
     r = session.place_deterministic(host, client, [{"cmd": "battle_teleport_all", "faction": "hostile",
                                                     "corner": HOSTILE_CORNER, "facing": HOSTILE_FACING}],
-                                    what="rvu2 K4 hostiles")
+                                    what="tile_click far_camera_walk hostiles")
     hostiles = sorted((i, (u["x"], u["y"], u["z"])) for i, u in live(host).items() if u.get("faction") == 1)
     ev["hostiles"] = {"count": r[0][0].get("count"), "minCheb": min((min(cheb(p, TILE_H), cheb(p, T_W))
                                                                      for _, p in hostiles), default=None)}
@@ -293,52 +297,58 @@ def row_k4(host, client, crash0):
     hk, ck = ev["hostWalk"], ev["clientWalk"]
     pre_ok = (ev["sel0"] == H and cc.get("ok") is True and ev["Hdir"] == DIR_TW and hostiles
               and ev["hostiles"]["minCheb"] >= MIN_CHEB)
-    return {"K4-pre": (pre_ok, f"host selectedId {ev['sel0']} (want {H}); battle_camera_center {ev['center']} (want ok); "
+    return {"far_camera_walk-pre": (pre_ok, f"host selectedId {ev['sel0']} (want {H}); "
+                                            f"battle_camera_center {ev['center']} (want ok); "
                                f"H facing {ev['Hdir']} (want {DIR_TW}); {len(hostiles)} live hostiles, min Chebyshev "
                                f"{ev['hostiles']['minCheb']} from H / T_W (want >= {MIN_CHEB})"),
-            "K4-click": (clicked(a, centered=True),
+            "far_camera_walk-click": (clicked(a, centered=True),
                          f"host map_tile_click {T_W}: {a} (want ok, verified, clicked, centered true)"),
-            "K4-effect": (ev["settled"] is True and hk["actionId"] not in (None, prev) and hk["unit"] == H
+            "far_camera_walk-effect": (ev["settled"] is True and hk["actionId"] not in (None, prev) and hk["unit"] == H
                           and hk["origin"] == "host" and hk["to"] == [T_W] and ck["actionId"] == hk["actionId"]
                           and ck["to"] == [T_W] and ev["H"] == [T_W, T_W],
                           f"settled {ev['settled']}; host lastWalk {hk} (want a new actionId, unit {H}, origin host, one "
                           f"step to {T_W}); client lastWalk {ck} (want the same actionId and step); H host/client "
                           f"{ev['H']} (want {T_W} on both)"),
-            "K4-common": common(host, client, crash0)}, ev
+            "far_camera_walk-common": common(host, client, crash0)}, ev
 
 
-def row_k5(host, client, crash0):
+def row_unverified_tile(host, client, crash0):
     ev = {"sel0": sel(host), "wa0": session.walk_action_id(host), "cam0": cams(host, client)}
-    ev["answer"] = a = click(host, K5_TILE)
+    ev["answer"] = a = click(host, UNVERIFIED_TILE)
     time.sleep(1.0)
     ev.update(sel1=sel(host), wa1=session.walk_action_id(host), cam1=cams(host, client))
-    return {"K5-click": (a.get("ok") is True and a.get("verified") is False and a.get("clicked") is False,
-                         f"host map_tile_click {K5_TILE}: {a} (want ok true, verified false, clicked false)"),
-            "K5-effect": ((ev["sel1"], ev["wa1"]) == (ev["sel0"], ev["wa0"]),
+    return {"unverified_tile-click": (a.get("ok") is True and a.get("verified") is False and a.get("clicked") is False,
+                         f"host map_tile_click {UNVERIFIED_TILE}: {a} (want ok true, verified false, clicked false)"),
+            "unverified_tile-effect": ((ev["sel1"], ev["wa1"]) == (ev["sel0"], ev["wa0"]),
                           f"host selectedId {ev['sel0']} -> {ev['sel1']}, walk actionId {ev['wa0']} -> {ev['wa1']} after "
                           f"1.0 s (want both unchanged)"),
-            "K5-common": common(host, client, crash0)}, ev
+            "unverified_tile-common": common(host, client, crash0)}, ev
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", None, make_user_dir("rvu2_k_host"))
-    client = GameClient("client", None, make_user_dir("rvu2_k_client"))
+    host = GameClient("host", None, make_user_dir("tile_click_host"))
+    client = GameClient("client", None, make_user_dir("tile_click_client"))
     crash0 = session._crash_log_snapshot()
     fails = 0
     try:
         try:
             boot(host, client)   # bring_up_lobby_roster_pinned spawns and connects both machines
         except Miss:
-            fails = sum(verdict(row, order, {n: (False, "boot (setup failure, see the CAPTURE K line)") for n in order},
+            fails = sum(verdict(row, order,
+                                {n: (False, "boot (setup failure, see the CAPTURE boot line)") for n in order},
                                 {"error": "boot"}) for row, order in ROWS)
         else:
             rows = dict(ROWS)
-            fails += run_row("K1", rows["K1"], lambda: row_select(host, H, TILE_U, U, "K1", host, client, crash0))
-            fails += run_row("K2", rows["K2"], lambda: row_select(client, C, TILE_C2, C2, "K2", host, client, crash0))
-            fails += run_row("K3", rows["K3"], lambda: row_k3(host, client, crash0))
-            fails += run_row("K4", rows["K4"], lambda: row_k4(host, client, crash0))
-            fails += run_row("K5", rows["K5"], lambda: row_k5(host, client, crash0))
+            fails += run_row("host_select", rows["host_select"],
+                             lambda: row_select(host, H, TILE_U, U, "host_select", host, client, crash0))
+            fails += run_row("client_select", rows["client_select"],
+                             lambda: row_select(client, C, TILE_C2, C2, "client_select", host, client, crash0))
+            fails += run_row("refused_click", rows["refused_click"], lambda: row_refused_click(host, client, crash0))
+            fails += run_row("far_camera_walk", rows["far_camera_walk"],
+                             lambda: row_far_camera_walk(host, client, crash0))
+            fails += run_row("unverified_tile", rows["unverified_tile"],
+                             lambda: row_unverified_tile(host, client, crash0))
     finally:
         shut(host, client)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
