@@ -18,9 +18,10 @@ One world, the host machine runs every battle. Rows:
          seat on both machines; the client moves its own soldier, the host's
          selection of it is refused, the hashes stay equal. The battle ends as
          in SEP-1: the client's soldiers are back in the client's base.
-  SEP-2C The client launches its own craft to Cydonia: the host's machine
-         runs the battle, which belongs to the client, and the client's
-         soldiers are on the client's seat on both machines.
+  SEP-2C The client launches its own craft to Cydonia with its tank aboard:
+         the host's machine runs the battle, which belongs to the client, and
+         the client's soldiers and its tank are on the client's seat on both
+         machines.
   SEP-4  A Separate battle saved mid-battle by the previous co-op build (two
          worlds, the client's soldier aboard the host's craft) is upgraded to
          one world and resumed: each soldier is on its owner's seat on both
@@ -264,6 +265,7 @@ def sep2c():
         fixture.assert_fresh_named_world(host, client)
         geo.slow_clock(host, client)
         craft = _craft(host, "ClientBase")
+        _board_tank(host, client, "ClientBase", craft["id"])
         client.ok({"cmd": "open_cydonia", "craft_id": craft["id"], "craft_type": craft["type"]})
         client.wait_for("the client's Cydonia confirmation",
                         lambda: any("ConfirmCydoniaState" in s for s in session.states(client)) or None,
@@ -275,7 +277,7 @@ def sep2c():
                         timeout=180, interval=1.0)
         _check_owner(host, client, "ClientPlayer", row)
         _to_tactical(host, client, row)
-        _check_seats(host, client, lambda u: 1, None, row)
+        _check_seats(host, client, lambda u: 1, 1, row)
         print(f"ALL {row} PASSED")
     finally:
         js.shutdown()
