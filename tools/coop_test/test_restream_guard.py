@@ -1,14 +1,16 @@
-"""test_restream_guard.py: harness dismissals vs a world restream (F5820, F5822; docs
-rewrite/prompts/w2u7_harness_restream_guard.md (f)). A SHARED replica's restream pushes a LoadGameState that adopts the
-world and pops itself after ~10 frames (~20 ms, F5861); a harness pop of it loses the world, the resync stays pending
-(replica request) and the shared-apply hold stays set. The TEST-ONLY `dismiss_arm` lever fires ONE harness
-command in the game thread on the first pump pass whose top is a LoadGameState (Q1 a). Boots (labels 49296/49297): A lobby
-47286 (U7-1 replica repair vs dismiss_popup); B 47288 (U7-2 geo.settle vs a pending resync held by the host's
-shared_update_defer, F5869; U7-4 guard: ordinary windows close as before); C 47290 (U7-3 host-initiated restream vs
-dismiss_popup; U7-5 close_screens / pop_state / geo_run). RED (commit 1): U7-1, U7-2, U7-3 and U7-5's three fires FAIL on
-their refusal / adoption / walk cells; U7-4 and every GUARD cell pass. GREEN (commit 2): every row passes. Each row prints
-"EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a guard miss (setup failure) adds one "CAPTURE <id>:" line.
-ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise.
+"""Harness dismissals against a world restream. A SHARED replica's restream pushes a LoadGameState that adopts the
+world and pops itself after ~10 frames (~20 ms); a harness pop of it loses the world, the resync stays pending (replica
+request) and the shared-apply hold stays set. The test-only `dismiss_arm` command fires ONE harness command in the game
+thread on the first pump pass whose top is a LoadGameState. Boots (labels 49296/49297): replica_repair, lobby 47286
+(replica_repair_popup_refused: a replica repair vs dismiss_popup); settle_walk, lobby 47288 (settle_waits_for_resync:
+geo.settle vs a pending resync held by the host's shared_update_defer; ordinary_windows_close, a guard row: ordinary
+windows close as before); host_restream, lobby 47290 (host_restream_popup_refused: a host-initiated restream vs
+dismiss_popup; host_restream_commands_refused: close_screens / pop_state / geo_run). Without the fix
+replica_repair_popup_refused, settle_waits_for_resync, host_restream_popup_refused and the three fires of
+host_restream_commands_refused FAIL on their refusal / adoption / walk cells; ordinary_windows_close and every GUARD
+cell pass. With the fix every row passes. Each row prints "EVIDENCE <id>:" then "PASS <id>" or "FAIL <id>: ..."; a
+guard miss (setup failure) adds one "CAPTURE <id>:" line. ONE foreground run, no skip path; exit 0 only when every row
+passes, 2 otherwise.
 Run:  python tools/coop_test/test_restream_guard.py
 """
 
@@ -21,13 +23,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo
 import shared_fixture
 
-LABELS = (49296, 49297)        # control-socket labels only (ephemeral sockets), F5870
-BOOTS = (("A", "w2u7a", 47286, ("U7-1",)), ("B", "w2u7b", 47288, ("U7-2", "U7-4")),
-         ("C", "w2u7c", 47290, ("U7-3", "U7-5")))
+LABELS = (49296, 49297)        # control-socket labels only (the sockets are ephemeral)
+BOOTS = (("replica_repair", "restream_guard_replica", 47286, ("replica_repair_popup_refused",)),
+         ("settle_walk", "restream_guard_settle", 47288, ("settle_waits_for_resync", "ordinary_windows_close")),
+         ("host_restream", "restream_guard_host", 47290,
+          ("host_restream_popup_refused", "host_restream_commands_refused")))
 ARM_MS = 10000                 # dismiss_arm timeoutMs
-ADOPT_S = 3.0                  # green: the adoption and the rename land within 3 s
-HOLD_S = 3.0                   # U7-2: the host's defer holds the resync serve
-WALK_S = 2.0                   # U7-2: geo.RESYNC_WAIT_S for its one settle
+ADOPT_S = 3.0                  # with the fix the adoption and the rename land within 3 s
+HOLD_S = 3.0                   # settle_waits_for_resync: the host's defer holds the resync serve
+WALK_S = 2.0                   # settle_waits_for_resync: geo.RESYNC_WAIT_S for its one settle
 CLEAN_S = 10.0                 # a clean resync's pending clears within 10 s
 OLD, GEO_ONLY, NOTICE = "HostBase", ["GeoscapeState"], "GiftNoticeState"
 
@@ -51,7 +55,7 @@ def until(pred, timeout, interval=0.1):
         time.sleep(interval)
 
 def settle_catching(host, client):
-    """geo.settle; a ResyncPendingError (absent on the red build) is caught here and reported."""
+    """geo.settle; a ResyncPendingError (absent without the fix) is caught here and reported."""
     t0, st, raised = time.time(), None, None
     try:
         st = geo.settle(host, client)
@@ -89,7 +93,7 @@ def capture(r):
     out["clientCoopUiTail"] = geo._read_coop_ui(r.client, r.cur)[0][-20:]
     return out
 
-def s0(r, name):  # section (f) frames: S0, arm, fired, apply probe, clean
+def s0(r, name):  # row frames: S0, arm, fired, apply probe, clean
     geo.settle(r.host, r.client)
     cs, crs, hrs = stk(r.client), rs(r.client), rs(r.host)
     d = {"stack": cs, "pending": crs.get("pending"), "R0": crs.get("requests"), "H0": hrs.get("requests"),
@@ -99,7 +103,7 @@ def s0(r, name):  # section (f) frames: S0, arm, fired, apply probe, clean
     return d["R0"], d["H0"]
 
 def arm(r, fire):
-    r.client.ok({"cmd": "show_notice", "message": "U7"})
+    r.client.ok({"cmd": "show_notice", "message": "Restream guard"})
     t = stk(r.client)
     a = r.client.cmd({"cmd": "dismiss_arm", "type": "LoadGameState", "fire": fire, "timeoutMs": ARM_MS})
     r.guard("arm(%s)" % fire, t[-1:] == [NOTICE] and a.get("ok") and a.get("armed"), {"stack": t, "reply": a})
@@ -134,14 +138,15 @@ def probe(r, new, secs, pend_false):
                 [p["pending"] for p in polls])
     return polls
 
-def adopted(r, new, old, polls, pend, notice, red_msg):
-    """GREEN: within ADOPT_S [GeoscapeState], not pending, renamed, 0 queued. Red signature: old name, notice, pend, queued."""
+def adopted(r, new, old, polls, pend, notice, bug_msg):
+    """Fixed: within ADOPT_S [GeoscapeState], not pending, renamed, 0 queued. Bug signature: old name, notice, pend,
+    queued."""
     hit = next((p for p in polls if p["stack"] == GEO_ONLY and p["pending"] is False and p["name"] == new
                 and p["applyQueued"] == 0), None)
     sig = (all(p["name"] == old and p["pending"] is pend and (not notice or NOTICE in p["stack"]) for p in polls)
            and (polls[-1]["applyQueued"] or 0) >= 1)
-    r.cell("adoption(%s)" % new, hit is not None and hit["t"] <= ADOPT_S, {"hit": hit, "redSignature": sig},
-           red_msg if sig else "no adoption within %.0f s and the red signature did NOT match" % ADOPT_S)
+    r.cell("adoption(%s)" % new, hit is not None and hit["t"] <= ADOPT_S, {"hit": hit, "bugSignature": sig},
+           bug_msg if sig else "no adoption within %.0f s and the bug signature did NOT match" % ADOPT_S)
 
 def clean(r):
     h0 = rs(r.host).get("requests")
@@ -166,19 +171,19 @@ def tail_cells(r, R0, H0):
     r.cell("client requests R0+1", rr == R0 + 1, [R0, rr])
     r.cell("checksum equal", r.chk_eq(), "shared_checksum differs")
 
-def u7_1(r, boot):
+def row_replica_repair_popup_refused(r, boot):
     R0, H0 = s0(r, OLD)
     arm(r, "dismiss_popup")
     f = r.client.cmd({"cmd": "force_resync"})
     r.guard("sent", f.get("role") == "replica" and f.get("sent") is True, f)
     refusal_popup(r, fired(r, "dismiss_popup", True))
-    adopted(r, "U7A", OLD, probe(r, "U7A", 5.0, False), True, True,
-            "the harness popped the restream's LoadGameState: no adoption, resync pending, applies held (F5820)")
+    adopted(r, "PopupRepair", OLD, probe(r, "PopupRepair", 5.0, False), True, True,
+            "the harness popped the restream's LoadGameState: no adoption, resync pending, applies held")
     tail_cells(r, R0, H0)
 
-def u7_2(r, boot):
+def row_settle_waits_for_resync(r, boot):
     R0, H0 = s0(r, OLD)
-    r.client.ok({"cmd": "show_notice", "message": "U7"})
+    r.client.ok({"cmd": "show_notice", "message": "Restream guard"})
     d = r.host.cmd({"cmd": "shared_update_defer", "on": True})
     saved = getattr(geo, "RESYNC_WAIT_S", None)
     try:
@@ -192,17 +197,17 @@ def u7_2(r, boot):
             time.sleep(0.1)
         lgs = [e for e in geo._read_coop_ui(r.client, cur)[0] if e[1] == "LoadGameState"]
         r.ev["hold"] = {"polls": len(hold), "bad": [h for h in hold if h != [True, NOTICE]], "lgsEvents": lgs}
-        r.guard("hold 3 s (F5869)", not r.ev["hold"]["bad"] and not lgs, r.ev["hold"])
+        r.guard("hold 3 s", not r.ev["hold"]["bad"] and not lgs, r.ev["hold"])
         geo.RESYNC_WAIT_S = WALK_S
         w = settle_catching(r.host, r.client)
         w["after"] = {"stack": stk(r.client), "pending": rs(r.client).get("pending")}
         r.ev["walk"] = w
         ok = (w["raised"] is not None and WALK_S <= w["wall"] <= 3.5 and w["namesPending"] and w["namesNotice"]
               and w["after"]["stack"][-1:] == [NOTICE])
-        red = w["raised"] is None and "generic" in (w["dismissedClient"] or []) and w["after"]["pending"] is True
-        r.cell("walk waits (F5822)", ok, w,
-               "the client walk dismissed a window while a resync was pending" if red else "unexpected walk outcome")
-    finally:  # restore the bound (absent on the red build) and release the host
+        bug = w["raised"] is None and "generic" in (w["dismissedClient"] or []) and w["after"]["pending"] is True
+        r.cell("walk waits", ok, w,
+               "the client walk dismissed a window while a resync was pending" if bug else "unexpected walk outcome")
+    finally:  # restore the bound (absent without the fix) and release the host
         geo.__dict__.pop("RESYNC_WAIT_S", None) if saved is None else setattr(geo, "RESYNC_WAIT_S", saved)
         d = r.host.cmd({"cmd": "shared_update_defer", "on": False})
     r.guard("defer off", d.get("deferred") is False, d)
@@ -214,9 +219,9 @@ def u7_2(r, boot):
     r.cell("second settle", w2["raised"] is None and w2["dismissedClient"] == [], w2)
     tail_cells(r, R0, H0)
 
-def u7_4(r, boot):
+def row_ordinary_windows_close(r, boot):
     s0(r, OLD)
-    r.client.ok({"cmd": "show_notice", "message": "U7"})
+    r.client.ok({"cmd": "show_notice", "message": "Restream guard"})
     d = r.client.cmd({"cmd": "dismiss_popup"})
     t = stk(r.client)
     r.cell("dismiss_popup ordinary", d.get("handled") == "generic" and t[-1:] == GEO_ONLY, {"reply": d, "stack": t})
@@ -226,17 +231,17 @@ def u7_4(r, boot):
     t2 = stk(r.client)
     r.cell("close_screens ordinary", o.get("ok") and (c.get("popped") or 0) >= 1 and "refused" not in c
            and t2[-1:] == GEO_ONLY, {"open": o, "opened": t1, "reply": c, "stack": t2})
-    r.client.ok({"cmd": "show_notice", "message": "U7"})
+    r.client.ok({"cmd": "show_notice", "message": "Restream guard"})
     w = r.ev["settle"] = settle_catching(r.host, r.client)
     r.cell("settle ordinary", w["raised"] is None and w["dismissedClient"] == ["generic"] and w["wall"] < 2.0, w)
 
-def u7_3(r, boot):
+def row_host_restream_popup_refused(r, boot):
     s0(r, OLD)
     arm(r, "dismiss_popup")
     f = r.host.cmd({"cmd": "force_resync"})
     r.guard("role host", f.get("role") == "host" and f.get("ok"), f)
     refusal_popup(r, fired(r, "dismiss_popup", False))
-    adopted(r, "U7C", OLD, probe(r, "U7C", 5.0, True), False, True,
+    adopted(r, "PopupHost", OLD, probe(r, "PopupHost", 5.0, True), False, True,
             "the harness popped a host-initiated restream's LoadGameState (a pending wait cannot see it)")
     boot["name"] = clean(r)
 
@@ -244,11 +249,11 @@ FIRE_OK = {"close_screens": lambda x: x.get("refused") == "restream" and x.get("
            and "LoadGameState" in str(x.get("stoppedAt")),
            "pop_state": lambda x: x.get("ok") is False and x.get("refused") == "restream",
            "geo_run": lambda x: x.get("drained") is False and x.get("refused") == "restream"}
-FIRE_RED = {"close_screens": lambda x: "refused" not in x and (x.get("popped") or 0) >= 1,
+FIRE_BUG = {"close_screens": lambda x: "refused" not in x and (x.get("popped") or 0) >= 1,
             "pop_state": lambda x: x.get("ok") is True,
             "geo_run": lambda x: x.get("drained") is True and "LoadGameState" in str(x.get("topType"))}
 
-def u7_5(r, boot):
+def row_host_restream_commands_refused(r, boot):
     for i, fire in enumerate(("close_screens", "pop_state", "geo_run"), 1):
         old = boot["name"]
         s0(r, old)
@@ -257,12 +262,16 @@ def u7_5(r, boot):
         r.guard("role host (%s)" % fire, f.get("role") == "host" and f.get("ok"), f)
         resp = fired(r, fire, False)
         r.cell("refusal(%s)" % fire, FIRE_OK[fire](resp), resp, "%s popped the restream's LoadGameState" % fire
-               if FIRE_RED[fire](resp) else "%s: unexpected reply" % fire)
-        adopted(r, "U7E%d" % i, old, probe(r, "U7E%d" % i, 3.0, True), False, False,
+               if FIRE_BUG[fire](resp) else "%s: unexpected reply" % fire)
+        adopted(r, "Command%d" % i, old, probe(r, "Command%d" % i, 3.0, True), False, False,
                 "%s popped the restream's LoadGameState" % fire)
         boot["name"] = clean(r)
 
-ROWS = {"U7-1": u7_1, "U7-2": u7_2, "U7-3": u7_3, "U7-4": u7_4, "U7-5": u7_5}
+ROWS = {"replica_repair_popup_refused": row_replica_repair_popup_refused,
+        "settle_waits_for_resync": row_settle_waits_for_resync,
+        "host_restream_popup_refused": row_host_restream_popup_refused,
+        "ordinary_windows_close": row_ordinary_windows_close,
+        "host_restream_commands_refused": row_host_restream_commands_refused}
 
 def run_row(rid, js, boot, results):
     r, t0, err = Row(rid, js.host, js.client), time.time(), None
