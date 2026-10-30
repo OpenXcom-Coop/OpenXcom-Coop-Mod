@@ -1,26 +1,33 @@
-"""W2-H20b stage B (owner D255 a, D226 a; spec rewrite/prompts/w2h20b_shared_base_writes.md AMENDMENT H20b-B-1 B10, QB1 a .. QB4 a,
-H20bB-M1..M5, R-H20bB-T0-1 / -T0-2; TASK 0 rewrite/w2h20bB-task0/CONSTANTS.md): in SHARED, a craft loadout template load (A8), "move
-ground items to base" (A12) and, with oxceAlternateCraftEquipmentManagement ON, the soldier and craft inventory screens (A3, A4, A6) end
-as host-applied craft_equip / craft_assign end-states, and a replica's own option-ON staging triggers no world re-copy; today each
-stays on one machine until a restream reverts the client. H / C / C2 = H20's rule (sbe.setup, option OFF; S25). SKY(gc) = base_report
-HostBase craft {SKY id, STR_SKYRANGER} items (whole map); ST(gc) = geo_state HostBase items; reqs / mm = the client's shared_resync_stats.
-W = 10 s at 0.25 s; RW 5 s, HOLD 8 s. park = host open_soldiers (no heartbeat, H20bB-M4), unpark = host soldiers_ok; converge =
+"""In SHARED, a craft loadout template load, "move ground items to base" and, with oxceAlternateCraftEquipmentManagement
+ON, the soldier and craft inventory screens end as host-applied craft_equip / craft_assign end-states, and a replica's
+own option-ON staging triggers no world re-copy. Without the fix each stays on one machine until a restream reverts the
+client. H / C / C2 as in test_shared_base_equip.setup() (option OFF). SKY(gc) = base_report HostBase craft {SKY id,
+STR_SKYRANGER} items (whole map); ST(gc) = geo_state HostBase items; reqs / mm = the client's shared_resync_stats.
+W = 10 s at 0.25 s; RW 5 s, HOLD 8 s. park = host open_soldiers (no heartbeat), unpark = host soldiers_ok; converge =
 both on GeoscapeState (no CoopState / LoadGameState), SKY and ST equal, <= 30 s; every row starts with converge + client
-shared_reset_resync_stats. (item, slot) = STR_PISTOL into the actor's left hand, else belt, else backpack (run time); an A3 / A4 / A6 SKY
-delta is {PISTOL +1, PISTOL_CLIP +1}. A row whose named RED cell fails evaluates no later cell.
-Boot A2 (SHARED, 49427 / 49428 / 47927, option OFF): HB-1 A8 TB-2's setup, park, client CES loadout_load 1, OK. RED: SKY(host) unchanged
-  after W. HB-2 A12 park, client craft inventory ground_to_base, close. RED: SKY(host) == the reply's before after W. HB-9 js.finish().
-Boot B2 (SHARED, 49429 / 49430 / 47928; setup: TB-4's option-OFF settle, option ON on both, TB-6's host no-edit round trip, converge):
-  HB-7 (guard) parked client soldier screen, PISTOL onto H (the partner's): client SKY == before, host unchanged, reqs 0 over RW. HB-3 A3
-  client soldier screen (C) / HB-5 A4 / A6 client craft screen (C2), parked. RED: SKY(host) unchanged after W. HB-4 A3 host soldier screen
-  (H), client on its geoscape. RED: reqs +1 within W. HB-10 (guard) js.finish(). HB-6 (LAST, R-H20bB-T0-2) F8259: host on its geoscape,
-  the client's craft screen held HOLD. RED: reqs +1 or the InventoryState gone (closed, or the client crashed: F8598, W2-H21); only
-  after a FAILED HB-6 does the shutdown tolerate a dead client (rc 3, its crash log as EVIDENCE).
-Boot S2 (SEPARATE, tag w2h20b2s, labels 49431 / 49432, lobby 47929, option ON): HB-8 (guard) TB-11: ClientBase soldier screen on top 8 s,
-  PISTOL onto its first soldier, close, craft screen round trip: SKY PISTOL / PISTOL_CLIP +1 locally, shared_stats unchanged 1 s after.
-EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (both machines' base_report, geo_state items,
-soldier_layouts, shared_resync_stats, shared_stats, option_values, stacks); a boot miss fails its rows "boot" with ONE CAPTURE line; a
-failed shutdown is a FAIL line. Every row runs after a failure. ONE run; exit 0 iff everything passes, else 2.
+shared_reset_resync_stats. (item, slot) = STR_PISTOL into the actor's left hand, else belt, else backpack (run time); a
+soldier / craft screen SKY delta is {PISTOL +1, PISTOL_CLIP +1}. A row whose main cell (the one that fails without the
+fix) fails evaluates no later cell.
+Option-OFF boot (SHARED, 49427 / 49428 / 47927): loadout_load_syncs: template slot 1 = the SKY's items, two pistols off,
+  park, client CES loadout_load 1, OK; without the fix SKY(host) is unchanged after W. ground_to_base_syncs: park,
+  client craft inventory ground_to_base, close; without the fix SKY(host) == the reply's before after W.
+  world_equal_option_off: js.finish().
+Option-ON boot (SHARED, 49429 / 49430 / 47928; setup: the option-OFF layouts settle, option ON on both, a host
+  soldier-screen round trip with no edit, converge):
+  partner_edit_refused (guard) parked client soldier screen, PISTOL onto H (the partner's): client SKY == before, host
+  unchanged, reqs 0 over RW. soldier_screen_load_syncs: client soldier screen (C) / craft_screen_load_syncs: client
+  craft screen (C2), parked; without the fix SKY(host) is unchanged after W. host_load_no_recopy: host soldier screen
+  (H), client on its geoscape; without the fix reqs +1 within W. world_equal_option_on (guard) js.finish().
+  open_screen_kept (LAST): host on its geoscape, the client's craft screen held HOLD; without the fix reqs +1 or the
+  InventoryState gone (closed, or the client crashed); only after a FAILED open_screen_kept does the shutdown tolerate a
+  dead client (rc 3, its crash log as EVIDENCE).
+SEPARATE boot (labels 49431 / 49432, lobby 47929, option ON): separate_stays_local (guard): ClientBase soldier screen on
+  top 8 s, PISTOL onto its first soldier, close, craft screen round trip: SKY PISTOL / PISTOL_CLIP +1 locally,
+  shared_stats unchanged 1 s after.
+EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (both machines' base_report, geo_state
+items, soldier_layouts, shared_resync_stats, shared_stats, option_values, stacks); a boot miss fails its rows
+"boot" with ONE CAPTURE line; a failed shutdown is a FAIL line. Every row runs after a failure. ONE run; exit 0 iff
+everything passes, else 2.
 """
 
 import glob
@@ -40,15 +47,19 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until  # noqa: E402
 from test_shared_base_writes import bso  # noqa: E402
 
-TAG_A, PORTS_A = "w2h20b2a", (49427, 49428, 47927)
-TAG_B, PORTS_B = "w2h20b2b", (49429, 49430, 47928)
-TAG_S, LABELS_S, LOBBY_S = "w2h20b2s", (49431, 49432), "47929"
+TAG_OPTION_OFF, PORTS_OPTION_OFF = "craft_loads_option_off", (49427, 49428, 47927)
+TAG_OPTION_ON, PORTS_OPTION_ON = "craft_loads_option_on", (49429, 49430, 47928)
+TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "craft_loads_separate", (49431, 49432), "47929"
 HB, CB, GEO, OPT, SKYR = "HostBase", "ClientBase", "GeoscapeState", "oxceAlternateCraftEquipmentManagement", "STR_SKYRANGER"
 PISTOL, CLIP, INV, CES = "STR_PISTOL", "STR_PISTOL_CLIP", "InventoryState", "CraftEquipmentState"
-DELTA = {CLIP: 1, PISTOL: 1}  # every A3 / A4 / A6 SKY delta (the moved pistol carries its clip)
+DELTA = {CLIP: 1, PISTOL: 1}  # every soldier / craft screen SKY delta (the moved pistol carries its clip)
 W, POLL, RW, HOLD, CONV, SETTLE = 10.0, 0.25, 5.0, 8.0, 30.0, 1.0
-ROWS_A, ROWS_B, ROWS_S = ["HB-1", "HB-2", "HB-9"], ["HB-7", "HB-3", "HB-5", "HB-4", "HB-10", "HB-6"], ["HB-8"]
-ORDER = ROWS_A + ROWS_B + ROWS_S
+ROWS_OPTION_OFF, ROWS_OPTION_ON, ROWS_SEPARATE = (
+    ["loadout_load_syncs", "ground_to_base_syncs", "world_equal_option_off"],
+    ["partner_edit_refused", "soldier_screen_load_syncs", "craft_screen_load_syncs", "host_load_no_recopy",
+     "world_equal_option_on", "open_screen_kept"],
+    ["separate_stays_local"])
+ORDER = ROWS_OPTION_OFF + ROWS_OPTION_ON + ROWS_SEPARATE
 
 
 def timed(pred, timeout):
@@ -58,7 +69,8 @@ def timed(pred, timeout):
 
 
 def sky(gc, cid, base=HB):
-    """SKY(gc): the craft {cid, STR_SKYRANGER}'s whole item map from base_report (world_dump does not compare craft items, F8265)."""
+    """SKY(gc): the craft {cid, STR_SKYRANGER}'s whole item map from base_report (world_dump does not compare
+    craft items)."""
     rep = q(gc, {"cmd": "base_report", "base": base})
     c = next((c for c in rep.get("crafts") or [] if c.get("id") == cid and c.get("type") == SKYR), None)
     return None if c is None else dict(sorted((c.get("items") or {}).items()))
@@ -105,7 +117,8 @@ def dump(gc, base=HB):
 
 
 def converge(x, timeout=CONV):
-    """Both on GeoscapeState with no CoopState / LoadGameState, SKY and ST equal on both (B8); a dead machine ends the wait."""
+    """Both on GeoscapeState with no CoopState / LoadGameState, SKY and ST equal on both; a dead machine ends the
+    wait."""
     t0, last = time.time(), {}
 
     def ok():
@@ -145,7 +158,7 @@ class Row(sbw.Row):
 
 
 def guard(r, x, tag="start"):
-    """Every row's setup guard: converge + the client's shared_reset_resync_stats (the restream cooldown, F8527)."""
+    """Every row's setup guard: converge + the client's shared_reset_resync_stats (the restream cooldown)."""
     c = converge(x)
     rep = q(x.client, {"cmd": "shared_reset_resync_stats"})
     r.ev[tag] = {"converge": [c["ok"], c["s"]], "sky host / client": [sky(x.host, x.sky), sky(x.client, x.sky)],
@@ -175,8 +188,8 @@ def close_ces(r, gc, inv=False):
 
 
 def edit(r, gc, name):
-    """(item, slot) per TASK 0's rule on gc's open base inventory: select `name` (base_screen_op), STR_PISTOL into its left hand,
-    else belt, else backpack (S25: read at run time)."""
+    """(item, slot) on gc's open base inventory: select `name` (base_screen_op), STR_PISTOL into its left hand, else
+    belt, else backpack (read at run time)."""
     sel = bso(gc, op="select", name=name)
     g = q(gc, {"cmd": "inventory_ground"})
     u = next((u for u in g.get("soldiers") or [] if u.get("name") == name), None)
@@ -195,7 +208,8 @@ def park(r, x):
 
 
 def release(r, x):
-    """unpark; the client's reqs / mm over RW; converge (the red rows' cleanup: the restream reverts the client)."""
+    """unpark; the client's reqs / mm over RW; converge (the cleanup without the fix: the restream reverts the
+    client)."""
     rep = q(x.host, {"cmd": "soldiers_ok"})
     up = bool(wait_until(lambda: top(x.host) == GEO, 10, 0.05))
     rel = {"unpark": [rep.get("ok"), up], "over RW": watch(x, RW)}
@@ -206,7 +220,7 @@ def release(r, x):
 
 
 def parked(r, x, act):
-    """H20bB-M4: park, the client's `act` (its values, or None after a failed setup cell), the host read over W (until SKY and ST
+    """Park, the client's `act` (its values, or None after a failed setup cell), the host read over W (until SKY and ST
     equal on both), then release - always. Returns (act values, {equal, s, host sky, host before}, release values)."""
     h0, a, w = sky(x.host, x.sky), None, None
     if not park(r, x):
@@ -221,19 +235,21 @@ def parked(r, x, act):
     return a, w, rel
 
 
-def green(r, w, rel, red, red_ok):
-    """The named RED cell, then the green cells (F8045: a failed RED cell evaluates no later cell)."""
-    if not r.cell(red, red_ok, {"host before": w["host before"], "host after W": w["host sky"]}):
+def check_sync(r, w, rel, main_cell, main_ok):
+    """The main cell (the one that fails without the fix), then the sync cells (a failed main cell evaluates no later
+    cell)."""
+    if not r.cell(main_cell, main_ok, {"host before": w["host before"], "host after W": w["host sky"]}):
         return
     if r.cell("SKY and ST not equal on both within W", w["equal"], w):
         r.cell("the client asked for a world re-copy over RW after the unpark", rel["over RW"]["reqs"] == 0, rel["over RW"])
 
 
-def hb_1(x, r):
+def row_loadout_load(x, r):
     h, c = x.host, x.client
     if not guard(r, x):
         return
-    # TB-2's setup: template slot 1 = the SKY's items (stage A's equip_template puts it on the host), then two pistols off (craft_equip)
+    # setup: template slot 1 = the SKY's items (the client's loadout_save reaches the host, as in
+    # test_shared_base_writes' base_write_5), then two pistols off (craft_equip)
     opened = open_ces(r, c, HB, x.sky)
     save = bso(c, op="loadout_save", index=1) if opened else {}
     close_ces(r, c)
@@ -267,10 +283,10 @@ def hb_1(x, r):
     if not r.cell("non-vacuity: the client's SKY PISTOL +2 at once", a["loadout_load"].get("ok") is True
                   and a["client SKY diff at once"].get(PISTOL) == 2, a):
         return
-    green(r, w, rel, "the client's craft loadout load never reached the host", w["host sky"] != w["host before"])
+    check_sync(r, w, rel, "the client's craft loadout load never reached the host", w["host sky"] != w["host before"])
 
 
-def hb_2(x, r):
+def row_ground_to_base(x, r):
     c = x.client
     if not guard(r, x):
         return
@@ -294,11 +310,12 @@ def hb_2(x, r):
                   and gb.get("craftId") == x.sky and any(aft.get(t, 0) < n for t, n in bef.items())
                   and a["client sky at once"] == dict(sorted(aft.items())), a):
         return
-    green(r, w, rel, "the client's move-ground-to-base never reached the host", w["host sky"] != dict(sorted(bef.items())))
+    check_sync(r, w, rel, "the client's move-ground-to-base never reached the host",
+               w["host sky"] != dict(sorted(bef.items())))
 
 
 def finish(x, r):
-    """HB-9 / HB-10 (guard): world equality + replica zero-disk."""
+    """world_equal_option_off / world_equal_option_on (guard): world equality + replica zero-disk."""
     r.ev.update({"world_diff now": shared_fixture.world_diff(x.host, x.client), "client save files now": session.save_files(
         x.js.client_dir), "sky host / client": [sky(x.host, x.sky), sky(x.client, x.sky)]})
     r.evidence()
@@ -308,10 +325,11 @@ def finish(x, r):
         r.cell("js.finish", False, sbe.short(e, 1500))
 
 
-def setup_b2(x):
-    """TB-4's settle (option OFF; F8526), the option ON on both (set_option, P10 raw-on-both), TB-6's host no-edit round trip,
+def setup_option_on(x):
+    """The layouts settle (option OFF: each machine opens and closes its soldier screen, then the whole layouts are
+    equal), the option ON on both (set_option on each machine), a host soldier-screen round trip with no edit,
     converge. Raises on a miss (the boot's rows fail "boot" with its CAPTURE)."""
-    r, h, c = Row("Boot B2 setup", x), x.host, x.client
+    r, h, c = Row("option-ON setup", x), x.host, x.client
     whole_layouts = lambda gc: {e.get("id"): sbe.whole(e)  # noqa: E731
                                 for e in q(gc, {"cmd": "soldier_layouts", "base": HB}).get("soldiers") or []}
     for gc in (h, c):
@@ -331,12 +349,12 @@ def setup_b2(x):
     x.setup = {"layouts equal": [bool(eq), s], "SKY crew": crew, "SKY crew with an empty layout": empty, "set_option": so,
                "option": on, "host round trip SKY diff": diff(h0, h1), "converge": [cv["ok"], cv["s"]], "sky": sky(h, x.sky)}
     if r.fails or not eq or not crew or empty or on != {"host": True, "client": True} or not cv["ok"]:
-        raise RuntimeError(f"Boot B2 setup: {r.fails} {json.dumps(x.setup, default=str)}")
+        raise RuntimeError(f"option-ON setup: {r.fails} {json.dumps(x.setup, default=str)}")
 
 
-def hb_7(x, r):
+def row_partner_edit(x, r):
     h, c = x.host, x.client
-    r.ev["Boot B2 setup"] = x.setup
+    r.ev["option-ON setup"] = x.setup
     if not guard(r, x):
         return
 
@@ -357,8 +375,9 @@ def hb_7(x, r):
     r.cell("the client asked for a world re-copy over RW after the unpark", rel["over RW"]["reqs"] == 0, rel["over RW"])
 
 
-def client_edit(x, r, who, craft, red):
-    """HB-3 (soldier screen) / HB-5 (craft screen, the staging): the client moves STR_PISTOL onto its own `who`, parked."""
+def client_edit(x, r, who, craft, main_cell):
+    """soldier_screen_load_syncs (soldier screen) / craft_screen_load_syncs (craft screen, the staging): the client
+    moves STR_PISTOL onto its own `who`, parked."""
     c = x.client
     if not guard(r, x):
         return
@@ -377,15 +396,15 @@ def client_edit(x, r, who, craft, red):
         return
     if not r.cell(f"non-vacuity: the client's SKY diff == {DELTA}", a["client SKY diff after the close"] == DELTA, a):
         return
-    green(r, w, rel, red, w["host sky"] != w["host before"])
+    check_sync(r, w, rel, main_cell, w["host sky"] != w["host before"])
 
 
-def hb_4(x, r):
+def row_host_load(x, r):
     h, c = x.host, x.client
     if not guard(r, x):
         return
     gv = r.ev["give STR_PISTOL 1"] = {g.name: q(g, {"cmd": "give_items", "item": PISTOL, "count": 1, "base": HB}) for g in (c, h)}
-    if not r.cell("guard: give_items STR_PISTOL 1 on both, client first (R-H20bB-G-1, F8754)", all(v.get("ok") for v in gv.values()), gv):
+    if not r.cell("guard: give_items STR_PISTOL 1 on both, client first", all(v.get("ok") for v in gv.values()), gv):
         return
     h0 = sky(h, x.sky)
     if not sbe.open_soldier_screen(r, h):
@@ -402,7 +421,7 @@ def hb_4(x, r):
             break
         time.sleep(POLL)
     over = watch(x, RW)
-    cv = converge(x)  # the red cleanup (the restream already landed on the client's geoscape)
+    cv = converge(x)  # the cleanup without the fix (the restream already landed on the client's geoscape)
     r.ev.update({"moved": e, "host SKY diff": hd, "first req s": first, "equal s": eq, "over RW": over, "converge": cv,
                  "sky host / client end": [sky(h, x.sky), sky(c, x.sky)]})
     r.evidence()
@@ -416,7 +435,7 @@ def hb_4(x, r):
     r.cell("SKY and ST not equal on both within W", eq is not None, eq)
 
 
-def hb_6(x, r):
+def row_open_screen_kept(x, r):
     h, c = x.host, x.client
     if not guard(r, x):
         return
@@ -425,7 +444,7 @@ def hb_6(x, r):
         return
     t0, sh, sc = time.time(), st(h), st(c)
     first, gone, tops = None, None, []
-    while time.time() - t0 < HOLD:  # the screen must stay on top through HOLD (R-H20bB-T0-2: a crashed client counts as gone)
+    while time.time() - t0 < HOLD:  # the screen must stay on top through HOLD (a crashed client counts as gone)
         s, v = stack(c), rs(c)
         t = round(time.time() - t0, 2)
         tops.append([t, s[-1:], v])
@@ -440,20 +459,20 @@ def hb_6(x, r):
         close_ces(r, c, inv=True)
         eq, s_eq = timed(lambda: equal(x), W)
     else:
-        cv = converge(x)  # the red cleanup (a dead client ends it at once)
+        cv = converge(x)  # the cleanup without the fix (a dead client ends it at once)
     r.ev.update({"ST diff (host -> client) at open": diff(sh, sc), "first req s": first, "gone": gone, "tops (thinned)": tops[::4],
                  "reqs / mm before the close": last, "equal after the close": [bool(eq), s_eq], "cleanup converge": cv})
     r.evidence()
     if not r.cell("non-vacuity: the client's ST != the host's while open", sh != sc, diff(sh, sc)):
         return
-    if not r.cell("the client's open craft screen was closed by a world re-copy (F8259)", first is None and gone is None,
+    if not r.cell("the client's open craft screen was closed by a world re-copy", first is None and gone is None,
                   {"first req s": first, "gone": gone}):
         return
     r.cell("reqs / mm changed before the close", last == [0, 0], last)
     r.cell("SKY and ST not equal on both within W after the close", bool(eq), s_eq)
 
 
-def hb_8(x, r):
+def row_separate_stays_local(x, r):
     h, c = x.host, x.client
     so = {g.name: q(g, {"cmd": "set_option", "name": OPT, "value": True}) for g in (h, c)}
     on = {g.name: opt(g) for g in (h, c)}
@@ -503,7 +522,8 @@ def run_rows(x, rows, results, walls):
             fn(x, r)
         except Exception as e:
             r.cell(f"guard: {rid} exception", False, sbe.short(e))
-        for g in (x.host, x.client):  # a stopped row leaves no screen behind; a dead client (HB-6 red) is left to the shutdown
+        for g in (x.host, x.client):  # a stopped row leaves no screen behind; a dead client (open_screen_kept failing)
+            # is left to the shutdown
             before = stack(g)
             if not is_dead(before) and (before or [""])[-1] != GEO:
                 rep = q(g, {"cmd": "close_screens"})
@@ -514,7 +534,7 @@ def run_rows(x, rows, results, walls):
 
 
 def crash_logs(js):
-    roots = [harness.CRASH_DIR, js.host_dir, js.client_dir]  # (W2-U8h F9563: this lane's own crash folder)
+    roots = [harness.CRASH_DIR, js.host_dir, js.client_dir]  # (this harness slot's own crash folder)
     return {p for root in roots for p in glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)}
 
 
@@ -527,15 +547,15 @@ def down(tag, results, fn):
         print(f"FAIL shutdown {tag}: {sbe.short(e, 800)}", flush=True)
 
 
-def down_b2(js, results, crash0):
-    """R-H20bB-T0-2: only after a FAILED HB-6 is a dead client (rc 3) tolerated, its new crash log printed as EVIDENCE."""
+def down_option_on(js, results, crash0):
+    """Only after a FAILED open_screen_kept is a dead client (rc 3) tolerated, its new crash log printed as EVIDENCE."""
     try:
         js.host.shutdown()
     finally:
         rc = js.client.proc.poll() if js.client.proc else None
-        if results.get("HB-6") is False and rc == 3:
+        if results.get("open_screen_kept") is False and rc == 3:
             logs = {p: open(p, "r", encoding="utf-8", errors="replace").read()[:2500] for p in sorted(crash_logs(js) - crash0)}
-            print(f"EVIDENCE HB-6 shutdown (dead client tolerated, R-H20bB-T0-2): "
+            print(f"EVIDENCE open_screen_kept shutdown (dead client tolerated): "
                   f"{json.dumps({'client rc': rc, 'new crash logs': logs}, sort_keys=True)}", flush=True)
             js.client.shutdown(expected_returncodes=(0, 3))
         else:
@@ -558,37 +578,42 @@ def shared_boot(tag, ports, rids, rows, results, walls, setup=None):
         run_rows(x, rows, results, walls)
     finally:
         if js is not None:
-            down(tag, results, (lambda: down_b2(js, results, crash0)) if tag == TAG_B else js.shutdown)
+            down(tag, results, (lambda: down_option_on(js, results, crash0)) if tag == TAG_OPTION_ON else js.shutdown)
 
 
-def boot_s(results, walls):
+def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_S[0], make_user_dir(TAG_S + "_host"))
-    c = GameClient("client", LABELS_S[1], make_user_dir(TAG_S + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
     x = sbe.X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_S, campaign_mode="coop")
+            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
             geo.wait_both_ready(h, c)
             x.seats = {gc.name: q(gc, {"cmd": "get_coop"}).get("localSeat") for gc in (h, c)}
-            walls["boot " + TAG_S] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails HB-8 "boot" with ONE CAPTURE line
-            return boot_miss(TAG_S, e, ROWS_S, results, x)
-        run_rows(x, (("HB-8", hb_8),), results, walls)
+            walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails separate_stays_local "boot" with ONE CAPTURE line
+            return boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
+        run_rows(x, (("separate_stays_local", row_separate_stays_local),), results, walls)
     finally:
-        down(TAG_S, results, lambda: shutdown_clients(h, c))
+        down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    shared_boot(TAG_A, PORTS_A, ROWS_A, (("HB-1", hb_1), ("HB-2", hb_2), ("HB-9", finish)), results, walls)
-    shared_boot(TAG_B, PORTS_B, ROWS_B, (
-        ("HB-7", hb_7),
-        ("HB-3", lambda x, r: client_edit(x, r, "C", False, "the client's soldier-screen craft load never reached the host")),
-        ("HB-5", lambda x, r: client_edit(x, r, "C2", True, "the client's craft-screen load never reached the host")),
-        ("HB-4", hb_4), ("HB-10", finish), ("HB-6", hb_6)), results, walls, setup_b2)
-    boot_s(results, walls)
+    shared_boot(TAG_OPTION_OFF, PORTS_OPTION_OFF, ROWS_OPTION_OFF, (
+        ("loadout_load_syncs", row_loadout_load), ("ground_to_base_syncs", row_ground_to_base),
+        ("world_equal_option_off", finish)), results, walls)
+    shared_boot(TAG_OPTION_ON, PORTS_OPTION_ON, ROWS_OPTION_ON, (
+        ("partner_edit_refused", row_partner_edit),
+        ("soldier_screen_load_syncs", lambda x, r: client_edit(
+            x, r, "C", False, "the client's soldier-screen craft load never reached the host")),
+        ("craft_screen_load_syncs", lambda x, r: client_edit(
+            x, r, "C2", True, "the client's craft-screen load never reached the host")),
+        ("host_load_no_recopy", row_host_load), ("world_equal_option_on", finish),
+        ("open_screen_kept", row_open_screen_kept)), results, walls, setup_option_on)
+    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     downs = sorted(k for k, v in results.items() if k.startswith("shutdown") and not v)
     print(f"\ntest_shared_craft_loads: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed + downs}) "
