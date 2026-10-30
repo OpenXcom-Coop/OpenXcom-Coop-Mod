@@ -1,36 +1,39 @@
-"""W2-H83 S-A RBC (tools/coop_test/test_removed_base_cache.py): a partner base removed before the host's next battle does not come back
-on the host after that battle, whichever machine presses its debriefing OK first (lead L-H80-1, ruling R-LBH3-1, veto line VL-H83-1;
-capture lh80-1-cap rows H1 / H1b, F22277-F22279). Spec docs rewrite/prompts/w2h83_removed_base_views.md (common: rulings, R3, QH83-2 (a),
-QH83-7 (a)) + rewrite/prompts/w2h83_sa_delete_paths.md (f) RBC; TASK 0 values in rewrite/w2h83-task0/sa/CONSTANTS.md.
-In a SEPARATE campaign the host keeps every partner marker in its cache (j_markers); the client's delete_base erases the live mirror but
-never the cache entry, and the host's post-battle rebuild from that cache (updateAllCoopBases) puts the removed base back (today). The
-green (EA1-EA4) drops the cache entry in the handler and logs one line.
-TWO boots in turn, each shut down before the next: HA (dirs w2h83_ca_*, the HOST presses its debriefing OK first), then HB (dirs
-w2h83_cb_*, the CLIENT first); key KEY. Per boot: spawn + connect; the seat levers of session (seat_guest: new_campaign, three host soldiers
-and the client's guest seated in the host's Skyranger); geo_set_speed idx 0 both; drain_host_coop_notice; the window mapping per machine
-(real INTERCEPT + CANCEL). The client builds a lift-only ClientBase2 at B2 (build_new_base + real GEOSCAPE); CB2_ID and CB_ID (the client's
-first base) in mir(host); H-mark; the host's spawn_mission_site at SITE_POS; the client dismantles ClientBase2 (real BASES, key 2 if needed,
-the BaseView lift cell, DismantleFacilityState OK) + real GEOSCAPE; 2 s; the host's craft_force (its seated Skyranger, STR_OUT, at SITE_POS
-- FLY_OFFSET, to the site) and geo_set_speed idx 2; TOPS = the host's stack every 0.1 s until ConfirmLandingState (W_LAND), no host screen
-in between; set_seed SEED; the host's real YES; drive_both_to_tactical; END = battle_action abort, the real AbortMissionState OK, the
-client's real VoteMenu YES; both DebriefingState; the first machine's real OKs to its globe, OK_GAP_S, the other's. A0 = both
-GeoscapeState calm 1 s; A1h = the host's CYCLE (INTERCEPT, CANCEL) + RT_SETTLE; CLICK (only if CB2_ID in mir(host) at A1h): a real globe
-click on its marker, watch W_OPEN, then (if a view opened) the host's real GEOSCAPE.
-  Rows HA / HB (X = HA, HB)
-          X-pre (GUARD) seat ok; ClientBase2 in mir(host); the client's OK reached and ClientBase2 gone from its own; TOPS [GeoscapeState]
-          only until ConfirmLandingState; both on the battlescape; both DebriefingState; both GeoscapeState at A0.  X-a0 (FIX) no CB2_ID in
-          mir(host) at A0.  X-rt (FIX) none at A1h.  X-open (FIX) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.
-          X-cache (FIX) the host's LINE(CB2_ID) since H-mark: exactly 1, containing "cache=1".  X-cb (GUARD) CB_ID in mir(host) at A0 and
-          A1h (the partner's live base kept, HPM R-7a's purpose).
-  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start (both boots); every process alive until its
-          shutdown.
-Red today: HA-a0, HA-rt, HA-open, HA-cache, HB-a0, HB-rt, HB-open, HB-cache FAIL (8 of 13); every other cell PASS. Green (EA1-EA4): all
-13 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon,
-coopBase, lon, lat]. LINE(id) = engine-log lines holding "[coop] removed base: id=<id> cache=". Every press is a real click_widget
-or inject_input except the logged levers build_new_base, geo_set_speed, the seat levers, drain_host_coop_notice, spawn_mission_site,
-craft_force, set_seed, battle_action abort and drive_both_to_tactical's briefing / equip levers. One EVIDENCE line per row, one PASS / FAIL
-line per cell, then the row verdict; a boot or precondition miss ends its row (ONE CAPTURE line, later cells "not reached") and the file
-goes on to the next boot. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+"""A partner base removed before the host's next battle does not come back on the host after that battle, whichever
+machine presses its debriefing OK first.
+In a SEPARATE campaign the host keeps every partner marker in its cache (j_markers); without the fix the client's
+delete_base erases the live mirror but never the cache entry, and the host's post-battle rebuild from that cache
+(updateAllCoopBases) puts the removed base back. The fix drops the cache entry in the handler and logs one line.
+TWO boots in turn, each shut down before the next: host_ok_first (dirs removed_base_cache_host_first_*, the HOST
+presses its debriefing OK first), then client_ok_first (dirs removed_base_cache_client_first_*, the CLIENT first); key
+KEY. Per boot: spawn + connect; the seat test commands of session (seat_guest: new_campaign, three host soldiers and
+the client's guest seated in the host's Skyranger); geo_set_speed idx 0 both; drain_host_coop_notice; the window
+mapping per machine (real INTERCEPT + CANCEL). The client builds a lift-only ClientBase2 at BASE2_POS (build_new_base +
+real GEOSCAPE); CB2_ID and CB_ID (the client's first base) in mir(host); MARK; the host's spawn_mission_site at
+SITE_POS; the client dismantles ClientBase2 (real BASES, key 2 if needed, the BaseView lift cell,
+DismantleFacilityState OK) + real GEOSCAPE; 2 s; the host's craft_force (its seated Skyranger, STR_OUT, at SITE_POS -
+FLY_OFFSET, to the site) and geo_set_speed idx 2; TOPS = the host's stack every 0.1 s until ConfirmLandingState
+(W_LAND), no host screen in between; set_seed SEED; the host's real YES; drive_both_to_tactical; END = battle_action
+abort, the real AbortMissionState OK, the client's real VoteMenu YES; both DebriefingState; the first machine's real
+OKs to its globe, OK_GAP_S, the other's. CALM = both GeoscapeState calm 1 s; AFTER_CYCLE = the host's CYCLE
+(INTERCEPT, CANCEL) + RT_SETTLE; CLICK (only if CB2_ID in mir(host) at AFTER_CYCLE): a real globe click on its marker,
+watch W_OPEN, then (if a view opened) the host's real GEOSCAPE.
+  Rows host_ok_first / client_ok_first (X = the row)
+          X-pre (GUARD) seat ok; ClientBase2 in mir(host); the client's OK reached and ClientBase2 gone from its own;
+          TOPS [GeoscapeState] only until ConfirmLandingState; both on the battlescape; both DebriefingState; both
+          GeoscapeState at CALM.  X-calm (FIX) no CB2_ID in mir(host) at CALM.  X-after_cycle (FIX) none at
+          AFTER_CYCLE.  X-open (FIX) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.  X-cache (FIX)
+          the host's LINE(CB2_ID) since MARK: exactly 1, containing "cache=1".  X-first_base_kept (GUARD) CB_ID in
+          mir(host) at CALM and AFTER_CYCLE (the partner's live base kept).
+  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start (both boots); every process
+          alive until its shutdown.
+Without the fix: the -calm, -after_cycle, -open and -cache cells of both rows FAIL (8 of 13); every other cell PASS.
+With the fix: all 13 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census
+rows [coopBaseId, name, coopIcon, coopBase, lon, lat]. LINE(id) = engine-log lines holding "[coop] removed base:
+id=<id> cache=". Every press is a real click_widget or inject_input except the logged test commands build_new_base,
+geo_set_speed, the seat commands, drain_host_coop_notice, spawn_mission_site, craft_force, set_seed, battle_action
+abort and drive_both_to_tactical's briefing / equip commands. One EVIDENCE line per row, one PASS / FAIL line per cell,
+then the row verdict; a boot or precondition miss ends its row (ONE CAPTURE line, later cells "not reached") and the
+file goes on to the next boot. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_cache.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -38,9 +41,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
-KEY = "49557"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 0014f9bf1)
-B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # ClientBase2: on land
-SITE_D = (0.25, 0.10)                       # SITE_POS = HB + SITE_D (CONSTANTS.md SWAP S1: HB + (0.35, 0.10) is not land)
+KEY = "49557"                               # lobby key (unused by every other test file)
+BASE2_POS = (LAND_LON + 0.03, LAND_LAT + 0.03)     # ClientBase2: on land
+SITE_D = (0.25, 0.10)                       # SITE_POS = the host's first base + SITE_D (+ (0.35, 0.10) is not land)
 FLY_OFFSET = 0.02                           # rad west of the site: ConfirmLandingState in 5.3-6.2 s
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_2, ZOOM_MIN, SYM_PLUS, SEED = 50, 3, 43, 7
@@ -48,9 +51,14 @@ OK_GAP_S, RT_SETTLE = 4.0, 3.0
 W_OPEN, W_LAND, W_BATTLE, W_DEBRIEF, BOOT_S = 20.0, 60.0, 120.0, 120.0, 60.0
 NEEDLE = "[coop] removed base: id=%s cache="
 LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "[coop-session]", "coop-ui] push", "coop-ui] pop")
-ROWS = (("HA", ("HA-pre", "HA-a0", "HA-rt", "HA-open", "HA-cache", "HA-cb")),
-        ("HB", ("HB-pre", "HB-a0", "HB-rt", "HB-open", "HB-cache", "HB-cb")), ("END", ("CRASH",)))
-FIX = ("HA-a0", "HA-rt", "HA-open", "HA-cache", "HB-a0", "HB-rt", "HB-open", "HB-cache")
+ROWS = (("host_ok_first",
+         ("host_ok_first-pre", "host_ok_first-calm", "host_ok_first-after_cycle", "host_ok_first-open",
+          "host_ok_first-cache", "host_ok_first-first_base_kept")),
+        ("client_ok_first",
+         ("client_ok_first-pre", "client_ok_first-calm", "client_ok_first-after_cycle", "client_ok_first-open",
+          "client_ok_first-cache", "client_ok_first-first_base_kept")), ("END", ("CRASH",)))
+FIX = ("host_ok_first-calm", "host_ok_first-after_cycle", "host_ok_first-open", "host_ok_first-cache",
+       "client_ok_first-calm", "client_ok_first-after_cycle", "client_ok_first-open", "client_ok_first-cache")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -59,7 +67,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes and real input (copied from the capture docs rewrite/lbh3-cap/cap.py, never imported) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -202,8 +210,8 @@ def cycle(gc):
     must_click(gc, "CANCEL", 10)
     wait_top(gc, "GeoscapeState", 10)
 def build_base2(gc, name, pos):
-    """the harness base-build lever (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState -> PlaceLiftState, real states), then a
-    real GEOSCAPE from the new base's BasescapeState"""
+    """the harness base-build test command (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState ->
+    PlaceLiftState, real states), then a real GEOSCAPE from the new base's BasescapeState"""
     r = q(gc, {"cmd": "build_new_base", "lon": pos[0], "lat": pos[1], "name": name})
     if not r.get("ok"):
         raise Stop("build_new_base %s -> %s" % (name, r))
@@ -247,8 +255,8 @@ def capture(b):
 # ----- the boots and the rows -----
 class Boot:
     def __init__(self, tag):
-        self.host = GameClient("host", None, make_user_dir("w2h83_%s_host" % tag))
-        self.client = GameClient("client", None, make_user_dir("w2h83_%s_client" % tag))
+        self.host = GameClient("host", None, make_user_dir("removed_base_cache_%s_host" % tag))
+        self.client = GameClient("client", None, make_user_dir("removed_base_cache_%s_client" % tag))
         self.sc = {}
 class Row:
     def __init__(self, x, b, rid):
@@ -275,7 +283,8 @@ class Row:
         print(("PASS %s" % self.rid) if not fails else ("FAIL %s: %s" % (self.rid, " ".join(fails))), flush=True)
         self.x.fails += fails
 def seat_guest(h, c, key):
-    """the seat levers (CAP seat_guest): a SEPARATE campaign; three host soldiers and the client's guest seated in the host's Skyranger"""
+    """the seat test commands: a SEPARATE campaign; three host soldiers and the client's guest seated in the host's
+    Skyranger"""
     session.new_campaign(h, c, port=key)
     hb = session._campaign_own_roster_base(h)
     cid = session._campaign_skyranger(h)["id"]
@@ -326,9 +335,9 @@ def ok_popups(gc, timeout):
             calm = None
         time.sleep(0.2)
     return clicks
-def row_h(x, b, r, first):
+def run_row(x, b, r, first):
     """X: the boot, the seat, ClientBase2 built and dismantled by the client, the host's battle (no host screen before
-    ConfirmLandingState), END with the `first` machine's OK first, A0 / A1h / CLICK on the host"""
+    ConfirmLandingState), END with the `first` machine's OK first, CALM / AFTER_CYCLE / CLICK on the host"""
     h, c, ev, rid = b.host, b.client, r.ev, r.rid
     for gc in (h, c):
         gc.spawn()
@@ -342,21 +351,22 @@ def row_h(x, b, r, first):
     b.sc = {"host": scale(h), "client": scale(c)}
     r.n0 = [len(logl(h)), len(logl(c))]
     r.need(top(h) == "GeoscapeState" and top(c) == "GeoscapeState", "after the seat: %s / %s (want both GeoscapeState)" % (stk(h), stk(c)))
-    ev["build"] = build_base2(c, "ClientBase2", B2)
+    ev["build"] = build_base2(c, "ClientBase2", BASE2_POS)
     ev["otherHasS"] = other_has(h, "ClientBase2")
     time.sleep(2.0)
     p = both(b)
     cown = [o for o in own(p["client"]) if o[1] != "ClientBase2"]
     cb2 = [m for m in mir(p["host"]) if m[1] == "ClientBase2"]
     cb = [m for m in mir(p["host"]) if cown and m[0] == cown[0][0]]
-    ev["H1"] = {"hostMir": mir(p["host"]), "clientOwn": own(p["client"])}
-    r.need(len(cb2) == 1 and len(cb) == 1, "H1: mir(host) %s, the client's own %s (want ClientBase2 and the client's first base)" % (
-        mir(p["host"]), own(p["client"])))
+    ev["afterBuild"] = {"hostMir": mir(p["host"]), "clientOwn": own(p["client"])}
+    r.need(len(cb2) == 1 and len(cb) == 1,
+           "afterBuild: mir(host) %s, the client's own %s (want ClientBase2 and the client's first base)" % (
+               mir(p["host"]), own(p["client"])))
     ids = ev["ids"] = {"CB2_ID": cb2[0][0], "CB_ID": cb[0][0]}
     b0 = session._campaign_base0(h)
     site_pos = (b0["lon"] + SITE_D[0], b0["lat"] + SITE_D[1])
-    mark = [len(logl(h)), len(logl(c))]  # H-mark
-    tops = [[now(), "H-mark", stk(h)]]
+    mark = [len(logl(h)), len(logl(c))]  # MARK
+    tops = [[now(), "MARK", stk(h)]]
     site = h.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "lon": site_pos[0],
                  "lat": site_pos[1], "race": "STR_SECTOID", "hours": 240})
     h.wait_for("site on host", lambda: any(s["id"] == site["site_id"] for s in h.ok({"cmd": "geo_state"})["missionSites"]) or None, timeout=30)
@@ -369,8 +379,9 @@ def row_h(x, b, r, first):
     time.sleep(2.0)
     p = both(b)
     tops.append([now(), "+2 s", stk(h)])
-    ev["H3"] = {"hostMir": mir(p["host"]), "clientOwn": own(p["client"])}
-    r.need("ClientBase2" not in own_names(p["client"]), "H3: ClientBase2 still in the client's own %s" % own(p["client"]))
+    ev["afterDismantle"] = {"hostMir": mir(p["host"]), "clientOwn": own(p["client"])}
+    r.need("ClientBase2" not in own_names(p["client"]),
+           "afterDismantle: ClientBase2 still in the client's own %s" % own(p["client"]))
     ev["force"] = h.ok({"cmd": "craft_force", "craft_id": ev["seat"]["craft"], "status": "STR_OUT", "lon": site_pos[0] - FLY_OFFSET,
                         "lat": site_pos[1], "dest": "site:%s" % site["site_id"], "fuel": 999999, "lowFuel": False})
     q(h, {"cmd": "geo_set_speed", "idx": 2})
@@ -419,14 +430,16 @@ def row_h(x, b, r, first):
     if v:
         time.sleep(1.0)
     a0 = both(b)
-    ev["A0"] = {"host": a0["host"]["bases"], "client": a0["client"]["bases"], "stacks": [a0["host"]["stack"], a0["client"]["stack"]]}
-    r.need(a0["host"]["stack"] == ["GeoscapeState"] and a0["client"]["stack"] == ["GeoscapeState"], "A0: not both GeoscapeState calm 1 s")
+    ev["CALM"] = {"host": a0["host"]["bases"], "client": a0["client"]["bases"],
+                  "stacks": [a0["host"]["stack"], a0["client"]["stack"]]}
+    r.need(a0["host"]["stack"] == ["GeoscapeState"] and a0["client"]["stack"] == ["GeoscapeState"],
+           "CALM: not both GeoscapeState calm 1 s")
     r.cell(rid + "-pre", True, "seat %s; ClientBase2 %s mirrored and dismantled; TOPS %s; both battlescape, DebriefingState, GeoscapeState" % (
         ev["seat"], ids["CB2_ID"], [t[-1][-1] for t in tops]))
     cycle(h)
     ev["rtSettle"] = settle(h, RT_SETTLE)
     a1 = census(h)
-    ev["A1h"] = a1["bases"]
+    ev["AFTER_CYCLE"] = a1["bases"]
     ev["click"] = None
     if ids["CB2_ID"] in mir_ids(a1):
         gh = [m for m in mir(a1) if m[0] == ids["CB2_ID"]][0]
@@ -440,26 +453,30 @@ def row_h(x, b, r, first):
             ev["click"]["back"] = wait(lambda: top(h) == "GeoscapeState", 30, 0.25)
     ln = ev["lines"] = {"host": hits(h, NEEDLE % ids["CB2_ID"], mark[0]), "client": hits(c, NEEDLE % ids["CB2_ID"], mark[1])}
     m0, m1 = mir_ids(a0["host"]), mir_ids(a1)
-    r.cell(rid + "-a0", ids["CB2_ID"] not in m0, "mir(host) at A0 %s; CB2_ID %s (want absent)" % (m0, ids["CB2_ID"]))
-    r.cell(rid + "-rt", ids["CB2_ID"] not in m1, "mir(host) at A1h %s; CB2_ID %s (want absent)" % (m1, ids["CB2_ID"]))
+    r.cell(rid + "-calm", ids["CB2_ID"] not in m0,
+           "mir(host) at CALM %s; CB2_ID %s (want absent)" % (m0, ids["CB2_ID"]))
+    r.cell(rid + "-after_cycle", ids["CB2_ID"] not in m1,
+           "mir(host) at AFTER_CYCLE %s; CB2_ID %s (want absent)" % (m1, ids["CB2_ID"]))
     ck = ev["click"]
-    r.cell(rid + "-open", ck is None or not ck["opened"], "no CLICK (no ghost at A1h)" if ck is None else
+    r.cell(rid + "-open", ck is None or not ck["opened"], "no CLICK (no ghost at AFTER_CYCLE)" if ck is None else
            "CLICK opened %s: selectedBase %r, view %s" % (ck["opened"], ck["selected"], ck["viewBases"]))
     r.cell(rid + "-cache", len(ln["host"]) == 1 and "cache=1" in ln["host"][0][1],
-           "the host's LINE(%s) since H-mark: %d %s (want exactly 1 with cache=1)" % (ids["CB2_ID"], len(ln["host"]), ln["host"]))
-    r.cell(rid + "-cb", ids["CB_ID"] in m0 and ids["CB_ID"] in m1, "mir(host) at A0 %s, at A1h %s; CB_ID %s (want in both)" % (m0, m1, ids["CB_ID"]))
+           "the host's LINE(%s) since MARK: %d %s (want exactly 1 with cache=1)"
+           % (ids["CB2_ID"], len(ln["host"]), ln["host"]))
+    r.cell(rid + "-first_base_kept", ids["CB_ID"] in m0 and ids["CB_ID"] in m1,
+           "mir(host) at CALM %s, at AFTER_CYCLE %s; CB_ID %s (want in both)" % (m0, m1, ids["CB_ID"]))
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
 def main():
     x, crash0 = X(), crashes()
     T0[0] = time.time()
-    for tag, rid, first in (("ca", "HA", "host"), ("cb", "HB", "client")):
+    for tag, rid, first in (("host_first", "host_ok_first", "host"), ("client_first", "client_ok_first", "client")):
         b = None
         try:
             b = Boot(tag)
             r = Row(x, b, rid)
             try:
-                row_h(x, b, r, first)
+                run_row(x, b, r, first)
                 r.finish()
             except Stop as e:
                 r.finish(str(e))
@@ -480,8 +497,8 @@ def main():
            "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
     r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H83 S-A RBC: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                              sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_removed_base_cache: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
