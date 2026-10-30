@@ -1,73 +1,61 @@
-"""R5-P2 (rewrite spike) + W1-P6 (wave 1, WAVE1-RUNBOOK.md ruling D6 = WV-D12,
-NON-NEGOTIABLE rule WV-D40 / WR-2): the SELECTION-PARITY and
-NO-LOCAL-EXECUTION probe.
+"""Selection parity and no local execution on a co-op client.
 
 Two halves, both driven through real UI input on a real 2-player classic coop
-skirmish (the harness lobby flow test_handshake.py (R4-P1) and
-test_faction_setup.py (R5-P1) already proved out):
+skirmish (the harness lobby flow test_handshake.py and test_faction_setup.py
+use):
 
-  A. D6 SELECTION PARITY - "a seat cannot select what it doesn't command, and
-     it CAN select what it does", on every path that writes _selectedUnit:
+  A. SELECTION PARITY - "a seat cannot select what it doesn't command, and it
+     CAN select what it does", on every path that writes _selectedUnit:
      battle-ENTRY auto-select, click-to-select, the TAB cycle, the middle-click
      NEXT-STOP by-distance variant, and the right-click NEXT-STOP undo.
-  B. WV-D40 / WR-2 - a co-op CLIENT ground-click mints NOTHING. This is a G1
-     UPDATED BY W1-P9 (SS2.W2 / WV-D30). The walk arm now has a WIRE VERB, so a
-     client ground click on a unit it commands is FORWARDED as a `bt_intent walk`
-     instead of being refused. WV-D40 is unchanged and still asserted - the client
-     mints nothing locally and never reaches `statePushBack(new UnitWalkBState)` -
-     but the DELIVERY PROOF moved from the refusal counter to
-     `event_state.coopWalkArmEntered`; see assert_ground_click_mints_nothing().
+  B. NO LOCAL EXECUTION - a co-op CLIENT ground click mints NOTHING locally.
+     The walk arm has a wire message, so a client ground click on a unit it
+     commands is FORWARDED as a `bt_intent walk` instead of being refused. The
+     client still mints nothing locally and never reaches
+     `statePushBack(new UnitWalkBState)`; the DELIVERY PROOF is
+     `event_state.coopWalkArmEntered`, see assert_ground_click_mints_nothing().
 
-     STOP-LINE criterion (W1-G1 4b): W1-P6 moved primaryAction's entry guard
-     onto its commanding arms so the select branch could run, and the walk arm
-     is `else if (playableUnitSelected())`, which is TRUE on a client during the
-     player side. If the move were done wholesale a client click would push a
-     local UnitWalkBState - a state mint and a guaranteed desync - for the three
-     packets between here and W1-P9's intent intercept.
+     Why this half exists: primaryAction's guard sits on its commanding arms,
+     not at its entry, so the select branch can run, and the walk arm is
+     `else if (playableUnitSelected())`, which is TRUE on a client during the
+     player side. Without the guard on the walk arm a client click would push a
+     local UnitWalkBState - a state mint and a guaranteed desync.
 
-HOW EACH HALF IS KEPT NON-VACUOUS (WR-27 discipline, and the orchestrator's
-explicit instruction for this packet):
+HOW EACH HALF IS KEPT FROM PASSING VACUOUSLY:
 
-  * The fixture stamps TWO soldiers to seat 1 (R3-P1's newbattle_seat_soldier
-    lever, WV-D18), so the client really owns units - and owns MORE THAN ONE,
-    which is what makes "click-select a DIFFERENT own unit" a real transition
-    rather than a no-op. Both ownership sets are asserted non-empty and
-    disjoint before anything is claimed.
-  * The ground-click assertions are all ABSENCES (no BState, no TU change,
-    buckets EQUAL), and an absence is equally consistent with a click that
-    never reached BattlescapeGame::primaryAction at all. So W1-P6 added
-    `event_state.coopLocalExecBlocked` - a counter bumped by
-    coopBlockLocalExecution() at the exact moment a commanding arm is refused.
-    Every ground-click case asserts the counter MOVED: the click was
-    DELIVERED to primaryAction, and then had no effect.
+  * The fixture stamps TWO soldiers to seat 1 (the newbattle_seat_soldier test
+    command), so the client really owns units - and owns MORE THAN ONE, which
+    is what makes "click-select a DIFFERENT own unit" a real transition rather
+    than a no-op. Both ownership sets are asserted non-empty and disjoint
+    before anything is claimed.
+  * The ground-click assertions are ABSENCES (no BState, no TU change without
+    an intent, buckets EQUAL), and an absence is equally consistent with a
+    click that never reached BattlescapeGame::primaryAction at all. So every
+    ground-click case asserts `event_state.coopWalkArmEntered` MOVED: the click
+    was DELIVERED to primaryAction's walk arm. The click-select cases assert
+    that neither it nor `event_state.coopLocalExecBlocked` (bumped by
+    coopBlockLocalExecution() at the exact moment a commanding arm is refused)
+    moved.
   * A second, independent delivery proof: the SAME injected-click mechanism, in
     the same run, on the same machine, DOES select a unit (own soldier) and DOES
     raise the ownership banner (host soldier). A recipe that could not reach
     primaryAction could do neither.
-  * PHASE Z is the SENSITIVITY control: the HOST performs the identical ground
-    click on its own soldier and really walks, and the HOST's OWN buckets then
-    MOVE. That is what proves the client half's "all buckets EQUAL" was not true
-    by construction. (Before W1-P9 it was a DIVERGENCE control - the client's
-    copy could not follow a host-local walk because walk was not on the wire.
-    W1-P9 put it there and made step events ORIGIN-INDEPENDENT, WV-D37, so the
-    control now measures the host's own before/after hash and additionally
-    asserts the client tracked the walk exactly.)
+  * walk_sensitivity is the SENSITIVITY control: the HOST performs the
+    identical ground click on its own soldier and really walks, and the HOST's
+    OWN buckets then MOVE. That is what proves the client half's "all buckets
+    EQUAL" was not true by construction. A host walk streams its step events
+    like any other walk, so the control also asserts the client tracked the
+    walk exactly.
   * The SPECTATOR path gets its own scenario with NO seat stamp at all, which
     is the shape a plain "NEW BATTLE > COOP" skirmish really produces (it never
     calls Soldier::setCoop(), so the joining client owns ZERO battle units).
     Without that scenario STR_COOP_SPECTATOR_MODE would be a string nobody can
     reach.
 
-W1-P6 RE-INSTATES AN ASSERTION W1-P1 HAD TO RELAX. W1-P1 turned the host's
-INITIAL-selection assertion into a recorded value, because the initial
-selection is minted at battle-generation time before any seat tag exists and
-could legitimately BE the seat-1 soldier (observed: both machines started on
-unit 8). W1-P6 adds the entry auto-select, so the initial selection is
-meaningful again and is asserted properly on BOTH machines.
-
-PRE-W1-P9 NOTE (still true): the client INTENT path for a walk does not exist
-yet, which is exactly why half B asserts "nothing happened" rather than "an
-intent was sent".
+THE INITIAL SELECTION is asserted on BOTH machines. It is minted at
+battle-generation time before any seat tag exists, so it can be the seat-1
+soldier (observed: both machines started on unit 8); the entry auto-select then
+moves each machine onto a unit it commands.
 
 Run:  python tools/coop_test/test_input_gating.py
 """
@@ -91,7 +79,8 @@ SDLK_TAB = 9         # Options::keyBattleNextUnit default
 SDLK_BACKSLASH = 92  # Options::keyBattleDeselectUnit default (Options.cpp:328)
 SDLK_HOME = 278      # Options::keyBattleCenterUnit default
 
-# SS2.6 exact text (asserted, never "non-empty" - WV-D17's stale-language trap)
+# exact text (asserted, never just "non-empty": a stale deployed language copy
+# shows the raw STR_ key instead)
 TXT_NOT_YOUR_UNIT = "Not one of your soldiers"
 TXT_SPECTATOR = "You command no soldiers - spectator mode"
 
@@ -180,10 +169,10 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
-# IR2-1). It is load-bearing for THIS file in particular: until the overlays are
-# gone an injected TAB/click never reaches BattlescapeState's own handlers and
-# the selection paths this test exists to check would silently do nothing.
+# dismiss_battle_start_overlays() lives in session.py. THIS file depends on it in
+# particular: until the overlays are gone an injected TAB/click never reaches
+# BattlescapeState's own handlers and the selection paths this test exists to
+# check would silently do nothing.
 
 
 def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
@@ -191,8 +180,9 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     """Steps 5-7: BATTLE SETTINGS -> OK -> both machines in BattlescapeState.
 
     @a seat_count soldiers are stamped to COOP_SEAT_1 BEFORE generation
-    (R3-P1's lever, the repro_atom_kneel.py `index` form). TWO is the default
-    because W1-P6 needs the client to own MORE THAN ONE unit: with a single
+    (the newbattle_seat_soldier test command in the `index` form
+    repro_atom_kneel.py uses). TWO is the default because this test needs the
+    client to own MORE THAN ONE unit: with a single
     owned unit, "click-select one of your own soldiers" degenerates into
     clicking the one that is already selected, which primaryAction's select
     branch skips (`unit != _save->getSelectedUnit()`).
@@ -217,8 +207,8 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     host.ok({"cmd": "newbattle_ok"})
 
     # the shared battle-entry spine - both briefings (the offer goes
-    # out at PREPARE, D210 b), the pre-battle equip screens (D174 a / D206 c; a
-    # seat_count=0 spectator client has none), both Turn-1 screens (Q7 a).
+    # out at PREPARE), the pre-battle equip screens (a seat_count=0 spectator
+    # client has none), both Turn-1 screens.
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
@@ -236,12 +226,12 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     assert client_active_lines, "client log missing 'CLIENT phase Active' line"
 
     # (the spine above already cleared both machines' battle-start overlays and
-    # the client's W1-P3 entry briefing, W2-P8b S-H)
+    # the client's entry briefing)
     assert top_state(host) == "BattlescapeState", \
         f"host should be sitting ON BattlescapeState, stack={states(host)}"
 
-    # W1-P6's entry auto-select runs on the RB-D5 pump point, i.e. on the first
-    # updateCoopTask tick that finds an Active coop battle with a live
+    # The entry auto-select runs on the first updateCoopTask tick that finds an
+    # Active coop battle with a live
     # BattlescapeState. On the HOST that is strictly after
     # BriefingState::btnOkClick's startFirstTurn() (which writes the selection
     # itself), so give both machines a tick before reading selectedId.
@@ -314,7 +304,7 @@ def center_on_selection(gc):
 
 
 def tile_click(gc, tx, ty, tz, button="left"):
-    """Centre on the selected unit, ask W1-P6's `map_tile_click_pos` probe for a
+    """Centre on the selected unit, ask the `map_tile_click_pos` probe for a
     VERIFIED window pixel for (tx,ty,tz), and push a real SDL click there.
 
     Why not repro_atom_turn.py's `map_tile_screen_pos` + raw click: three real
@@ -344,22 +334,21 @@ def tile_click_until(gc, tx, ty, tz, ok_fn, what, button="left", tries=5, settle
     probe cannot remove. Each attempt is independently verified by the probe,
     and the loop stops the moment @a ok_fn observes the intended effect.
 
-    TWO effects, not one (WV-D5 fixture-pinning sweep, 2026-09-03):
-      * "the battlescape camera can shift between the probe's round-trip check
+    TWO effects, not one:
+      * the battlescape camera can shift between the probe's round-trip check
         and the injected click arriving, so a click occasionally lands one tile
-        off" (W1-P6's original note) - a re-CLICK fixes that, because the shift
-        is transient; and
+        off - a re-CLICK fixes that, because the shift is transient; and
       * a particular target tile can be systematically unproductive on a given
         map roll - it verifies every time and still never reaches the arm under
         test. Re-clicking THE SAME TILE five times then fails five times
-        identically, which is exactly how this helper failed W1-G1 run 2
-        ("5 verified clicks on tile (40,9,1) never produced the expected
-        effect", every pre-gate healthy). A re-AIM is what fixes that.
+        identically, as this helper once did ("5 verified clicks on tile
+        (40,9,1) never produced the expected effect", every pre-gate healthy).
+        A re-AIM is what fixes that.
 
     @a alt_tiles are further (x, y, z) candidates; attempts rotate through
-    [(tx,ty,tz)] + alt_tiles. Callers that pass none keep the previous
-    behaviour exactly. NOTHING about what the caller asserts changes - a
-    re-aimed click still has to produce the same observed effect."""
+    [(tx,ty,tz)] + alt_tiles. A caller that passes none re-clicks its one
+    tile. NOTHING about what the caller asserts changes - a re-aimed click
+    still has to produce the same observed effect."""
     targets = [(tx, ty, tz)] + [tuple(a) for a in alt_tiles]
     last = None
     for attempt in range(1, tries + 1):
@@ -407,26 +396,23 @@ def select_via_tab(gc, want_ids, tries=10):
 
 def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
                                       alt_tiles=()):
-    """W1-G1 criterion 4b / WV-D40 / WR-2. A client ground-click must mint
-    NOTHING LOCALLY - and the click must be PROVEN to have arrived.
+    """A client ground-click must mint NOTHING LOCALLY - and the click must be
+    PROVEN to have arrived.
 
-    REWRITTEN BY W1-P9 (SS2.W2 / WV-D30), which is the packet W1-P6's own code
-    comment at that call site pointed at: "a client ground-click must mint
-    NOTHING until W1-P9 turns it into a walk INTENT". It now does exactly that,
-    so what this function can assert - and what it uses as its delivery proof -
-    both change. WV-D40 is NOT relaxed: an intent is not a mint, the client still
-    never reaches `statePushBack(new UnitWalkBState(...))`, and every "nothing was
-    minted" observable below is retained.
+    A ground click on a unit the client commands becomes a walk INTENT. An
+    intent is not a mint: the client never reaches
+    `statePushBack(new UnitWalkBState(...))`, and every "nothing was minted"
+    observable below holds.
 
-    THE DELIVERY PROOF MOVES from `coopLocalExecBlocked` (the refusal counter) to
-    `coopWalkArmEntered`. It has to: after W1-P9 a click on a unit the client DOES
-    command is FORWARDED, not refused, so the refusal counter no longer moves for
-    it - and a click whose pathfinder finds no route reaches the arm and
-    legitimately does nothing at all. Counting arm ENTRY covers all three cases
-    and is strictly the better proof, because it says the click reached the arm
-    whatever the arm then decided.
+    THE DELIVERY PROOF is `coopWalkArmEntered`, not `coopLocalExecBlocked` (the
+    refusal counter): a click on a unit the client DOES command is FORWARDED,
+    not refused, so the refusal counter does not move for it - and a click
+    whose pathfinder finds no route reaches the arm and legitimately does
+    nothing at all. Counting arm ENTRY covers refused, forwarded and no-route
+    clicks alike, because it says the click reached the arm whatever the arm
+    then decided.
 
-    WHAT IS ASSERTED NOW:
+    WHAT IS ASSERTED:
       * DELIVERY - `coopWalkArmEntered` moved (the click reached the walk arm);
       * NO LOCAL BSTATE - the client's `isBusy` never goes true, sampled hard.
         A locally-minted UnitWalkBState is visible in BattlescapeGame::_states
@@ -440,8 +426,8 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
     ev0 = event_state(client)
     arm0 = ev0.get("coopWalkArmEntered")
     assert isinstance(arm0, int), (
-        "event_state carries no coopWalkArmEntered counter - this build predates "
-        "W1-P9, and without it the assertions below are only absences")
+        "event_state carries no coopWalkArmEntered counter - without it the "
+        "assertions below are only absences")
     sent0 = ev0.get("coopWalkIntentsSent")
     cb0 = battle_state(client)
     hb0 = battle_state(host)
@@ -464,7 +450,7 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
 
     # Two full passes over the rotation, so a target still gets the re-CLICK
     # benefit for the transient camera shift as well as the re-AIM benefit for
-    # an unproductive tile. Unchanged (5) for a caller with no alternates.
+    # an unproductive tile. Five tries for a caller with no alternates.
     pr = tile_click_until(client, tx, ty, tz, arm_entered,
                           f"client ground click [{label}]", settle=0.35,
                           tries=max(5, 2 * (1 + len(alt_tiles))),
@@ -505,16 +491,15 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
     assert cb1.get("isBusy") is False, f"[{label}] client left busy after a ground click"
     assert cb1.get("coopPendingIntent") in (None, {}), \
         f"[{label}] the client is holding a pending intent: {cb1.get('coopPendingIntent')}"
-    # Retained from the pre-W1-P9 version: whatever the click became, the client
-    # must have DRAINED it. (Its two siblings there - "the client emitted
-    # nothing" and "no deny arrived" - are the two assertions W1-P9 makes false
-    # BY DESIGN: a click on a commanded unit now ships an intent, and the host
-    # may legitimately answer it. What replaces them is stronger, not weaker -
-    # the two machines must AGREE about whatever happened, asserted below.)
+    # Whatever the click became, the client must have DRAINED it. "The client
+    # emitted nothing" and "no deny arrived" are NOT asserted: a click on a
+    # commanded unit ships an intent, and the host may legitimately answer it.
+    # The stronger check is that the two machines AGREE about whatever
+    # happened, asserted below.
     assert ev1.get("queueDepth") == 0, f"[{label}] client apply queue not drained: {ev1}"
 
     if became_intent:
-        # W1-P9's path: the click became an ORDER. The unit may legitimately have
+        # The click became an ORDER. The unit may legitimately have
         # moved - on BOTH machines, identically, because the HOST executed it.
         for field in ("x", "y", "z", "tu", "energy"):
             assert c_after[field] == h_after[field], (
@@ -545,8 +530,8 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
 
 def test_classic_selection_gating():
     port = "47995"
-    host_dir = make_user_dir("rw_input_gating_host")
-    client_dir = make_user_dir("rw_input_gating_client")
+    host_dir = make_user_dir("input_gating_host")
+    client_dir = make_user_dir("input_gating_client")
     host = GameClient("host", 48794, host_dir)
     client = GameClient("client", 48795, client_dir)
     try:
@@ -568,9 +553,9 @@ def test_classic_selection_gating():
         client_own_ids = {uid for uid, u in host_units.items()
                           if u["coop"] not in (COOP_SEAT_0, COOP_SEAT_NONE)}
         assert host_own_ids, "no COOP_SEAT_0 (host-owned) units - fixture has no soldiers"
-        # --- NON-VACUITY GATE (W1-P1's, tightened by W1-P6 to >= 2) ----------
+        # --- NON-VACUITY GATE: the client owns at least two units ------------
         assert len(client_own_ids) >= 2, \
-            f"fixture is VACUOUS for W1-P6: the client owns {len(client_own_ids)} unit(s). " \
+            f"fixture is VACUOUS: the client owns {len(client_own_ids)} unit(s). " \
             f"Click-select needs TWO owned units (primaryAction's select branch skips " \
             f"`unit == _save->getSelectedUnit()`). seat stamp={seated.get('soldierIds')}, " \
             f"units(coop)={sorted((u['id'], u['coop']) for u in host_units.values())}"
@@ -580,33 +565,33 @@ def test_classic_selection_gating():
               f"{sorted(client_own_ids)}, host owns {len(host_own_ids)} "
               f"{sorted(host_own_ids)}")
 
-        # === (1) D6 ENTRY AUTO-SELECT - the assertion W1-P1 had to relax =====
-        # W1-P1 recorded these instead of asserting them, because the initial
-        # selection was minted at battle-generation time before any seat tag
-        # existed (observed: BOTH machines started on unit 8, the seat-1 one).
-        # W1-P6's CoopHandshake::selectOwnUnitAtEntry() is what makes them
-        # assertable, on BOTH machines: the invariant D6 states is seat-relative,
+        # === entry_auto_select: each machine starts on a unit it commands =====
+        # The initial selection is minted at battle-generation time before any
+        # seat tag exists (observed: BOTH machines started on unit 8, the seat-1
+        # one). CoopHandshake::selectOwnUnitAtEntry() is what makes it
+        # assertable, on BOTH machines: the selection rule is seat-relative,
         # and the host is just as capable of starting on a unit it does not
         # command as the client is.
         host_initial_id = host_state.get("selectedId")
         client_initial_id = client_state.get("selectedId")
         assert host_initial_id in host_own_ids, (
             f"host started on unit {host_initial_id}, which is not one of its own "
-            f"{sorted(host_own_ids)} - the D6 entry auto-select did not run on the host")
+            f"{sorted(host_own_ids)} - the entry auto-select did not run on the host")
         assert client_initial_id in client_own_ids, (
             f"client started on unit {client_initial_id}, which is not one of its own "
-            f"{sorted(client_own_ids)} - the D6 entry auto-select did not run on the client")
-        print(f"PASS (1) D6 entry auto-select: host starts on its own unit "
+            f"{sorted(client_own_ids)} - the entry auto-select did not run on the client")
+        print(f"PASS entry_auto_select: host starts on its own unit "
               f"{host_initial_id}, client on its own {client_initial_id}")
 
-        # F108 / S5 AI-ORIGIN PRECONDITION: entry is settled and no walk-capable
-        # input has run yet, so apply the PROVEN symmetric reaction-fire pin once
-        # (repro_atom_spot.pin_reaction_fire). Deferred reaction-fire
-        # coop-wire migration is OUT of this wave-1 selection/walk fixture's scope;
-        # this suppresses no production path and implements no reaction fire.
+        # Entry is settled and no walk-capable input has run yet, so apply the
+        # symmetric reaction-fire pin once (repro_atom_spot.pin_reaction_fire,
+        # proven by a read-back on both machines): an alien reaction shot during
+        # the walks below would move the hash buckets for reasons unrelated to
+        # the gates this test checks. It suppresses no production path and
+        # implements no reaction fire.
         reaction_pin = pin_reaction_fire(host, client)
 
-        # === (2) the TAB cycle (R5-P2's original half, unchanged) ============
+        # === tab_cycle: TAB stays inside each machine's own units =============
         host_seen = cycle_selected_ids(host, len(host_own_ids) + 3)
         bad = [sid for sid in host_seen if sid != -1 and sid not in host_own_ids]
         assert not bad, f"host's selection cycle landed on non-owned unit id(s) {bad} " \
@@ -633,41 +618,40 @@ def test_classic_selection_gating():
         assert all(sid in client_own_ids or sid == -1 for sid in client_seen), \
             f"client's selection cycle produced an id outside its own set " \
             f"{sorted(client_own_ids)} + {{-1}}: {client_seen}"
-        print(f"PASS (2) TAB cycle: host {host_seen} stayed inside {sorted(host_own_ids)}, "
+        print(f"PASS tab_cycle: host {host_seen} stayed inside {sorted(host_own_ids)}, "
               f"client {client_seen} inside {sorted(client_own_ids)}")
 
-        # === (3) CLICK-SELECT: an OWN soldier, on the CLIENT =================
-        # THE regression D6 names: "Move the primaryAction guard INTO the select
-        # branch (restore click-to-select for OWN units - currently dead)".
-        # Before W1-P6 the entry guard returned before this branch could run, so
-        # a client's left-click on its own soldier did nothing at all.
+        # === click_select_own: an OWN soldier, on the CLIENT =================
+        # primaryAction's guard sits on its commanding arms, not at its entry: a
+        # guard at the entry would return before the select branch could run,
+        # so a client's left-click on its own soldier would do nothing at all.
         sel = select_via_tab(client, client_own_ids)
         others = sorted(client_own_ids - {sel})
         assert others, f"client owns only {sorted(client_own_ids)} - see the non-vacuity gate"
         target_id = others[0]
         t = units_by_id(battle_state(client))[target_id]
-        res3 = tile_click_until(client, t["x"], t["y"], t["z"],
-                                lambda: battle_state(client).get("selectedId") == target_id,
-                                f"client click-select of its OWN soldier {target_id} "
-                                f"(if this never lands, either the entry guard is still "
-                                f"swallowing primaryAction or the click missed the tile)")
+        own_click = tile_click_until(client, t["x"], t["y"], t["z"],
+                                     lambda: battle_state(client).get("selectedId") == target_id,
+                                     f"client click-select of its OWN soldier {target_id} "
+                                     f"(if this never lands, either the entry guard is still "
+                                     f"swallowing primaryAction or the click missed the tile)")
         after_sel = battle_state(client).get("selectedId")
-        assert event_state(client)["coopLocalExecBlocked"] == res3["blockedBeforeThisClick"], (
+        assert event_state(client)["coopLocalExecBlocked"] == own_click["blockedBeforeThisClick"], (
             "click-selecting an OWN unit went through a COMMANDING arm "
             "(coopLocalExecBlocked moved) - the select branch is the only exemption "
-            "WV-D40 allows, and it must not be reached through the walk arm")
-        # W1-P9: ...and the WALK ARM itself was not entered either. Since W1-P9 the
-        # walk arm can FORWARD a click as an intent instead of refusing it, so the
-        # refusal counter alone no longer proves a click stayed out of it.
-        assert event_state(client)["coopWalkArmEntered"] == res3["armBeforeThisClick"], (
+            "from the no-local-execution rule, and it must not be reached through the walk arm")
+        # ...and the WALK ARM itself was not entered either. The walk arm can
+        # FORWARD a click as an intent instead of refusing it, so the refusal
+        # counter alone does not prove a click stayed out of it.
+        assert event_state(client)["coopWalkArmEntered"] == own_click["armBeforeThisClick"], (
             "click-selecting an OWN unit ENTERED the walk arm (coopWalkArmEntered "
             "moved) - the select branch must not fall through into it")
-        print(f"PASS (3) click-select OWN: client selected its own soldier {target_id} "
+        print(f"PASS click_select_own: client selected its own soldier {target_id} "
               f"by left-clicking its tile ({t['x']},{t['y']},{t['z']})")
 
-        # === (4) CLICK-SELECT: a HOST soldier, on the CLIENT -> refused ======
+        # === click_select_peer: a HOST soldier, on the CLIENT -> refused =====
         # The select branch gates only on `unit->getFaction() == _save->getSide()`,
-        # so without W1-P6's seat filter a client could select a HOST soldier.
+        # so without the seat filter a client could select a HOST soldier.
         cu = units_by_id(battle_state(client))[after_sel]
         near_host = sorted(
             (abs(units_by_id(battle_state(client))[h]["x"] - cu["x"])
@@ -678,37 +662,37 @@ def test_classic_selection_gating():
         hid = near_host[0][1]
         hu = units_by_id(battle_state(client))[hid]
         before_sel = battle_state(client).get("selectedId")
-        res4 = tile_click_until(client, hu["x"], hu["y"], hu["z"],
-                                lambda: banner(client) == TXT_NOT_YOUR_UNIT,
-                                f"client click on HOST soldier {hid} must raise the "
-                                f"ownership refusal")
+        peer_click = tile_click_until(client, hu["x"], hu["y"], hu["z"],
+                                      lambda: banner(client) == TXT_NOT_YOUR_UNIT,
+                                      f"client click on HOST soldier {hid} must raise the "
+                                      f"ownership refusal")
         assert battle_state(client).get("selectedId") == before_sel, (
             f"client SELECTED the host's soldier {hid} - "
             f"CoopBattleUi::refuseSelectUnitClick() did not fire")
         assert banner(client) == TXT_NOT_YOUR_UNIT, (
             f"client banner is {banner(client)!r}, expected {TXT_NOT_YOUR_UNIT!r} "
-            f"(SS2.6's not_your_unit row, reused not duplicated). A raw STR_ key here "
-            f"means the deployed bin/x64/Release/common/Language copy is stale, WV-D17.")
-        assert event_state(client)["coopLocalExecBlocked"] == res4["blockedBeforeThisClick"], (
+            f"(the not_your_unit text, reused not duplicated). A raw STR_ key here "
+            f"means the deployed bin/x64/Release/common/Language copy is stale.")
+        assert event_state(client)["coopLocalExecBlocked"] == peer_click["blockedBeforeThisClick"], (
             "a refused click-select went through a COMMANDING arm - the refusal must "
             "come from the select branch's own filter, not from the walk arm")
-        assert event_state(client)["coopWalkArmEntered"] == res4["armBeforeThisClick"], (
-            "a refused click-select ENTERED the walk arm (W1-P9's coopWalkArmEntered "
+        assert event_state(client)["coopWalkArmEntered"] == peer_click["armBeforeThisClick"], (
+            "a refused click-select ENTERED the walk arm (coopWalkArmEntered "
             "moved) - the refusal must come from the select branch's own filter")
-        print(f"PASS (4) click-select PEER: client's click on host soldier {hid} was "
+        print(f"PASS click_select_peer: client's click on host soldier {hid} was "
               f"refused with {TXT_NOT_YOUR_UNIT!r}, selection unchanged ({before_sel})")
 
-        # === (5) WV-D40 / WR-2: a CLIENT ground-click mints NOTHING ==========
-        print("\n--- (5) WV-D40 / WR-2: client ground clicks (G1 criterion 4b) ---")
+        # === client_ground_clicks: a CLIENT ground-click mints NOTHING =======
+        print("\n--- client_ground_clicks: a client ground click mints nothing locally ---")
         actor = select_via_tab(client, client_own_ids)
         center_on_selection(client)
         au = units_by_id(battle_state(client))[actor]
         occupied = {(u["x"], u["y"], u["z"]) for u in battle_state(client)["units"]}
 
-        # (5a) WALKABLE: an EMPTY adjacent tile (an occupied one would go to the
+        # WALKABLE: an EMPTY adjacent tile (an occupied one would go to the
         # select branch instead of the walk arm). Its walkability is PROVEN by
-        # phase Z below, where the host performs the identical click and really
-        # walks.
+        # walk_sensitivity below, where the host performs the identical click
+        # and really walks.
         walk_tile = None
         for d in range(8):
             tx, ty = au["x"] + DIR_DX[d], au["y"] + DIR_DY[d]
@@ -721,7 +705,7 @@ def test_classic_selection_gating():
         assert walk_tile is not None, (
             "no EMPTY, clickable adjacent tile for the client's actor - the "
             "ground-click gate cannot be exercised")
-        # WV-D5 sweep: hand the OTHER clickable adjacent tiles over as re-aim
+        # Hand the OTHER clickable adjacent tiles over as re-aim
         # candidates. Which single tile is productive on a given map roll is a
         # camera/geometry fact; the gate under test is the same for all of them.
         walk_alts = []
@@ -736,7 +720,7 @@ def test_classic_selection_gating():
                                           au["z"], "walkable adjacent tile",
                                           alt_tiles=walk_alts)
 
-        # (5b) NO ROUTE: the actor's OWN tile. selectUnit(pos) returns the
+        # NO ROUTE: the actor's OWN tile. selectUnit(pos) returns the
         # already-selected unit, so the select branch's `unit != selected` test
         # is false and control falls into the WALK arm with a target the
         # pathfinder produces no route for (getStartDirection() == -1). Same
@@ -744,11 +728,11 @@ def test_classic_selection_gating():
         assert_ground_click_mints_nothing(host, client, actor, au["x"], au["y"], au["z"],
                                           "no-route target (own tile)")
 
-        # (5c) DISTANT: a far tile on the same level. Whether the pathfinder can
+        # DISTANT: a far tile on the same level. Whether the pathfinder can
         # reach it or not, nothing may happen on the client.
-        # WV-D5 sweep: collect EVERY verified distant candidate, not just the
-        # first. W1-G1 run 2 died here because the first one happened to be
-        # unproductive on that map roll and all five retries re-clicked it.
+        # Collect EVERY verified distant candidate, not just the first: a run
+        # once failed here because the first one happened to be unproductive
+        # on that map roll and all five retries re-clicked it.
         far = None
         far_alts = []
         for step in (5, 4, 3):
@@ -776,24 +760,25 @@ def test_classic_selection_gating():
         assert_reaction_pin_holds(host, client, reaction_pin,
                                   "after the client ground-click group")
 
-        # === (6) selection storm: every bucket still EQUAL ===================
+        # === selection_storm: every bucket still EQUAL =======================
         # TAB only, deliberately: NEXT-STOP's variants flag units
         # `dontReselect()` (setReselect=true), which permanently shrinks the
         # candidate pool for the rest of the turn - a storm built out of them
-        # would end with -1 selected everywhere and would starve (7) and (8)
-        # below. Those two paths get their own hash check at the end of (8).
+        # would end with -1 selected everywhere and would starve
+        # next_stop_by_distance and next_stop_undo below. Those two paths get
+        # their own hash check at the end of next_stop_undo.
         for _ in range(6):
             cycle_selected_ids(client, 2)
             cycle_selected_ids(host, 2)
         hh, ch = session.assert_hash_clean(host, client, full=True,
                                            what="after a selection storm")
-        print(f"PASS (6) selection storm: ALL {len(hh)} buckets EQUAL "
+        print(f"PASS selection_storm: ALL {len(hh)} buckets EQUAL "
               f"(selectedUnit/undoUnit are saveBlob-hash-excluded, SharedEcon.cpp:3958)")
 
-        # === (7) middle-click NEXT-STOP (by DISTANCE) ========================
-        # SavedBattleGame::selectNextPlayerUnitByDistance built its candidate
-        # list from a BARE isSelectable() before W1-P6 - one of D6's three
-        # unfiltered paths. Driven through the real button, real SDL middle
+        # === next_stop_by_distance: middle-click NEXT-STOP ===================
+        # SavedBattleGame::selectNextPlayerUnitByDistance needs its own seat
+        # filter: a candidate list built from a BARE isSelectable() includes
+        # the peer's units. Driven through the real button, real SDL middle
         # click (BattlescapeState.cpp:518/525), via click_widget because the
         # widget rect is in BASE coordinates while inject_input takes WINDOW
         # pixels.
@@ -829,12 +814,12 @@ def test_classic_selection_gating():
             f"host's by-distance cycle never landed on one of its own units - the "
             f"filter is too restrictive or the middle click never arrived "
             f"(observed={h_dist_seen}). NOTE: this is also the proof that "
-            f"click_widget's new button=\"middle\" really reaches btnNextStopMClick.")
-        print(f"PASS (7) middle-click NEXT-STOP: client {c_dist_seen} inside "
+            f"click_widget's button=\"middle\" really reaches btnNextStopMClick.")
+        print(f"PASS next_stop_by_distance: client {c_dist_seen} inside "
               f"{sorted(client_own_ids)}, host {h_dist_seen} never touched "
               f"{sorted(client_own_ids)}")
 
-        # === (8) right-click NEXT-STOP (UNDO) ===============================
+        # === next_stop_undo: right-click NEXT-STOP ===========================
         # Positive control FIRST, so the negative case below cannot pass just
         # because the button is dead.
         h_now = select_via_tab(host, host_own_ids)
@@ -852,9 +837,9 @@ def test_classic_selection_gating():
         print(f"  positive control: right-click UNDO restored the host's own unit {h_now}")
 
         # Negative: point the host at a CLIENT-owned unit (battle_open_inventory
-        # sets the selection before calling the real handler - W1-P5's own
-        # observation), deselect so THAT becomes _undoUnit, then UNDO. Without
-        # W1-P6's filter btnNextStopRClick would hand the client's soldier back.
+        # sets the selection before calling the real handler), deselect so THAT
+        # becomes _undoUnit, then UNDO. Without the seat filter
+        # btnNextStopRClick would hand the client's soldier back.
         c_unit = sorted(client_own_ids)[0]
         host.cmd({"cmd": "battle_open_inventory", "unit": c_unit})
         time.sleep(0.3)
@@ -877,11 +862,11 @@ def test_classic_selection_gating():
         hh2, ch2 = session.assert_hash_clean(
             host, client, full=True,
             what="after the NEXT-STOP by-distance + UNDO paths")
-        print(f"PASS (8) right-click UNDO: restores an OWN unit, refuses the peer's "
+        print(f"PASS next_stop_undo: restores an OWN unit, refuses the peer's "
               f"{c_unit} (landed on {undone}); ALL {len(hh2)} buckets EQUAL after "
-              f"(7)+(8) too")
+              f"next_stop_by_distance + next_stop_undo too")
 
-        # === (9) REVIEW4 IR-13: client's End Turn key is a local no-op =======
+        # === client_end_turn_noop: client's End Turn key is a local no-op ====
         cb = battle_state(client)
         client_turn_before = cb.get("turn")
         client_side_before = cb.get("side")
@@ -890,36 +875,33 @@ def test_classic_selection_gating():
         client_state_after = battle_state(client)
         assert client_state_after.get("turn") == client_turn_before, \
             f"client's End Turn key changed turn: {client_turn_before} -> " \
-            f"{client_state_after.get('turn')} (IR-13 no-op guard did not hold)"
+            f"{client_state_after.get('turn')} (the client's no-op guard did not hold)"
         assert client_state_after.get("side") == client_side_before, \
             f"client's End Turn key changed side: {client_side_before} -> " \
-            f"{client_state_after.get('side')} (IR-13 no-op guard did not hold)"
+            f"{client_state_after.get('side')} (the client's no-op guard did not hold)"
         assert session.has_state(client, "BattlescapeState"), \
             f"client left BattlescapeState after its End Turn key, stack={states(client)}"
         assert host_state.get("authority", {}).get("hostSim") is True, \
             "host battle_state.authority.hostSim should be true"
         assert client_state.get("authority", {}).get("hostSim") is False, \
             "client battle_state.authority.hostSim should be false"
-        print("PASS (9) IR-13: client's End Turn key was a local no-op")
+        print("PASS client_end_turn_noop: client's End Turn key was a local no-op")
 
         # =====================================================================
-        # PHASE Z - the SENSITIVITY control for (5).
+        # walk_sensitivity - the SENSITIVITY control for client_ground_clicks.
         #
-        # REWRITTEN BY W1-P9. It used to diverge the two machines deliberately:
-        # the host performed the identical ground click, its own unit walked, and
-        # the client's copy could NOT follow because "walk is not on the wire
-        # until W1-P9". W1-P9 put it on the wire (SS2.W2, and WV-D37 makes step
-        # events ORIGIN-INDEPENDENT), so that divergence no longer exists and
-        # asserting it would now be asserting a bug.
+        # The host performs the identical ground click and its own unit walks.
+        # Step events do not depend on which machine ordered the walk, so the
+        # client's copy follows it and the two machines stay EQUAL.
         #
-        # What (5) still needs from this phase is unchanged and is kept: proof
-        # that a walk is something the HASH BUCKETS CAN SEE, so that "the buckets
-        # stayed EQUAL" is a real statement. That is now measured on the HOST's
-        # OWN before/after hash rather than on a host/client difference - and the
-        # two machines staying EQUAL through it is a bonus assertion W1-P9 earns.
+        # What client_ground_clicks needs from this phase is proof that a walk
+        # is something the HASH BUCKETS CAN SEE, so that "the buckets stayed
+        # EQUAL" is a real statement. That is measured on the HOST's OWN
+        # before/after hash - and the two machines staying EQUAL through it is
+        # asserted as well.
         # =====================================================================
-        print("\n--- PHASE Z: the sensitivity control for (5) ------")
-        print("    (5) proved 'the buckets stayed EQUAL and nothing was minted'.")
+        print("\n--- walk_sensitivity: the sensitivity control for client_ground_clicks ------")
+        print("    client_ground_clicks proved 'the buckets stayed EQUAL and nothing was minted'.")
         print("    That is only worth something if a real walk MOVES those buckets,")
         print("    so the host now performs the identical click for real.")
         h_actor = select_via_tab(host, host_own_ids)
@@ -950,7 +932,7 @@ def test_classic_selection_gating():
                 break
         assert moved, (
             "the HOST's identical ground click did not move its own soldier at all - "
-            "so (5)'s 'the client did not move' proves nothing about the gate. Either "
+            "so client_ground_clicks' 'the client did not move' proves nothing about the gate. Either "
             "the injection recipe is broken or every adjacent tile is impassable.")
         # host_unit_acted() fires on the walk's first TU/position
         # change, so the walk can still be running here. Settle before the
@@ -962,23 +944,23 @@ def test_classic_selection_gating():
         assert moved_buckets, (
             "the host really walked but EVERY hash bucket on the HOST stayed the "
             "same as before the walk - the buckets cannot see a walk at all, which "
-            "would make (5), (6) and (8)'s equality assertions worthless")
-        # W1-P9 (SS2.W2 / WV-D37): a HOST-ORIGIN walk streams its own step events,
-        # so the client's copy MUST have followed it and the two machines must
-        # still agree. Before W1-P9 this was the divergence this phase asserted.
+            "would make the equality assertions of client_ground_clicks, selection_storm "
+            "and next_stop_undo worthless")
+        # A HOST-ORIGIN walk streams its own step events, so the client's copy
+        # MUST have followed it and the two machines must still agree.
         c_view = units_by_id(battle_state(client))[h_actor]
         assert (c_view["x"], c_view["y"], c_view["z"], c_view["tu"]) == \
                (h_final["x"], h_final["y"], h_final["z"], h_final["tu"]), (
             f"the client's view of unit {h_actor} is "
             f"{(c_view['x'], c_view['y'], c_view['z'], c_view['tu'])} but the host "
             f"has it at {(h_final['x'], h_final['y'], h_final['z'], h_final['tu'])} - "
-            "a HOST-ORIGIN walk emits step events like any other (WV-D37) and the "
+            "a HOST-ORIGIN walk emits step events like any other and the "
             "client must apply them")
         session.assert_hash_clean(host, client, full=True,
-                                  what="after PHASE Z's host-origin walk")
+                                  what="after walk_sensitivity's host-origin walk")
         assert_reaction_pin_holds(host, client, reaction_pin,
-                                  "after PHASE Z's host-origin walk")
-        print(f"PASS PHASE Z sensitivity control: the host's identical click walked "
+                                  "after walk_sensitivity's host-origin walk")
+        print(f"PASS walk_sensitivity: the host's identical click walked "
               f"unit {h_actor} {(before['x'], before['y'], before['z'])} -> "
               f"{(h_final['x'], h_final['y'], h_final['z'])}, TU {before['tu']} -> "
               f"{h_final['tu']}, MOVING the host's own buckets {moved_buckets} - and "
@@ -990,13 +972,13 @@ def test_classic_selection_gating():
 
 
 def test_spectator_entry():
-    """D6's spectator fallback: a plain classic skirmish with NO seat stamp -
-    exactly what "NEW BATTLE > COOP" produces today - leaves the joining client
-    with zero owned units. It must be TOLD so (STR_COOP_SPECTATOR_MODE), and the
-    host must still start on one of its own."""
+    """The spectator fallback: a plain classic skirmish with NO seat stamp -
+    exactly what "NEW BATTLE > COOP" produces - leaves the joining client with
+    zero owned units. It must be TOLD so (STR_COOP_SPECTATOR_MODE), and the host
+    must still start on one of its own."""
     port = "47993"
-    host_dir = make_user_dir("rw_input_gating_spec_host")
-    client_dir = make_user_dir("rw_input_gating_spec_client")
+    host_dir = make_user_dir("input_gating_spec_host")
+    client_dir = make_user_dir("input_gating_spec_client")
     host = GameClient("host", 48792, host_dir)
     client = GameClient("client", 48793, client_dir)
     try:
@@ -1018,7 +1000,7 @@ def test_spectator_entry():
         assert cb.get("coopWaitText") == TXT_SPECTATOR, (
             f"client banner is {cb.get('coopWaitText')!r}, expected {TXT_SPECTATOR!r} - "
             f"CoopHandshake::selectOwnUnitAtEntry() did not raise the spectator notice "
-            f"(a raw STR_ key here means the deployed language copy is stale, WV-D17)")
+            f"(a raw STR_ key here means the deployed language copy is stale)")
         assert hb.get("selectedId") in host_own_ids, (
             f"host started on unit {hb.get('selectedId')}, not one of its own "
             f"{sorted(host_own_ids)}")
@@ -1032,10 +1014,9 @@ def test_spectator_entry():
         # SavedBattleGame::load() deserializes `selectedUnit` directly
         # (SavedBattleGame.cpp:178/285-286) without routing through
         # selectPlayerUnit(), so a client that commands nothing inherits
-        # whatever the HOST had selected at snapshot time. W1-P6's entry
-        # auto-select deliberately does NOT clear that (legacy did the same:
-        # `1e0f9276f:BattlescapeState.cpp:1627-1631` shows the notice and leaves
-        # the selection alone), because every commanding arm is gated anyway and
+        # whatever the HOST had selected at snapshot time. The entry auto-select
+        # deliberately does NOT clear that (it shows the notice and leaves the
+        # selection alone), because every commanding arm is gated anyway and
         # `selectedUnit` is saveBlob-hash-excluded. What MUST hold is that no
         # selection PATH hands the spectator a peer's soldier: the filtered
         # cycle finds no candidate, wraps, and leaves _selectedUnit exactly where
@@ -1062,7 +1043,7 @@ def test_spectator_entry():
 def main():
     test_classic_selection_gating()
     test_spectator_entry()
-    print("ALL W1-P6 SELECTION-PARITY / NO-LOCAL-EXECUTION TESTS PASSED")
+    print("ALL SELECTION-PARITY / NO-LOCAL-EXECUTION TESTS PASSED")
 
 
 if __name__ == "__main__":
