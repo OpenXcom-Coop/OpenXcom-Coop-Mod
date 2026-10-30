@@ -105,6 +105,10 @@ def run_row(index, row, different, base, topic, want):
         def settled(gc):
             return (ending(gc) != END_NONE or bool(finale_owner(gc))) or None
 
+        # The ending's screens are what the row waits for: the time skip's closing
+        # sweep keeps them instead of closing them like any other popup.
+        settled.keep = ("CutsceneState", "SlideshowState", "StatisticsState")
+
         r = geo.skip_ingame_time(host, client, minutes=DAY, speed_idx=4, interest=settled,
                                  real_timeout=90, stuck_timeout=40)
         print(f"[{row}] advanced {r['game_minutes']} min, hit={r['hit']}, "
