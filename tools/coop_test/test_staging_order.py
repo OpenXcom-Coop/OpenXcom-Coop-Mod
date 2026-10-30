@@ -1,9 +1,12 @@
-"""a host staging lever can ship a `reveal` ev in its frame, so a client-first pair waits on
-session.wait_seq_barrier before the next client step; a settle wait reads the client before the host.
-ONE run; EVIDENCE before each verdict; every row runs after a failure; exit 0 only when all pass, else 2. Cells: [named]
-(the red), [guard] (red and green), [other]. U8c-4 guard / U8c-3: a fake pair vs wait_seq_barrier + wait_host_idle / the
-10 settle waits V1-V6, V8-V11. U8c-G guard / U8c-1 / U8c-2 (Boots A / B / C): dc.both / session.place_deterministic /
-bes.both under the client hold (the U8b stand-in, F8167). docs rewrite/w2u8c-task0/CONSTANTS.md (P1, P2)."""
+"""Staging order: a host staging command can ship a `reveal` ev in its frame, so a client-first pair waits on
+session.wait_seq_barrier before the next client step, and a settle wait reads the client before the host.
+One run; EVIDENCE before each verdict; every row runs after a failure; exit 0 only when all pass, else 2. Cells: [named]
+(fails without the fix), [guard] (passes with and without it), [other].
+fake_barrier_waits (guard) / fake_settle_waits: a fake pair (no game) against wait_seq_barrier + wait_host_idle /
+the ten settle waits in FAKE_WAITS.
+delta_both_held (guard) / place_deterministic_held / battle_end_both_held (boots delta / deterministic / battle_end):
+dc.both / session.place_deterministic / bes.both while a burst of battle_state probes keeps the client's command pump
+busy after A's teleport."""
 import json
 import os
 import sys
@@ -22,19 +25,19 @@ import test_client_selection as csel
 import test_prebattle_equip as peq
 import repro_door_deterministic as rdd
 import repro_atom_turn as rat
-import test_feedback as rwf
-import test_retry_cancel as rwr
-import test_turn_mode as rwt
+import test_feedback as feedback
+import test_retry_cancel as retry_cancel
+import test_turn_mode as turn_mode
 
-BOOTS = {"A": (49415, "47232"), "B": (49417, "47234"), "C": (49419, "47236")}   # labels, lobby
+BOOTS = {"delta": (49415, "47232"), "deterministic": (49417, "47234"), "battle_end": (49419, "47236")}   # labels, lobby
 HOLD_S, CALIBRATE, HELD_MIN_S, FAKE_TIMEOUT_S, OUTCOME_S = 3.0, 200, 1.0, 5, 6.0
 A_AT = {"unit": cs.A_ID, "x": cs.A_TILE[0], "y": cs.A_TILE[1], "z": cs.A_TILE[2], "dir": cs.A_DIR}
 TELE_A = dict(A_AT, cmd="battle_teleport_unit")
 HEALTH_A = {"cmd": "battle_set_unit_state", "unit": cs.A_ID, "health": cs.A_HEALTH}
 STAGE = ((TELE_A, ("to", "dir")), (HEALTH_A, ("health", "stun", "status")))   # A's teleport, then A's health
-NAMED_1 = "session.place_deterministic let the client run on before it applied the host's reveal ev (F6495)"
-NAMED_2 = ("test_battle_end_separate.both let the next client lever run before the client applied the host's "
-           "reveal ev (F6495, F6471)")
+NAMED_PLACE = "session.place_deterministic let the client run on before it applied the host's reveal ev"
+NAMED_BATTLE_END = ("test_battle_end_separate.both let the next client command run before the client applied the "
+                    "host's reveal ev")
 
 
 class FakeMachine:
@@ -83,9 +86,9 @@ FAKE_GUARDS = (("session.wait_seq_barrier", lambda h, c: session.wait_seq_barrie
                ("session.wait_host_idle", lambda h, c: session.wait_host_idle(h, c, timeout=5), True))
 FAKE_WAITS = (("session.settle_reveal", lambda h, c: session.settle_reveal(h, c, timeout=5), True),
               ("repro_atom_turn.settle_reveal", lambda h, c: rat.settle_reveal(h, c, timeout=5), True),
-              ("test_feedback.settle_emits", lambda h, c: rwf.settle_emits(h, c, timeout=5), True),
-              ("test_retry_cancel.settle_emits", lambda h, c: rwr.settle_emits(h, c, timeout=5), True),
-              ("test_turn_mode.settle_emits", lambda h, c: rwt.settle_emits(h, c, timeout=5), True),
+              ("test_feedback.settle_emits", lambda h, c: feedback.settle_emits(h, c, timeout=5), True),
+              ("test_retry_cancel.settle_emits", lambda h, c: retry_cancel.settle_emits(h, c, timeout=5), True),
+              ("test_turn_mode.settle_emits", lambda h, c: turn_mode.settle_emits(h, c, timeout=5), True),
               ("session.wait_walk_settled", lambda h, c: session.wait_walk_settled(h, c, 1, timeout=5), False),
               ("test_client_selection.caught_up", poll(csel.caught_up), False),
               ("test_prebattle_equip.drained", poll(peq.drained), False),
@@ -95,7 +98,8 @@ FAKE_WAITS = (("session.settle_reveal", lambda h, c: session.settle_reveal(h, c,
 
 
 def fake_row(row, calls, guard_row):
-    """A call's flag: U8c-4 - it must see a stale client (lagged >= 1); U8c-3 - a reveal-settle function."""
+    """A call's flag: in fake_barrier_waits the call must see a stale client (lagged >= 1); in fake_settle_waits it
+    marks a reveal-settle function."""
     fails = []
     for name, fn, flag in calls:
         pair = types.SimpleNamespace(emitted=7, applied=7, pending=True, shipped=False, lag=0, lagged=0, log=[])
@@ -116,7 +120,7 @@ def fake_row(row, calls, guard_row):
         if last.get("emitted") != last.get("applied"):
             fails.append(("guard" if guard_row else "named",
                           f"{name} returned while the client had not applied host seq {last.get('emitted')} "
-                          f"(applied {last.get('applied')}) at its own last read: it reads the host first (F6561)"))
+                          f"(applied {last.get('applied')}) at its own last read: it reads the host first"))
         if not guard_row and flag and last.get("pending") is not False:
             fails.append(("guard", f"{name} returned with the host's reveal pending at its last read: {last}"))
         if guard_row and (not r["shipped"] or (flag and r["lagged"] < 1)):
@@ -195,13 +199,13 @@ def shutdown(host, client):
     try:
         shutdown_clients(host, client)
     except Exception as e:
-        print(f"[w2u8c] shutdown: {dc.short(e)}", flush=True)
+        print(f"[staging_order] shutdown: {dc.short(e)}", flush=True)
 
 
 def boot(x):
     label, lobby = BOOTS[x]
-    host = GameClient("host", label, make_user_dir(f"w2u8c_{x.lower()}_host"))
-    client = GameClient("client", label + 1, make_user_dir(f"w2u8c_{x.lower()}_client"))
+    host = GameClient("host", label, make_user_dir(f"staging_order_{x.lower()}_host"))
+    client = GameClient("client", label + 1, make_user_dir(f"staging_order_{x.lower()}_client"))
     t0 = time.time()
     try:
         bring_up_lobby_roster_pinned(host, client, lobby)
@@ -214,10 +218,10 @@ def boot(x):
         sid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
         seated_uids = [sid.get(s) for s in seated.get("soldierIds", [])]
         assert seated_uids == cs.SEATED, f"seated client units {seated_uids} (baked {cs.SEATED})"
-        pinned = session.pin_ai_neutral(host, client, tag="w2u8c")
+        pinned = session.pin_ai_neutral(host, client, tag="staging_order")
         assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
         session.wait_host_idle(host, client, timeout=30)
-        session.assert_hash_clean(host, client, full=True, what="w2u8c boot")
+        session.assert_hash_clean(host, client, full=True, what="staging_order boot")
         pc = cs.place(host, client, cs.C_ID, cs.C_TILE, cs.SNAP_C_DIR)
         c_on = [cs.upos(cs.units(g).get(cs.C_ID)) for g in (host, client)]
         assert c_on == [tuple(cs.C_TILE)] * 2, f"C on host/client {c_on}, want {cs.C_TILE} on both"
@@ -231,7 +235,8 @@ def boot(x):
 
 
 def outcome(host, client, s0):
-    """Poll until the client latched a desync or caught up (never a barrier here: a red client freezes)."""
+    """Poll until the client latched a desync or caught up (never a barrier here: without the fix the client
+    freezes)."""
     t0 = time.time()
     while time.time() - t0 < OUTCOME_S:
         c, h = event_state(client), event_state(host)
@@ -248,15 +253,17 @@ def outcome(host, client, s0):
 
 
 def construct(row, host, client):
-    """U8c-G dc.both x2; U8c-1 place_deterministic (an AssertionError is recorded), then dc.both; U8c-2 bes.both x2."""
+    """delta_both_held: dc.both x2; place_deterministic_held: place_deterministic (an AssertionError is recorded),
+    then dc.both; battle_end_both_held: bes.both x2."""
     raised, errs = None, []
-    if row == "U8c-1":
+    if row == "place_deterministic_held":
         try:
-            session.place_deterministic(host, client, [dict(A_AT, cmd="battle_teleport_unit")], what="U8c-1")
+            session.place_deterministic(host, client, [dict(A_AT, cmd="battle_teleport_unit")],
+                                        what="place_deterministic_held")
         except AssertionError as e:
             raised = str(e)
-    for req, keys in (STAGE[1:] if row == "U8c-1" else STAGE):
-        if row == "U8c-2":
+    for req, keys in (STAGE[1:] if row == "place_deterministic_held" else STAGE):
+        if row == "battle_end_both_held":
             rh, rc = bes.both(host, client, dict(req))
             errs += [] if rh.get("ok") and rc.get("ok") else [f"{req['cmd']}: host={rh} client={rc}"]
             continue
@@ -268,18 +275,19 @@ def construct(row, host, client):
 
 
 def judge(row, info, out):
-    """[] when clean; the named red only on its exact signature (U8c-1: TASK 0 P2 (i); U8c-2: the F6471 desync)."""
+    """[] when clean; the named failure only on its exact signature (place_deterministic_held: the barrier's HASH
+    MISMATCH with no desync; battle_end_both_held: a client reveal desync)."""
     if (not info["raised"] and not info["errors"] and not out["clientDesync"] and not out["hostDesync"]
             and out["diffBuckets"] == []):
         return []
     rec = out["desyncRecord"] or {}
-    if (row == "U8c-1" and "HASH MISMATCH" in (info["raised"] or "") and not info["errors"]
+    if (row == "place_deterministic_held" and "HASH MISMATCH" in (info["raised"] or "") and not info["errors"]
             and not out["clientDesync"] and not out["hostDesync"] and out["diffBuckets"] == []):
-        return [("named", NAMED_1)]
-    if (row == "U8c-2" and out["clientDesync"] and rec.get("kind") == "reveal" and not out["hostDesync"]
+        return [("named", NAMED_PLACE)]
+    if (row == "battle_end_both_held" and out["clientDesync"] and rec.get("kind") == "reveal" and not out["hostDesync"]
             and not info["errors"]):
-        return [("named", f"{NAMED_2}: client DESYNC bucket={rec.get('bucket')} seq={rec.get('seq')}")]
-    return [("guard" if row == "U8c-G" else "other",
+        return [("named", f"{NAMED_BATTLE_END}: client DESYNC bucket={rec.get('bucket')} seq={rec.get('seq')}")]
+    return [("guard" if row == "delta_both_held" else "other",
              f"outcome: raised={(info['raised'] or '')[:200]!r} errors={info['errors']} desync client="
              f"{out['clientDesync']} host={out['hostDesync']} record={rec} diff={out['diffBuckets']}")]
 
@@ -310,11 +318,11 @@ def live_row(row, x):
     return fails
 
 
-ROWS = (("U8c-4", lambda: fake_row("U8c-4", FAKE_GUARDS, True)),
-        ("U8c-3", lambda: fake_row("U8c-3", FAKE_WAITS, False)),
-        ("U8c-G", lambda: live_row("U8c-G", "A")),
-        ("U8c-1", lambda: live_row("U8c-1", "B")),
-        ("U8c-2", lambda: live_row("U8c-2", "C")))
+ROWS = (("fake_barrier_waits", lambda: fake_row("fake_barrier_waits", FAKE_GUARDS, True)),
+        ("fake_settle_waits", lambda: fake_row("fake_settle_waits", FAKE_WAITS, False)),
+        ("delta_both_held", lambda: live_row("delta_both_held", "delta")),
+        ("place_deterministic_held", lambda: live_row("place_deterministic_held", "deterministic")),
+        ("battle_end_both_held", lambda: live_row("battle_end_both_held", "battle_end")))
 
 
 def main():
