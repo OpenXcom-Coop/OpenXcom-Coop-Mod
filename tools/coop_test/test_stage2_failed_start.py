@@ -189,11 +189,11 @@ def boot_cydonia(host, client, ctx):
     open_cydonia."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     session.new_campaign(host, client, port=KEY, campaign_mode="shared")
-    craft, roster = _craft_and_soldiers(host)
+    craft, roster, base = _craft_and_soldiers(host)
     if craft != multistage_campaign.CRAFT or roster[:2] != multistage_campaign.SQUAD:
         raise RuntimeError("craft %s roster %s (want craft %s, roster starting %s)"
                            % (craft, roster, multistage_campaign.CRAFT, multistage_campaign.SQUAD))
-    _seat(host, craft, roster)
+    _seat(host, craft, roster, base)
     for gc in (host, client):
         gc.ok({"cmd": "set_soldier_owner", "soldier_id": roster[0], "owner": 0})
         gc.ok({"cmd": "set_soldier_owner", "soldier_id": roster[1], "owner": 1})

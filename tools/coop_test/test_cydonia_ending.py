@@ -178,10 +178,10 @@ def boot_campaign(host, client):
     step("spawn + connect", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
     step("new_campaign shared",
          lambda: session.new_campaign(host, client, port=PORT_CAMPAIGN, campaign_mode="shared"), m)
-    craft, roster = step("craft and roster", lambda: _craft_and_soldiers(host), m)
+    craft, roster, base = step("craft and roster", lambda: _craft_and_soldiers(host), m)
 
     def split():
-        _seat(host, craft, roster)
+        _seat(host, craft, roster, base)
         for gc in (host, client):
             gc.ok({"cmd": "set_soldier_owner", "soldier_id": roster[0], "owner": 0})
             gc.ok({"cmd": "set_soldier_owner", "soldier_id": roster[1], "owner": 1})
