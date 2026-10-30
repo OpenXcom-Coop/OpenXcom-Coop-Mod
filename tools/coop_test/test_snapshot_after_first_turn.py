@@ -1,8 +1,7 @@
-"""FX-1: the coop blob SNAPSHOT + the
-`battle_offer` that advertises it move to AFTER `SavedBattleGame::
-startFirstTurn()`, so the blob the client loads already carries `_turn == 1`
-and the POST-`randomizeItemLocations()` item positions - not the pre-turn-1
-state offerBattle() used to snapshot at battle-generation time.
+"""The coop blob SNAPSHOT and the `battle_offer` that advertises it are taken
+after `SavedBattleGame::startFirstTurn()`, so the blob the client loads
+carries the POST-`randomizeItemLocations()` item positions, not the state at
+battle-generation time.
 
 AI-neutral by construction: t=0 only, no side ever advances; contact-free and
 door-free are irrelevant because nothing walks.
@@ -12,36 +11,33 @@ WHY BASE DEFENSE, SPECIFICALLY. `SavedBattleGame::startFirstTurn()`'s
 `_storageSpace` - the base's item-storage tile list, which only a
 `STR_BASE_DEFENSE` mission generates (a craft-entry mission has no base
 storage to scatter). Every other mission class in this build's stock ruleset
-would make this file's core regression - "the client's item positions match
+would make this file's core check - "the client's item positions match
 the HOST's POST-randomize positions" - vacuously true (nothing moved on
 EITHER machine, so "equal" proves nothing about WHEN the snapshot was taken).
-This is the same reasoning W1-P10's door atom fixture (repro_atom_door.py)
-used to REJECT a candidate mission with no doors; here the "feature" the
-fixture must exercise is randomizeItemLocations() itself.
+The fixture must exercise randomizeItemLocations() itself.
 
-THE EXACT REGRESSION THIS FILE GUARDS (measured, pre-fix, on a build with the
-snapshot still taken inside offerBattle()): the client's `battle_items` census
+THE FAILURE THIS FILE GUARDS AGAINST (measured on a build that took the
+snapshot inside offerBattle()): the client's `battle_items` census
 showed at least one item at a DIFFERENT `(tx,ty,tz)` than the host's own copy
 of the same item id - `{'tx':8,'ty':7,'tz':8}` on one machine against a
 different tile on the other - because the client's blob was frozen BEFORE
 `randomizeItemLocations()` scattered the base's stores, while the host kept
 simulating past that point. `items` and `saveBlob` are the two hash buckets
-that regression breaks; this file asserts both are explicitly present and
+that failure breaks; this file asserts both are explicitly present and
 EQUAL in the `hash_now {full:true}` sweep, not merely "the sweep passed".
 
-THE TURN-COUNTER MIRROR IS A TRIPWIRE: under the
-sequencing the client's blob already carries `turn == 1`, so
-`coopClientMirrorFirstTurnCounter()`'s compensating write is now UNREACHABLE
-in the normal case - reaching it (a non-zero `event_state.turnMirrorFired` on
-the client) means the snapshot was taken too early, i.e. this file's own
-fix regressed. Asserted at zero, not merely "the client shows turn 1" (which
+THE TURN-COUNTER MIRROR IS A TRIPWIRE: the client's blob is taken after
+startFirstTurn(), so `coopClientMirrorFirstTurnCounter()`'s compensating
+write is UNREACHABLE in the normal case - reaching it (a non-zero
+`event_state.turnMirrorFired` on the client) means the snapshot was taken
+too early. Asserted at zero, not merely "the client shows turn 1" (which
 the tripwire's compensating write would ALSO produce, silently).
 
 Run:  python tools/coop_test/test_snapshot_after_first_turn.py
       (its own shell invocation - one harness run at a time, machine-wide.)
 
 EXIT CODES: 0 pass, 2 FAIL (also when this build's NEW BATTLE screen does not
-offer STR_BASE_DEFENSE: a fixture that cannot be built is a red, D59).
+offer STR_BASE_DEFENSE: a fixture that cannot be built counts as a failure).
 """
 
 import json
@@ -123,8 +119,8 @@ def battle_items(gc):
 # ------------------------------------------------------------------- main ---
 def main():
     port = "47998"
-    host_dir = make_user_dir("rw_snap_host")
-    client_dir = make_user_dir("rw_snap_client")
+    host_dir = make_user_dir("snap_host")
+    client_dir = make_user_dir("snap_client")
     host = GameClient("host", 48860, host_dir)
     client = GameClient("client", 48861, client_dir)
     try:
@@ -158,22 +154,20 @@ def main():
             f"{MISSION!r}")
         print(f"PASS: host generated {MISSION}, phase=Handshake (nothing sent yet)")
 
-        # === dismiss the host's briefing - W2-P8b: the offer ===
-        # === already went out at PREPARE, at turn 0; the host lands on its ===
-        # === pre-battle equip screen =================================
-        client.wait_for("client entry briefing (both briefings at once, D210 b)",
+        # === dismiss the host's briefing: the offer already went out at ======
+        # === PREPARE, at turn 0; the host lands on its pre-battle equip screen
+        client.wait_for("client entry briefing (both briefings at once)",
                         lambda: session.has_state(client, "BriefingState") or None, timeout=90)
         host.ok({"cmd": "click_widget", "match": "ok"})
         host.wait_for("host pre-battle equip screen on top",
                       lambda: (top_state(host) == "InventoryState") or None, timeout=30)
 
-        # === 2. host.battle_state.turn == 0 right after closing the briefing =
-        # W2-P8b S-H re-point (chain rule A.10): turn 1 now starts at the ready
-        # barrier, not at the host's briefing OK.
+        # === host.battle_state.turn == 0 right after closing the briefing ====
+        # Turn 1 starts at the ready barrier, not at the host's briefing OK.
         hbs = battle_state(host)
         assert hbs.get("turn") == 0, (
             f"host battle_state.turn == {hbs.get('turn')} on its pre-battle equip screen, "
-            "expected 0 - turn 1 started before both seats were ready (W2-P8b b6)")
+            "expected 0 - turn 1 started before both seats were ready")
         print("PASS: host battle_state.turn == 0 right after closing the briefing (equip open)")
 
         # === client: reaches inBattle + turn 0 (the turn-0 blob) =============
@@ -185,11 +179,11 @@ def main():
         assert cbs.get("inBattle") is True, f"client inBattle should be True: {cbs}"
         assert cbs.get("turn") == 0, (
             f"client battle_state.turn == {cbs.get('turn')}, expected 0 - the loaded blob "
-            f"carries the turn-0 snapshot under W2-P8b (D210 b): {cbs}")
-        print("PASS: client inBattle=True, battle_state.turn == 0 (the turn-0 blob, W2-P8b)")
+            f"carries the turn-0 snapshot: {cbs}")
+        print("PASS: client inBattle=True, battle_state.turn == 0 (the turn-0 blob)")
 
         # === both pre-battle equip screens -> turn 1 on both (the barrier) ===
-        session.dismiss_client_briefing(client)   # W1-P3 read-only entry briefing
+        session.dismiss_client_briefing(client)   # the client's read-only entry briefing
         session.equip_both_ready(host, client)
         session.dismiss_battle_start_overlays(host)
         session.dismiss_battle_start_overlays(client)
@@ -199,15 +193,15 @@ def main():
             "ready, expected 1/1 (the equip-end sync)")
         print("PASS: battle_state.turn == 1 on both machines after both seats are ready")
 
-        # === 3. turn-counter mirror tripwire: must NOT have fired on the client ==
+        # === turn-counter mirror tripwire: must NOT have fired on the client =====
         ces = event_state(client)
         assert ces.get("turnMirrorFired") == 0, (
             f"client event_state.turnMirrorFired == {ces.get('turnMirrorFired')}, "
-            "expected 0 - the WV-D56 tripwire fired, meaning the loaded blob "
+            "expected 0 - the turn-mirror tripwire fired, meaning the loaded blob "
             "carried turn 0 and the host's snapshot was taken BEFORE "
             f"startFirstTurn(): {ces}")
-        print("PASS: event_state.turnMirrorFired == 0 on the client (the WV-D56 "
-              "tripwire never fired)")
+        print("PASS: event_state.turnMirrorFired == 0 on the client (the "
+              "turn-mirror tripwire never fired)")
 
         # === both machines reach phase Active =================================
         host.wait_for("host phase Active",
@@ -223,7 +217,7 @@ def main():
             f"client={ces.get('phase')}")
         print("PASS: event_state.phase == 'Active' on both machines")
 
-        # === 5. hash_now full:true - all buckets EQUAL, items+saveBlob present
+        # === hash_now full:true - all buckets EQUAL, items+saveBlob present ===
         hh, ch = session.assert_hash_clean(host, client, full=True,
                                            what="t=0, post-startFirstTurn snapshot")
         assert "items" in hh, f"hash_now full did not carry the 'items' bucket: {sorted(hh)}"
@@ -231,7 +225,7 @@ def main():
         print(f"PASS: hash_now full=true - ALL {len(hh)} buckets EQUAL "
               f"(incl. items, saveBlob): {sorted(hh)}")
 
-        # === 6. battle_items: census counts equal, every item's (tx,ty,tz) ====
+        # === battle_items: census counts equal, every item's (tx,ty,tz) =======
         # === matches - the exact {'tx':8,'ty':7,'tz':8}-class regression =====
         hi = battle_items(host)
         ci = battle_items(client)
@@ -256,14 +250,14 @@ def main():
                 pos_mismatches.append((iid, hit.get("type"), h_pos, c_pos))
         assert not pos_mismatches, (
             f"{len(pos_mismatches)} item(s) sit at a DIFFERENT (tx,ty,tz) on the two "
-            f"machines - the exact pre-fix regression this file guards (item ids ride "
+            f"machines - the exact failure this file guards against (item ids ride "
             f"the same blob, so a position mismatch here means the two machines "
             f"snapshotted at different points in randomizeItemLocations()): "
             f"{pos_mismatches[:10]}")
         print(f"PASS: battle_items - {hi['total']} items on both machines, counts "
               f"EQUAL ({hi['counts']}), every item's (tx,ty,tz,onTile) matches")
 
-        print("ALL FX-1 SNAPSHOT-AFTER-FIRST-TURN CHECKS PASSED")
+        print("ALL SNAPSHOT-AFTER-FIRST-TURN CHECKS PASSED")
     finally:
         host.shutdown()
         client.shutdown()
