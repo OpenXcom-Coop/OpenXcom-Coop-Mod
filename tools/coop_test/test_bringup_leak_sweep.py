@@ -1,9 +1,9 @@
-"""test_bringup_leak_sweep.py: a bring-up that fails after its games started shuts them down. Ten test helpers start
+"""test_bringup_leak_sweep.py: a bring-up that fails after its games started shuts them down. Nine test helpers start
 game processes where no clean-up could reach them: a helper that raised after the spawn would leave both games running
 after Python exits (a plain Popen, no reaper). Each row makes ONE helper fail right after its games started, through a
 stand-in that rebinds only a name in the helper's own module (never harness.GameClient) and is restored in a finally,
 then reads every machine's Popen.poll() right after the call, before any test clean-up:
-- GameClient stand-in rows (pause_on_leave, teleport, client_landing, door_repro, spot_repro, midbattle_save,
+- GameClient stand-in rows (pause_on_leave, teleport, door_repro, spot_repro, midbattle_save,
   smoke_main, base_defense): <module>.GameClient (sp: sp.harness, a namespace copy of harness) -> StandInGC, which
   raises right after the real connect() of the last of the row's machines.
 - battle_state stand-in row (corpse_node): cn.GameClient -> StandInGC (record only); cn.session -> a namespace copy
@@ -33,7 +33,6 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_pause_on_leave as pol  # noqa: E402
 import test_teleport_command as tpc  # noqa: E402
-import test_client_landing as cl  # noqa: E402
 import repro_door_deterministic as rdd  # noqa: E402
 import repro_atom_spot as ras  # noqa: E402
 import test_midbattle_resume as mbr  # noqa: E402
@@ -137,15 +136,13 @@ def gr_call():  # gr.boot prints its own boot-miss CAPTURE line: keep it in EVID
             if not ln.startswith("CAPTURE"):
                 print(ln, flush=True)
 
-# ---- the ten rows: (rid, cell prefix, module, helper, stand-in kind, want, bindings, call) ----
+# ---- the nine rows: (rid, cell prefix, module, helper, stand-in kind, want, bindings, call) ----
 G = "GameClient"
 SPECS = (
     ("pause_on_leave_leak", "pause_on_leave", pol, "_bring_up", "GameClient stand-in", 2, lambda: [(pol, G, StandInGC)],
      lambda: pol._bring_up("leak_sweep", 9, pol.WALK_DROP_SEED)),
     ("teleport_leak", "teleport", tpc, "bring_up", "GameClient stand-in", 2, lambda: [(tpc, G, StandInGC)],
      lambda: tpc.bring_up("leak_sweep", "STR_SUPPLY_SHIP", "47650", 49640, 49641)),
-    ("client_landing_leak", "client_landing", cl, "boot_pair", "GameClient stand-in", 2, lambda: [(cl, G, StandInGC)],
-     lambda: cl.boot_pair("leak_sweep")),
     ("door_repro_leak", "door_repro", rdd, "bring_up", "GameClient stand-in", 2, lambda: [(rdd, G, StandInGC)],
      lambda: rdd.bring_up()),
     ("spot_repro_leak", "spot_repro", ras, "bring_up_lightning", "GameClient stand-in", 2,

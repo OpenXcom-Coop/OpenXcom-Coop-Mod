@@ -23,7 +23,6 @@ import session  # noqa: E402
 import run_regression as rr  # noqa: E402
 import test_inventory_held as ih  # noqa: E402
 import test_host_screens as hs  # noqa: E402
-import test_client_landing as cl  # noqa: E402
 import test_client_landing_controls as clc  # noqa: E402
 import test_client_selection as csel  # noqa: E402
 import test_preview_restream as pv  # noqa: E402
@@ -45,7 +44,6 @@ READERS = (  # every lane reader of crash files, called exactly as its test call
     ("session_snapshot", lambda: session._crash_log_snapshot()),
     ("inventory_held", lambda: ih.crash_files()),
     ("host_screens", lambda: hs.crash_census()),
-    ("client_landing", lambda: cl.crash_files()),
     ("client_landing_controls", lambda: clc.crash_files()),
     ("client_selection", lambda: csel.crash_files()),
     ("preview_restream", lambda: pv.crash_names()),
@@ -99,7 +97,7 @@ def own_spawn(gc, extra=None):
     gc.proc = subprocess.Popen([harness.EXE, "-user", gc.user_dir], env=env, cwd=os.path.dirname(harness.EXE) or ".")
 
 # ---- the frame (test_cleanup_chain_reaper.py) ----
-SITES = (session._crash_log_snapshot, ih.crash_files, hs.crash_census, cl.crash_files, clc.crash_files, csel.crash_files,
+SITES = (session._crash_log_snapshot, ih.crash_files, hs.crash_census, clc.crash_files, csel.crash_files,
          pv.crash_names, roi.crash_names, sdr.crash_names, udp.teardown, scl.crash_logs, bd.crash_logs, gs.scan_logs)
 def site(i):  # "<file>:<line>" of reader i's function
     try: return "%s:%d" % (os.path.basename(inspect.getsourcefile(SITES[i])), inspect.getsourcelines(SITES[i])[1])
