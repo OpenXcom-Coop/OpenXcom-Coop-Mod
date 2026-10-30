@@ -1,10 +1,10 @@
-"""W2-H16 (F3260; D226 a; Q1 a / Q2 a / Q3 a; veto V1): a manual promotion and a nationality change made on one machine
-reach the shared world. Spec docs rewrite/prompts/w2h16_manual_promotion.md (e)-(f); TASK 0 rewrite/w2h16-task0/
-CONSTANTS.md (its five corrections applied). Levers (test-only): open_soldier_info, set_soldier_rank (staging, THIS
-machine), soldier_attr_probe. Real input: rank badge (click_widget nth 0) -> rank TextList shown (hidden false) ->
-inject_input at rankScreen.rows[r].wx/wy; flag = click_widget nth 1. Boot A (SHARED): H16-1..4; Boot B (SEPARATE): H16-5
-(guard row). S0: S1, S2 (client-owned), S3 (host-owned) -> squaddie, client then host; floor(N/5) - 1 others -> sergeant;
-one sergeant opening on both (guard). RED (commit 1): H16-1..4 fail on their named cell, H16-5 passes; GREEN: all pass.
+"""test_manual_promotion.py: a manual promotion and a nationality change made on one machine reach the shared world.
+Test commands: open_soldier_info, set_soldier_rank (staging, THIS machine), soldier_attr_probe. Real input: rank badge
+(click_widget nth 0) -> rank TextList shown (hidden false) -> inject_input at rankScreen.rows[r].wx/wy; flag =
+click_widget nth 1. The SHARED boot: client_promotes, host_promotes, one_opening_two_promotions, nationality_change; the
+SEPARATE boot: separate_own_soldier (guard row). S0: S1, S2 (client-owned), S3 (host-owned) -> squaddie, client then
+host; floor(N/5) - 1 others -> sergeant; one sergeant opening on both (guard). Without the fix the four SHARED rows fail
+on their named cell and separate_own_soldier passes; with it all pass.
 "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -21,8 +21,8 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 OPT = "oxceManualPromotions"
-BOOT_A = ("w2h16a", (49290, 49291, 47280))      # SHARED; lobby 47280
-BOOT_B = ("w2h16b", (49292, 49293, 47282))      # SEPARATE; lobby 47282
+BOOT_SHARED = ("manual_promotion_shared", (49290, 49291, 47280))      # SHARED; lobby 47280
+BOOT_SEPARATE = ("manual_promotion_separate", (49292, 49293, 47282))      # SEPARATE; lobby 47282
 SQUADDIE, SERGEANT = 1, 2
 POLL_S, POLL_I, UI_S, BETWEEN_S, CLEAN_S = 3.0, 0.1, 3.0, 30, 4.0
 INFO, GEO = "SoldierInfoState", "GeoscapeState"
@@ -53,7 +53,7 @@ def sap(gc, sid):
     return dict(p, top=str(p.get("top", "")).replace("class OpenXcom::", ""))
 
 def shown(gc):
-    """The rank TextList of a SoldierRankState on top, no longer hidden by the POPUP window (TASK 0 correction 1)."""
+    """The rank TextList of a SoldierRankState on top, no longer hidden by the POPUP window."""
     w = gc.cmd({"cmd": "list_widgets"})
     tl = [e for e in w.get("widgets", []) if "TextList" in e.get("type", "")]
     return tl[0] if ("SoldierRankState" in w.get("state", "") and tl and tl[0].get("hidden") is False) else None
@@ -164,7 +164,8 @@ def clean(r, x, d):
            f"replica requests {now['client']['requests']} vs S0 {d['req']['client']}")
 
 def reach(r, x, gc, sid, tag, name, why, host_apply):
-    """H16-1 / H16-2: one machine promotes; both hold rank 2 by the end of the poll (H16-1: host applyCount S0 + 1)."""
+    """client_promotes / host_promotes: one machine promotes; both hold rank 2 by the end of the poll
+    (client_promotes: host applyCount S0 + 1)."""
     r.ids = (sid,)
     d = s0(r, x)
     promote(r, x, gc, sid, SERGEANT, tag)
@@ -177,7 +178,7 @@ def reach(r, x, gc, sid, tag, name, why, host_apply):
            f"{' (want +1)' if host_apply else ''}: {why}")
     clean(r, x, d)
 
-def row_h16_3(r, x):
+def row_one_opening_two_promotions(r, x):
     r.ids = (x.S2, x.S3)
     h, c = x.host, x.client
     d = s0(r, x)
@@ -201,7 +202,7 @@ def row_h16_3(r, x):
     r.cell("openings", all(o == 0 for o in op.values()), f"sergeant openings {op} (want 0 on both)")
     clean(r, x, d)
 
-def row_h16_4(r, x):
+def row_nationality_change(r, x):
     r.ids = (x.S1, x.S3)
     d = s0(r, x)
     n0, n1 = flag(r, x, x.client, x.S1, "client S1")
@@ -215,12 +216,12 @@ def row_h16_4(r, x):
            f"{g3} (want {m1} on both): a nationality change stayed on one machine")
     clean(r, x, d)
 
-def row_h16_5(r, x):
+def row_separate_own_soldier(r, x):
     h, c = x.host, x.client
     ok = wait_until(lambda: top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0]
     guard(r, x, "start", ok, f"stacks {stack(h)} / {stack(c)}")
     guard(r, x, "option", x.option is True, f"client {OPT} {x.option}")
-    br = c.cmd({"cmd": "base_report"})                # the client's own base (correction 4: not owner == seat)
+    br = c.cmd({"cmd": "base_report"})                # the client's own base (not a soldier filter on owner == seat)
     sid = (br.get("soldiers") or [{}])[0].get("id")
     r.ids = (sid,) if sid is not None else ()
     r.ev["pick"] = {"base": br.get("name"), "id": sid, "soldier": sol(c, sid) if sid is not None else None}
@@ -256,9 +257,10 @@ def run_one(rid, fn, x, results):
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
 def setup(x, tag):
-    """The client's option (W2-P10 sync); Boot A: S1/S2/S3 + the staged sergeants from the host's base_report."""
+    """The client's option (synced from the host); the SHARED boot: S1/S2/S3 + the staged sergeants from the host's
+    base_report."""
     x.option = wait_until(lambda: opt(x.client) is True, 10.0)[0] or opt(x.client)
-    if tag != BOOT_A[0]:
+    if tag != BOOT_SHARED[0]:
         return {"option": x.option}
     seat = {gc.name: gc.cmd({"cmd": "synced_options_state"}).get("localSeat") for gc in (x.host, x.client)}
     bases = x.host.ok({"cmd": "geo_state"})["bases"]
@@ -272,8 +274,8 @@ def setup(x, tag):
     return {"option": x.option, "seats": seat, "N": n, "S1": x.S1, "S2": x.S2, "S3": x.S3, "sergeants": x.sergeants,
             "owners": {s["id"]: s["owner"] for s in sols}, "bases": [b["name"] for b in bases]}
 
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def boot_separate():
+    tag, (hp, cp, lp) = BOOT_SEPARATE
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", options={OPT: True}))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client"))
     try:
@@ -306,22 +308,24 @@ def boot(tag, up, rows, results, walls):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h16] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[manual_promotion] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
-ROWS_A = (("H16-1", lambda r, x: reach(r, x, x.client, x.S1, "client S1", "reachedHost",
-                                       "the client's promotion never reached the host (F3260)", True)),
-          ("H16-2", lambda r, x: reach(r, x, x.host, x.S3, "host S3", "reachedClient",
-                                       "the host's promotion never reached the client", False)),
-          ("H16-3", row_h16_3), ("H16-4", row_h16_4))
-ROWS_B = (("H16-5", row_h16_5),)
+ROWS_SHARED = (("client_promotes", lambda r, x: reach(r, x, x.client, x.S1, "client S1", "reachedHost",
+                                                      "the client's promotion never reached the host", True)),
+               ("host_promotes", lambda r, x: reach(r, x, x.host, x.S3, "host S3", "reachedClient",
+                                                    "the host's promotion never reached the client", False)),
+               ("one_opening_two_promotions", row_one_opening_two_promotions),
+               ("nationality_change", row_nationality_change))
+ROWS_SEPARATE = (("separate_own_soldier", row_separate_own_soldier),)
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_A[0], lambda: shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], host_options={OPT: True}),
-         ROWS_A, results, walls)
-    boot(BOOT_B[0], boot_b, ROWS_B, results, walls)
-    failed, n = [rid for rid, _ in ROWS_A + ROWS_B if not results.get(rid)], len(ROWS_A + ROWS_B)
+    boot(BOOT_SHARED[0], lambda: shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], host_options={OPT: True}),
+         ROWS_SHARED, results, walls)
+    boot(BOOT_SEPARATE[0], boot_separate, ROWS_SEPARATE, results, walls)
+    failed, n = ([rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE if not results.get(rid)],
+                 len(ROWS_SHARED + ROWS_SEPARATE))
     print(f"\ntest_manual_promotion: {n - len(failed)}/{n} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
