@@ -1,34 +1,38 @@
-"""D246-U stage S-D1 rows R, V and N: a classic co-op Custom Battle saved mid-battle by an OLDER version (the release line,
-`main` 651ae44ba) loads on the rewrite's host converted, so MG-B's CONTINUE BATTLE resumes it with each player's own
-soldiers, nobody owning the aliens, the turn mode it was played in and the mission in the partner's briefing; a save this
-build wrote and a release single-player save are never converted (owner D246 (b); QD246-1 .. QD246-4 (a); QD246D-1 ..
-QD246D-6 (a); orchestrator ruling R-D246D-T0-1 (A): R-play turns a seat-1 soldier, the walk is unreachable in the release
-craft layout, F19407).
+"""A classic co-op Custom Battle saved mid-battle by an older version loads on the host converted, so CONTINUE BATTLE
+resumes it with each player's own soldiers, nobody owning the aliens, the turn mode it was played in and the mission in
+the partner's briefing; a save this build wrote and an older single-player save are never converted. The play cell
+turns a seat-1 soldier instead of walking it: the older version's craft layout boxes every seat-1 soldier in.
 
-Spec: docs repo rewrite/prompts/d246u_sd_custom_battle_convert.md section (f); parent rewrite/prompts/
-d246u_midbattle_save_convert.md (the conversion E4). Constants: rewrite/d246u-task0/sd/CONSTANTS.md (TASK 0 T0-3 .. T0-7).
-Fixture: tools/coop_test/fixtures/custom_battle.sav, made by the release build's own harness on the main-check
-worktree (T0-3; parallel turns off), committed unedited. Lobby key 49221.
+Fixture: tools/coop_test/fixtures/custom_battle.sav, made by the released game's own harness (parallel turns off),
+committed unedited. Lobby key 49221.
 
-Row R (dirs d246usd_r_host / d246usd_r_client; host option CoopTurnMode parallel; the client starts clean):
-  R-load   host load_save_menu: one "older version's co-op Custom Battle save" line and one summary line (seats 0/1 CD_S0/CD_S1, unseated CD_UN, turnMode
-           traditional, deployment DEP_CD); every unit of another original faction on no seat (-1); soldiers == CD_EXPECT
-  R-cont   open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE BATTLE: both on the
-           battle, no CoopState 62 / 68, phase Active, no desync
-  R-seats  per unit (coop, faction, isOut, x, y, z) host == client; other factions -1; soldiers == CD_EXPECT
-  R-mode   turnMode traditional on both under the host option parallel; coopEndTurnTally.activeSeat 0 on both
-  R-dep    battle_state.deployment client == host == DEP_CD
-  R-play   host END TURN; the client turns seat-1 soldier PLAY_ID one octant: facing equal and changed on both, every hash
-           bucket EQUAL, desync false, side 0
-  (R-save) host save_game RESAVE, the setup step of row V
-Row V (dir d246usd_v_host): the host loads RESAVE. V-load: no "[coop-convert]" line; other factions -1; soldiers == CD_EXPECT.
-Row N (dir d246usd_n_host): the fixture with every whole line `coop: 1` (a sequence item's `- coop: 1` included) rewritten
-  to `coop: 0`. N-solo: no "[coop-convert]" line and the save loads (QD246D-2 (a): a release solo save is not converted).
-RED on the unchanged product: R-load, R-seats, R-mode, R-dep, V-load. One EVIDENCE line per row, one PASS / FAIL line per
-cell, the row verdict; every row runs after a failure. A precondition miss (R-cont, a cell that raised) ends its row: later
-cells FAIL "not reached". A boot step past its bound prints ONE CAPTURE line and fails every cell of that row "boot".
-run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
-cell passes, else 2.   Run:  python tools/coop_test/test_old_custom_battle.py
+Row old_save_converts (dirs old_custom_battle_host / old_custom_battle_client; host option CoopTurnMode parallel; the
+client starts clean):
+  conversion_lines      host load_save_menu: one "older version's co-op Custom Battle save" line and one summary line
+                        (seats 0/1 SEATED0/SEATED1, unseated UNSEATED, turnMode traditional, deployment DEPLOYMENT);
+                        every unit of another original faction on no seat (-1); soldiers == SEATS_BY_UNIT
+  continue_battle       open_pause_coop -> HostMenu, customBattleResumePending; host_menu_host + the join; CONTINUE
+                        BATTLE: both on the battle, no CoopState 62 / 68, phase Active, no desync
+  seat_split            per unit (coop, faction, isOut, x, y, z) host == client; other factions -1; soldiers ==
+                        SEATS_BY_UNIT
+  played_mode           turnMode traditional on both under the host option parallel; coopEndTurnTally.activeSeat 0 on
+                        both
+  deployment_shared     battle_state.deployment client == host == DEPLOYMENT
+  client_turns_soldier  host END TURN; the client turns seat-1 soldier PLAY_ID one octant: facing equal and changed on
+                        both, every hash bucket EQUAL, desync false, side 0
+  then the host's save_game RESAVE, the setup step of row resave_not_converted
+Row resave_not_converted (dir old_custom_battle_resave_host): the host loads RESAVE. no_conversion_line: no
+  "[coop-convert]" line; other factions -1; soldiers == SEATS_BY_UNIT.
+Row solo_not_converted (dir old_custom_battle_solo_host): the fixture with every whole line `coop: 1` (a sequence item's
+  `- coop: 1` included) rewritten to `coop: 0`. solo_save_loads: no "[coop-convert]" line and the save loads (an older
+  single-player save is not converted).
+Without the fix these fail: conversion_lines, seat_split, played_mode, deployment_shared, no_conversion_line. One
+EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure. A precondition
+miss (continue_battle, a cell that raised) ends its row: later cells FAIL "not reached". A boot step past its bound
+prints ONE CAPTURE line and fails every cell of that row "boot". ONE run is the result, no skip path; exit 0 only when
+every cell passes, else 2.
+
+Run:  python tools/coop_test/test_old_custom_battle.py
 """
 
 import json
@@ -44,18 +48,21 @@ import session  # noqa: E402
 import test_skirmish_flow as SK  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "custom_battle.sav")
-KEY, RESAVE, SOLO = "49221", "d246usd_resave.sav", "custom_battle_solo.sav"
-CD_EXPECT = {8: 0, 9: 0, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0, 31: 1, 32: 1, 33: 1, 34: 1, 35: 1, 36: 1, 37: 1}  # unit id: seat (T0-4)
-CD_S0, CD_S1, CD_UN, CD_TANKS = 7, 7, 1, ()   # seats by E4 (1)'s rule; the Sectoid; no tank (T0-4)
-DEP_CD = "STR_SMALL_SCOUT"                     # the craft's UFO destination's deployment (T0-7)
-PLAY_ID = 31                                   # the lowest seat-1 soldier; every seat-1 soldier is boxed in
-LOAD_S, CLIENT_S, STEP_S = 120, 120, 30        # bounds (s); TASK 0: load 0.1 s, client in battle 1.25 s
-N_SD = "[coop-convert] an older version's co-op Custom Battle save"
+KEY, RESAVE, SOLO = "49221", "old_custom_battle_resave.sav", "custom_battle_solo.sav"
+# unit id: seat
+SEATS_BY_UNIT = {8: 0, 9: 0, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0, 31: 1, 32: 1, 33: 1, 34: 1, 35: 1, 36: 1, 37: 1}
+SEATED0, SEATED1, UNSEATED, TANKS = 7, 7, 1, ()  # seats from the saved coop tags; the Sectoid; no tank
+DEPLOYMENT = "STR_SMALL_SCOUT"                   # the craft's UFO destination's deployment
+PLAY_ID = 31                                     # the lowest seat-1 soldier; every seat-1 soldier is boxed in
+LOAD_S, CLIENT_S, STEP_S = 120, 120, 30          # bounds (s); measured: load 0.1 s, client in battle 1.25 s
+N_CUSTOM = "[coop-convert] an older version's co-op Custom Battle save"
 N_SUM = "[coop-convert] an older version's mid-battle co-op save converted"
 N_ANY = "[coop-convert]"
 SUM_RE = re.compile(r"seats 0/1 (\d+)/(\d+), unseated (\d+); turnMode (\w+); deployment \"([^\"]*)\"")
-SOLO_RE = re.compile(r"^(\s*(?:- )?)coop: 1$", re.M)   # S54 swap: the battle units' `- coop: 1` lines too
-R_CELLS, V_CELLS, N_CELLS = ("R-load", "R-cont", "R-seats", "R-mode", "R-dep", "R-play"), ("V-load",), ("N-solo",)
+SOLO_RE = re.compile(r"^(\s*(?:- )?)coop: 1$", re.M)   # the battle units' `- coop: 1` lines too
+CONVERT_CELLS, RESAVE_CELLS, SOLO_CELLS = (("conversion_lines", "continue_battle", "seat_split", "played_mode",
+                                            "deployment_shared", "client_turns_soldier"),
+                                           ("no_conversion_line",), ("solo_save_loads",))
 stack, bs, es = session.states_stripped, session.battle_state, session.event_state
 
 
@@ -86,12 +93,13 @@ def ptable(us):
 
 
 def seat_check(us):
-    """(ok, detail): other original factions on no seat, soldiers == CD_EXPECT, tanks on seat 0."""
+    """(ok, detail): other original factions on no seat, soldiers == SEATS_BY_UNIT, tanks on seat 0."""
     other = {k: u.get("coop") for k, u in us.items() if u.get("originalFaction") != 0}
-    sold = {k: us[k].get("coop") if k in us else None for k in CD_EXPECT}
-    tanks = {k: us[k].get("coop") if k in us else None for k in CD_TANKS}
-    ok = bool(other) and all(v == -1 for v in other.values()) and sold == CD_EXPECT and all(v == 0 for v in tanks.values())
-    return ok, f"other factions {other} (want -1 each); soldiers {sold} (want {CD_EXPECT}); tanks {tanks} (want 0)"
+    sold = {k: us[k].get("coop") if k in us else None for k in SEATS_BY_UNIT}
+    tanks = {k: us[k].get("coop") if k in us else None for k in TANKS}
+    ok = (bool(other) and all(v == -1 for v in other.values()) and sold == SEATS_BY_UNIT
+          and all(v == 0 for v in tanks.values()))
+    return ok, f"other factions {other} (want -1 each); soldiers {sold} (want {SEATS_BY_UNIT}); tanks {tanks} (want 0)"
 
 
 def wait_until(pred, bound, interval=0.25):
@@ -141,7 +149,7 @@ def shut(*gcs):
     try:
         shutdown_clients(*gcs)
     except RuntimeError as e:
-        print(f"[d246usd] shutdown: {str(e)[:300]}", flush=True)
+        print(f"[old_custom_battle] shutdown: {str(e)[:300]}", flush=True)
 
 
 def report(row, order, cells, ev):
@@ -170,20 +178,21 @@ def run_cells(order, steps, ev):
     return cells
 
 
-def r_load(host, ev):
+def load_cell(host, ev):
     lines, us = conv(host), units(host)
-    sd, summ = [ln for ln in lines if N_SD in ln], [ln for ln in lines if N_SUM in ln]
+    sd, summ = [ln for ln in lines if N_CUSTOM in ln], [ln for ln in lines if N_SUM in ln]
     m = SUM_RE.search(summ[0]) if len(summ) == 1 else None
     got = [int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4), m.group(5)] if m else None
-    want = [CD_S0, CD_S1, CD_UN, "traditional", DEP_CD]
+    want = [SEATED0, SEATED1, UNSEATED, "traditional", DEPLOYMENT]
     sok, sdetail = seat_check(us)
     ev["load"] = {"convert": lines, "units": ptable(us)}
     ok = len(sd) == 1 and got == want and sok
-    return ok, (f"{'' if ok else 'the release save loaded unconverted: '}'{N_SD}' lines {len(sd)} (want 1); summary lines "
+    return ok, (f"{'' if ok else 'the older-version save loaded unconverted: '}'{N_CUSTOM}' lines {len(sd)} "
+                f"(want 1); summary lines "
                 f"{len(summ)} with {got} (want 1 with {want}); {sdetail}")
 
 
-def r_cont(host, client, ev):
+def continue_cell(host, client, ev):
     host.ok({"cmd": "open_pause_coop"})
     host.wait_for("HostMenu", lambda: session.has_state(host, "HostMenu"), timeout=STEP_S)
     g1 = [stack(host), host.cmd({"cmd": "get_coop"}).get("customBattleResumePending")]
@@ -215,34 +224,34 @@ def r_cont(host, client, ev):
                 f"desyncSeen {r['desync']} (want False)")
 
 
-def r_seats(host, client, ev):
+def seats_cell(host, client, ev):
     uh, uc = units(host), units(client)
     ph, pc = ptable(uh), ptable(uc)
     diff = ev["seatsDiff"] = {k: [ph.get(k), pc.get(k)] for k in set(ph) | set(pc) if ph.get(k) != pc.get(k)}
     ev["seats"] = ph
     sh, dh = seat_check(uh)
     sc, _ = seat_check(uc)
-    ok, red = not diff and sh and sc, "" if sh and sc else "aliens and civilians carry the host's seat: "
-    return ok, f"{red}units differing host/client {diff} (want none); host: {dh}; client seat rule met {sc}"
+    ok, why = not diff and sh and sc, "" if sh and sc else "aliens and civilians carry the host's seat: "
+    return ok, f"{why}units differing host/client {diff} (want none); host: {dh}; client seat rule met {sc}"
 
 
-def r_mode(host, client, ev):
+def mode_cell(host, client, ev):
     eh, ec = es(host), es(client)
     r = ev["mode"] = {"turnMode": [eh.get("turnMode"), ec.get("turnMode")], "option": eh.get("optionTurnMode"),
                       "activeSeat": [(e.get("coopEndTurnTally") or {}).get("activeSeat") for e in (eh, ec)]}
     ok = r["turnMode"] == ["traditional"] * 2 and r["option"] == "parallel" and r["activeSeat"] == [0, 0]
     return ok, (f"{'' if ok else 'the battle did not come back in the mode it was played in: '}turnMode {r['turnMode']} "
                 f"(want traditional on both) with the host option {r['option']} (want parallel); coopEndTurnTally.activeSeat "
-                f"{r['activeSeat']} (want 0 on both, D100)")
+                f"{r['activeSeat']} (want 0 on both: the host's go)")
 
 
-def r_dep(host, client, ev):
+def deployment_cell(host, client, ev):
     d = ev["deployment"] = [bs(host).get("deployment"), bs(client).get("deployment")]
-    ok, red = d == [DEP_CD, DEP_CD], "" if d[1] else "the second player's briefing has no mission: "
-    return ok, f"{red}deployment host/client {d} (want {DEP_CD} on both)"
+    ok, why = d == [DEPLOYMENT, DEPLOYMENT], "" if d[1] else "the second player's briefing has no mission: "
+    return ok, f"{why}deployment host/client {d} (want {DEPLOYMENT} on both)"
 
 
-def r_play(host, client, ev):
+def play_cell(host, client, ev):
     host.ok({"cmd": "battle_action", "action": "end_turn_button"})
     time.sleep(2)
     d0 = [session.unit_of(gc, PLAY_ID).get("direction") for gc in (host, client)]
@@ -252,7 +261,8 @@ def r_play(host, client, ev):
     session.wait_host_idle(host, client, timeout=STEP_S)
     d1 = [session.unit_of(gc, PLAY_ID).get("direction") for gc in (host, client)]
     try:
-        hok, hdetail = bool(session.assert_hash_clean(host, client, full=True, what="R-play")), "all buckets EQUAL"
+        hok, hdetail = (bool(session.assert_hash_clean(host, client, full=True, what="client_turns_soldier")),
+                        "all buckets EQUAL")
     except AssertionError as e:
         hok, hdetail = False, "hash MISMATCH: " + str(e)[:500]
     ds, side = [es(gc).get("desyncSeen") for gc in (host, client)], [bs(gc).get("side") for gc in (host, client)]
@@ -263,55 +273,59 @@ def r_play(host, client, ev):
                 f"{side} (want 0 on both)")
 
 
-def row_r():
-    host_dir = make_user_dir("d246usd_r_host", saves=(FIXTURE,), options={"CoopTurnMode": "parallel"})
-    host, client = GameClient("host", 0, host_dir), GameClient("client", 0, make_user_dir("d246usd_r_client"))
+def row_old_save_converts():
+    host_dir = make_user_dir("old_custom_battle_host", saves=(FIXTURE,), options={"CoopTurnMode": "parallel"})
+    host, client = GameClient("host", 0, host_dir), GameClient("client", 0, make_user_dir("old_custom_battle_client"))
     ev = {}
     try:
         try:
-            boot("R", (host, client), host, os.path.basename(FIXTURE))
+            boot("old_save_converts", (host, client), host, os.path.basename(FIXTURE))
         except Miss:
-            return boot_failed("R", R_CELLS, ev), None
-        steps = {"R-load": (False, lambda ev: r_load(host, ev)), "R-cont": (True, lambda ev: r_cont(host, client, ev)),
-                 "R-seats": (False, lambda ev: r_seats(host, client, ev)), "R-mode": (False, lambda ev: r_mode(host, client, ev)),
-                 "R-dep": (False, lambda ev: r_dep(host, client, ev)), "R-play": (False, lambda ev: r_play(host, client, ev))}
-        cells = run_cells(R_CELLS, steps, ev)
+            return boot_failed("old_save_converts", CONVERT_CELLS, ev), None
+        steps = {"conversion_lines": (False, lambda ev: load_cell(host, ev)),
+                 "continue_battle": (True, lambda ev: continue_cell(host, client, ev)),
+                 "seat_split": (False, lambda ev: seats_cell(host, client, ev)),
+                 "played_mode": (False, lambda ev: mode_cell(host, client, ev)),
+                 "deployment_shared": (False, lambda ev: deployment_cell(host, client, ev)),
+                 "client_turns_soldier": (False, lambda ev: play_cell(host, client, ev))}
+        cells = run_cells(CONVERT_CELLS, steps, ev)
         path = os.path.join(host_dir, "xcom1", RESAVE)
         try:
             host.ok({"cmd": "save_game", "file": RESAVE})
             ev["resave"] = wait_until(lambda: os.path.exists(path), 10, 0.2)[0]
         except Exception as e:
             ev["resave"] = f"{type(e).__name__}: {str(e)[:300]}"
-        return report("R", R_CELLS, cells, ev), (path if ev["resave"] is True else None)
+        return report("old_save_converts", CONVERT_CELLS, cells, ev), (path if ev["resave"] is True else None)
     finally:
         shut(host, client)
 
 
-def row_v(resave):
+def row_resave_not_converted(resave):
     ev = {"resave": resave}
     if not resave:
-        print("CAPTURE V: missed row R wrote no re-save (R-save); {}", flush=True)
-        return boot_failed("V", V_CELLS, ev)
-    host = GameClient("host", 0, make_user_dir("d246usd_v_host", saves=(resave,)))
+        print("CAPTURE resave_not_converted: missed row old_save_converts wrote no re-save; {}", flush=True)
+        return boot_failed("resave_not_converted", RESAVE_CELLS, ev)
+    host = GameClient("host", 0, make_user_dir("old_custom_battle_resave_host", saves=(resave,)))
     try:
         try:
-            boot("V", (host,), host, RESAVE)
+            boot("resave_not_converted", (host,), host, RESAVE)
         except Miss:
-            return boot_failed("V", V_CELLS, ev)
+            return boot_failed("resave_not_converted", RESAVE_CELLS, ev)
 
-        def v_load(ev):
+        def resave_load(ev):
             lines, us = conv(host), units(host)
             sok, sdetail = seat_check(us)
             ev["convert"], ev["units"] = lines, ptable(us)
-            return (not lines and sok, f"{'' if sok else 'the next save kept the release tags: '}'{N_ANY}' lines "
-                                      f"{len(lines)} (want 0); {sdetail}")
-        return report("V", V_CELLS, run_cells(V_CELLS, {"V-load": (False, v_load)}, ev), ev)
+            return (not lines and sok, f"{'' if sok else 'the next save kept the older-version tags: '}'{N_ANY}' "
+                                      f"lines {len(lines)} (want 0); {sdetail}")
+        return report("resave_not_converted", RESAVE_CELLS,
+                      run_cells(RESAVE_CELLS, {"no_conversion_line": (False, resave_load)}, ev), ev)
     finally:
         shut(host)
 
 
-def row_n():
-    d = make_user_dir("d246usd_n_host")
+def row_solo_not_converted():
+    d = make_user_dir("old_custom_battle_solo_host")
     raw = open(FIXTURE, "rb").read().decode("utf-8")
     crlf = "\r\n" in raw
     solo, n = SOLO_RE.subn(lambda m: m.group(1) + "coop: 0", raw.replace("\r\n", "\n"))
@@ -321,25 +335,26 @@ def row_n():
     host = GameClient("host", 0, d)
     try:
         try:
-            boot("N", (host,), host, SOLO)
+            boot("solo_not_converted", (host,), host, SOLO)
         except Miss:
-            return boot_failed("N", N_CELLS, ev)
+            return boot_failed("solo_not_converted", SOLO_CELLS, ev)
 
-        def n_solo(ev):
+        def solo_load(ev):
             lines = ev["convert"] = conv(host)
             st = stack(host)
             return (not lines and st[-1] == "BattlescapeState" and ev["left"] == 0,
                     f"'{N_ANY}' lines {len(lines)} (want 0); stack {st} (want BattlescapeState on top); `coop: 1` lines "
                     f"rewritten {n}, left {ev['left']} (want 0 left)")
-        return report("N", N_CELLS, run_cells(N_CELLS, {"N-solo": (False, n_solo)}, ev), ev)
+        return report("solo_not_converted", SOLO_CELLS,
+                      run_cells(SOLO_CELLS, {"solo_save_loads": (False, solo_load)}, ev), ev)
     finally:
         shut(host)
 
 
 def main():
     t0 = time.time()
-    fails, resave = row_r()
-    fails += row_v(resave) + row_n()
+    fails, resave = row_old_save_converts()
+    fails += row_resave_not_converted(resave) + row_solo_not_converted()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_old_custom_battle: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
