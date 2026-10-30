@@ -329,6 +329,15 @@ void ConfirmLandingState::btnYesClick(Action *)
 				else if (b) factionScoreOwner = b->getOwnerPlayerName();
 				bgame->setFactionScoreOwnerPlayerName(factionScoreOwner);
 			}
+			// The host generates every single-world battle, including one requested by a
+			// client-owned craft. Bind briefing/equipment/debriefing context to that
+			// craft's real base rather than whichever base the host last viewed.
+			if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			{
+				const int missionBase = SeparateEcon::baseIndex(_game, _craft->getBase());
+				if (missionBase >= 0)
+					_game->getSavedGame()->setSelectedBase(static_cast<size_t>(missionBase));
+			}
 		}
 		_game->getSavedGame()->setBattleGame(bgame);
 		BattlescapeGenerator bgen(_game);

@@ -32217,6 +32217,19 @@ void onBlobChunkAppended(Game* game)
 	{
 		connectionTCP::coop_save_owner_player_id = 1;
 	}
+	// The loaded world starts on its first base. As the host does when it generates
+	// the battle, select the base of the player whose craft started it.
+	if (game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign())
+	{
+		const std::string& battleOwner = battle->getBattleOwnerPlayerName();
+		auto* bases = newSave->getBases();
+		for (size_t i = 0; !battleOwner.empty() && i < bases->size(); ++i)
+			if ((*bases)[i] && (*bases)[i]->isOwnedByPlayer(battleOwner))
+			{
+				newSave->setSelectedBase(i);
+				break;
+			}
+	}
 
 	CoopIdMaps::rebuildFrom(battle);
 
