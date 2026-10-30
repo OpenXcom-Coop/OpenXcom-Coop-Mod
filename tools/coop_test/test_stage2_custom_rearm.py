@@ -1,29 +1,30 @@
-"""MG-A-FS2 / AMENDMENT FS2-A row S2M (owner D282 (b) over H24-VL3, VL-FS2A-2; spec rewrite/prompts/fs2_sa_part2_rearm.md (f), ORCHESTRATOR
-RULINGS QA-1..QA-6; TASK 0 rewrite/fs2a-task0/sa/CONSTANTS.md): a partner lost between part 1 and part 2 of a CUSTOM-BATTLE Cydonia,
-mid-stream. Part 2 WAITS on the host; the partner rejoins from the server list, RESUME appears, part 2 is offered again and both play
-it. Moved here from test_stage2_failed_start.py; its Row / run_boot / CAPTURE helpers are copied from there.
+"""Row custom_rearm: a partner lost between part 1 and part 2 of a CUSTOM-BATTLE Cydonia, mid-stream. Part 2 WAITS on
+the host; the partner rejoins from the server list, RESUME appears, part 2 is offered again and both play it. Its Row /
+run_boot / CAPTURE helpers are copied from test_stage2_failed_start.py.
 
-ONE boot (boot M, lobby key KEY, dirs w2fs2a_s2m_host / _client / _client2): test_multistage.py's boot_landing
+ONE boot (boot_custom, lobby key KEY, dirs custom_rearm_host / _client / _client2): test_multistage.py's boot_landing
 (imported, unchanged). The client arms hold_blob_ack {on: true} (reply armed true) before trigger_stage_change, so the
-host's stage-2 blob waits after its first chunk: the window W2 (host phase Handshake battleId 2, client
-hold_blob_ack.held >= 1); client.kill(); the host observed W; client2 rejoins the custom battle
+host's stage-2 blob waits after its first chunk: the hold window (host phase Handshake battleId 2, client
+hold_blob_ack.held >= 1); client.kill(); the host observed for W; client2 rejoins the custom battle
 (test_skirmish_flow.skirmish_client_at_browser, then join_tcp with this key and the host's clientName); RESUME; part 2
 (session.briefings_to_battlescape(host, client2)).
 
-  S2M-1 GUARD stage-2 offer out (precondition): trigger_stage_change guards []; host phase Handshake battleId 2;
-        client hold_blob_ack.held >= 1; host log +1 hand-off; PART2(host) mapFingerprint FP2. A failure ends the row.
-  S2M-2 FIX   PARK +1 and UNWIND +0 (red today: PARK 0).
-  S2M-3 GUARD the host waits inside part 2: at W the stack ends [BriefingState, CoopState], dialog 62 backVisible false,
-        battle_state.inBattle true, phase Idle, mapFingerprint FP2.
-  S2M-4 FIX   the rejoin reaches RESUME: host resumeAck true within RJ, RESUME pressed, REJOIN_GUARD +0 (red today: resumeAck never
-        true, that line +1).
-  S2M-5 FIX   part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1; the spine to turn 1; PART2 on host and client2:
-        phase Active, equal battleId > 2, turn 1, missionType MT2, mapFingerprint FP2, xcom XCOM2; UNWIND 0. With no RESUME it fails at
-        once ("no RESUME").
-  S2M-6 GUARD CRASH 0.
-W = 15 s, POLL = 0.2 s, RJ = 60 s; UNWIND / PARK / REARM / OFFER / PART2 / CRASH as test_stage2_failed_start.py. EVIDENCE before
-each verdict; a failed row prints ONE CAPTURE line. ONE foreground run, no skip path; exit 0 only when every
-cell passes, else 2. Red (R1, the unchanged build): FAIL S2M-2, S2M-4, S2M-5; every other cell passes. Green (G1): every cell passes.
+  custom_rearm_1 GUARD stage-2 offer out (precondition): trigger_stage_change guards []; host phase Handshake
+        battleId 2; client hold_blob_ack.held >= 1; host log +1 hand-off; PART2(host) mapFingerprint FP2. A failure
+        ends the row.
+  custom_rearm_2 FIX   PARK +1 and UNWIND +0 (without the fix: PARK 0).
+  custom_rearm_3 GUARD the host waits inside part 2: at W the stack ends [BriefingState, CoopState], dialog 62
+        backVisible false, battle_state.inBattle true, phase Idle, mapFingerprint FP2.
+  custom_rearm_4 FIX   the rejoin reaches RESUME: host resumeAck true within RJ, RESUME pressed, REJOIN_GUARD +0
+        (without the fix: resumeAck never true, that line +1).
+  custom_rearm_5 FIX   part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1; the spine to turn 1;
+        PART2 on host and client2: phase Active, equal battleId > 2, turn 1, missionType MT2, mapFingerprint FP2,
+        xcom XCOM2; UNWIND 0. With no RESUME it fails at once ("no RESUME").
+  custom_rearm_6 GUARD CRASH 0.
+W = 15 s, POLL = 0.2 s, RJ = 60 s; UNWIND / PARK / REARM / OFFER / PART2 / CRASH as test_stage2_failed_start.py.
+EVIDENCE before each verdict; a failed row prints ONE CAPTURE line. ONE foreground run, no skip path; exit 0 only when
+every cell passes, else 2. Without the fix custom_rearm_2, custom_rearm_4 and custom_rearm_5 fail and every other cell
+passes; with it every cell passes.
 
 Run:  python tools/coop_test/test_stage2_custom_rearm.py
 """
@@ -35,7 +36,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
-import test_multistage as ms1  # noqa: E402
+import test_multistage as multistage  # noqa: E402
 from test_multistage import FACTION_PLAYER  # noqa: E402
 import test_skirmish_flow as SK  # noqa: E402
 
@@ -46,9 +47,9 @@ REARM, OFFER = "the waiting part 2 re-armed", "battle_offer sent (battleId="
 HANDOFF = "stage hand-off - battle 1 -> 2 offered (stageOf)"
 REJOIN_GUARD = "offerRejoinBattle() called while the battle is not"
 MT2 = "STR_MARS_THE_FINAL_ASSAULT"
-FP2 = -5.150191488730903e+18                               # the host's part 2 at the window (TASK 0 Ma = Mb = Mc)
-XCOM2 = {8: 1, 9: 1, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0}   # X-COM id -> seat in part 2 (TASK 0 3/3)
-NAME = "ClientPlayer"                                      # host get_coop.clientName at bring-up (TASK 0 3/3; read at run time)
+FP2 = -5.150191488730903e+18                               # the host's part 2 at the window (equal on three boots)
+XCOM2 = {8: 1, 9: 1, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0}   # X-COM id -> seat in part 2 (3 of 3 boots)
+NAME = "ClientPlayer"                                      # host clientName on 3 of 3 boots; read at run time
 BRF, COOP = "BriefingState", "CoopState"
 
 
@@ -138,7 +139,7 @@ class Row:
 
 
 def part2_cells(r, cid, host, c2, ctx, n_k, spine):
-    """S2X-8 / S2M-5: REARM +1 and OFFER +1 within 60 s of RESUME, the spine, PART2 on both, UNWIND 0."""
+    """custom_rearm_5: REARM +1 and OFFER +1 within 60 s of RESUME, the spine, PART2 on both, UNWIND 0."""
     if "t_resume" not in ctx:
         return r.cell(cid, "FIX", "part 2 starts for both", False, {"no RESUME": True})
     n_r, evd = ctx["n_resume"], {}
@@ -155,14 +156,15 @@ def part2_cells(r, cid, host, c2, ctx, n_k, spine):
           and all(p.get("phase") == "Active" and p.get("turn") == 1 and p.get("missionType") == MT2 and p.get("mapFingerprint") == ctx["FP2"]
                   and p.get("xcom") == ctx["XCOM2"] for p in (hp, cp)))
     r.cell(cid, "FIX", "part 2 starts for both: within 60 s of RESUME REARM +1 and OFFER +1, the spine to turn 1, PART2 host == client2: "
-           "Active, battleId > 2, turn 1, %s, mapFingerprint FP2, xcom XCOM2; UNWIND 0 (red today: no RESUME)" % MT2, ok, evd)
+           "Active, battleId > 2, turn 1, %s, mapFingerprint FP2, xcom XCOM2; UNWIND 0 (without the fix: no RESUME)"
+           % MT2, ok, evd)
 
 
 def capture(rid, host, ctx):
     live = [(gc.name, gc) for gc in (host, ctx.get("client2")) if gc is not None and rc(gc) is None and gc.proc is not None]
     cap = {n: {"stack": stack(gc), "event": ev(gc), "battle": part2(gc), "coop": coop(gc), "dialog": dlg(gc)} for n, gc in live}
     cap["host rc"] = rc(host)
-    cap["HL"] = [ln.split("\t")[-1][:200] for ln in log(host) if "[coop" in ln][-15:]
+    cap["hostLog"] = [ln.split("\t")[-1][:200] for ln in log(host) if "[coop" in ln][-15:]
     print("CAPTURE %s: %s" % (rid, json.dumps(cap, sort_keys=True, default=str)), flush=True)
 
 
@@ -175,7 +177,8 @@ def run_boot(rid, tag, boot, row, failed):
     try:
         try:
             info = boot(host, client, ctx)
-            print("[w2fs2a] %s boot ok: %s (%.1f s)" % (rid, json.dumps(info, default=str), time.time() - t0), flush=True)
+            print("[stage2_custom_rearm] %s boot ok: %s (%.1f s)"
+                  % (rid, json.dumps(info, default=str), time.time() - t0), flush=True)
         except Exception as e:
             print("EVIDENCE %s boot: %s\nFAIL %s: boot (setup failure)" % (rid, short(e, 600), rid), flush=True)
             capture(rid, host, {"client2": client})
@@ -193,9 +196,9 @@ def run_boot(rid, tag, boot, row, failed):
     return ok
 
 
-def boot_m(host, client, ctx):
-    ms1.PORT = KEY  # boot M: test_multistage's boot on this file's lobby key
-    info = ms1.boot_landing(host, client)
+def boot_custom(host, client, ctx):
+    multistage.PORT = KEY  # test_multistage's boot on this file's lobby key
+    info = multistage.boot_landing(host, client)
     ctx["name"] = coop(host).get("clientName") or NAME
     return dict(info, name=ctx["name"])
 
@@ -203,7 +206,7 @@ def boot_m(host, client, ctx):
 def rejoin_custom(host, ctx, n_j, evd):
     """client2 rejoins the custom battle from the server list (test_skirmish_rejoin_battle.rejoin_skirmish's two calls), RESUME"""
     try:
-        c2 = ctx["client2"] = GameClient("client2", 3, make_user_dir("w2fs2a_s2m_client2"))
+        c2 = ctx["client2"] = GameClient("client2", 3, make_user_dir("custom_rearm_client2"))
         c2.spawn(); c2.connect()
         SK.skirmish_client_at_browser(c2)
         evd["join_tcp"] = c2.cmd({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": ctx["name"]})
@@ -214,7 +217,7 @@ def rejoin_custom(host, ctx, n_j, evd):
         ctx["n_resume"] = len(log(host))
         evd["RESUME"] = session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
         ctx["t_resume"] = time.time()
-    except Exception as e:  # a timed-out wait or a machine gone: S2M-4's own evidence
+    except Exception as e:  # a timed-out wait or a machine gone: custom_rearm_4's own evidence
         evd["wait"] = short(e, 300)
     c2 = ctx.get("client2")
     evd.update({"host coop": coop(host), "host stack": stack(host), "host dialog": dlg(host), "client2 stack": stack(c2) if c2 else None,
@@ -222,13 +225,13 @@ def rejoin_custom(host, ctx, n_j, evd):
     return evd["host coop"].get("resumeAck") is True and (evd.get("RESUME") or {}).get("ok") is True and not evd["rejoin guard"]
 
 
-def row_s2m(host, client, crash0, ctx):
-    r = Row("S2M", ["S2M-%d" % i for i in range(1, 6)])
+def row_custom_rearm(host, client, crash0, ctx):
+    r = Row("custom_rearm", ["custom_rearm_%d" % i for i in range(1, 6)])
     ctx.update({"FP2": FP2, "XCOM2": XCOM2})
     try:
         hold = q(client, {"cmd": "hold_blob_ack", "on": True})
         n_h = len(log(host))
-        g = ms1.trigger_stage_change(host, client, ctx)
+        g = multistage.trigger_stage_change(host, client, ctx)
         t1, held, he = time.time(), None, {}
         while time.time() - t1 < 30.0:
             he, held = ev(host), q(client, {"cmd": "hold_blob_ack"}).get("held")
@@ -238,13 +241,13 @@ def row_s2m(host, client, crash0, ctx):
         win, hp, handoff = round(time.time() - t1, 2), part2(host), since(host, n_h, HANDOFF)
         ok1 = (not g and hold.get("armed") is True and len(handoff) == 1 and he.get("phase") == "Handshake" and he.get("battleId") == 2
                and isinstance(held, int) and held >= 1 and hp.get("mapFingerprint") == FP2)
-        r.cell("S2M-1", "GUARD", "stage-2 offer out (custom battle, mid-stream): trigger_stage_change guards [], "
-               "host Handshake battleId 2, client "
+        r.cell("custom_rearm_1", "GUARD", "stage-2 offer out (custom battle, mid-stream): trigger_stage_change "
+               "guards [], host Handshake battleId 2, client "
                "hold_blob_ack.held >= 1, host log +1 hand-off, PART2(host) mapFingerprint FP2 %r" % FP2, ok1,
                {"guards": g, "hold": hold, "handoff": handoff, "host": {k: v for k, v in he.items() if k != "stage"}, "held": held,
                 "s to the window": win, "hostStack": stack(host), "PART2 host": hp})
         if not ok1:
-            raise Stop("S2M-1 (precondition) failed")
+            raise Stop("custom_rearm_1 (precondition) failed")
         n_k = len(log(host))
         client.kill()
         tk, polls = time.time(), []
@@ -256,29 +259,33 @@ def row_s2m(host, client, crash0, ctx):
         path = {"first poll after the kill": {k: v for k, v in first.items() if k != "stage"},
                 "loss path": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first.get("phase"), "?"),
                 "host after": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]]}
-        r.cell("S2M-2", "FIX", "PARK +1 and UNWIND +0 (red today: PARK 0)", len(park) == 1 and not unw,
+        r.cell("custom_rearm_2", "FIX", "PARK +1 and UNWIND +0 (without the fix: PARK 0)", len(park) == 1 and not unw,
                {"PARK": park, "UNWIND": unw, "path": path})
-        r.cell("S2M-3", "GUARD", "the host waits inside part 2: stack ends [BriefingState, CoopState], dialog 62 backVisible false, "
-               "inBattle true, phase Idle, mapFingerprint FP2", hs1[-2:] == [BRF, COOP] and d.get("code") == 62
+        r.cell("custom_rearm_3", "GUARD", "the host waits inside part 2: stack ends [BriefingState, CoopState], "
+               "dialog 62 backVisible false, inBattle true, phase Idle, mapFingerprint FP2",
+               hs1[-2:] == [BRF, COOP] and d.get("code") == 62
                and d.get("backVisible") is False and hp1.get("inBattle") is True and hp1.get("phase") == "Idle"
                and hp1.get("mapFingerprint") == FP2, {"stack": hs1, "dialog": d, "PART2 host": hp1, "coop": coop(host)})
         evd, n_j = {}, len(log(host))
-        r.cell("S2M-4", "FIX", "the rejoin reaches RESUME: resumeAck true within %.0f s, RESUME pressed, offerRejoinBattle guard +0 (red "
-               "today: resumeAck never true, that line +1)" % RJ, rejoin_custom(host, ctx, n_j, evd), evd)
-        part2_cells(r, "S2M-5", host, ctx["client2"], ctx, n_k, lambda h, c: session.briefings_to_battlescape(h, c))
-    except Exception as e:  # the precondition, a timed-out wait, or a lever / kill() that raised: the row ends here
+        r.cell("custom_rearm_4", "FIX", "the rejoin reaches RESUME: resumeAck true within %.0f s, RESUME pressed, "
+               "offerRejoinBattle guard +0 (without the fix: resumeAck never true, that line +1)" % RJ,
+               rejoin_custom(host, ctx, n_j, evd), evd)
+        part2_cells(r, "custom_rearm_5", host, ctx["client2"], ctx, n_k,
+                    lambda h, c: session.briefings_to_battlescape(h, c))
+    except Exception as e:  # the precondition, a timed-out wait, or a raising test command / kill(): the row ends here
         r.stop(short(e))
     new = sorted(session._crash_log_snapshot() - crash0)
-    r.cell("S2M-6", "GUARD", "CRASH 0 (no new crash_*.log in this lane's crash folder since the row's baseline)", not new, new)
+    r.cell("custom_rearm_6", "GUARD", "CRASH 0 (no new crash_*.log in this lane's crash folder since the row's "
+           "baseline)", not new, new)
     if r.fails:
-        capture("S2M", host, ctx)
-    print(("PASS S2M" if not r.fails else "FAIL S2M: %s" % " ".join(r.fails)), flush=True)
+        capture("custom_rearm", host, ctx)
+    print(("PASS custom_rearm" if not r.fails else "FAIL custom_rearm: %s" % " ".join(r.fails)), flush=True)
     return not r.fails
 
 
 def main():
     t0, failed = time.time(), []
-    results = {"S2M": run_boot("S2M", "w2fs2a_s2m", boot_m, row_s2m, failed)}
+    results = {"custom_rearm": run_boot("custom_rearm", "custom_rearm", boot_custom, row_custom_rearm, failed)}
     bad = [rid for rid, ok in results.items() if not ok] + failed
     print("\ntest_stage2_custom_rearm: %d/1 rows passed (fail=%s) in %.1fs" % (sum(results.values()), bad, time.time() - t0),
           flush=True)
