@@ -35,8 +35,9 @@ Every row drags an item for real (Inventory::moveItem) and closes the screen:
        craft's items).
   SHARED
     4. client at the shared base: the host's report shows the client's layout.
-    5. client presses "de-assign all soldiers": every soldier leaves the craft
-       on both machines (in SHARED a player may unseat any soldier).
+    5. client presses "de-assign all soldiers": the client's own soldiers leave
+       the craft on both machines and the host's stay seated (in SHARED, too, a
+       player unseats only their own soldiers).
     7. the client's craft armor ctrl-click seats its soldier on the shared
        Skyranger and takes it off again, on both machines.
     10. the client loads a template "on top" of the shared Skyranger's items:
@@ -343,21 +344,36 @@ def shared_row():
         assert h == c, f"SHARED: soldier {sid}'s layout host={h} client={c}"
         print(f"PASS shared-client-layout: the host holds the client's layout {h}")
 
-        # 5. the client's "de-assign all soldiers" reaches the host
+        # 5. the client's "de-assign all soldiers" reaches the host and unseats only the
+        # client's own soldiers
         cid = T.craft_id(host, base)
-        seated = [s["id"] for s in T.report(host, base)["soldiers"] if s["craft"] == cid]
-        assert seated, "precondition: nobody on the shared Skyranger"
+        crew0 = [s for s in T.report(host, base)["soldiers"] if s["craft"] == cid]
+        own = [s["id"] for s in crew0 if s["owner"] == 1]
+        others = [s["id"] for s in crew0 if s["owner"] != 1]
+        assert own and others, (
+            f"precondition: the shared Skyranger carries soldiers of both players: "
+            f"{[(s['id'], s['owner']) for s in crew0]}")
         client.ok({"cmd": "craft_deassign", "base": base, "craft_id": cid, "all": True})
+
+        def seats(gc):
+            return [(i, (T.soldier_at(gc, base, i) or {}).get("craft")) for i in own + others]
+
         for gc in (host, client):
             try:
-                gc.wait_for(f"{gc.name}: everyone off the shared Skyranger",
+                gc.wait_for(f"{gc.name}: the client's soldiers off the shared Skyranger",
                             lambda gc=gc: all((T.soldier_at(gc, base, i) or {}).get("craft") == -1
-                                              for i in seated) or None, timeout=30, interval=0.3)
+                                              for i in own) or None, timeout=30, interval=0.3)
             except TimeoutError:
                 raise AssertionError(
-                    f"SHARED de-assign all: on {gc.name} the crew sits at "
-                    f"{[(i, (T.soldier_at(gc, base, i) or {}).get('craft')) for i in seated]}")
-        print(f"PASS shared-deassign-all: {len(seated)} soldier(s) off the Skyranger on both machines")
+                    f"SHARED de-assign all: on {gc.name} the client's soldiers {own} are not all "
+                    f"off; seats {seats(gc)}")
+        for gc in (host, client):
+            kept = [i for i in others if (T.soldier_at(gc, base, i) or {}).get("craft") == cid]
+            assert kept == others, (
+                f"SHARED de-assign all: on {gc.name} the client's button unseated the host's "
+                f"soldiers {sorted(set(others) - set(kept))}; seats {seats(gc)}")
+        print(f"PASS shared-deassign-all: the client's {len(own)} soldier(s) off the Skyranger, "
+              f"the host's {len(others)} still on it, on both machines")
 
         # 7. the client's craft armor ctrl-click on its own soldier
         armor_ctrl_click(client, host, client, base, cid, sid, cid,
