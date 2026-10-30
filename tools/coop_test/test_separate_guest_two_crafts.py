@@ -1,17 +1,19 @@
 """test_separate_guest_two_crafts.py: in SEPARATE every guest the client seats on any host craft flies with
-that craft, and a same-process reconnect refills the host's guest roster (docs rewrite/prompts/
-w2h19b_guest_store_per_craft.md (f); F6989, F6987; H19-Q4 (a), D226 (a), D104, D156, P7-6 VL2; TASK 0
-rewrite/w2h19b-task0/CONSTANTS.md "Run 3"; R-H19b-T0-1..3). Before W2-H19b the host keeps ONE guest roster per player,
-so a craft whose roster the client did not send last lands without its guest. ONE boot (lobby key 47347, F7526); the
-host's set_seed b1.SEED_P before every coop_mission_start; guests are read BY NAME on the host. Rows, one session:
-  H19b-1 battle1_two (Guest Zzz on Skyranger 1, Guest Yyy on the SECOND spawned Skyranger, id 3), land craft 1 ->
-         (1) the host's battle guests == ["Guest Zzz"]; (2) the host's soldiers[1] at the landing prompt == 2
-  H19b-2 end_battle, returns("client"), land_craft(3) -> (1) guard ["Guest Yyy"]; (2) soldiers[1] at the prompt == 2
-  H19b-3 end_battle, returns("host"), rejoin (save, same-process drop, join_tcp, RESUME) -> (1) guard: the host's
-         recvSeats == [1] within 5 s of both geoscapes; (2) soldiers[1] == 2
+that craft, and a same-process reconnect refills the host's guest roster. Without the fix the host keeps ONE guest
+roster per player, so a craft whose roster the client did not send last lands without its guest. ONE boot (lobby key
+47347); the host's set_seed bes.SEED_P before every coop_mission_start; guests are read BY NAME on the host. Rows,
+one session:
+  first_craft_lands   battle1_two (Guest Zzz on Skyranger 1, Guest Yyy on the SECOND spawned Skyranger, id 3), land
+                      craft 1 -> (1) the host's battle guests == ["Guest Zzz"]; (2) the host's soldiers[1] at the
+                      landing prompt == 2
+  second_craft_lands  end_battle, returns("client"), land_craft(3) -> (1) guard ["Guest Yyy"]; (2) soldiers[1] at the
+                      prompt == 2
+  rejoin_refill       end_battle, returns("host"), rejoin (save, same-process drop, join_tcp, RESUME) -> (1) guard:
+                      the host's recvSeats == [1] within 5 s of both geoscapes; (2) soldiers[1] == 2
 Pre-cell steps are guards (a miss = setup failure: ONE CAPTURE line, later rows "not reached"); cells are independent.
-RED (product untouched): H19b-1 cells 1+2, H19b-2 cell 2, H19b-3 cell 2. GREEN: all. ONE "EVIDENCE <id>:" line, then
-PASS/FAIL per row. ONE foreground run, no skip path; exit 0 only when every row passes, else 2.
+Without the fix first_craft_lands cells 1 and 2, second_craft_lands cell 2 and rejoin_refill cell 2 fail; with the fix
+every row passes. ONE "EVIDENCE <id>:" line, then PASS/FAIL per row. ONE run, no skip path; exit 0 only when every
+row passes, else 2.
 """
 import os
 import sys
@@ -20,22 +22,22 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session
 from session import battle_state, has_state
-import test_battle_end_separate as b1
-import test_separate_guest_second_battle as h19
+import test_battle_end_separate as bes
+import test_separate_guest_second_battle as sgsb
 
-PORT, TAG = "47347", "w2h19b"   # lobby key 47347 has 0 matches in tools/ + src/ at every w2* / rewrite* tip
+PORT, TAG = "47347", "guest_two_crafts"   # no other test uses lobby key 47347
 SEAT = 1                # the client's seat = the index of the host's guestContrib.soldiers
 ZZZ, YYY, SKY = "Guest Zzz", "Guest Yyy", "STR_SKYRANGER"
-C2_ID = 3               # R-H19b-T0-1: the SECOND spawned Skyranger (craft ids are per type; Interceptor 2 shadows id 2)
-SENT_S = 5.0            # the client's sent == 2 after leave_base (TASK 0 P3: 0.10 s)
-UNSEAT_S = 10.0         # the host's ClientBase mirror shows the client's unseat (TASK 0: first poll)
-FNV_S = 30.0            # R-H19b-T0-2: the host's copy-of-client changes after the client's return (TASK 0: first poll)
-STORE_S = 5.0           # the host's store refilled after the client's return, before the drop (TASK 0: first poll)
-REFILL_S = 5.0          # H19b-3: the host's store within 5 s of both geoscapes (TASK 0 P10: 0.30 s)
+CRAFT2_ID = 3           # the SECOND spawned Skyranger (craft ids are per type; Interceptor 2 shadows id 2)
+SENT_S = 5.0            # the client's sent == 2 after leave_base (measured 0.10 s)
+UNSEAT_S = 10.0         # the host's ClientBase mirror shows the client's unseat (measured: the first poll)
+FNV_S = 30.0            # the host's copy-of-client changes after the client's return (measured: the first poll)
+STORE_S = 5.0           # the host's store refilled after the client's return, before the drop (measured: first poll)
+REFILL_S = 5.0          # rejoin_refill: the host's store within 5 s of both geoscapes (measured 0.30 s)
 DROP_S, JOIN_S, GEO_S = 30.0, 120.0, 60.0
-SESSION = h19.SESSION   # each row's ctx once its stage passed, read by the next row (h19.boot's "not reached" gate)
-gc_ = h19.gcontrib
-names = lambda h: sorted(g.get("name") for g in h19.guests(h))   # noqa: E731 the (f) helper: the host's battle guests
+SESSION = sgsb.SESSION   # each row's ctx once its stage passed, read by the next row (sgsb.boot's "not reached" gate)
+gc_ = sgsb.gcontrib
+names = lambda h: sorted(g.get("name") for g in sgsb.guests(h))   # noqa: E731 the host's battle guests
 
 def store(snap):
     return (snap.get("soldiers") or [None, None])[SEAT]
@@ -47,29 +49,30 @@ def dialogs(h, c):
     try:
         return {gc.name: dlg(gc) for gc in (h, c)}
     except Exception as e:
-        return b1.short(e)
+        return bes.short(e)
 
 def miss(ctx, name, err, h, c):
-    """h19.miss (base_report {coop}, [coop-debrief]/[coop-gift] lines, b1.capture's event_states) + coop_dialog_info."""
+    """sgsb.miss (base_report {coop}, [coop-debrief]/[coop-gift] lines, bes.capture's event_states) +
+    coop_dialog_info."""
     ctx["missDialogs"] = dialogs(h, c)
-    h19.miss(ctx, name, err, h, c)
+    sgsb.miss(ctx, name, err, h, c)
 
 def run(ctx, h, c, segs):
-    """h19.run_segments; any exception is ONE capture through miss() (an h19 helper's own miss adds the dialogs)."""
+    """sgsb.run_segments; any exception is ONE capture through miss() (an sgsb helper's own miss adds the dialogs)."""
     def guard(name, fn):
         def go():
             try:
                 fn()
-            except b1.FixtureMiss:
+            except bes.FixtureMiss:
                 ctx.setdefault("missDialogs", dialogs(h, c))
                 raise
             except Exception as e:
-                miss(ctx, name, b1.short(e, 800), h, c)
+                miss(ctx, name, bes.short(e, 800), h, c)
         return name, go
-    h19.run_segments(ctx, h, c, [guard(n, f) for n, f in segs])
+    sgsb.run_segments(ctx, h, c, [guard(n, f) for n, f in segs])
 
 def wait_for(ctx, h, c, name, pred, timeout, interval, err):
-    ok, secs = b1.wait_until(pred, timeout, interval)
+    ok, secs = bes.wait_until(pred, timeout, interval)
     ctx.setdefault("waits", {})[name] = secs
     if not ok:
         miss(ctx, name, err(), h, c)
@@ -79,9 +82,9 @@ def crafts(gc, coop, cid):   # base_report ({coop: true} = the peer's base seen 
     return [(x.get("type"), x.get("soldiers")) for x in r.get("crafts") or [] if x.get("id") == cid], r.get("name")
 
 def second_guest(h, c, ctx):
-    """pre_mission_start hook (Zzz on Skyranger 1): two host Skyrangers, the second = craft 2 (R-H19b-T0-1) + two host
-    soldiers; the client unseats one own soldier (R-H19b-T0-3) -> Guest Yyy -> transfer -> seat on craft 2 from the
-    visited base -> leave; guard: the client's sent == 2 within SENT_S (0 during the visit, F6983)."""
+    """pre_mission_start hook (Zzz on Skyranger 1): two host Skyrangers, the second = craft 2 + two host soldiers;
+    the client unseats one own soldier -> Guest Yyy -> transfer -> seat on craft 2 from the
+    visited base -> leave; guard: the client's sent == 2 within SENT_S (0 during the visit)."""
     g = ctx.setdefault("second", {})
     hb = session._campaign_own_roster_base(h)
     base = ctx["hostBase"] = hb["name"]
@@ -89,9 +92,9 @@ def second_guest(h, c, ctx):
     g["spawns"] = [h.cmd({"cmd": "spawn_craft", "type": SKY}).get("craft_id") for _ in range(2)]
     c2 = ctx["c2"] = g["spawns"][1]
     g["c2SameId"], name = crafts(h, False, c2)
-    if c2 != C2_ID or name != base or [t for t, _n in g["c2SameId"]] != [SKY]:
+    if c2 != CRAFT2_ID or name != base or [t for t, _n in g["c2SameId"]] != [SKY]:
         miss(ctx, "second_guest craft 2", f"spawns {g['spawns']}, host base_report {name!r} crafts with id {c2}: "
-             f"{g['c2SameId']} (want exactly one, id {C2_ID}, {SKY}; R-H19b-T0-1)", h, c)
+             f"{g['c2SameId']} (want exactly one, id {CRAFT2_ID}, {SKY})", h, c)
     free = sorted(s["id"] for s in hb["soldiers"] if s.get("craftId") == -1 and "Guest" not in s["name"])[:2]
     g["hostSeats"] = [h.cmd({"cmd": "craft_assign", "craft_id": c2, "soldier_id": sid, "on": True,
                              "base": base}).get("seated") for sid in free]
@@ -106,11 +109,11 @@ def second_guest(h, c, ctx):
     x, want = on1[-1], [sky1[0] - 1]
     ru = c.cmd({"cmd": "craft_assign", "craft_id": 1, "soldier_id": x, "on": False, "base": cb["name"]})
     g["unseat"] = {"id": x, "resp": {k: ru.get(k) for k in ("ok", "seated", "error")},
-                   "clientCraftId": b1.soldier_rec(c, sid=x).get("craftId")}
+                   "clientCraftId": bes.soldier_rec(c, sid=x).get("craftId")}
     if not (ru.get("ok") and ru.get("seated") is False and g["unseat"]["clientCraftId"] == -1):
         miss(ctx, "second_guest unseat", f"client unseat {g['unseat']} (want unseated, craftId -1)", h, c)
     wait_for(ctx, h, c, "second_guest unseat host", lambda: mirror1() == want, UNSEAT_S, 0.1,
-             lambda: f"the host's mirror Skyranger 1 != {want} within {UNSEAT_S}s (R-H19b-T0-3)")
+             lambda: f"the host's mirror Skyranger 1 != {want} within {UNSEAT_S}s")
     spare = next(s["name"] for s in session._campaign_own_roster_base(c)["soldiers"] if s["id"] == x)
     g["rename"] = c.cmd({"cmd": "rename_soldier", "name": spare, "newName": YYY}).get("ok")
     g["transfer"] = c.cmd({"cmd": "transfer_to_coop_base", "name": "Yyy", "toBase": base}).get("transferred")
@@ -141,15 +144,15 @@ def battle1_two(h, c, ctx, port):
     """bring_up_separate_guest_battle + second_guest; pre_landing: both gcontribs, set_seed SEED_P. No guest guard."""
     def pin(hh, cc):
         ctx["battle1Prompt"] = {"host": gc_(hh), "client": gc_(cc)}
-        hh.ok({"cmd": "set_seed", "seed": b1.SEED_P})
+        hh.ok({"cmd": "set_seed", "seed": bes.SEED_P})
     ctx["hostSquad"], ctx["guestId"] = session.bring_up_separate_guest_battle(
         h, c, port=port, pre_landing=pin, pre_mission_start=lambda hh, cc: second_guest(hh, cc, ctx),
-        staged=False)  # cit-p1a keep: H19b-1 reads the store at the landing prompt
-    ctx["battle1"] = {"guests": h19.guests(h), "tops": (b1.top(h), b1.top(c)),
+        staged=False)  # the full flight: first_craft_lands reads the store at the landing prompt
+    ctx["battle1"] = {"guests": sgsb.guests(h), "tops": (bes.top(h), bes.top(c)),
                       "mapFingerprint": (battle_state(h).get("mapFingerprint"), battle_state(c).get("mapFingerprint"))}
 
 def land_craft(h, c, ctx, key, cid):
-    """h19.land with the craft id as a parameter; both gcontribs at the landing prompt."""
+    """sgsb.land with the craft id as a parameter; both gcontribs at the landing prompt."""
     L = ctx.setdefault(key, {"craft": cid})
     session.drain_host_coop_notice(h)
     b0 = session._campaign_base0(h)
@@ -171,22 +174,22 @@ def land_craft(h, c, ctx, key, cid):
         return None
     h.wait_for("host landing prompt", landing_prompt, timeout=120, interval=0.5)
     L["atPrompt"] = {"host": gc_(h), "client": gc_(c)}
-    h.ok({"cmd": "set_seed", "seed": b1.SEED_P})
+    h.ok({"cmd": "set_seed", "seed": bes.SEED_P})
     h.ok({"cmd": "coop_mission_start"})
     h.wait_for("host entered", lambda: battle_state(h).get("inBattle") or None, timeout=120, interval=1.0)
     h.wait_for("host briefing", lambda: has_state(h, "BriefingState"), timeout=60, interval=0.5)
     if not session.drive_both_to_tactical(h, c):
-        raise TimeoutError(f"drive_both_to_tactical timed out (host={b1.stack(h)[-3:]} client={b1.stack(c)[-3:]})")
-    L["entry"] = {"tops": [b1.top(h), b1.top(c)], "guests": h19.guests(h),
+        raise TimeoutError(f"drive_both_to_tactical timed out (host={bes.stack(h)[-3:]} client={bes.stack(c)[-3:]})")
+    L["entry"] = {"tops": [bes.top(h), bes.top(c)], "guests": sgsb.guests(h),
                   "mapFingerprint": (battle_state(h).get("mapFingerprint"), battle_state(c).get("mapFingerprint"))}
     if L["entry"]["tops"] != ["BattlescapeState", "BattlescapeState"]:
         miss(ctx, key + " tactical", f"tops (host, client) {L['entry']['tops']} (want both BattlescapeState)", h, c)
 
 def returns_host(h, c, ctx):
-    """returns("host"); the host's copy-of-client fnv changes (R-H19b-T0-2); recvSeats [1] (drop store non-vacuous)."""
-    f0 = ctx["fnv0"] = b1.coop_fnv(h, "host_copy_of_client")[0]
-    h19.returns(h, c, ctx, "host")
-    wait_for(ctx, h, c, "predrop fnv", lambda: b1.coop_fnv(h, "host_copy_of_client")[0] not in (f0, None, ""),
+    """returns("host"); the host's copy-of-client fnv changes; recvSeats [1] (drop store non-vacuous)."""
+    f0 = ctx["fnv0"] = bes.coop_fnv(h, "host_copy_of_client")[0]
+    sgsb.returns(h, c, ctx, "host")
+    wait_for(ctx, h, c, "predrop fnv", lambda: bes.coop_fnv(h, "host_copy_of_client")[0] not in (f0, None, ""),
              FNV_S, 0.1, lambda: f"the host's copy-of-client fnv still {f0} {FNV_S}s after the client's return")
     wait_for(ctx, h, c, "predrop store", lambda: gc_(h).get("recvSeats") == [SEAT], STORE_S, 0.05,
              lambda: f"host guestContrib {gc_(h)} {STORE_S}s after the client's return (want recvSeats [1])")
@@ -206,11 +209,11 @@ def rejoin(h, c, ctx, port):
         miss(ctx, "rejoin save_game", f"host save_game ok {J['save']}", h, c)
     t0 = time.time()
     J["disconnect"] = c.cmd({"cmd": "disconnect_to_menu"}).get("ok")
-    for key, pred in (("clientMenu", lambda: b1.top(c) == "MainMenuState"),
+    for key, pred in (("clientMenu", lambda: bes.top(c) == "MainMenuState"),
                       ("hostNoSession", lambda: not h.cmd({"cmd": "get_coop"}).get("coopSession")),
                       ("host62", lambda: dlg(h).get("code") == 62)):
         wait_for(ctx, h, c, "rejoin drop " + key, pred, DROP_S, 0.1,
-                 lambda: f"stacks {b1.stack(h)} / {b1.stack(c)}, host dialog {dlg(h)} {DROP_S}s after the drop")
+                 lambda: f"stacks {bes.stack(h)} / {bes.stack(c)}, host dialog {dlg(h)} {DROP_S}s after the drop")
         t[key] = round(time.time() - t0, 2)
     J["afterDrop"] = gc_(h)
     if J["afterDrop"].get("recvSeats") != []:
@@ -229,8 +232,8 @@ def rejoin(h, c, ctx, port):
     clear_profiles(h, c)
     J["resume"] = {k: v for k, v in h.cmd({"cmd": "coop_dialog_back"}).items() if k in ("ok", "code", "error")}
     t2 = time.time()
-    wait_for(ctx, h, c, "rejoin geo", lambda: clear_profiles(h, c) or (b1.geo_clean(h) and b1.geo_clean(c)),
-             GEO_S, 0.1, lambda: f"stacks {b1.stack(h)} / {b1.stack(c)} {GEO_S}s after RESUME {J['resume']}")
+    wait_for(ctx, h, c, "rejoin geo", lambda: clear_profiles(h, c) or (bes.geo_clean(h) and bes.geo_clean(c)),
+             GEO_S, 0.1, lambda: f"stacks {bes.stack(h)} / {bes.stack(c)} {GEO_S}s after RESUME {J['resume']}")
     t3 = time.time()
     t.update({"bothGeoFromResume": round(t3 - t2, 2), "bothGeoFromDrop": round(t3 - t0, 2)})
     ref = J["refill"] = []
@@ -243,27 +246,28 @@ def rejoin(h, c, ctx, port):
             break
         time.sleep(0.25)
     J["final"] = {"host": gc_(h), "client": gc_(c)}
-    J["coopCraft"] = [sorted({r.get("coopCraft") for r in b1.soldier_recs(c, name=n)[0]}) for n in (ZZZ, YYY)]
+    J["coopCraft"] = [sorted({r.get("coopCraft") for r in bes.soldier_recs(c, name=n)[0]}) for n in (ZZZ, YYY)]
     if J["coopCraft"] != [[ctx["c1"]], [ctx["c2"]]]:
         miss(ctx, "rejoin seats", f"the client's own Guest Zzz / Guest Yyy coopCraft {J['coopCraft']} (want "
-             f"[[{ctx['c1']}], [{ctx['c2']}]]: the host's served copy lost a seat, P7-6 VL2)", h, c)
+             f"[[{ctx['c1']}], [{ctx['c2']}]]: the host's served copy lost a seat)", h, c)
 
 def cell_names(h, ctx, want, msg):
     g = ctx["guestNames"] = names(h)
     return [] if g == want else [msg] if not g else [f"the host's battle guests {g} (want {want})"]
 
 def cell_store(n, when):
-    return [] if n == 2 else ["the host stores 1 of the client's 2 seated guests (one roster per player, F6989)"] \
+    return [] if n == 2 else ["the host stores 1 of the client's 2 seated guests (one roster per player)"] \
         if n == 1 else [f"the host's guestContrib.soldiers[1] {n!r} {when} (want 2)"]
 
 def cell_refill(ctx):
     first = ctx["refillAt"] = next((r[0] for r in ctx["rejoin"]["refill"] if r[1] == [SEAT]), None)
     return [] if first is not None else [f"the host's recvSeats never [1] within {REFILL_S}s of both geoscapes "
-                                         f"(F6987: a same-process reconnect never resends the roster)"]
+                                         f"(a same-process reconnect never resends the roster)"]
 
 def every(cells):
-    """b1.run_row ends a row at its first failed cell; these cells are independent ((f): H19b-1 names both red), so
-    ONE run_row cell checks each and names each failure; ctx["cellsAll"] holds every cell's result."""
+    """bes.run_row ends a row at its first failed cell; these cells are independent (without the fix both of
+    first_craft_lands' cells fail), so ONE run_row cell checks each and names each failure; ctx["cellsAll"] holds
+    every cell's result."""
     def cells_fn(h, c, ctx):
         def check():
             out, fails = ctx.setdefault("cellsAll", []), []
@@ -271,11 +275,11 @@ def every(cells):
                 try:
                     f = fn()
                 except Exception as e:
-                    f = [b1.short(e, 600)]
+                    f = [bes.short(e, 600)]
                 out.append({"cell": name, "pass": not f, "fails": f})
                 fails += [f"({name.split(' ')[0]}) {m}" for m in f]
             return fails
-        return [("1-2", check)]
+        return [("every_cell", check)]
     return cells_fn
 
 def stage(prev, segs):
@@ -287,29 +291,34 @@ def stage(prev, segs):
         SESSION[rid] = ctx
     return stage_fn
 
-MSG1 = "the guest seated on the landing craft is not in the battle: the host kept only the other craft's roster (F6989)"
+MSG_NOT_IN_BATTLE = ("the guest seated on the landing craft is not in the battle: the host kept only the other"
+                     " craft's roster")
 ROWS = [
-    ("H19b-1", stage(None, lambda h, c, x: [("battle1_two", lambda: battle1_two(h, c, x, PORT))]),
-     every(lambda h, c, x: [("1 the guest seated on craft 1 is in battle 1", lambda: cell_names(h, x, [ZZZ], MSG1)),
+    ("first_craft_lands", stage(None, lambda h, c, x: [("battle1_two", lambda: battle1_two(h, c, x, PORT))]),
+     every(lambda h, c, x: [("1 the guest seated on craft 1 is in battle 1",
+                             lambda: cell_names(h, x, [ZZZ], MSG_NOT_IN_BATTLE)),
                             ("2 the host stores both seated guests at the craft-1 prompt",
                              lambda: cell_store(store(x["battle1Prompt"]["host"]), "at the craft-1 prompt"))]), None),
-    ("H19b-2", stage("H19b-1", lambda h, c, x: [("end_battle1", lambda: h19.end_battle(h, c, x, "end1")),
-                                                ("returns_client", lambda: h19.returns(h, c, x, "client")),
-                                                ("land_c2", lambda: land_craft(h, c, x, "land2", x["c2"]))]),
+    ("second_craft_lands",
+     stage("first_craft_lands", lambda h, c, x: [("end_battle1", lambda: sgsb.end_battle(h, c, x, "end1")),
+                                                 ("returns_client", lambda: sgsb.returns(h, c, x, "client")),
+                                                 ("land_c2", lambda: land_craft(h, c, x, "land2", x["c2"]))]),
      every(lambda h, c, x: [("1 the guest seated on craft 2 is in battle 2", lambda: cell_names(
          h, x, [YYY], "Guest Yyy, seated on the landing craft, is not in battle 2")),
          ("2 the host stores both seated guests at the craft-2 prompt",
-          lambda: cell_store(store(x["land2"]["atPrompt"]["host"]), "at the craft-2 prompt"))]), "H19b-1"),
-    ("H19b-3", stage("H19b-2", lambda h, c, x: [("end_battle2", lambda: h19.end_battle(h, c, x, "end2")),
-                                                ("returns_host", lambda: returns_host(h, c, x)),
-                                                ("rejoin", lambda: rejoin(h, c, x, PORT))]),
+          lambda: cell_store(store(x["land2"]["atPrompt"]["host"]), "at the craft-2 prompt"))]), "first_craft_lands"),
+    ("rejoin_refill",
+     stage("second_craft_lands", lambda h, c, x: [("end_battle2", lambda: sgsb.end_battle(h, c, x, "end2")),
+                                                  ("returns_host", lambda: returns_host(h, c, x)),
+                                                  ("rejoin", lambda: rejoin(h, c, x, PORT))]),
      every(lambda h, c, x: [("1 the host's store refilled within 5 s of both geoscapes", lambda: cell_refill(x)),
                             ("2 the host stores both seated guests after the rejoin",
-                             lambda: cell_store(store(x["rejoin"]["final"]["host"]), "after the rejoin"))]), "H19b-2")]
+                             lambda: cell_store(store(x["rejoin"]["final"]["host"]), "after the rejoin"))]),
+     "second_craft_lands")]
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    h19.boot("H19b", PORT, ROWS, results, walls)   # spawn/connect (miss: ONE CAPTURE, rows FAIL "boot"), run_row
+    sgsb.boot("two_crafts", PORT, ROWS, results, walls)   # spawn/connect (miss: ONE CAPTURE, rows FAIL "boot"), run_row
     order = [r[0] for r in ROWS]
     passed, failed = [r for r in order if results.get(r)], [r for r in order if not results.get(r)]
     print(f"\ntest_separate_guest_two_crafts: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) "
