@@ -328,20 +328,6 @@ void LoadGameState::think()
 			}
 			else
 			{
-				// An authoritative campaign snapshot already contains its live
-				// SavedBattleGame. Resume it directly instead of discarding it and
-				// requesting the same battle in a second transfer.
-				const bool coopBattleResumeWorld = _loadCoopProgress
-					&& _game->getSavedGame()->getSavedBattle() != nullptr;
-				if (coopBattleResumeWorld
-					&& connectionTCP::session.lobbyMode != 0
-					&& _game->getCoopMod()->getServerOwner() == false)
-				{
-					// This is an already-running saved battle, not a newly dispatched
-					// mission. The removed phase-two transfer used to clear this flag;
-					// keep the combined path from reopening Briefing and Inventory.
-					_game->getCoopMod()->inventory_battle_window = false;
-				}
 				Options::baseXResolution = Options::baseXGeoscape;
 				Options::baseYResolution = Options::baseYGeoscape;
 				_game->getScreen()->resetDisplay(false);
@@ -355,11 +341,10 @@ void LoadGameState::think()
 				// coop fix
 				if (_loadCoopProgress == true)
 				{
-					// A geoscape-only resume must not retain a stale tactical save.
-					// A combined battle resume deliberately keeps the battle embedded
-					// in this same authoritative snapshot.
-					if (!coopBattleResumeWorld)
-						_game->getSavedGame()->setBattleGame(0);
+					// A streamed world never resumes its embedded battle here: the
+					// host offers that battle through the battle handshake once this
+					// client acknowledges the world.
+					_game->getSavedGame()->setBattleGame(0);
 
 					// resume/rejoin: report the loaded world to the host and
 					// hold with frozen time until it resumes (F3/F4/D5)
@@ -375,13 +360,11 @@ void LoadGameState::think()
 						// (base naming, battle phase two), which hold nothing and must not
 						// be answered with a campaign_begun.
 						root["adoptedWorld"] = true;
-						root["combinedBattle"] = coopBattleResumeWorld;
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
-						// A normal world resume waits for the host's release. A combined
-						// battle resume enters its Battlescape below without a second hold.
-						if (!coopBattleResumeWorld)
-							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+						// (in a battle resume the host's battle offer replaces the
+						// whole state stack, dialog included)
+						_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 					}
 				}
 
