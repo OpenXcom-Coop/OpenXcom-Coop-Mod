@@ -1,15 +1,15 @@
-"""W2-H16g (F6711; D226 a; Q1 a .. Q6 a; R-H16g-1): each unit a SHARED production makes reaches the replica in the hour the
-host makes it - intermediate units, the last unit counted once, a spawned soldier (owned by the player who started the
-production), personnel / delivery / random outputs, a craft with a transfer time, fallback engineers. Spec docs
-rewrite/prompts/w2h16g_production_soldier.md (e)-(f); TASK 0 rewrite/w2h16g-task0/CONSTANTS.md, its ten changes applied
-(R-H16g-T0-1). Lever (test-only, read-only): prod_fx_probe. Real starts: manufacture_start (the real ManufactureInfoState,
-SHARED man_start) and shared_cmd man_start (fallback). Boot A (SHARED): H16g-1..6 (H16g-6 last: its drift is never
-repaired); Boot B (SEPARATE): H16g-7. Row frame: S0 (both probes agree) -> staging -> roll-to-unit (speed 1 until the host's
-probe shows the row's change) -> hold (host SoldiersState: no heartbeat, the host's clock stops) -> window (both probes every
-0.25 s for 3 s; the row's cells read at the FIRST sample) -> release (speed 0 on both, host close_screens, drain both; on a
-row whose cells passed, the client's `requests` stays R0 for 4 s). RED (commit 1): H16g-1..6 fail on their named cells,
-H16g-7 passes; GREEN: all pass. "guard:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE then
-PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
+"""test_production_effects.py: each unit a SHARED production makes reaches the replica in the hour the host makes it -
+intermediate units, the last unit counted once, a spawned soldier (owned by the player who started the production),
+personnel / delivery / random outputs, a craft with a transfer time, fallback engineers. Test hook (read-only):
+prod_fx_probe. Real starts: manufacture_start (the real ManufactureInfoState, SHARED man_start) and shared_cmd
+man_start (fallback). The SHARED boot: intermediate_unit, last_unit_once, spawned_soldier, personnel_delivery_random,
+craft_transfer, fallback_engineers (fallback_engineers last: its drift is never repaired); the SEPARATE boot:
+separate_own_step. Row frame: S0 (both probes agree) -> staging -> roll-to-unit (speed 1 until the host's probe shows
+the row's change) -> hold (host SoldiersState: no heartbeat, the host's clock stops) -> window (both probes every 0.25
+s for 3 s; the row's cells read at the FIRST sample) -> release (speed 0 on both, host close_screens, drain both; on a
+row whose cells passed, the client's `requests` stays R0 for 4 s). Without the fix the six SHARED rows fail on their
+named cells and separate_own_step passes. "guard:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE
+then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
 import json
@@ -25,13 +25,13 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ProdFx_Test")
-BOOT_A = ("w2h16ga", (49388, 49389, 47368))     # SHARED; lobby 47368
-BOOT_B = ("w2h16gb", (49390, 49391, 47370))     # SEPARATE; lobby 47370
+BOOT_SHARED = ("production_effects_shared", (49388, 49389, 47368))       # SHARED; lobby 47368
+BOOT_SEPARATE = ("production_effects_separate", (49390, 49391, 47370))   # SEPARATE; lobby 47370
 ROCKETS, SOLDIER, SCIENTIST, DELIVERY, RANDOM, CRAFT, FALLBACK = ("STR_PRODFX_" + n for n in (
     "ROCKETS", "SOLDIER", "SCIENTIST", "DELIVERY", "RANDOM", "CRAFT", "FALLBACK"))
 SR, LR, INT = "STR_SMALL_ROCKET", "STR_LARGE_ROCKET", "STR_INTERCEPTOR"
-IDS = ("STR_SOLDIER", INT)       # change 2: only the counters a production moves (host UFO generation moves others)
-HANGAR = (4, 0)                  # change 8: TASK 0 (v), accepted at index 9
+IDS = ("STR_SOLDIER", INT)       # only the counters a production moves (host UFO generation moves others)
+HANGAR = (4, 0)                  # the hangar site; a hangar built there lands at facility index 9 (measured)
 S0_S, ROLL_S, ROLL_I, WIN_S, WIN_I, POST_S, UI_S = 20.0, 30.0, 0.1, 3.0, 0.25, 4.0, 5.0
 GEO, SS = "GeoscapeState", "SoldiersState"
 
@@ -67,8 +67,8 @@ def new_tr(p0, p): return trs(p)[len(p0.get("transfers") or []):]  # noqa: E704
 
 
 def view(p):
-    """What S0 compares (spec (f) row frame): funds, stores, transfers WITHOUT hours (change 3: the replica's transfer hours
-    never advance), crafts, engineers, the production counters (change 2)."""
+    """What S0 compares: funds, stores, transfers WITHOUT hours (the replica's transfer hours never advance), crafts,
+    engineers, the production counters."""
     return {"funds": p.get("funds"), "stores": p.get("stores"), "transfers": trs(p, False), "crafts": p.get("crafts"),
             "engineers": p.get("engineers"), "ids": ids(p)}
 
@@ -98,7 +98,7 @@ class Row:
 
 
 def capture(x, tag):
-    """Setup-failure dump (STOP-IF 3): both machines' prod_fx_probe, transform_probe, shared_stats, shared_resync_stats, stack."""
+    """Setup-failure dump: both machines' prod_fx_probe, transform_probe, shared_stats, shared_resync_stats, stack."""
     cap = {}
     for gc in (x.host, x.client):
         try:
@@ -118,7 +118,7 @@ def guard(r, x, name, ok, detail):
 
 
 def speed(x, idx):
-    """geo_set_speed on each machine directly (works with a popup on top, R-H18-1); host first, as geo._apply_speed."""
+    """geo_set_speed on each machine directly (works with a popup on top); host first, as geo._apply_speed."""
     return {gc.name: pick(gc.cmd({"cmd": "geo_set_speed", "idx": idx}), "ok", "error") for gc in (x.host, x.client)}
 
 
@@ -131,7 +131,7 @@ def drain(gc):
 
 def s0(r, x, tag="S0"):
     """Row frame S0: <= 20 s until both prod_fx_probe agree on the view, no restream is pending and both stand on the
-    geoscape (a leftover popup is drained). On the red build the previous row's drift is repaired by the restream first.
+    geoscape (a leftover popup is drained). Without the fix the previous row's drift is repaired by the restream first.
     R0 = both `requests` (the window's guard; never `mismatches`)."""
     h, c = x.host, x.client
     t0, last, drained = time.time(), {}, []
@@ -170,7 +170,7 @@ def listed(r, x, names, assigned, tag):
 
 
 def progress(r, x, names, spent):
-    """set_production_progress on both machines, client first (S25)."""
+    """set_production_progress on both machines, client first."""
     out = []
     for gc in (x.client, x.host):
         for n in names:
@@ -181,7 +181,7 @@ def progress(r, x, names, spent):
 
 
 def roll(r, x, pred, what):
-    """TASK 0 roll-to-unit: speed 1 on both; the host's probe every 0.1 s until `pred`; then the hold at once (host
+    """Roll to the unit: speed 1 on both; the host's probe every 0.1 s until `pred`; then the hold at once (host
     open_screen soldiers: no heartbeat, the host's clock stops)."""
     h = x.host
     if top(h) != GEO:                       # a late completion window would stop the host's clock
@@ -196,7 +196,7 @@ def roll(r, x, pred, what):
 
 def window(r, x, soldiers=False):
     """Both probes every ~0.25 s for 3 s; guard: the client's `requests` stays R0 throughout. Returns the FIRST sample (the
-    row's cells read there, change 7); `soldiers` adds both transform_probe to it."""
+    row's cells read there); `soldiers` adds both transform_probe to it."""
     h, c, t0, n, reqs, first = x.host, x.client, time.time(), 0, [], None
     while time.time() - t0 < WIN_S:
         smp = {"t": round(time.time() - t0, 2), "host": pf(h), "client": pf(c), "req": rs(c)["requests"]}
@@ -214,8 +214,8 @@ def window(r, x, soldiers=False):
 
 
 def release(r, x):
-    """Speed 0 on both (change 5), host close_screens, drain both (change 6: the ProductionCompleteState windows). On a row
-    whose cells passed: the client's `requests` stays R0 for 4 s (no repair restream)."""
+    """Speed 0 on both, host close_screens, drain both (the ProductionCompleteState windows). On a row whose cells
+    passed: the client's `requests` stays R0 for 4 s (no repair restream)."""
     h, c = x.host, x.client
     r.ev["speed0"] = speed(x, 0)
     t0 = time.time()
@@ -233,8 +233,9 @@ def release(r, x):
     r.ev["requestsEnd"] = {gc.name: rs(gc)["requests"] for gc in (h, c)}
 
 
-def row_1(r, x):
-    """An intermediate unit (stock, F7293): ROCKETS e2 q3 from the client; unit 1 completes, unit 2 is paid."""
+def row_intermediate_unit(r, x):
+    """An intermediate unit (stock): ROCKETS with 2 engineers, quantity 3, from the client; unit 1 completes, unit 2 is
+    paid."""
     p0 = s0(r, x)
     K, F = st(p0["host"]), p0["host"]["funds"]
     x.K = K
@@ -253,8 +254,8 @@ def row_1(r, x):
     release(r, x)
 
 
-def row_2(r, x):
-    """The end counts once (stock): progress 28 makes unit 3 only (change 1: host K + 2), the production ends."""
+def row_last_unit_once(r, x):
+    """The end counts once (stock): progress 28 makes unit 3 only (host K + 2), the production ends."""
     p0 = s0(r, x)
     K1 = st(p0["host"])
     progress(r, x, [ROCKETS], 28)
@@ -267,13 +268,13 @@ def row_2(r, x):
     guard(r, x, "host end", st(h) == K1 + 1 and prod(h, ROCKETS) is None, f"host rockets {st(h)} (want {K1 + 1}), production "
           f"{prod(h, ROCKETS)} (want gone)")
     r.cell("endOnce", st(c) == st(h) and prod(c, ROCKETS) is None and c["funds"] == h["funds"], f"client rockets {st(c)} / host "
-           f"{st(h)} (row-1 K {K}), client production {prod(c, ROCKETS)}, funds {c['funds']}/{h['funds']}: the replica counts "
-           f"the production twice")
+           f"{st(h)} (intermediate_unit's K {K}), client production {prod(c, ROCKETS)}, funds "
+           f"{c['funds']}/{h['funds']}: the replica counts the production twice")
     release(r, x)
 
 
-def row_3(r, x):
-    """A spawned soldier: SOLDIER e1 q1 from the client; owner = the starting player's seat (R-H16g-1)."""
+def row_spawned_soldier(r, x):
+    """A spawned soldier: SOLDIER with 1 engineer, quantity 1, from the client; owner = the starting player's seat."""
     p0 = s0(r, x)
     n0 = ids(p0["host"])["STR_SOLDIER"]
     r.ev["client start"] = pick(x.client.cmd({"cmd": "manufacture_start", "item": SOLDIER, "engineers": 1, "qty": 1}), "ok", "sent", "error")
@@ -300,13 +301,14 @@ def row_3(r, x):
            f"a soldier made by a production exists only on the host")
     owners = [t.get("soldierOwner") for t in nh + nc]
     r.cell("owner", len(owners) == 2 and all(o == want for o in owners), f"soldier owners host {[t.get('soldierOwner') for t in nh]}"
-           f" / client {[t.get('soldierOwner') for t in nc]} (want the starter's seat {want} on both, R-H16g-1): the produced "
+           f" / client {[t.get('soldierOwner') for t in nc]} (want the starter's seat {want} on both): the produced "
            f"soldier belongs to nobody")
     release(r, x)
 
 
-def row_4(r, x):
-    """Personnel, a delivery and a random item (mod): host starts SCIENTIST, DELIVERY, RANDOM (e1 q1 each)."""
+def row_personnel_delivery_random(r, x):
+    """Personnel, a delivery and a random item (mod): host starts SCIENTIST, DELIVERY, RANDOM (1 engineer, quantity 1
+    each)."""
     p0 = s0(r, x)
     names = [SCIENTIST, DELIVERY, RANDOM]
     r.ev["host starts"] = [pick(x.host.cmd({"cmd": "manufacture_start", "item": n, "engineers": 1, "qty": 1}), "ok", "sent", "error")
@@ -329,8 +331,9 @@ def row_4(r, x):
     release(r, x)
 
 
-def row_5(r, x):
-    """A craft with a transfer time (mod): the hangar at (4, 0) first (change 8), then CRAFT e1 q1 from the client."""
+def row_craft_transfer(r, x):
+    """A craft with a transfer time (mod): the hangar at (4, 0) first, then CRAFT with 1 engineer, quantity 1, from the
+    client."""
     h, c = x.host, x.client
     s0(r, x, "S0pre")                       # the previous row's repair lands before the hangar is staged
 
@@ -366,8 +369,8 @@ def row_5(r, x):
     release(r, x)
 
 
-def row_6(r, x):
-    """Fallback engineers (last in Boot A: engineers are not checksummed, so this drift is never repaired)."""
+def row_fallback_engineers(r, x):
+    """Fallback engineers (last in the SHARED boot: engineers are not checksummed, so this drift is never repaired)."""
     p0 = s0(r, x)
     r.ev["host shared_cmd"] = pick(x.host.cmd({"cmd": "shared_cmd", "jcmd": "man_start", "baseId": 0, "payload": {
         "item": FALLBACK, "engineers": 0, "qty": 1, "infinite": False, "sell": False, "fallback": True}}), "ok", "error")
@@ -384,8 +387,9 @@ def row_6(r, x):
     release(r, x)
 
 
-def row_7(r, x):
-    """SEPARATE steps its own production (guard row): the client's own ROCKETS e2 q1, progress 8 on the client only."""
+def row_separate_own_step(r, x):
+    """SEPARATE steps its own production (guard row): the client's own ROCKETS with 2 engineers, quantity 1, progress 8
+    on the client only."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, S0_S, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
     r.ev["speed0"] = speed(x, 0)
@@ -427,8 +431,8 @@ def run_one(rid, fn, x, results):
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
 
-def setup_a(x):
-    """Speed 0 on both; the seats (R-H16g-1: the starter's seat owns a produced soldier); both probes answer."""
+def setup_shared(x):
+    """Speed 0 on both; the seats (the starter's seat owns a produced soldier); both probes answer."""
     h, c = x.host, x.client
     sp = speed(x, 0)
     x.seat = {gc.name: gc.cmd({"cmd": "synced_options_state"}).get("localSeat") for gc in (h, c)}
@@ -439,8 +443,8 @@ def setup_a(x):
     return info
 
 
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def boot_separate():
+    tag, (hp, cp, lp) = BOOT_SEPARATE
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
     try:
@@ -474,19 +478,23 @@ def boot(tag, up, setup, rows, results, walls):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h16g] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[production_effects] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
 
-ROWS_A = (("H16g-1", row_1), ("H16g-2", row_2), ("H16g-3", row_3), ("H16g-4", row_4), ("H16g-5", row_5), ("H16g-6", row_6))
-ROWS_B = (("H16g-7", row_7),)
+ROWS_SHARED = (("intermediate_unit", row_intermediate_unit), ("last_unit_once", row_last_unit_once),
+               ("spawned_soldier", row_spawned_soldier), ("personnel_delivery_random", row_personnel_delivery_random),
+               ("craft_transfer", row_craft_transfer), ("fallback_engineers", row_fallback_engineers))
+ROWS_SEPARATE = (("separate_own_step", row_separate_own_step),)
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_A[0], lambda: shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,)), setup_a, ROWS_A, results, walls)
-    boot(BOOT_B[0], boot_b, lambda x: {"mods": [os.path.basename(MOD)]}, ROWS_B, results, walls)
-    failed, n = [rid for rid, _ in ROWS_A + ROWS_B if not results.get(rid)], len(ROWS_A + ROWS_B)
+    boot(BOOT_SHARED[0], lambda: shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,)), setup_shared,
+         ROWS_SHARED, results, walls)
+    boot(BOOT_SEPARATE[0], boot_separate, lambda x: {"mods": [os.path.basename(MOD)]}, ROWS_SEPARATE, results, walls)
+    failed, n = ([rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE if not results.get(rid)],
+                 len(ROWS_SHARED + ROWS_SEPARATE))
     print(f"\ntest_production_effects: {n - len(failed)}/{n} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
