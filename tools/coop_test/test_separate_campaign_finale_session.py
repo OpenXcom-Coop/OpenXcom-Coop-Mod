@@ -94,15 +94,16 @@ def main():
         client.spawn(); client.connect()
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": PORT,
                    "player": "ClientPlayer"})
-        # The rejoined player closes the "joined" popup like a player would: the
-        # world download dialog under it asks the host for the world only once
-        # it reaches the top of the stack (CoopState::init).
-        client.wait_for("client join popup", lambda: session.has_state(client, "Profile"),
-                        timeout=60, interval=0.25)
-        client.ok({"cmd": "profile_ok"})
-        host.wait_for("rejoined client world ack",
-                      lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
-                      timeout=120)
+        # The rejoined player closes the "joined" popup like a player would while
+        # it is up. The client asks for the world in the same frame the popup
+        # opens, and the loaded world replaces the whole stack, popup included,
+        # so a fast world load can close it first.
+        def rejoined_ack():
+            if "Profile" in (session.states(client) or [""])[-1]:
+                client.ok({"cmd": "profile_ok"})
+            return host.cmd({"cmd": "get_coop"}).get("resumeAck") or None
+
+        host.wait_for("rejoined client world ack", rejoined_ack, timeout=120, interval=0.25)
         if session.has_state(host, "Profile"):
             host.ok({"cmd": "profile_ok"})
             time.sleep(0.5)
