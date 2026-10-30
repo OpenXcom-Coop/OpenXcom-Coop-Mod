@@ -1,33 +1,35 @@
-"""FS2-G3 row G3X - test_stage2_gm3_rearm.py: a gm3 PvP campaign's Cydonia (host = the aliens, client = X-COM) whose X-COM player is
-lost between part 1 and part 2. QA-4 (b) (following owner D282 (b)): part 2 WAITS on the alien host in the borrowed X-COM world (part 1's
-results kept); after the rejoin and the alien host's RESUME the same part 2 is offered again and both play it.
-Spec: docs rewrite/prompts/fs2g3_gm3_part2_rearm.md (f) and its ORCHESTRATOR RULINGS (QG-1 .. QG-4 (a)); AMENDMENT FS2-A
-(rewrite/prompts/fs2_sa_part2_rearm.md) QA-4 (b), VL-FS2A-4; D260 (b); QC-13 (a) narrowed. TASK 0 pins: docs
-rewrite/fs2g3-task0/sa/CONSTANTS.md (red premise boots Pa / Pb 2/2, green premise boot Pc).
+"""Row gm3_rearm: a gm3 PvP campaign's Cydonia (host = the aliens, client = X-COM) whose X-COM player is lost between
+part 1 and part 2. Part 2 WAITS on the alien host in the borrowed X-COM world (part 1's results kept); after the rejoin
+and the alien host's RESUME the same part 2 is offered again and both play it.
 
-ONE boot (boot P: gm3, key KEY, dirs fs2g3_g3x_host / _client / _client2). FXG-1 bring-up and FXG-2 staging = K's
-(test_campaign_gm3_cydonia.py) bring_up / stage / capture_boot copied with KEY and the row id as parameters (K's KEY is read
-inside them, F16808): the client's open_select_destination {Skyranger, STR_SKYRANGER}, open_cydonia, set_seed SEED, confirm_cydonia;
-a miss is a setup failure (ONE CAPTURE line, every cell FAILs "boot"). FXG-3 part 1 (entry <= ENTRY_S, the spine, hash). FXG-4
-kill_all faction 1, client hold_battle_ready {on: true}, client END TURN + the host's NextTurnState closed, the window (host Handshake
-battleId B1 + 1, client held) <= WINDOW_S. FXG-5 client.kill(), W of host stacks at POLL. FXG-6 S2F's rejoin() (client2, join_tcp
-NAME, resumeAck <= RJ, profile_ok, RESUME). FXG-7 part 2.
+ONE boot (gm3, key KEY, dirs gm3_rearm_host / _client / _client2). Bring-up and staging =
+test_campaign_gm3_cydonia.py's bring_up / stage / capture_boot copied with KEY and the row id as parameters (that
+file reads its own KEY inside them): the client's open_select_destination {Skyranger, STR_SKYRANGER}, open_cydonia,
+set_seed SEED, confirm_cydonia; a miss is a setup failure (ONE CAPTURE line, every cell FAILs "boot"). Then part 1
+(entry <= ENTRY_S, the spine, hash); kill_all faction 1, client hold_battle_ready {on: true}, client END TURN + the
+host's NextTurnState closed, the window (host Handshake battleId B1 + 1, client held) <= WINDOW_S; client.kill(), W of
+host stacks at POLL; test_stage2_failed_start's rejoin() (client2, join_tcp NAME, resumeAck <= RJ, profile_ok,
+RESUME); part 2.
 
-  G3X-1 GUARD part 1 by the hand-off + the window (precondition; a failure ends the row).
-  G3X-2 FIX   PARK +1 and UNWIND +0 (red today: UNWIND +1, PARK 0).
-  G3X-3 FIX   the alien host waits inside part 2 in the borrowed world at W: [.., GeoscapeState, BriefingState, CoopState] 62 backVisible
-              false, has_battle true, PART2 Idle / MT2 / FP2, HOME 0, pvpBorrow active true with swappedBack / borrowed == P0's, gamemode 3,
-              noBases false, real bases == CLIENT0's (red today: [GeoscapeState, CoopState], has_battle false, HOME 1, noBases true).
-  G3X-4 GUARD the rejoin reaches RESUME (resumeAck <= RJ, RESUME pressed, RESUMED_GUARD +0, client2 never > 30 s on 52).
-  G3X-5 FIX   part 2 starts for both: has_battle true at RESUME; REARM +1 and OFFER +1 <= REARM_S; the spine to turn 1; PART2 host ==
-              client2 (Active, battleId > B1 + 1, turn 1, MT2, FP2, xcom == XCOM2); census seats; borrow kept; hash EQUAL; UNWIND 0
-              (red today: "no part 2 on the host", at once).
-  G3X-6 GUARD desyncSeen false on host and client before the kill and on host and client2 at the end; part 1's hash EQUAL.
-  G3X-7 GUARD CRASH 0 (no new crash file in this lane's crash folder since the row's start).
-UNWIND / PARK counted since the kill, REARM / OFFER since the RESUME press (S2F's needles); HOME = `[coop-pvp] host: back on its own world`
-since the kill. PART2 = S2F part2(). P0 / FP2 / XCOM2 / B1 read at run time (S25). EVIDENCE before each verdict; a failed row prints ONE
-CAPTURE line. ONE foreground run, no skip path; exit 0 only when every cell passes, else 2. Red (R1, the unchanged
-build): FAIL G3X-2, G3X-3, G3X-5; every other cell passes. Green (G1, G1-G2): every cell passes.
+  gm3_rearm_1 GUARD part 1 by the hand-off + the window (precondition; a failure ends the row).
+  gm3_rearm_2 FIX   PARK +1 and UNWIND +0 (without the fix: UNWIND +1, PARK 0).
+  gm3_rearm_3 FIX   the alien host waits inside part 2 in the borrowed world at W: [.., GeoscapeState, BriefingState,
+              CoopState] 62 backVisible false, has_battle true, PART2 Idle / MT2 / FP2, HOME 0, pvpBorrow active true
+              with swappedBack / borrowed == P0's, gamemode 3, noBases false, real bases == CLIENT0's (without the fix:
+              [GeoscapeState, CoopState], has_battle false, HOME 1, noBases true).
+  gm3_rearm_4 GUARD the rejoin reaches RESUME (resumeAck <= RJ, RESUME pressed, RESUMED_GUARD +0, client2 never > 30 s
+              on 52).
+  gm3_rearm_5 FIX   part 2 starts for both: has_battle true at RESUME; REARM +1 and OFFER +1 <= REARM_S; the spine to
+              turn 1; PART2 host == client2 (Active, battleId > B1 + 1, turn 1, MT2, FP2, xcom == XCOM2); census seats;
+              borrow kept; hash EQUAL; UNWIND 0 (without the fix: "no part 2 on the host", at once).
+  gm3_rearm_6 GUARD desyncSeen false on host and client before the kill and on host and client2 at the end; part 1's
+              hash EQUAL.
+  gm3_rearm_7 GUARD CRASH 0 (no new crash file in this lane's crash folder since the row's start).
+UNWIND / PARK counted since the kill, REARM / OFFER since the RESUME press (test_stage2_failed_start's needles); HOME =
+`[coop-pvp] host: back on its own world` since the kill. PART2 = test_stage2_failed_start's part2(). P0 / FP2 / XCOM2
+/ B1 read at run time. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line. ONE foreground run, no skip
+path; exit 0 only when every cell passes, else 2. Without the fix gm3_rearm_2, gm3_rearm_3 and gm3_rearm_5 fail and
+every other cell passes; with it every cell passes.
 
 Run:  python tools/coop_test/test_stage2_gm3_rearm.py
 """
@@ -50,14 +52,15 @@ from test_campaign_gm3_cydonia import (stack, has, pvp, bview, census, seats_bad
 from test_stage2_failed_start import (Row, Stop, q, short, ev, log, since, dlg, part2, wait, rejoin,  # noqa: E402
                                          UNWIND, PARK, REARM, OFFER)
 
-# ----- pins (docs rewrite/fs2g3-task0/sa/CONSTANTS.md; S54 rules there) -----
-KEY, TAG = "48607", "fs2g3_g3x"
+# ----- lobby key, user-dir tag, missions, log needles -----
+KEY, TAG = "48607", "gm3_rearm"
 MT1, MT2 = MISSION_1, MISSION_2
 HOME = "[coop-pvp] host: back on its own world"
 GEO, BRF, COOP = "GeoscapeState", "BriefingState", "CoopState"
-# ----- bounds (s; TASK 0 Pa / Pb / Pc: entry 1.61, window 5.54-5.85, resumeAck 2.24-2.25, re-arm 0.01 after RESUME) -----
+# ----- bounds (s) -----
+# Measured on three boots: entry 1.61, window 5.54-5.85, resumeAck 2.24-2.25, re-arm 0.01 after RESUME.
 ENTRY_S, WINDOW_S, W, POLL, RJ, REARM_S = 60, 30, 15.0, 0.2, 60, 60
-CELLS = ["G3X-%d" % i for i in range(1, 8)]
+CELLS = ["gm3_rearm_%d" % i for i in range(1, 8)]
 
 
 class FixtureMiss(Exception):
@@ -65,7 +68,7 @@ class FixtureMiss(Exception):
 
 
 def capture_boot(err, host, client, rid):
-    """K's capture_boot with the row id a parameter: ONE CAPTURE line, then FixtureMiss."""
+    """test_campaign_gm3_cydonia's capture_boot with the row id a parameter: ONE CAPTURE line, then FixtureMiss."""
     cap = {}
     for gc in (host, client):
         try:
@@ -83,7 +86,7 @@ def capture_boot(err, host, client, rid):
 
 
 def bring_up(host, client, bev, key, rid):
-    """FXG-1: K's bring_up with KEY and the row id as parameters; NAME = host get_coop.clientName (S25)."""
+    """test_campaign_gm3_cydonia's bring_up with KEY and the row id as parameters; NAME = host get_coop.clientName."""
     host.spawn(); host.connect(); client.spawn(); client.connect()
     try:
         gm = PF.start_pvp_campaign(host, client, key, alien_player="host")
@@ -103,8 +106,9 @@ def bring_up(host, client, bev, key, rid):
     name = S2F.coop(host).get("clientName")
     bev.update(lobbyGamemode=gm, HOST0=host0, CLIENT0=client0, gamemode=[ch.get("gamemode"), cc.get("gamemode")], NAME=name)
     if not (ch.get("gamemode") == 3 and cc.get("gamemode") == 3 and ch.get("noBases") is True and cc.get("noBases") is False):
-        capture_boot(f"bring-up preconditions (FXG-1): gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} (want 3), "
-                     f"noBases host {ch.get('noBases')!r} client {cc.get('noBases')!r} (want true / false)", host, client, rid)
+        capture_boot(f"bring-up preconditions: gamemode host {ch.get('gamemode')} client {cc.get('gamemode')} "
+                     f"(want 3), noBases host {ch.get('noBases')!r} client {cc.get('noBases')!r} "
+                     f"(want true / false)", host, client, rid)
     if not xb or not sky or len(sids) < SQUAD or not name:
         capture_boot(f"the client has no real base / Skyranger / {SQUAD} soldiers, or the host no client name (base "
                      f"{xb and xb.get('name')}, sky {sky}, soldiers {sids}, clientName {name!r})", host, client, rid)
@@ -113,7 +117,8 @@ def bring_up(host, client, bev, key, rid):
 
 
 def stage(host, client, client0, bev, rid):
-    """FXG-2: K's stage (SQ, the route, set_seed, confirm_cydonia) with the row id a parameter. Returns (sq, t_confirm)."""
+    """test_campaign_gm3_cydonia's stage (SQ, the route, set_seed, confirm_cydonia) with the row id a parameter.
+    Returns (sq, t_confirm)."""
     sky = client0["sky"]
     sb = next((b for b in client.ok({"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopBaseFlag")), None)
     sids = sorted(s["id"] for s in (sb or {}).get("soldiers", []))
@@ -145,8 +150,8 @@ def stage(host, client, client0, bev, rid):
     return sq, t_confirm
 
 
-def g3x_1(r, host, client, ctx, bev, tc):
-    """FXG-3 part 1 and FXG-4 the window; G3X-1 (precondition: a failure raises Stop)."""
+def part1_and_window(r, host, client, ctx, bev, tc):
+    """Part 1 and the window; gm3_rearm_1 (precondition: a failure raises Stop)."""
     e = {"bring-up": bev}
     ok_in, _s = BES.wait_until(lambda: bool(bview(host).get("inBattle")) and bool(bview(client).get("inBattle")), ENTRY_S)
     e["entry s"] = round(time.time() - tc, 2)
@@ -188,33 +193,34 @@ def g3x_1(r, host, client, ctx, bev, tc):
           and hb.get("missionType") == MT1 and cb.get("missionType") == MT1 and ok_w and (e.get("hold") or {}).get("armed") is True
           and st.get("emitted") == 1 and st.get("toBattleId") == b2 and st.get("nextStage") == MT2 and len(e["handoff"]) == 1
           and len(e["offer"]) == 1 and e["hostStack"] == [GEO, BRF] and p0.get("active") is True)
-    r.cell("G3X-1", "GUARD", "part 1 by the hand-off (host pvpBorrow requests / armed / borrowed +1, kind cydonia; both inBattle, spine, "
-           "%s); the window: host stage emitted 1 / toBattleId B1 + 1 / nextStage %s, +1 hand-off, +1 battle_offer (battleId=B1 + 1), "
+    r.cell("gm3_rearm_1", "GUARD", "part 1 by the hand-off (host pvpBorrow requests / armed / borrowed +1, kind "
+           "cydonia; both inBattle, spine, %s); the window: host stage emitted 1 / toBattleId B1 + 1 / nextStage %s, "
+           "+1 hand-off, +1 battle_offer (battleId=B1 + 1), "
            "host Handshake B1 + 1, client held, host stack [GeoscapeState, BriefingState], P0 active" % (MT1, MT2), ok, e)
     if not ok:
-        raise Stop("G3X-1 (precondition) failed")
+        raise Stop("gm3_rearm_1 (precondition) failed")
 
 
-def g3x_5(r, host, c2, ctx, n_k):
-    """FXG-7 part 2; G3X-5."""
+def part2_starts(r, host, c2, ctx, n_k):
+    """Part 2; gm3_rearm_5."""
     label = ("part 2 starts for both: has_battle at RESUME; REARM +1 and OFFER +1 within %d s of RESUME, the spine to turn 1, PART2 host "
              "== client2: Active, battleId > B1 + 1, turn 1, %s, FP2, xcom XCOM2; census seats; borrowed == P0's, active; hash EQUAL; "
-             "UNWIND 0 (red today: no part 2 on the host)" % (REARM_S, MT2))
+             "UNWIND 0 (without the fix: no part 2 on the host)" % (REARM_S, MT2))
     evd = {"has_battle at RESUME": ctx.get("hasBattleAtResume")}
     if "t_resume" not in ctx:
-        return r.cell("G3X-5", "FIX", label, False, dict(evd, why="no RESUME"))
+        return r.cell("gm3_rearm_5", "FIX", label, False, dict(evd, why="no RESUME"))
     n_r = ctx["n_resume"]
     if ctx.get("hasBattleAtResume") is not True:
         evd.update({"why": "no part 2 on the host", "REARM": since(host, n_r, REARM), "OFFER": since(host, n_r, OFFER),
                     "UNWIND": since(host, n_k, UNWIND), "HOME": since(host, n_k, HOME), "host stack": stack(host),
                     "client2 stack": stack(c2), "host pvpBorrow": pvp(host)})
-        return r.cell("G3X-5", "FIX", label, False, evd)
+        return r.cell("gm3_rearm_5", "FIX", label, False, evd)
     try:
         evd["rearm s"] = wait("REARM and OFFER", lambda: since(host, n_r, REARM) and since(host, n_r, OFFER), REARM_S)
         t = time.time()
         session.briefings_to_battlescape(host, c2)
         evd["spine s"] = round(time.time() - t, 2)
-    except Exception as e:  # a timed-out wait or a spine that raised: G3X-5's own evidence
+    except Exception as e:  # a timed-out wait or a spine that raised: gm3_rearm_5's own evidence
         evd["wait"] = short(e, 400)
     hp, cp, pv = part2(host), part2(c2), pvp(host)
     hcen, ccen = census(host), census(c2)
@@ -230,11 +236,11 @@ def g3x_5(r, host, c2, ctx, n_k):
           and all(p.get("phase") == "Active" and p.get("turn") == 1 and p.get("missionType") == MT2 and p.get("mapFingerprint") == ctx["FP2"]
                   and p.get("xcom") == ctx["XCOM2"] for p in (hp, cp))
           and pv.get("borrowed") == p0.get("borrowed") and pv.get("active") is True)
-    r.cell("G3X-5", "FIX", label, ok, evd)
+    r.cell("gm3_rearm_5", "FIX", label, ok, evd)
 
 
-def row_g3x(r, host, client, ctx, bev, tc):
-    g3x_1(r, host, client, ctx, bev, tc)
+def row_gm3_rearm(r, host, client, ctx, bev, tc):
+    part1_and_window(r, host, client, ctx, bev, tc)
     n_k = len(log(host))
     client.kill()
     tk, polls = time.time(), []
@@ -247,7 +253,8 @@ def row_g3x(r, host, client, ctx, bev, tc):
     path = {"first poll after the kill": {k: v for k, v in first.items() if k != "stage"}, "reason": why,
             "loss path (first poll)": {"Idle": "-2 receive", "Handshake": "-3 send"}.get(first.get("phase"), "?"),
             "host after": [p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]]}
-    r.cell("G3X-2", "FIX", "PARK +1 and UNWIND +0 (red today: UNWIND +1, PARK 0)", len(park) == 1 and not unw and len(why) == 1,
+    r.cell("gm3_rearm_2", "FIX", "PARK +1 and UNWIND +0 (without the fix: UNWIND +1, PARK 0)",
+           len(park) == 1 and not unw and len(why) == 1,
            {"PARK": park, "UNWIND": unw, "path": path})
     hs, d, hasb, hp = stack(host), dlg(host), q(host, {"cmd": "world_state"}).get("has_battle"), part2(host)
     hco, pv, rb = G3E.coop(host), pvp(host), G3E.real_bases(q(host, {"cmd": "geo_state"}))
@@ -257,23 +264,25 @@ def row_g3x(r, host, client, ctx, bev, tc):
            and not home and pv.get("active") is True and pv.get("swappedBack") == p0.get("swappedBack")
            and pv.get("borrowed") == p0.get("borrowed") and hco.get("gamemode") == 3 and hco.get("noBases") is False
            and rb == ctx["CLIENT0"]["realBases"])
-    r.cell("G3X-3", "FIX", "the alien host waits inside part 2 in the borrowed world: stack ends [GeoscapeState, BriefingState, CoopState], "
-           "dialog 62 backVisible false, has_battle true, PART2 Idle / %s / FP2, HOME 0, pvpBorrow active true, swappedBack and borrowed "
-           "== P0's, gamemode 3, noBases false, real bases == CLIENT0's (red today: [GeoscapeState, CoopState], has_battle false, HOME 1, "
-           "swappedBack P0 + 1, noBases true, real bases == HOST0's)" % MT2, ok3,
+    r.cell("gm3_rearm_3", "FIX", "the alien host waits inside part 2 in the borrowed world: stack ends [GeoscapeState, "
+           "BriefingState, CoopState], dialog 62 backVisible false, has_battle true, PART2 Idle / %s / FP2, HOME 0, "
+           "pvpBorrow active true, swappedBack and borrowed "
+           "== P0's, gamemode 3, noBases false, real bases == CLIENT0's (without the fix: [GeoscapeState, CoopState], "
+           "has_battle false, HOME 1, swappedBack P0 + 1, noBases true, real bases == HOST0's)" % MT2, ok3,
            {"stack": hs, "dialog": d, "has_battle": hasb, "PART2 host": hp, "HOME": home, "pvpBorrow": pv, "P0": p0,
             "gamemode": hco.get("gamemode"), "noBases": hco.get("noBases"), "realBases": rb, "CLIENT0 realBases": ctx["CLIENT0"]["realBases"],
             "HOST0 realBases": bev["HOST0"]["realBases"]})
     evd, n_j = {}, len(log(host))
     ok4 = rejoin(host, ctx, KEY, TAG, n_j, evd)
     ctx["hasBattleAtResume"] = q(host, {"cmd": "world_state"}).get("has_battle") if "t_resume" in ctx else None
-    r.cell("G3X-4", "GUARD", "the rejoin reaches RESUME: host resumeAck true within %d s, RESUME pressed, RESUMED_GUARD +0 since the join, "
-           "client2 never > 30 s on CoopState 52" % RJ, ok4, evd)
+    r.cell("gm3_rearm_4", "GUARD", "the rejoin reaches RESUME: host resumeAck true within %d s, RESUME pressed, "
+           "RESUMED_GUARD +0 since the join, client2 never > 30 s on CoopState 52" % RJ, ok4, evd)
     c2 = ctx["client2"]
-    g3x_5(r, host, c2, ctx, n_k)
+    part2_starts(r, host, c2, ctx, n_k)
     d_end = [ev(host).get("desyncSeen"), ev(c2).get("desyncSeen")]
-    r.cell("G3X-6", "GUARD", "desyncSeen false on host and client before the kill and on host and client2 at the row's end; part 1's hash "
-           "EQUAL", ctx["desync0"] == [False, False] and d_end == [False, False] and ctx["hash1"][0] is True,
+    r.cell("gm3_rearm_6", "GUARD", "desyncSeen false on host and client before the kill and on host and client2 at the "
+           "row's end; part 1's hash EQUAL", ctx["desync0"] == [False, False] and d_end == [False, False]
+           and ctx["hash1"][0] is True,
            {"before the kill (host, client)": ctx["desync0"], "at the end (host, client2)": d_end, "hash part 1": ctx["hash1"]})
 
 
@@ -282,46 +291,48 @@ def main():
     crash0 = crash_set()
     host = GameClient("host", None, make_user_dir(TAG + "_host"))
     client = GameClient("client", None, make_user_dir(TAG + "_client"))
-    r = Row("G3X", CELLS[:6])
+    r = Row("gm3_rearm", CELLS[:6])
     booted = False
     try:
         try:
-            client0 = bring_up(host, client, bev, KEY, "G3X")
-            sq, tc = stage(host, client, client0, bev, "G3X")
+            client0 = bring_up(host, client, bev, KEY, "gm3_rearm")
+            sq, tc = stage(host, client, client0, bev, "gm3_rearm")
             ctx.update(name=bev["NAME"], SQ=sq, CLIENT0=client0)
             booted = True
-            print("[fs2g3] G3X boot ok: %s (%.1f s)" % (json.dumps(bev, sort_keys=True, default=str), time.time() - t0), flush=True)
+            print("[stage2_gm3_rearm] gm3_rearm boot ok: %s (%.1f s)"
+                  % (json.dumps(bev, sort_keys=True, default=str), time.time() - t0), flush=True)
         except Exception as e:  # noqa: BLE001  a bring-up / staging miss (FixtureMiss) or a probe that raised: setup failure
             if not isinstance(e, FixtureMiss):
                 try:
-                    capture_boot(short(e, 300), host, client, "G3X")
+                    capture_boot(short(e, 300), host, client, "gm3_rearm")
                 except FixtureMiss:
                     pass
-            print("EVIDENCE G3X boot: %s" % short(e, 600), flush=True)
+            print("EVIDENCE gm3_rearm boot: %s" % short(e, 600), flush=True)
             for cid in CELLS:
                 print("FAIL %s: boot (setup failure)" % cid, flush=True)
             r.fails += list(CELLS)
         if booted:
             try:
-                row_g3x(r, host, client, ctx, bev, tc)
-            except Exception as e:  # the precondition, a timed-out wait, or a lever / kill() that raised: the row ends here
+                row_gm3_rearm(r, host, client, ctx, bev, tc)
+            # the precondition, a timed-out wait, or a raising test command / kill(): the row ends here
+            except Exception as e:
                 r.stop(short(e))
             new = sorted(crash_set() - crash0)
-            r.cell("G3X-7", "GUARD", "CRASH 0 (no new crash file in this lane's crash folder since the row's start)", not new,
-                   [os.path.basename(f) for f in new])
+            r.cell("gm3_rearm_7", "GUARD", "CRASH 0 (no new crash file in this lane's crash folder since the row's "
+                   "start)", not new, [os.path.basename(f) for f in new])
             if r.fails:
-                S2F.capture("G3X", host, ctx)
+                S2F.capture("gm3_rearm", host, ctx)
     finally:
         for gc in (ctx.get("client2"), client, host):
             try:
                 if gc is not None and gc.proc is not None and gc.proc.poll() is None:
                     gc.shutdown()
             except Exception as e:  # noqa: BLE001
-                print("FAIL G3X shutdown (%s): %s" % (gc.name, short(e, 300)), flush=True)
+                print("FAIL gm3_rearm shutdown (%s): %s" % (gc.name, short(e, 300)), flush=True)
                 r.fails.append("shutdown %s" % gc.name)
-    print(("PASS G3X" if not r.fails else "FAIL G3X: %s" % " ".join(r.fails)), flush=True)
+    print(("PASS gm3_rearm" if not r.fails else "FAIL gm3_rearm: %s" % " ".join(r.fails)), flush=True)
     passed = len([c for c in CELLS if c not in r.fails])
-    print("\n==== FS2-G3 gm3 PvP Cydonia part 2 after a lost X-COM player: %d/%d cells PASS, wall %.1f s ====" % (
+    print("\n==== gm3 PvP Cydonia part 2 after a lost X-COM player: %d/%d cells PASS, wall %.1f s ====" % (
         passed, len(CELLS), time.time() - t0), flush=True)
     return 0 if not r.fails else 2
 
