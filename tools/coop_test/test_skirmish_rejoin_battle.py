@@ -21,7 +21,7 @@ covers the wiring that lets the host serve that snapshot to a returning player:
              when it acknowledges. It must never be handed the battle to finish
              on its own.
   CAMPAIGN-HOST-LEAVE the same for a SHARED campaign mission.
-  SEAT-LEFT-END (SPEC 16 W1-P17 M6/DP1, S4) from that same frozen pause, the
+  SEAT-LEFT-END from that same frozen pause, the
              remaining player presses SAVE & QUIT / ABANDON GAME -> a LOCAL
              teardown to the main menu, no debrief, `reason:"seatLeft"` logged.
 
@@ -32,34 +32,15 @@ import os
 import sys
 import time
 
-# SPEC 16 cycle 2: scenario_rejoin_and_resume (S3) is un-skipped and
-# re-pointed at the r4 rejoin-restream handshake (M5) + the both-machines
-# pause/resume modal (M3).
-#
-# cycle 3 (M6 + M4): scenario_host_leaves_skirmish/
-# scenario_host_leaves_campaign_battle (S5, already correct per issue #93's
-# original ruling 4 - unaffected by M1/M2/M5/M3) are now wired into main().
-# scenario_seat_left_end (S4, DP1/M6) is new. _fly_shared_squad_into_a_battle
-# is lifted verbatim from test_resume_game_in_battle.py (same precedent as
-# the drop/freeze primitives above) rather than imported: that file's own
-# SKIP-PENDING(R4-P2) is still a module-level sys.exit(0), so importing it
-# would kill this process too - un-skipping it for real is a separate,
-# wider-scoped job this cycle was not asked to take on.
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
 import shared_fixture
 import test_skirmish_flow as SK
 
-# ------------------------------------------------------------ lifted from --
-# test_resume_game_in_battle.py (issue #93's own SKIP-PENDING(R4-P2) still
-# guards that file's module body with a top-level sys.exit(0), so it cannot
-# be imported from here yet - these are its small state/dialog probes and its
-# drop/freeze primitives, copied verbatim rather than imported, exactly the
-# alternative the SPEC 16 cycle-2 brief allows ("fix helper imports ... or
-# lift the needed helpers"). Keep them in sync with that file's own copies
-# when it is un-skipped in a later cycle.
+# ------------------------------------------------------------ copied from --
+# test_resume_game_in_battle.py: its small state/dialog probes and its
+# drop/freeze primitives. Keep them in sync with that file's own copies.
 
 def states(gc):
     return [s.replace("class OpenXcom::", "") for s in session.states(gc)]
@@ -91,10 +72,10 @@ def settle_on_tactical(machines, timeout=180):
     the top state, exactly as a player would.
 
     BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
-    host's pre-battle equip screen now waits for the client's ready (owner
-    D206 c) and the client's briefing is up at once, so settling one
-    machine at a time never finishes. `battle_inventory ok` is the idempotent
-    ready lever (Q11 a): pressing it every round never flaps a seat's ready."""
+    host's pre-battle equip screen waits for the client's ready and the
+    client's briefing is up at once, so settling one machine at a time never
+    finishes. `battle_inventory ok` is the idempotent ready command: pressing
+    it every round never flaps a seat's ready."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         pending = [(gc, tag) for gc, tag in machines if top(gc) != "BattlescapeState"]
@@ -125,9 +106,8 @@ COOP_DLG_CONNECTION_LOST = 21
 
 
 def log_lines(user_dir):
-    """S4 (DP1/M6): `reason:"seatLeft"` is logged only - there is no probe
-    for it (F335: no `battle_end` atom exists in wave 1) - so read it
-    straight from the instance's own openxcom.log, the same pattern
+    """`reason:"seatLeft"` is logged only - there is no probe for it - so
+    read it straight from the instance's own openxcom.log, the same pattern
     test_cydonia_coop_start.py/test_coop_basedef_temp_ufo_uaf.py already use."""
     log = os.path.join(user_dir, "openxcom.log")
     with open(log, "r", errors="replace") as f:
@@ -293,15 +273,10 @@ def scenario_rejoin_and_resume():
             f"{before.get('turn')} -> {after.get('turn')}"
 
         # the co-op battle is live again on both machines, not two solo games.
-        # NOTE (re-point, WV-D77 traced): the original pre-rewrite assertion
-        # here also checked `battleInit` - a legacy flag whose only "= true"
-        # writer lived in BattlescapeState.cpp's coop-init gate, deleted by
-        # the r1 vanilla restore (grep across all of src/ finds zero "= true"
-        # assignments left anywhere; every remaining site only ever clears
-        # it). It is permanently false today, in a fresh battle exactly as
-        # much as a resumed one, so it proves nothing here - `phase=="Active"`
-        # is the CURRENT, meaningful "the co-op battle handshake actually
-        # re-ran" signal (battle_state.phase, TestServer.cpp) and replaces it.
+        # `phase=="Active"` (battle_state.phase, TestServer.cpp) is the "the
+        # co-op battle handshake actually re-ran" signal. (`battleInit` proves
+        # nothing here: no code in src/ sets it to true, so it is false in a
+        # fresh battle exactly as much as in a resumed one.)
         for gc, tag in ((host, "host"), (client2, "client")):
             gc.wait_for(f"{tag} co-op session re-armed",
                         lambda gc=gc: (battle(gc).get("coopSession")
@@ -314,31 +289,26 @@ def scenario_rejoin_and_resume():
         assert hb.get("phase") == "Active" and cb.get("phase") == "Active", \
             f"RESUME: the co-op battle handshake never re-ran: " \
             f"host phase={hb.get('phase')} client phase={cb.get('phase')}"
-        # M5: peerAbsent cleared on both - the paused latch let go for good,
+        # peerAbsent cleared on both - the paused latch let go for good,
         # not just "the modal happened to close".
         assert hb["authority"]["peerAbsent"] is False, \
             f"RESUME: host peerAbsent did not clear: {hb['authority']}"
         assert cb["authority"]["peerAbsent"] is False, \
             f"RESUME: client peerAbsent did not clear: {cb['authority']}"
-        # same battle, not a copy (M5) - the SAME battleId survived the pause.
+        # same battle, not a copy - the SAME battleId survived the pause.
         assert hb["authority"]["battleId"] == cb["authority"]["battleId"] == before["authority"]["battleId"], (
             f"RESUME: battleId changed across the rejoin: before={before['authority']['battleId']} "
             f"host={hb['authority']['battleId']} client={cb['authority']['battleId']}")
 
-        # command is split the SAME way it was before the drop (f) S3's own
-        # yardstick: "command split == the pre-drop split", not a fixed
-        # disjointness assumption. NOTE (re-point, WV-D77 traced): the
-        # original pre-rewrite text here also asserted `not (hsel & csel)`
-        # (host and client commanding zero units in common). That does not
-        # hold for THIS fixture's default gamemode/turn-mode (PVE, Parallel -
-        # THE DEFAULT, BattleAuthority.h) even at battle ENTRY, before any
-        # drop: `selectable` (TestServer.cpp) is `BattleUnit::isSelectable
+        # command is split the SAME way it was before the drop: "command split
+        # == the pre-drop split", not a fixed disjointness assumption. Host and
+        # client need not command disjoint sets: in THIS fixture's default
+        # gamemode/turn-mode (PVE, Parallel - THE DEFAULT, BattleAuthority.h)
+        # `selectable` (TestServer.cpp) is `BattleUnit::isSelectable
         # (FACTION_PLAYER,...)`, a plain vanilla "is this a live player unit"
         # check with no coop-seat gating at all, so both machines already see
-        # the IDENTICAL selectable set pre-drop (PASS entry above prints it:
-        # host and client both [8..14]) - Parallel mode's whole point is
-        # shared command of the active side (parallel-battlescape-prd), so
-        # nobody being disjoint is the CORRECT baseline, not a bug. The
+        # the IDENTICAL selectable set before the drop (PASS entry above prints
+        # it) - Parallel turns share command of the active side. The
         # meaningful invariant for a rejoin is that it does not CHANGE
         # whatever the pre-drop picture was - asserted below.
         hsel = sorted(u["id"] for u in hb.get("units", []) if u.get("selectable"))
@@ -404,11 +374,8 @@ def scenario_host_leaves_skirmish():
         host.shutdown(); client.shutdown()
 
 
-# lifted verbatim from test_resume_game_in_battle.py (see the module
-# docstring above for why: that file's own SKIP-PENDING is still a
-# module-level sys.exit(0), so it cannot be imported, lazily or otherwise,
-# without killing this process too). Keep in sync with that file's own copy
-# when it is un-skipped in a later, separately-scoped cycle.
+# copied from test_resume_game_in_battle.py; keep in sync with that file's
+# own copy.
 def _fly_shared_squad_into_a_battle(js):
     """Put the SHARED campaign's craft on a seeded terror site and take both
     machines into the mission (same drive as test_shared_battle)."""
@@ -459,13 +426,12 @@ def scenario_host_leaves_campaign_battle():
 # ------------------------------------------------------------ SEAT-LEFT END --
 
 def scenario_seat_left_end():
-    """S4 (DP1/M6, owner D94=(a)): from a paused battle, the remaining
-    player ENDS it. The wave-1 end control is a LOCAL teardown via the #82
-    GoToMainMenuState chokepoint - no debrief, no `battle_end` wire atom
-    (that is r3b/T6, out of wave); `reason:"seatLeft"` is logged only.
-    Also exercises M4 in passing: drop_client_mid_battle's disconnect_to_menu
-    is a graceful leave, so the pause dialog should have named it."""
-    print("\n===== scenario SEAT-LEFT END (S4) =====")
+    """From a paused battle, the remaining player ENDS it. The end control
+    is a LOCAL teardown via the #82 GoToMainMenuState chokepoint - no
+    debrief; `reason:"seatLeft"` is logged only.
+    Also checks in passing that drop_client_mid_battle's disconnect_to_menu
+    is a graceful leave, so the pause dialog names it."""
+    print("\n===== scenario SEAT-LEFT END =====")
     host_dir = make_user_dir("i93_seatleft_host")
     host = GameClient("host", 48818, host_dir)
     client = GameClient("client", 48819, make_user_dir("i93_seatleft_client"))
@@ -476,11 +442,11 @@ def scenario_seat_left_end():
         drop_client_mid_battle(host, client)
         assert_frozen_over_the_battle(host, "SEAT-LEFT")
 
-        # M4 bonus check: the graceful leave named itself in the pause
+        # in passing: the graceful leave named itself in the pause
         # dialog instead of reading as a silent connection loss.
         d = dialog(host)
         assert "has left the battle" in d["title"], (
-            f"M4: the graceful leave was not named in the pause dialog: {d}")
+            f"SEAT-LEFT: the graceful leave was not named in the pause dialog: {d}")
 
         before = set(session.save_files(host_dir))
         host.ok({"cmd": "coop_dialog_abandon"})
@@ -489,22 +455,22 @@ def scenario_seat_left_end():
                       timeout=60, interval=0.5)
         after = set(session.save_files(host_dir))
         assert after == before, \
-            f"S4: ABANDON on a skirmish pause must write nothing; user dir changed " \
+            f"SEAT-LEFT: ABANDON on a skirmish pause must write nothing; user dir changed " \
             f"{before} -> {after}"
         assert not has(host, "DebriefingState"), (
-            f"S4: a debrief was pushed - DP1/D94(a) is a LOCAL teardown, no "
+            f"SEAT-LEFT: a debrief was pushed - the seat-left end is a LOCAL teardown, no "
             f"debrief: {states(host)}")
         assert not has(host, "BattlescapeState"), (
-            f"S4: the battle SavedGame (and its palette, #82) outlived the "
+            f"SEAT-LEFT: the battle SavedGame (and its palette, #82) outlived the "
             f"teardown: {states(host)}")
 
         b = battle(host)
         assert b.get("phase") == "Idle", \
-            f"S4: the battle authority did not tear down: {b}"
+            f"SEAT-LEFT: the battle authority did not tear down: {b}"
 
         seat_left_lines = [ln for ln in log_lines(host_dir) if 'reason="seatLeft"' in ln]
         assert seat_left_lines, \
-            f"S4: no reason=\"seatLeft\" line in {host_dir}/openxcom.log"
+            f"SEAT-LEFT: no reason=\"seatLeft\" line in {host_dir}/openxcom.log"
         print(f"PASS seat-left-end: local teardown to the main menu, no debrief, "
               f"nothing written, logged {seat_left_lines[-1].strip()!r}")
     finally:
