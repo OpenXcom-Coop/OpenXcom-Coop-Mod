@@ -5,7 +5,7 @@ craft), coop port 47603, the resume on port 47604, dirs battle_gift_resume_host 
 battle_gift_resume_host2 / battle_gift_resume_client2.
 
 Pins (the same on two capture boots): squad [1, 2, 3]; H1 = the unit whose soldierId is the squad's first (1, seat 0);
-G = the unit named "Guest Zzz" (9: the merged copy's fresh id, seat 1).
+G = the unit named "Guest Zzz" (16: the client's soldier keeps its own id in the one shared save, seat 1).
   gifts_survive_resume  the host gives H1 to the client and the client gives G to the host (the battle_gift test
       command), the host saves the battle (save_game_ui quick_battle, test_midbattle_resume's step), both processes
       end, a fresh host2 / client2 resume it (session.resume_campaign_battle, the host's RESUME): gifts_land
@@ -47,7 +47,7 @@ PORT, PORT2 = "47603", "47604"           # the coop session port of the battle a
 STEP_S = 30                               # every bounded wait (measured: each step <= 5 s)
 SAVE_S = 15                               # test_midbattle_resume's bound for the save file
 RESUME_S = 180                            # the resume_campaign_battle timeout (measured: 6.4-6.5 s)
-SQUAD, H1, G = [1, 2, 3], 1, 9            # the same on two capture boots
+SQUAD, H1, G = [1, 2, 3], 1, 16           # the same on two capture boots
 GUEST_NAME = "Guest Zzz"
 ROWS = (("gifts_survive_resume", ("gifts_land", "battle_saved", "battle_resumed", "gifts_kept", "resumed_commands",
                                   "give_back_after_resume", "resume_common")),)

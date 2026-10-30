@@ -409,6 +409,17 @@ def run_client_save_disabled():
         assert after_client == before_client, (
             f"client_save_disabled: the client's user dir gained a save file: {after_client - before_client}")
         print("PASS client_save_disabled: client's quick_battle save wrote nothing (zero-disk)")
+        # One shared save: the client is a replica, and a save it asks for shows the refusal dialog (code 123, as
+        # in a Shared campaign). It is closed before the pause menu opens.
+        _wait_client_with_host_keepalive(
+            client, host, "client save refusal dialog",
+            lambda: client.cmd({"cmd": "coop_dialog_info"}).get("code") == 123, timeout=10)
+        refusal = client.ok({"cmd": "coop_dialog_back"})
+        assert refusal.get("code") == 123, f"client_save_disabled: closed dialog {refusal} (want code 123)"
+        _wait_client_with_host_keepalive(
+            client, host, "client back on BattlescapeState after the refusal",
+            lambda: (session.top_state(client) == "BattlescapeState") or None, timeout=10)
+        print("PASS client_save_disabled: the client's save shows the refusal dialog (code 123)")
 
         client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         _wait_client_with_host_keepalive(

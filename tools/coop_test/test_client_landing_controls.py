@@ -1,5 +1,5 @@
-"""The controls: every path the SEPARATE-client refusal must NOT touch. These rows
-pass with or without the refusal.
+"""Landing rows that start their battle with nothing refused (no CraftErrorState on
+any machine).
 
   host_craft_guest_battle  host-craft joint battle with a client guest (SEPARATE,
                            session.bring_up_separate_guest_battle): both machines
@@ -10,7 +10,7 @@ pass with or without the refusal.
   single_player_landing    single player: the landing prompt still appears and YES
                            still starts the battle; no refusal.
 
-Each row is its own boot and ONE run. The refusal rows are test_client_landing.py.
+Each row is its own boot and ONE run.
 
 Run:  python tools/coop_test/test_client_landing_controls.py
 Exit 0 = every row PASS; 2 = any row FAIL.
@@ -27,7 +27,6 @@ from harness import GameClient, make_user_dir, EXE, LAND_LON, LAND_LAT  # noqa: 
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 
-REFUSAL_LOG = "[coop-host-craft-only]"
 KEEP = ["ConfirmLandingState", "CraftErrorState"]
 from harness import CRASH_DIR  # noqa: E402  (this lane's own crash folder)
 PUSH_RE = re.compile(r"\[coop-ui\] push (?:class )?(?:OpenXcom::)?(\w+) depth=")
@@ -87,11 +86,6 @@ def pushes(gc, state_name):
         if m and m.group(1) == state_name:
             n += 1
     return n
-
-
-def probe(gc):
-    es = gc.cmd({"cmd": "event_state"})
-    return es.get("coopClientBattleRefused"), es.get("coopClientBattleRefusedLast")
 
 
 def base0(gc):
@@ -195,14 +189,9 @@ def arrival_poll(gc, tag, others, timeout=60):
 
 
 def no_refusal(gcs, tag):
-    """Probe 0, 0 [coop-host-craft-only] lines and 0 CraftErrorState pushes on every
-    machine."""
+    """0 CraftErrorState pushes on every machine."""
     time.sleep(3)  # house log flush
     for gc in gcs:
-        p = probe(gc)
-        check(p == (0, ""), "%s: %s probe %r, want (0, '')" % (tag, gc.name, p))
-        check(log_count(gc, REFUSAL_LOG) == 0, "%s: %s logged %d [coop-host-craft-only] "
-              "lines" % (tag, gc.name, log_count(gc, REFUSAL_LOG)))
         check(pushes(gc, "CraftErrorState") == 0, "%s: %s CraftErrorState pushes %d"
               % (tag, gc.name, pushes(gc, "CraftErrorState")))
 
