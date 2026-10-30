@@ -8732,6 +8732,10 @@ static void coopTestOpenSelectDestination(Game* game, const Json::Value& req, Js
 
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
+	// open_craft_info takes two request shapes: {craftId, craftType[, base]} is answered below, {base, craft_id}
+	// (a named base, which may be the other player's) by executeShared10.
+	if (cmd == "open_craft_info" && !req.isMember("craftId") && !req.isMember("craftType"))
+		return false;
 	if (cmd != "event_log" && cmd != "event_state" && cmd != "hash_now"
 		&& cmd != "corrupt_bucket" && cmd != "corrupt_next_blob" && cmd != "force_send_failure"
 		&& cmd != "force_server_error" // coop (TEST-ONLY hook)
