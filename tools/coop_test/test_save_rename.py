@@ -2,32 +2,35 @@
 short bounded time; a rename that still fails shows vanilla's save error on the machine whose save failed, and the save
 stays in <name>.bak. Vanilla single-player saves are unchanged. Two co-op save paths, three rows each, one fresh boot
 pair per row:
-  D = the deferred host save (connectionTCP::writePendingHostSave): a SEPARATE campaign host quick save on the geoscape
-      (save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...", the partner's world lands,
+  deferred_* = the deferred host save (connectionTCP::writePendingHostSave): a SEPARATE campaign host quick save on the
+      geoscape (save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...", the partner's world lands,
       MAP_RESULT_SAVE_PROGRESS writes);
-  B = SaveGameState's own write in co-op: a skirmish host's mid-battle quick save (save_game_ui quick_battle, the F5
-      key's path).
-  X0 no lock (control); X1 short lock: a helper process (this file's HELPER, started and killed by the row) holds <name>
+  battle_* = SaveGameState's own write in co-op: a skirmish host's mid-battle quick save (save_game_ui quick_battle, the
+      F5 key's path).
+  *_no_lock (control); *_short_lock: a helper process (this file's HELPER, started and killed by the row) holds <name>
   open with Python open "rb" (share read + write, no delete: the opener that makes the rename fail with err 5) from
-  before the trigger until LOCK1_S after the save's <name>.bak shows in the folder listing; X2 long lock: the same until
-  LOCK2_S after, past the product's 2.0 s retry bound.
+  before the trigger until LOCK1_S after the save's <name>.bak shows in the folder listing; *_long_lock: the same until
+  LOCK2_S after, past the game's 2.0 s retry bound.
 Every row first writes a PLACEHOLDER <name> into the host's save folder, so every save renames over an existing file.
 The folder is read only by name listing + os.scandir's cached DirEntry.stat (no per-file open, which can itself block
-the rename).
-Cells (X = D0 D1 D2 B0 B1 B2):
-  X-pre GUARD (the trigger ok; D: armDeferredSave +1 since B; B: armDeferredSave +0; the save done within W_SAVE: D
-  clearDeferredSave +1 and no CoopState on the host stack, B no SaveGameState and battle_state.coopSavePending false;
-  X1 X2: the helper HELD before the trigger); X-lock GUARD (X1 X2: the helper saw <name>.bak while it held <name> and
-  held it LOCK1_S / LOCK2_S more);
-  X-file (X0 GUARD, X1 FIX: <name> holds the new save (a save header, mtime newer than the trigger) and <name>.bak is
-  gone; X2 GUARD: <name> is still the placeholder and <name>.bak holds the new save); X-dialog (X0 X1 GUARD: the host
-  stack = B's; X2 FIX: B's + [ErrorMessageState] whose text is SaveGameState::error's "STR_SAVE_UNSUCCESSFUL"
-  TOK_NL_SMALL "Save backed up in <name>.bak");
-  X2-ok FIX (the error's OK closes it: B's stack within W_OK); X2-next GUARD (after the helper exits, a second save with
-  no lock lands: <name> a new save, no <name>.bak, B's stack); X-partner GUARD (the client's stack = its B within
-  W_PARTNER, no ErrorMessageState);
-  X-common GUARD (both alive, no new crash_*.log since B). 38 cells.
-Without the fix: exit 2, failing exactly on D1-file, B1-file, D2-dialog, D2-ok, B2-dialog, B2-ok (6).
+the rename). B = the host and client stacks and the host's save folder, read after the placeholder and before the
+trigger.
+Cells (each named <row>_<check>):
+  save_done GUARD (the trigger ok; deferred: armDeferredSave +1 since B; battle: armDeferredSave +0; the save done
+  within W_SAVE: deferred clearDeferredSave +1 and no CoopState on the host stack, battle no SaveGameState and
+  battle_state.coopSavePending false; short and long lock: the helper HELD before the trigger); lock_held GUARD (short
+  and long lock: the helper saw <name>.bak while it held <name> and held it LOCK1_S / LOCK2_S more);
+  save_file (no lock GUARD, short lock FIX: <name> holds the new save (a save header, mtime newer than the trigger) and
+  <name>.bak is gone; long lock GUARD: <name> is still the placeholder and <name>.bak holds the new save);
+  error_dialog (no lock and short lock GUARD: the host stack = B's; long lock FIX: B's + [ErrorMessageState] whose text
+  is SaveGameState::error's "STR_SAVE_UNSUCCESSFUL" TOK_NL_SMALL "Save backed up in <name>.bak");
+  ok_closes_error FIX (long lock: the error's OK closes it: B's stack within W_OK); second_save_lands GUARD (long lock:
+  after the helper exits, a second save with no lock lands: <name> a new save, no <name>.bak, B's stack);
+  client_unaffected GUARD (the client's stack = its B within W_PARTNER, no ErrorMessageState);
+  both_alive GUARD (both alive, no new crash_*.log since B). 38 cells.
+Without the fix: exit 2, failing exactly on deferred_short_lock_save_file, battle_short_lock_save_file,
+deferred_long_lock_error_dialog, deferred_long_lock_ok_closes_error, battle_long_lock_error_dialog and
+battle_long_lock_ok_closes_error (6).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE
 EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. One
 foreground run per invocation.
@@ -252,10 +255,10 @@ def trigger(r, x, label):
     h, path, n0 = x.host, x.path, r.n_h
     c0 = counts(h, n0)
     t, t_ns = time.time(), time.time_ns()
-    rep = q(h, {"cmd": "save_game_ui", "type": "quick" if path == "D" else "quick_battle"})
+    rep = q(h, {"cmd": "save_game_ui", "type": "quick" if path == "d" else "quick_battle"})
     ev = r.ev.setdefault(label, {})
     ev["reply"] = {k: rep.get(k) for k in ("ok", "error")}
-    if path == "D":
+    if path == "d":
         done = lambda: counts(h, n0)["CLEAR"] > c0["CLEAR"] and "CoopState" not in stack(h) and pending(h) == ""  # noqa: E731
     else:
         done = lambda: "SaveGameState" not in stack(h) and save_pending(h) is False  # noqa: E731
@@ -269,9 +272,10 @@ def trigger(r, x, label):
 
 
 def row(x, results, walls):
-    rid, p, lvl = x.rid, x.rid[:2], x.lvl
-    cells = [p + "-pre"] + ([p + "-lock"] if lvl else []) + [p + "-file", p + "-dialog"] + ([p + "-ok", p + "-next"] if lvl == 2 else [])
-    cells += [p + "-partner", p + "-common"]
+    rid, p, lvl = x.rid, x.rid, x.lvl
+    cells = [p + "_save_done"] + ([p + "_lock_held"] if lvl else []) + [p + "_save_file", p + "_error_dialog"] + (
+        [p + "_ok_closes_error", p + "_second_save_lands"] if lvl == 2 else [])
+    cells += [p + "_client_unaffected", p + "_both_alive"]
     r = Row(rid, cells, x)
     if x.err:
         return r.boot_miss(results, walls)
@@ -287,8 +291,9 @@ def row(x, results, walls):
             ev["helper start"] = dict(hp.rec)
         t, t_ns, done = trigger(r, x, "save")
         n = ev["save"]["needles"]
-        pre_ok = ev["save"]["reply"].get("ok") is True and done and n["ARM"] == (1 if x.path == "D" else 0)
-        pre_label = "the trigger ok, armDeferredSave +%d, the save done within %.0f s" % (1 if x.path == "D" else 0, W_SAVE)
+        pre_ok = ev["save"]["reply"].get("ok") is True and done and n["ARM"] == (1 if x.path == "d" else 0)
+        pre_label = "the trigger ok, armDeferredSave +%d, the save done within %.0f s" % (
+            1 if x.path == "d" else 0, W_SAVE)
         if lvl:
             pre_ok = pre_ok and hp.held_at is not None and hp.held_at <= t  # one clock tick (~15.6 ms, Python 3.12) can give both
             pre_label += ", the helper HELD %s before the trigger" % NAME
@@ -297,8 +302,8 @@ def row(x, results, walls):
             if hp:
                 ev["helper"] = hp.finish()
             r.evidence()
-            r.cell(p + "-pre", "GUARD", pre_label, False)
-            raise Stop("%s-pre: %s" % (p, ev["save"]))
+            r.cell(p + "_save_done", "GUARD", pre_label, False)
+            raise Stop("%s_save_done: %s" % (p, ev["save"]))
         fs = rd["files"]
         top_state, top_texts = rd["top"]
         if lvl == 2 and top_state == "ErrorMessageState":
@@ -318,32 +323,41 @@ def row(x, results, walls):
             t2, t2_ns, done2 = trigger(r, x, "next")
             ev["next read"] = {"host": stack(h), "top": texts(h), "files": file_state(h, t2_ns)}
         r.evidence()
-        r.cell(p + "-pre", "GUARD", pre_label, True)
+        r.cell(p + "_save_done", "GUARD", pre_label, True)
         if lvl:
             hr, hold = ev["helper"], hp.hold
-            r.cell(p + "-lock", "GUARD", "the helper saw %s while it held %s and held it %.1f s more" % (BAK, NAME, hold),
+            r.cell(p + "_lock_held", "GUARD",
+                   "the helper saw %s while it held %s and held it %.1f s more" % (BAK, NAME, hold),
                    hr.get("seen") is not None and hr.get("released") is not None and hr["released"] - hr["seen"] >= hold)
         if lvl < 2:
-            r.cell(p + "-file", "FIX" if lvl == 1 else "GUARD", "%s holds the new save (a save header, mtime newer than the trigger), no %s%s" % (
+            r.cell(p + "_save_file", "FIX" if lvl == 1 else "GUARD",
+                   "%s holds the new save (a save header, mtime newer than the trigger), no %s%s" % (
                 NAME, BAK, " (without the fix: not written, the rename failed silently)" if lvl == 1 else ""),
                 fs[NAME]["save"] and fs[NAME]["newer"] and not fs[BAK]["present"])
-            r.cell(p + "-dialog", "GUARD", "the host stack = B's %s after the save (no error)" % B["host"], rd["host"] == B["host"])
+            r.cell(p + "_error_dialog", "GUARD", "the host stack = B's %s after the save (no error)" % B["host"],
+                   rd["host"] == B["host"])
         else:
-            r.cell(p + "-file", "GUARD", "%s still the placeholder, %s holds the new save (vanilla: the save stays in the backup)" % (NAME, BAK),
+            r.cell(p + "_save_file", "GUARD",
+                   "%s still the placeholder, %s holds the new save (vanilla: the save stays in the backup)" % (
+                       NAME, BAK),
                    fs[NAME]["placeholder"] and fs[BAK]["save"] and fs[BAK]["newer"])
-            r.cell(p + "-dialog", "FIX", "the host stack = B's + [ErrorMessageState], its text %r (without the fix: "
+            r.cell(p + "_error_dialog", "FIX",
+                   "the host stack = B's + [ErrorMessageState], its text %r (without the fix: "
                    "silent, no error)" % ERROR_TEXT,
                    rd["host"] == B["host"] + ["ErrorMessageState"] and top_state == "ErrorMessageState" and ERROR_TEXT in top_texts)
-            r.cell(p + "-ok", "FIX", "the error's OK closes it: the host stack = B's within %.0f s (without the fix: "
+            r.cell(p + "_ok_closes_error", "FIX",
+                   "the error's OK closes it: the host stack = B's within %.0f s (without the fix: "
                    "no error to close)" % W_OK,
                    "ok s" in ev)
             nr = ev["next read"]
-            r.cell(p + "-next", "GUARD", "a second save with no lock lands: %s a new save, no %s, B's stack" % (NAME, BAK),
+            r.cell(p + "_second_save_lands", "GUARD",
+                   "a second save with no lock lands: %s a new save, no %s, B's stack" % (NAME, BAK),
                    done2 and nr["files"][NAME]["save"] and nr["files"][NAME]["newer"] and not nr["files"][BAK]["present"]
                    and nr["host"] == B["host"])
-        r.cell(p + "-partner", "GUARD", "the client's stack = its B %s within %.0f s, no ErrorMessageState" % (B["client"], W_PARTNER),
+        r.cell(p + "_client_unaffected", "GUARD",
+               "the client's stack = its B %s within %.0f s, no ErrorMessageState" % (B["client"], W_PARTNER),
                "partner s" in ev and ev["client top"][0] != "ErrorMessageState")
-        r.cell(p + "-common", "GUARD", "host and client alive, no new crash_*.log since B",
+        r.cell(p + "_both_alive", "GUARD", "host and client alive, no new crash_*.log since B",
                alive(h) and alive(c) and not sorted(session._crash_log_snapshot() - r.cr0))
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
@@ -367,15 +381,16 @@ def settle_tops(x, top):
 
 
 def boot(rid, lvl):
-    """D: spawn, connect, session.new_campaign(port=KEY_CAMPAIGN) SEPARATE, both tops GeoscapeState; B: repro_atom_walk.bring_up_lobby
-    (KEY_SKIRMISH) + session.drive_to_battlescape(seat_count=2), both tops BattlescapeState (else x.err and x.cap)"""
-    path = rid[0]
+    """deferred rows: spawn, connect, session.new_campaign(port=KEY_CAMPAIGN) SEPARATE, both tops GeoscapeState;
+    battle rows: repro_atom_walk.bring_up_lobby (KEY_SKIRMISH) + session.drive_to_battlescape(seat_count=2), both tops
+    BattlescapeState (else x.err and x.cap)"""
+    path = rid[0]  # the row name's first letter: "d" deferred host save, "b" battle save
     tag = "save_rename_" + rid.lower()
     x = SimpleNamespace(rid=rid, lvl=lvl, path=path, tag=tag, host=None, client=None, helper=None, err=None, cap=None,
-                        top="GeoscapeState" if path == "D" else "BattlescapeState")
+                        top="GeoscapeState" if path == "d" else "BattlescapeState")
     try:
         x.host, x.client = GameClient("host", None, make_user_dir(tag + "_host")), GameClient("client", None, make_user_dir(tag + "_client"))
-        if path == "D":
+        if path == "d":
             x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
             session.new_campaign(x.host, x.client, port=KEY_CAMPAIGN, campaign_mode="coop")
         else:
@@ -402,7 +417,8 @@ def shut(x):
     return failed
 
 
-ROWS = (("D0", 0), ("D1", 1), ("D2", 2), ("B0", 0), ("B1", 1), ("B2", 2))
+ROWS = (("deferred_no_lock", 0), ("deferred_short_lock", 1), ("deferred_long_lock", 2),
+        ("battle_no_lock", 0), ("battle_short_lock", 1), ("battle_long_lock", 2))
 
 
 def main():
