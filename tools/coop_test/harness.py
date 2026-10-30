@@ -598,6 +598,9 @@ class GameClient:
             # correlation was added. Once rebuilt, only the exact matching
             # response can satisfy this command.
             if response_id is None or response_id == request_id:
+                # The id only pairs the reply with its request: callers compare
+                # replies from two machines, whose ids differ.
+                response.pop("_requestId", None)
                 return response
 
     def cmd(self, obj):
@@ -683,7 +686,7 @@ class GameClient:
             line, self.buf = self.buf.split(b"\n", 1)
             response = json.loads(line)
             if response.get("_requestId") in ids:
-                got[response["_requestId"]] = response
+                got[response.pop("_requestId")] = response
         return [got[i] for i in ids]
 
     # measured 2026-09-06, 1.0 s rounding cost ~2.2 s per battle
