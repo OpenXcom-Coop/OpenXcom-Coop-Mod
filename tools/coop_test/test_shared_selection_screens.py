@@ -1,79 +1,84 @@
 """test_shared_selection_screens.py: in a SHARED campaign the Transfer and Alien Containment screens
-share ONE list of pending amounts per screen, as the Sell screen does since S-C-E1 (owner D184 (a), D203; MR7, MR9,
-MR10, MR16): an amount either player sets shows on the other player's screen with a label naming that player, a
-rejected Transfer keeps the list and the screen (MR10), the other player's screen stays open after a confirm, rebuilt
-at zero, and a confirm whose confirmer sees none of the list's rows (the other player's soldier rows are
-hidden, MR7) still applies the list (F6341, V-E3) (docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8
-sections 3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2). D243 (owner 2026-10-05): the label sits
-just above the OK/Cancel buttons while another player has the same screen open; in a SHARED campaign the Transfer list
-is ALWAYS one text row shorter (the label's row), with or without the other player; Alien Containment keeps its list
-(its gap above the buttons holds the label) - rows E2-gx / E2-gc (commit S-C-E2.1b).
+share ONE list of pending amounts per screen, as the Sell screen does: an amount either player sets shows on the
+other player's screen with a label naming that player, a rejected Transfer keeps the list and the screen, the other
+player's screen stays open after a confirm, rebuilt at zero, and a confirm whose confirmer sees none of the list's
+rows (the other player's soldier rows are hidden) still applies the list. The label sits just above the OK/Cancel
+buttons while another player has the same screen open; in a SHARED campaign the Transfer list is ALWAYS one text
+row shorter (the label's row), with or without the other player; Alien Containment keeps its list (its gap above
+the buttons holds the label) - rows transfer_list_geometry / containment_list_geometry.
 
-Before S-C-E2 (design section 4, F6341): TransferItemsState and ManageAlienContainmentState are not on the shared
-selection - each machine keeps its own amounts, the other player never sees them, the store (sel_state) holds no
-xfer / cont key and no label is drawn; a Transfer confirm built from the confirmer's visible rows only submits
-nothing when the list holds only the other player's soldier row (TransferItemsState :774, F6341's Transfer shape).
+Without these changes TransferItemsState and ManageAlienContainmentState are not on the shared selection - each
+machine keeps its own amounts, the other player never sees them, the store (sel_state) holds no xfer / cont key and
+no label is drawn; a Transfer confirm built from the confirmer's visible rows only submits nothing when the list
+holds only the other player's soldier row (TransferItemsState :774).
 
-Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
-FAILs "pre-cell"):
-  XFER = SEL (test_shared_selection.sel_pre on shared_fixture.bring_up(tag, (0, 0, "47262")): the first base-0
-         soldier owned by seat 1, off its craft on both) + test_shared_page3.second_base_fixture (the client builds
-         "Second Base", the host fac_builds its General Stores, buildTime 0 on both, R-D1-2). Each row turns every
-         hold off, dismisses any box, cancels any base screen on both, restores the boot's funds on both (client first),
-         restages STR_RIFLE x XFER_STAGE with give_items on both (client first, S25), then opens the REAL screens on
-         both (host first): screen_push {transfer_base, base 0} (BasescapeState :686), screen_pick_base {0, 1}
-         (TransferBaseState :162) -> TransferItemsState, key xfer|n|0|1.
-  E2-xe staging (this file's construction, F6453; F6341 on Transfer, F6451): host fac_build STR_LIVING_QUARTERS at "Second Base"
-         (QUARTERS_X, QUARTERS_Y) next to its lift, both machines list it, buildTime 0 on both (client first) - the
-         Transfer screen refuses a soldier row while the destination has no free quarters (TransferItemsState :1398).
-  CONT = SEL (port 47263) + FX-CT's geoscape half (host fac_build STR_ALIEN_CONTAINMENT at (0, 3), index 9 on both,
-         set_facility_build_time 0 on both, give_items {STR_SECTOID_SOLDIER, 4} on both, client first); the row opens
-         screen_push {containment, base 0, prisonType 0} on both (BasescapeState :904; key cont|n|0|p0).
-  Probes / levers: screen_push (PR-51), screen_rows (+ textItems [{text, visible}], rows[i].color, secondaryColor,
-  highlightColor, PR-51), screen_set_amount, screen_pick_base, sel_state (PR-46), set_funds (both, client first),
-  click_widget on the real captions (Transfer, OK, Cancel, Remove Selected), coop_dialog_back ONLY on a CoopState top,
-  dismiss_popup ONLY on an ErrorMessageState top.
-  Labels: "Also on this screen: <the other seat's roster name>" (STR_COOP_ALSO_ON_SCREEN, D203, PR-50 (iii); the
-  roster = save_markers.coopPlayers, seat 0 = the host).
+Fixtures (a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot FAILs "pre-cell"):
+  transfer_screen = test_shared_selection's sell_screen setup (test_shared_selection.sel_pre on
+         shared_fixture.bring_up(tag, (0, 0, "47262")): the first base-0 soldier owned by seat 1, off its craft on
+         both) + test_shared_page3.second_base_fixture (the client builds "Second Base", the host fac_builds its
+         General Stores, buildTime 0 on both). Each row turns every hold off, dismisses any box, cancels any base
+         screen on both, restores the boot's funds on both (client first), restages STR_RIFLE x XFER_STAGE with
+         give_items on both (client first), then opens the REAL screens on both (host first): screen_push
+         {transfer_base, base 0} (BasescapeState :686), screen_pick_base {0, 1} (TransferBaseState :162) ->
+         TransferItemsState, key xfer|n|0|1.
+  hidden_soldier_confirm staging: host fac_build STR_LIVING_QUARTERS at "Second Base" (QUARTERS_X, QUARTERS_Y)
+         next to its lift, both machines list it, buildTime 0 on both (client first) - the Transfer screen refuses a
+         soldier row while the destination has no free quarters (TransferItemsState :1398).
+  containment_screen = the same sell_screen setup (port 47263) + the geoscape half of
+         test_shared_forced_containment's containment fixture (host fac_build STR_ALIEN_CONTAINMENT at (0, 3), index
+         9 on both, set_facility_build_time 0 on both, give_items {STR_SECTOID_SOLDIER, 4} on both, client first);
+         the row opens screen_push {containment, base 0, prisonType 0} on both (BasescapeState :904; key
+         cont|n|0|p0).
+  Probes / test commands: screen_push, screen_rows (+ textItems [{text, visible}], rows[i].color, secondaryColor,
+  highlightColor), screen_set_amount, screen_pick_base, sel_state, set_funds (both, client first), click_widget on
+  the real captions (Transfer, OK, Cancel, Remove Selected), coop_dialog_back ONLY on a CoopState top, dismiss_popup
+  ONLY on an ErrorMessageState top.
+  Labels: "Also on this screen: <the other seat's roster name>" (STR_COOP_ALSO_ON_SCREEN; the roster =
+  save_markers.coopPlayers, seat 0 = the host).
 
-Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot XFER (port 47262): E2-xa, E2-xr, E2-xe, E2-gx.
-  E2-xa (1) client Rifle = 3 -> the host's Rifle amount 3 within SEL_S.
+Rows (cells checked in order; a failed cell ends its row and the rest are reported "not reached"):
+  Boot transfer_screen (port 47262): transfer_amounts_shared, rejected_transfer_kept, hidden_soldier_confirm,
+  transfer_list_geometry.
+  transfer_amounts_shared
+        (1) client Rifle = 3 -> the host's Rifle amount 3 within SEL_S.
         (2) host Rifle = 4 -> the client's Rifle amount 4 within SEL_S; both screens' textItems hold the label naming
             the other player, visible.
-  E2-xr (1) client Rifle = 4 (local); set_funds {-1} on both (client first; R-E2-1: HostBase and Second Base share
-            coordinates, so the transfer costs $0 and only funds below 0 fail transferValidate's funds check, F6447,
-            F6448); client Transfer -> OK: within PAGE_S the client's top CoopState (556) with TransferItemsState
-            directly under it; sel_state xfer|n|0|1 rows {i:STR_RIFLE: 4}, rev unchanged by the rejected confirm, on
-            both (MR10).
+  rejected_transfer_kept
+        (1) client Rifle = 4 (local); set_funds {-1} on both (client first; HostBase and Second Base share
+            coordinates, so the transfer costs $0 and only funds below 0 fail transferValidate's funds check);
+            client Transfer -> OK: within PAGE_S the client's top CoopState (556) with TransferItemsState directly
+            under it; sel_state xfer|n|0|1 rows {i:STR_RIFLE: 4}, rev unchanged by the rejected confirm, on both.
         (2) coop_dialog_back; funds restored on both; client Transfer -> OK: within PAGE_S the client's
             TransferItemsState and TransferBaseState gone; the host's top stays TransferItemsState (rebuilt), every
             amount 0; shared_checksum.chkTransfers +1 on both; world_diff empty.
-  E2-xe (1) (F6341, MR7, V-E3) the client sets ONLY its own soldier's row to 1; the host's screen_rows lists no row
-            named after that soldier (MR7); the host's sel_state xfer|n|0|1 rows == {s:<id>: 1} within SEL_S.
+  hidden_soldier_confirm
+        (1) the client sets ONLY its own soldier's row to 1; the host's screen_rows lists no row named after that
+            soldier; the host's sel_state xfer|n|0|1 rows == {s:<id>: 1} within SEL_S.
         (2) host Transfer -> OK: within PAGE_S the host's TransferItemsState and TransferBaseState gone; the soldier
             left base 0 on both within EQUAL_S (in transit); chkTransfers +1 on both; the client's top stays
             TransferItemsState (rebuilt), every amount 0; no CoopState.
-  E2-gx (D243; geometry = list_widgets on the top state: the first TextList's rect, the Cancel button's rect, every
-            Text starting with the label's head)
+  transfer_list_geometry (geometry = list_widgets on the top state: the first TextList's rect, the Cancel button's
+            rect, every Text starting with the label's head)
         (1) the host alone opens the Transfer screen (base 0 -> 1): its list height == SHARED_LIST_H (128 - 8 = 120:
             one text row shorter than vanilla's 128) and no label visible, within SEL_S.
         (2) the client opens it too: on both the list height stays 120 and a VISIBLE label names the other player, its
             rect between the list's bottom and the Cancel button's top, within SEL_S.
         (3) the host Cancels: the client's list height stays 120, its label hidden, within SEL_S.
-  Boot CONT (port 47263): E2-ca, E2-gc.
-  E2-ca (1) client L = 2 -> the host's L amount 2 within SEL_S; both screens' labels visible.
+  Boot containment_screen (port 47263): containment_amounts_shared, containment_list_geometry.
+  containment_amounts_shared
+        (1) client L = 2 -> the host's L amount 2 within SEL_S; both screens' labels visible.
         (2) host Remove Selected: its screen gone within PAGE_S; the client's ManageAlienContainmentState stays (rebuilt
             in place), every amount 0; L stock 2 and STR_SECTOID_CORPSE +2 on both; world_diff empty.
-  E2-gc (1) the host alone opens containment: its list height == 112 (vanilla, unchanged), no label visible.
+  containment_list_geometry
+        (1) the host alone opens containment: its list height == 112 (vanilla, unchanged), no label visible.
         (2) the client opens it too: both lists 112; on both a VISIBLE label names the other player, its rect between the
             list's bottom and the Cancel button's top (the containment's gap above its buttons), within SEL_S.
 Guard on every row: no new crash log; the client zero-disk at each boot's end.
 
-RED (commit S-C-E2.1: screen_push, the row colours and textItems, these rows; product untouched): E2-xa, E2-xe and
-E2-ca fail on cell 1 (the host's amount stays 0 / the host's sel_state holds no xfer key), E2-xr on cell 1 (sel_state
-lacks the key). RED (commit S-C-E2.1b, D243, test only): E2-gx fails on cell 1 (the list keeps vanilla's 128), E2-gc
-on cell 2 (no label). GREEN (commit S-C-E2.2): every row passes.
+Without these changes: transfer_amounts_shared, hidden_soldier_confirm and containment_amounts_shared fail on cell 1
+(the host's amount stays 0 / the host's sel_state holds no xfer key), rejected_transfer_kept on cell 1 (sel_state
+lacks the key), transfer_list_geometry on cell 1 (the list keeps vanilla's 128), containment_list_geometry on cell 2
+(no label).
 Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE foreground
 run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
@@ -92,26 +97,27 @@ import test_battle_end_campaign as camp
 import test_shared_page3 as p3
 import test_shared_forced_storage as fst
 import test_shared_forced_containment as fct
-import test_shared_selection as e1
+import test_shared_selection as selection
 
-# ----- pins (AMENDMENT P7-8 section 4 / 4.2) -----
-RIFLE = "STR_RIFLE"                      # XFER's item (looked up by type, S25)
-XFER_STAGE = 20                          # XFER: give_items {STR_RIFLE, 20} on both (P7-8 section 4.2)
-XFER_KEY = "xfer|n|0|1"                  # SharedEcon::xferKey(base 0 -> base 1, normal) (P7-7 PR-30 format, P7-8 PR-37)
+# ----- fixture values -----
+RIFLE = "STR_RIFLE"                      # transfer_screen's item (looked up by type)
+XFER_STAGE = 20                          # transfer_screen: give_items {STR_RIFLE, 20} on both
+XFER_KEY = "xfer|n|0|1"                  # SharedEcon::xferKey(base 0 -> base 1, normal)
 CONT_KEY = "cont|n|0|p0"                 # SharedEcon::contKey(base 0, prisonType 0, normal)
-E2XA_CLIENT, E2XA_HOST = 3, 4            # P7-8 section 4.2 E2-xa's amounts
-E2XR_SET = 4                             # E2-xr's Rifle amount
-E2XR_FUNDS = -1                          # the $0 base 0 -> 1 transfer fails only below 0 funds
-E2CA_SET = 2                             # E2-ca's L amount
-L = fct.L                                # STR_SECTOID_SOLDIER (FX-CT's live alien)
-L_FILL = 4                               # CONT: give_items {STR_SECTOID_SOLDIER, 4} on both
+AMOUNT_CLIENT, AMOUNT_HOST = 3, 4        # transfer_amounts_shared's amounts
+REJECTED_SET = 4                         # rejected_transfer_kept's Rifle amount
+REJECTED_FUNDS = -1                      # the $0 base 0 -> 1 transfer fails only below 0 funds
+CONTAIN_SET = 2                          # containment_amounts_shared's L amount
+L = fct.L                                # STR_SECTOID_SOLDIER (the containment fixture's live alien)
+L_FILL = 4                               # containment_screen: give_items {STR_SECTOID_SOLDIER, 4} on both
 CORPSE = "STR_SECTOID_CORPSE"            # an executed sectoid's geoscape corpse (containmentApply :947-:956)
-CONTAINMENT, CT_X, CT_Y, CT_INDEX = fct.CONTAINMENT, fct.CT_X, fct.CT_Y, fct.CT_INDEX   # CONSTANTS T0-S3 (i) F5434/F5435
-SECOND_BASE = p3.SECOND_BASE             # FX-B's base (index 1)
-QUARTERS, QUARTERS_X, QUARTERS_Y = "STR_LIVING_QUARTERS", 2, 3   # E2-xe staging: next to Second Base's lift (3, 3)
-LABEL_HEAD = "Also on this screen: "     # STR_COOP_ALSO_ON_SCREEN "Also on this screen: {0}" (D203, PR-50 (iii))
-# D243 (owner 2026-10-05): the label sits just above the OK/Cancel buttons; in a SHARED campaign the Sell and Transfer
-# lists are ALWAYS one text row shorter (the label's row), Alien Containment keeps its list (its gap above the buttons
+CONTAINMENT, CT_X, CT_Y, CT_INDEX = fct.CONTAINMENT, fct.CT_X, fct.CT_Y, fct.CT_INDEX
+SECOND_BASE = p3.SECOND_BASE             # test_shared_page3's second base (index 1)
+QUARTERS, QUARTERS_X, QUARTERS_Y = "STR_LIVING_QUARTERS", 2, 3   # hidden_soldier_confirm staging: next to
+                                                                 # Second Base's lift (3, 3)
+LABEL_HEAD = "Also on this screen: "     # STR_COOP_ALSO_ON_SCREEN "Also on this screen: {0}"
+# The label sits just above the OK/Cancel buttons; in a SHARED campaign the Sell and Transfer lists are ALWAYS
+# one text row shorter (the label's row), Alien Containment keeps its list (its gap above the buttons
 # holds the label). Vanilla list heights = the screens' constructors: SellState :110 TextList(287, 120, 8, 54),
 # TransferItemsState :82 TextList(287, 128, 8, 44), ManageAlienContainmentState :91 TextList(286, 112, 8, 53); one
 # small-font text row = 8 px (FONT_SMALL height 9 + spacing -1, TextList::updateVisible).
@@ -122,11 +128,11 @@ XFER_OK, CONFIRM_OK, CANCEL = "Transfer", "OK", "Cancel"   # TransferItemsState 
 CONT_OK = fct.CONT_OK                    # "Remove Selected" (2-button layout: canSellLiveAliens off)
 MACS = "ManageAlienContainmentState"
 SHARED_FAIL = 556                        # CoopState COOP_DLG_SHARED_FAIL (CoopState.h :56)
-BOOT_PORT = {"XFER": "47262", "CONT": "47263"}   # AMENDMENT P7-8 section 4: E2 = 47262 (XFER), 47263 (CONT)
-SEL_S = e1.SEL_S                         # 3 s: a cross-machine amount (P7-8 section 4)
-PAGE_S = e1.PAGE_S                       # 5 s: a screen push / close after a real click
-SCREEN_S = e1.SCREEN_S                   # 10 s
-EQUAL_S = e1.EQUAL_S                     # 10 s: a shared_apply's effect may lag one round trip
+BOOT_PORT = {"transfer_screen": "47262", "containment_screen": "47263"}   # session keys
+SEL_S = selection.SEL_S                  # 3 s: a cross-machine amount
+PAGE_S = selection.PAGE_S                # 5 s: a screen push / close after a real click
+SCREEN_S = selection.SCREEN_S            # 10 s
+EQUAL_S = selection.EQUAL_S              # 10 s: a shared_apply's effect may lag one round trip
 BASES_S = p3.BASES_S                     # 45 s: a facility on both machines
 
 
@@ -134,7 +140,7 @@ class FixtureMiss(Exception):
     pass
 
 
-MISSES = e1.MISSES + (FixtureMiss, e1.FixtureMiss)
+MISSES = selection.MISSES + (FixtureMiss, selection.FixtureMiss)
 SCREENS = ("TransferConfirmState", "TransferItemsState", "TransferBaseState", "SellState", MACS)
 
 
@@ -159,7 +165,7 @@ def wait_until(pred, timeout, interval=0.2):
 
 
 def poll(fn, timeout, interval=0.2):
-    return e1.poll(fn, timeout, interval)
+    return selection.poll(fn, timeout, interval)
 
 
 def rows(gc, **kw):
@@ -200,15 +206,15 @@ def all_zero(r, mac=False):
 
 
 def sel_all(gc):
-    return e1.sel_all(gc)
+    return selection.sel_all(gc)
 
 
 def sel(gc, key):
-    return e1.sel(gc, key)
+    return selection.sel(gc, key)
 
 
 def sel_rows(gc, key):
-    return e1.sel_rows(gc, key)
+    return selection.sel_rows(gc, key)
 
 
 def sstats(gc):
@@ -244,7 +250,7 @@ def stock(gc, item, base=0):
 
 
 def roster(gc):
-    return e1.roster(gc)
+    return selection.roster(gc)
 
 
 def transfers_chk(gc):
@@ -256,7 +262,7 @@ def ok_visible(r, caption):
 
 
 def screen_ready(gc, cls):
-    """Top == cls and its list holds rows (init() ran, F5573)."""
+    """Top == cls and its list holds rows (init() ran)."""
     if top(gc) != cls:
         return False
     r = rows(gc)
@@ -280,7 +286,7 @@ def label_items(r):
 
 
 def label_shown(r, text):
-    """True when a VISIBLE textItem's text == text (asserted by text and visibility, never position: D243)."""
+    """True when a VISIBLE textItem's text == text (asserted by text and visibility, never position)."""
     return any(t.get("text") == text and t.get("visible") is True for t in (r.get("textItems") or []))
 
 
@@ -301,7 +307,7 @@ def labels_cell(host, client, names, ctx, key, timeout=SEL_S):
     ok, got, secs = poll(both, timeout)
     ctx[key] = {"ok": ok, "want": want, "labels": got, "secs": secs}
     return [] if ok else [f"the screens' label textItems (host, client) {got} {timeout}s on (want a visible textItem "
-                          f"{want['host']!r} on the host and {want['client']!r} on the client, D203)"]
+                          f"{want['host']!r} on the host and {want['client']!r} on the client)"]
 
 
 def geometry(gc):
@@ -330,7 +336,7 @@ def geo_ok(g, cls, want_label):
         return False, f"top {g.get('top')!r} / list {lst} (want {cls} with its list)"
     if lst["h"] != SHARED_LIST_H[cls]:
         return False, (f"list height {lst['h']} ({lst.get('rows')} rows; want {SHARED_LIST_H[cls]}, vanilla "
-                       f"{VANILLA_LIST_H[cls]}: D243)")
+                       f"{VANILLA_LIST_H[cls]})")
     shown = [t for t in g.get("labels") or [] if t.get("visible") is True]
     if not want_label:
         return (not shown), ("" if not shown else f"a label is visible {shown} (want none: nobody else on the screen)")
@@ -340,7 +346,7 @@ def geo_ok(g, cls, want_label):
     t, bottom = hit[0], lst["y"] + lst["h"]
     if not (isinstance(cancel.get("y"), int) and t["y"] >= bottom and t["y"] + t["h"] <= cancel["y"]):
         return False, (f"label rect y {t['y']}..{t['y'] + t['h']} not between the list's bottom {bottom} and the "
-                       f"{CANCEL} button's top {cancel.get('y')} (D243)")
+                       f"{CANCEL} button's top {cancel.get('y')})")
     return True, ""
 
 
@@ -398,7 +404,7 @@ def capture(name, err, machines):
 
 
 def hygiene(host, client, ctx):
-    """Holds off; boxes dismissed (ErrorMessageState / CoopState only, F4333); every base screen cancelled with its
+    """Holds off; boxes dismissed (ErrorMessageState / CoopState only); every base screen cancelled with its
     real Cancel - both machines back on GeoscapeState (a miss is a setup failure)."""
     m = (host, client)
     h = {"holds": {gc.name: hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
@@ -436,7 +442,7 @@ def give(host, client, item, count, ctx, key):
 
 def set_funds_both(host, client, value):
     out = {}
-    for gc in (client, host):   # client first (test_shared_purchase AC1c's pattern)
+    for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_funds", "value": value})
         out[gc.name] = {k: r.get(k) for k in ("ok", "funds", "error")}
     return out
@@ -477,44 +483,48 @@ def open_cont(host, client, ctx):
 
 
 def xfer_pre(js, ctx):
-    """XFER pre-cell: SEL's soldier off its craft, FX-B's second base with stores, the roster names, the boot funds."""
-    e1.sel_pre(js, ctx)
+    """transfer_screen pre-cell: the sell_screen setup's soldier off its craft, test_shared_page3's second base with
+    stores, the roster names, the boot funds."""
+    selection.sel_pre(js, ctx)
     p3.second_base_fixture(js, ctx)
     ctx["names"] = roster_names(js.host)
     ctx["funds0"] = {gc.name: funds(gc) for gc in (js.host, js.client)}
     if len(ctx["names"]) != 2 or ctx["funds0"]["host"] != ctx["funds0"]["client"]:
-        capture("XFER names / funds", f"coopPlayers {ctx['names']} (want 2 names), funds {ctx['funds0']} (want equal)",
+        capture("transfer_screen names / funds",
+                f"coopPlayers {ctx['names']} (want 2 names), funds {ctx['funds0']} (want equal)",
                 (js.host, js.client))
 
 
 def cont_pre(js, ctx):
-    """CONT pre-cell: SEL's soldier off its craft, then FX-CT's geoscape half: the containment facility at (0, 3) built
-    and complete on both, L x L_FILL on both (client first), the roster names."""
+    """containment_screen pre-cell: the sell_screen setup's soldier off its craft, then the geoscape half of the
+    containment fixture: the containment facility at (0, 3) built and complete on both, L x L_FILL on both (client
+    first), the roster names."""
     host, client = js.host, js.client
     m = (host, client)
-    e1.sel_pre(js, ctx)
+    selection.sel_pre(js, ctx)
     fb = host.cmd({"cmd": "fac_build", "facility": CONTAINMENT, "x": CT_X, "y": CT_Y})
     ok, secs = wait_until(lambda: fct.facility_index(host) is not None and fct.facility_index(client) is not None,
                           BASES_S, 0.5)
     idx = {gc.name: fct.facility_index(gc) for gc in m}
     ctx["cont"] = {"facBuild": {k: fb.get(k) for k in ("ok", "error")}, "index": idx, "secs": secs}
     if not (fb.get("ok") and ok and idx["host"] == idx["client"] == CT_INDEX):
-        capture("CONT facility", f"fac_build {ctx['cont']['facBuild']}, index {idx} (want {CT_INDEX} on both)", m)
+        capture("containment_screen facility",
+                f"fac_build {ctx['cont']['facBuild']}, index {idx} (want {CT_INDEX} on both)", m)
     sets = {}
     for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": CT_INDEX, "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "buildTime", "error")}
     ctx["cont"]["buildTime0"] = sets
     if not all(s.get("ok") and s.get("type") == CONTAINMENT and s.get("buildTime") == 0 for s in sets.values()):
-        capture("CONT buildTime", f"set_facility_build_time answered {sets}", m)
+        capture("containment_screen buildTime", f"set_facility_build_time answered {sets}", m)
     give(host, client, L, L_FILL, ctx["cont"], "give")
     ctx["names"] = roster_names(host)
     if len(ctx["names"]) != 2:
-        capture("CONT names", f"coopPlayers {ctx['names']} (want 2 names)", m)
+        capture("containment_screen names", f"coopPlayers {ctx['names']} (want 2 names)", m)
 
 
 def restore_funds(host, client, ctx, boot):
-    """The boot's funds on both (client first) when either machine's moved (E2-xr sets them to 0)."""
+    """The boot's funds on both (client first) when either machine's moved (rejected_transfer_kept sets them to 0)."""
     f0 = boot["funds0"]["host"]
     now = {gc.name: funds(gc) for gc in (host, client)}
     if any(v != f0 for v in now.values()):
@@ -522,8 +532,8 @@ def restore_funds(host, client, ctx, boot):
 
 
 def xfer_start(host, client, ctx, boot):
-    """XFER row start: hygiene, the boot's funds restored on both (client first) when they moved, STR_RIFLE restaged
-    on both (client first), both Transfer screens open."""
+    """transfer_screen row start: hygiene, the boot's funds restored on both (client first) when they moved,
+    STR_RIFLE restaged on both (client first), both Transfer screens open."""
     hygiene(host, client, ctx)
     restore_funds(host, client, ctx, boot)
     give(host, client, RIFLE, XFER_STAGE, ctx, "give")
@@ -532,7 +542,8 @@ def xfer_start(host, client, ctx, boot):
 
 
 def stage_quarters(host, client, ctx):
-    """E2-xe: STR_LIVING_QUARTERS at Second Base (QUARTERS_X, QUARTERS_Y) built on both, buildTime 0 on both."""
+    """hidden_soldier_confirm: STR_LIVING_QUARTERS at Second Base (QUARTERS_X, QUARTERS_Y) built on both,
+    buildTime 0 on both."""
     m = (host, client)
 
     def q_index(gc):
@@ -546,7 +557,8 @@ def stage_quarters(host, client, ctx):
     idx = {gc.name: q_index(gc) for gc in m}
     ctx["quarters"] = {"facBuild": {k: fb.get(k) for k in ("ok", "error")}, "index": idx, "secs": secs}
     if not (fb.get("ok") and ok and idx["host"] == idx["client"]):
-        capture("E2-xe quarters", f"fac_build {ctx['quarters']['facBuild']}, index {idx} after {BASES_S}s (want "
+        capture("hidden_soldier_confirm quarters",
+                f"fac_build {ctx['quarters']['facBuild']}, index {idx} after {BASES_S}s (want "
                 f"equal on both)", m)
     sets = {}
     for gc in (client, host):   # client first
@@ -554,7 +566,7 @@ def stage_quarters(host, client, ctx):
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "buildTime", "error")}
     ctx["quarters"]["buildTime0"] = sets
     if not all(s.get("ok") and s.get("type") == QUARTERS and s.get("buildTime") == 0 for s in sets.values()):
-        capture("E2-xe quarters buildTime", f"set_facility_build_time answered {sets}", m)
+        capture("hidden_soldier_confirm quarters buildTime", f"set_facility_build_time answered {sets}", m)
     q = {}
     for gc in m:
         r = gc.cmd({"cmd": "base_report", "base": SECOND_BASE})
@@ -566,7 +578,7 @@ def stage_quarters(host, client, ctx):
 
 
 def set_ok(gc, value, ctx, key, item=None, row=None):
-    return e1.set_ok(gc, value, ctx, key, item=item, row=row)
+    return selection.set_ok(gc, value, ctx, key, item=item, row=row)
 
 
 def cross(gc, item, want, ctx, key, timeout=SEL_S, mac=False):
@@ -608,7 +620,7 @@ def zeros(gc, ctx, key, mac=False, timeout=SEL_S):
     ok, a, secs = poll(lambda: (lambda r: (all_zero(r, mac), {k: v for k, v in amounts(r, mac).items() if v}))(rows(gc)),
                        timeout)
     ctx[key] = {"ok": ok, "nonZero": a, "secs": secs}
-    return [] if ok else [f"{gc.name}'s amounts {a} {timeout}s on (want every amount 0, D204)"]
+    return [] if ok else [f"{gc.name}'s amounts {a} {timeout}s on (want every amount 0)"]
 
 
 def chk_plus_one(host, client, x0, ctx, key):
@@ -624,7 +636,7 @@ def chk_plus_one(host, client, x0, ctx, key):
 
 
 def no_box(host, client, ctx, key):
-    return e1.no_box(host, client, ctx, key)
+    return selection.no_box(host, client, ctx, key)
 
 
 def world_same(host, client, ctx, key):
@@ -632,7 +644,7 @@ def world_same(host, client, ctx, key):
 
 
 def soldier_row(r, name):
-    return e1.soldier_row(r, name)
+    return selection.soldier_row(r, name)
 
 
 def soldier_of(ctx):
@@ -643,18 +655,19 @@ def boot_of(ctx):
     return ctx["pre"] if "names" in ctx.get("pre", {}) else ctx["boot"]
 
 
-# ===================== XFER rows =====================
+# ===================== transfer_screen rows =====================
 
 
-def e2_xa_cells(host, client, ctx):
+def transfer_amounts_shared_cells(host, client, ctx):
     names = boot_of(ctx)["names"]
 
     def c1():
         xfer_start(host, client, ctx, boot_of(ctx))
-        return set_ok(client, E2XA_CLIENT, ctx, "c1set", item=RIFLE) or cross(host, RIFLE, E2XA_CLIENT, ctx, "c1host")
+        return (set_ok(client, AMOUNT_CLIENT, ctx, "c1set", item=RIFLE)
+                or cross(host, RIFLE, AMOUNT_CLIENT, ctx, "c1host"))
 
     def c2():
-        f = set_ok(host, E2XA_HOST, ctx, "c2set", item=RIFLE) or cross(client, RIFLE, E2XA_HOST, ctx, "c2client")
+        f = set_ok(host, AMOUNT_HOST, ctx, "c2set", item=RIFLE) or cross(client, RIFLE, AMOUNT_HOST, ctx, "c2client")
         return f or labels_cell(host, client, names, ctx, "c2labels")
     return [
         ("1 the client's Rifle edit reaches the host's Transfer screen", c1),
@@ -662,20 +675,20 @@ def e2_xa_cells(host, client, ctx):
     ]
 
 
-def e2_xr_cells(host, client, ctx):
+def rejected_transfer_kept_cells(host, client, ctx):
     boot = boot_of(ctx)
 
     def c1():
         xfer_start(host, client, ctx, boot)
-        f = set_ok(client, E2XR_SET, ctx, "c1set", item=RIFLE)
+        f = set_ok(client, REJECTED_SET, ctx, "c1set", item=RIFLE)
         if f:
             return f
-        want = {f"i:{RIFLE}": E2XR_SET}
+        want = {f"i:{RIFLE}": REJECTED_SET}
         seen, s0, secs = poll(lambda: (lambda h, c: (isinstance(h, dict) and isinstance(c, dict) and h.get("rows") == want
                                                      and c.get("rows") == want, {"host": h, "client": c}))(
             sel(host, XFER_KEY), sel(client, XFER_KEY)), SEL_S)
         ctx["c1before"] = {"seen": seen, "sel": s0, "secs": secs}   # EVIDENCE only: the rev the confirm must not move
-        ctx["c1funds0"] = set_funds_both(host, client, E2XR_FUNDS)
+        ctx["c1funds0"] = set_funds_both(host, client, REJECTED_FUNDS)
         f = p3.open_screen(client, XFER_OK, "TransferConfirmState", ctx, "c1confirm")
         if f:
             return f
@@ -686,7 +699,7 @@ def e2_xr_cells(host, client, ctx):
                         "shared": sstats(client)}
         if not ok:
             return [f"the client's stack {stack(client)} / dialog {dialog(client)} {PAGE_S}s after its rejected Transfer "
-                    f"(want CoopState {SHARED_FAIL} directly over its TransferItemsState, MR10)"]
+                    f"(want CoopState {SHARED_FAIL} directly over its TransferItemsState)"]
         after = {gc.name: sel(gc, XFER_KEY) for gc in (host, client)}
         ctx["c1after"] = after
         if not all(isinstance(v, dict) for v in after.values()):
@@ -712,7 +725,7 @@ def e2_xr_cells(host, client, ctx):
         f = gone(client, ctx, "c2gone", ("TransferItemsState", "TransferBaseState", "TransferConfirmState"))
         if f:
             return f
-        f = stays_rebuilt(host, "TransferItemsState", RIFLE, s0 - E2XR_SET, ctx, "c2hostRebuilt")
+        f = stays_rebuilt(host, "TransferItemsState", RIFLE, s0 - REJECTED_SET, ctx, "c2hostRebuilt")
         if f:
             return f
         f = zeros(host, ctx, "c2hostZeros")
@@ -720,12 +733,12 @@ def e2_xr_cells(host, client, ctx):
             return f
         return chk_plus_one(host, client, x0, ctx, "c2chk") + world_same(host, client, ctx, "c2world")
     return [
-        ("1 a rejected Transfer keeps the client's screen and the shared list (MR10)", c1),
-        ("2 the retried Transfer applies; the host's screen rebuilt at zero (D204)", c2),
+        ("1 a rejected Transfer keeps the client's screen and the shared list", c1),
+        ("2 the retried Transfer applies; the host's screen rebuilt at zero", c2),
     ]
 
 
-def e2_xe_cells(host, client, ctx):
+def hidden_soldier_confirm_cells(host, client, ctx):
     sold = soldier_of(ctx)
 
     def c1():
@@ -743,8 +756,8 @@ def e2_xe_cells(host, client, ctx):
         hidx = soldier_row(rows(host), sold["name"])
         ctx["c1hostRow"] = hidx
         if hidx is not None:
-            return [f"the host's TransferItemsState lists the client's soldier {sold['name']!r} (row {hidx}; want none, "
-                    f"MR7)"]
+            return [f"the host's TransferItemsState lists the client's soldier {sold['name']!r} (row {hidx}; "
+                    f"want none)"]
         want = {f"s:{sold['id']}": 1}
         ok, got, secs = poll(lambda: (lambda r: (r == want, r))(sel_rows(host, XFER_KEY)), SEL_S)
         ctx["c1hostSel"] = {"ok": ok, "rows": got, "secs": secs}
@@ -765,8 +778,7 @@ def e2_xe_cells(host, client, ctx):
         ctx["c2soldier"] = {"ok": ok, "inBase0": v, "secs": secs}
         if not ok:
             return [f"soldier {sold['id']} still in base 0 {v} {EQUAL_S}s after the host's Transfer (want in transit on "
-                    f"both: the host's confirm applies the shared list although the host sees none of its rows, F6341, "
-                    f"V-E3)"]
+                    f"both: the host's confirm applies the shared list although the host sees none of its rows)"]
         f = chk_plus_one(host, client, x0, ctx, "c2chk")
         if f:
             return f
@@ -776,8 +788,8 @@ def e2_xe_cells(host, client, ctx):
             return [f"the client's top {top(client)!r} after the host's Transfer (want its TransferItemsState, rebuilt)"]
         return zeros(client, ctx, "c2clientZeros") + no_box(host, client, ctx, "c2stacks")
     return [
-        ("1 only the client's own soldier row is on the shared list; the host's list hides it (MR7)", c1),
-        ("2 the host's Transfer applies the list it cannot see (F6341, V-E3)", c2),
+        ("1 only the client's own soldier row is on the shared list; the host's list hides it", c1),
+        ("2 the host's Transfer applies the list it cannot see", c2),
     ]
 
 
@@ -800,8 +812,8 @@ def open_one(gc, screen, ctx, key):
         capture(f"open the {cls} ({gc.name})", f"not ready within {PAGE_S}s ({resp}; stack {stack(gc)})", (gc,))
 
 
-def e2_gx_cells(host, client, ctx):
-    """D243 on Transfer: the SHARED list is one row shorter with or without the other player; the label sits between
+def transfer_list_geometry_cells(host, client, ctx):
+    """Transfer: the SHARED list is one row shorter with or without the other player; the label sits between
     the list and the buttons while both are on the screen."""
     names = boot_of(ctx)["names"]
 
@@ -820,23 +832,23 @@ def e2_gx_cells(host, client, ctx):
         f = gone(host, ctx, "c3hostGone", ("TransferItemsState",))
         return f or geo_cell((client,), "TransferItemsState", ctx, "c3geo")
     return [
-        ("1 the host alone: its Transfer list is one row shorter, no label (D243)", c1),
+        ("1 the host alone: its Transfer list is one row shorter, no label", c1),
         ("2 the client joins: both lists one row shorter, each label between the list and the buttons", c2),
         ("3 the host leaves: the client's list stays one row shorter, its label hidden", c3),
     ]
 
 
-# ===================== CONT row =====================
+# ===================== containment_screen row =====================
 
 
-def e2_ca_cells(host, client, ctx):
+def containment_amounts_shared_cells(host, client, ctx):
     names = boot_of(ctx)["names"]
 
     def c1():
         hygiene(host, client, ctx)
         open_cont(host, client, ctx)
         ctx["stock0"] = {gc.name: {L: stock(gc, L), CORPSE: stock(gc, CORPSE)} for gc in (host, client)}
-        f = set_ok(client, E2CA_SET, ctx, "c1set", item=L) or cross(host, L, E2CA_SET, ctx, "c1host", mac=True)
+        f = set_ok(client, CONTAIN_SET, ctx, "c1set", item=L) or cross(host, L, CONTAIN_SET, ctx, "c1host", mac=True)
         return f or labels_cell(host, client, names, ctx, "c1labels")
 
     def c2():
@@ -844,19 +856,20 @@ def e2_ca_cells(host, client, ctx):
         f = gone(host, ctx, "c2hostGone", (MACS,))
         if f:
             return f
-        f = stays_rebuilt(client, MACS, L, ctx["stock0"]["client"][L] - E2CA_SET, ctx, "c2clientRebuilt", mac=True)
+        f = stays_rebuilt(client, MACS, L, ctx["stock0"]["client"][L] - CONTAIN_SET, ctx, "c2clientRebuilt", mac=True)
         if f:
             return f
         f = zeros(client, ctx, "c2clientZeros", mac=True)
         if f:
             return f
         s0 = ctx["stock0"]
-        want = {gc.name: {L: s0[gc.name][L] - E2CA_SET, CORPSE: s0[gc.name][CORPSE] + E2CA_SET} for gc in (host, client)}
+        want = {gc.name: {L: s0[gc.name][L] - CONTAIN_SET, CORPSE: s0[gc.name][CORPSE] + CONTAIN_SET}
+                for gc in (host, client)}
         ok, got, secs = poll(lambda: (lambda v: (v == want, v))({gc.name: {L: stock(gc, L), CORPSE: stock(gc, CORPSE)}
                                                                  for gc in (host, client)}), EQUAL_S)
         ctx["c2stock"] = {"ok": ok, "stock": got, "want": want, "secs": secs}
         if not ok:
-            return [f"stock {got} (want {want}: {E2CA_SET} {L} removed, {E2CA_SET} {CORPSE} added on both)"]
+            return [f"stock {got} (want {want}: {CONTAIN_SET} {L} removed, {CONTAIN_SET} {CORPSE} added on both)"]
         return world_same(host, client, ctx, "c2world")
     return [
         ("1 the client's removal amount reaches the host's containment screen; both name the other player", c1),
@@ -864,8 +877,8 @@ def e2_ca_cells(host, client, ctx):
     ]
 
 
-def e2_gc_cells(host, client, ctx):
-    """D243 on Alien Containment: the list keeps its vanilla height; the label sits in the gap above the buttons."""
+def containment_list_geometry_cells(host, client, ctx):
+    """Alien Containment: the list keeps its vanilla height; the label sits in the gap above the buttons."""
     names = boot_of(ctx)["names"]
 
     def c1():
@@ -877,7 +890,7 @@ def e2_gc_cells(host, client, ctx):
         open_one(client, "cont", ctx, "c2open")
         return geo_cell((host, client), MACS, ctx, "c2geo", names=names)
     return [
-        ("1 the host alone: its containment list keeps its vanilla height, no label (D243)", c1),
+        ("1 the host alone: its containment list keeps its vanilla height, no label", c1),
         ("2 the client joins: both lists unchanged, each label in the gap above the buttons", c2),
     ]
 
@@ -904,10 +917,10 @@ def run_cells(cells):
 
 
 def guard(host, client, crash0, ctx, last, battle=False):
-    return e1.guard(host, client, crash0, ctx, last, battle)
+    return selection.guard(host, client, crash0, ctx, last, battle)
 
 
-def run_boot(boot, tag, port, up_fn, pre_fn, rows_spec, battle, results, walls, prefix="w2p7-sce2"):
+def run_boot(boot, tag, port, up_fn, pre_fn, rows_spec, battle, results, walls, prefix="shared_selection"):
     """One boot: bring-up + pre_fn(js, pre) (pre-cell), then each row (EVIDENCE, PASS / FAIL)."""
     t0, js, pre = time.time(), None, {}
     crash0 = session._crash_log_snapshot()
@@ -955,9 +968,14 @@ def bring_up_sel(tag, port):
     return shared_fixture.bring_up(tag, (0, 0, port))
 
 
-BOOTS = (("XFER", "w2p7sce2_xfer", bring_up_sel, xfer_pre,
-          (("E2-xa", e2_xa_cells), ("E2-xr", e2_xr_cells), ("E2-xe", e2_xe_cells), ("E2-gx", e2_gx_cells)), False),
-         ("CONT", "w2p7sce2_cont", bring_up_sel, cont_pre, (("E2-ca", e2_ca_cells), ("E2-gc", e2_gc_cells)), False))
+BOOTS = (("transfer_screen", "shared_selection_transfer", bring_up_sel, xfer_pre,
+          (("transfer_amounts_shared", transfer_amounts_shared_cells),
+           ("rejected_transfer_kept", rejected_transfer_kept_cells),
+           ("hidden_soldier_confirm", hidden_soldier_confirm_cells),
+           ("transfer_list_geometry", transfer_list_geometry_cells)), False),
+         ("containment_screen", "shared_selection_containment_screen", bring_up_sel, cont_pre,
+          (("containment_amounts_shared", containment_amounts_shared_cells),
+           ("containment_list_geometry", containment_list_geometry_cells)), False))
 
 
 def main():
