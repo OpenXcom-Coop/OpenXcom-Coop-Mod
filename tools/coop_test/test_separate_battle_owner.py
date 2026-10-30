@@ -2,7 +2,7 @@
 
 One world, the host machine runs every battle. Rows:
 
-  SEP-1  The host's craft lands with the client's tank aboard (the client
+  host_craft      The host's craft lands with the client's tank aboard (the client
          equipped it as a visitor). The battle belongs to the host and its
          base is the selected base on both machines; the host's
          soldiers are on the host's seat and the client's tank is on the
@@ -10,25 +10,25 @@ One world, the host machine runs every battle. Rows:
          debriefing stays up until its OK while the host's post-battle world
          arrives under it, the host sends that world once, and every soldier is
          back in its owner's base, none duplicated, the two worlds equal.
-  SEP-2  The client's own craft lands (the host brokers the landing, the
+  client_craft    The client's own craft lands (the host brokers the landing, the
          client answers YES). The battle starts on both machines and belongs to
          the client, whose base is the selected base on both machines (the
          briefing, equipment and debriefing read it); the client's soldiers and
          its tank are on the client's
          seat on both machines; the client moves its own soldier, the host's
          selection of it is refused, the hashes stay equal. The battle ends as
-         in SEP-1: the client's soldiers are back in the client's base.
-  SEP-2C The client launches its own craft to Cydonia with its tank aboard:
+         in host_craft: the client's soldiers are back in the client's base.
+  client_cydonia  The client launches its own craft to Cydonia with its tank aboard:
          the host's machine runs the battle, which belongs to the client, and
          the client's soldiers and its tank are on the client's seat on both
          machines.
-  SEP-3  A Separate save the previous co-op build made on the host during a
+  partner_save    A Separate save the previous co-op build made on the host during a
          battle the client's craft started holds only the client's campaign
          (the host's own bases are not in it). Loading it on the host is
          refused with a message, the file is unchanged, no upgraded copy is
          written, and the game is back where the load started. The load runs
          on the host before any session, so the client sees nothing of it.
-  SEP-4  A Separate battle saved mid-battle by the previous co-op build (two
+  older_save      A Separate battle saved mid-battle by the previous co-op build (two
          worlds, the client's soldier aboard the host's craft) is upgraded to
          one world and resumed: each soldier is on its owner's seat on both
          machines, the hashes are equal, and neither machine sends the old
@@ -38,7 +38,7 @@ One world, the host machine runs every battle. Rows:
          copy of the client's soldier is gone (the client's soldier is listed
          once, as the client's).
 
-Run:  py -3 tools/coop_test/test_separate_battle_owner.py [sep1|sep2|sep2c|sep3|sep4]
+Run:  py -3 tools/coop_test/test_separate_battle_owner.py [host_craft|client_craft|client_cydonia|partner_save|older_save]
 Exit 0 = pass; anything else = failure.
 """
 
@@ -255,8 +255,8 @@ def _check_return(host, client, before, row, moved=None):
     fixture.assert_same_world(host, client, f"{row} after the battle")
 
 
-def sep1():
-    row = "SEP-1"
+def host_craft():
+    row = "host_craft"
     js = fixture.bring_up("sep_battle_owner1", (49982, 49983, 49282),
                           host_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2},
                           client_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2})
@@ -279,8 +279,8 @@ def sep1():
         js.shutdown()
 
 
-def sep2():
-    row = "SEP-2"
+def client_craft():
+    row = "client_craft"
     js = fixture.bring_up("sep_battle_owner2", (49984, 49985, 49284),
                           host_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2},
                           client_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2})
@@ -305,8 +305,8 @@ def sep2():
         js.shutdown()
 
 
-def sep2c():
-    row = "SEP-2C"
+def client_cydonia():
+    row = "client_cydonia"
     js = fixture.bring_up("sep_battle_owner3", (49988, 49989, 49288),
                           host_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2},
                           client_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2})
@@ -343,12 +343,12 @@ def _check_untouched(path, digest, upgraded, row, when):
     assert not os.path.exists(upgraded), f"{row}: an upgraded copy was written {when}: {upgraded}"
 
 
-def sep3():
+def partner_save():
     """The previous build's save made on the host during a battle the client's
     craft started (fixtures/separate_client_battle_main.sav): the load is
     refused with a message, the file stays as it was and the host is back
     where the load started."""
-    row = "SEP-3"
+    row = "partner_save"
     save = os.path.basename(CLIENT_BATTLE_SAVE)
     host_dir = make_user_dir("sep_battle_owner3r_host", saves=(CLIENT_BATTLE_SAVE,))
     path = os.path.join(host_dir, "xcom1", save)
@@ -392,11 +392,11 @@ def sep3():
         old_resume.shut(host)
 
 
-def sep4():
+def older_save():
     """The previous build's mid-battle save (fixtures/separate_battle.sav: the
     host's Skyranger with three host soldiers and the client's "Guest Zzz"
     aboard) through the save upgrade, then resumed by both players."""
-    row = "SEP-4"
+    row = "older_save"
     save = os.path.basename(old_resume.FIXTURE)
     upgraded = save[:-4] + "_upgraded.sav"
     host = GameClient("host", None, make_user_dir("sep_battle_owner4_host", saves=(old_resume.FIXTURE,)))
@@ -406,9 +406,9 @@ def sep4():
         host.spawn(); client.spawn(); host.connect(); client.connect()
         r = host.ok({"cmd": "upgrade_run", "host": save})
         assert r.get("success") is True, f"{row}: the save upgrade failed: {r}"
-        ok, why = old_resume.load_cell(host, upgraded, ev, "sep4")
+        ok, why = old_resume.load_cell(host, upgraded, ev, "older_save")
         assert ok, f"{row}: {why}"
-        ok, why = old_resume.resume_loaded(host, client, "46614", ev, "sep4")
+        ok, why = old_resume.resume_loaded(host, client, "46614", ev, "older_save")
         assert ok, f"{row}: {why}"
         session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
         for gc, label in ((host, "host"), (client, "client")):
@@ -436,9 +436,10 @@ def sep4():
 
 
 def main():
-    rows = sys.argv[1:] or ["sep1", "sep2", "sep2c", "sep3", "sep4"]
+    rows = sys.argv[1:] or ["host_craft", "client_craft", "client_cydonia", "partner_save", "older_save"]
     for name in rows:
-        {"sep1": sep1, "sep2": sep2, "sep2c": sep2c, "sep3": sep3, "sep4": sep4}[name]()
+        {"host_craft": host_craft, "client_craft": client_craft, "client_cydonia": client_cydonia,
+         "partner_save": partner_save, "older_save": older_save}[name]()
 
 
 if __name__ == "__main__":
