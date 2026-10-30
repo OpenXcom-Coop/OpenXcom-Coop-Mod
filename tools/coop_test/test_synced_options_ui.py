@@ -1,37 +1,38 @@
-"""test_synced_options_ui.py: the Advanced options screen marks and diverts synced options,
-refreshes live and announces changes in chat. Spec: docs
-rewrite/prompts/w2p9_synced_options.md as re-pinned by AMENDMENT P9-1 (section 3 PR-11, PR-12, PR-13 `advanced`,
-PR-10 prefix key; section 4.2 S-B; section 5) and its P9-1 RULINGS (T0-1 SAFE -> U6 stays). Constants: docs
-rewrite/w2p9-task0/CONSTANTS.md (TASK 0 `w2p9-t0`, F4980-F4989) + T0-4 folded into this red run's capture.
+"""test_synced_options_ui.py: the Advanced options screen marks and diverts synced options, refreshes live and announces
+changes in chat.
 
-S-A already made the host's globals the session table (join push, hostRules, host queue, the FileGuards, the chat
-line body, the `synced_options_state` probe). S-B adds, in the Advanced options screen itself, the `[Synced] `
-prefix on each synced row, the click divert (the change goes through the host, the row keeps the shared value
-until it lands), the in-flight ignore, the live refresh that keeps the scroll, and - reusing S-A's chat body -
-the per-change "System" chat line. This red commit adds ONLY the `advanced` view of the probe (TestServer, PR-13)
-and this test; product behaviour (prefix, divert, refresh) is S-B green.
+The host's globals are the session table (join push, hostRules, host queue, the FileGuards, the chat line body, the
+`synced_options_state` probe; test_synced_options covers them). On top of that, the Advanced options screen itself shows
+the `[Synced] ` prefix on each synced row, diverts a click (the change goes through the host, the row keeps the shared
+value until it lands), ignores a click while a change is in flight, refreshes live keeping the scroll, and posts the
+per-change "System" chat line.
 
-ONE boot (PR-14): host user dir {battleInstantGrenade true, battleExplosionHeight 2, sneakyAI true}, client
-{battleInstantGrenade false, battleExplosionHeight 0, alienBleeding true}; lobby key 47242. U1 runs on the host
-at the main menu BEFORE hosting (role None); then the bring-up and the battle; OWN_FILE = each machine's
-options.cfg read after the bring-up, the 15 ids parsed. Rows in order U1-U6:
+ONE boot: host user dir {battleInstantGrenade true, battleExplosionHeight 2, sneakyAI true}, client
+{battleInstantGrenade false, battleExplosionHeight 0, alienBleeding true}; lobby key 47242. main_menu_local_flip runs on
+the host at the main menu BEFORE hosting (role None); then the bring-up and the battle; OWN_FILE = each machine's
+options.cfg read after the bring-up, the 15 ids parsed. Rows in this order; each lists its fixture and what fails
+without the fix:
 
-| row | fixture | RED cell (S-B.1 build; the divert/prefix/refresh are S-B.2) |
-|---|---|---|
-| U1 | host at the main menu (role None): OPTIONS -> ADVANCED (OXC) | passes (SP control: no prefix and a vanilla local flip in both builds) |
-| U2 | in battle, both machines: ADVANCED, OXC then OXCE tab | no row prefixed (no product prefix yet) |
-| U3 | host ADVANCED scrolled to battleExplosionHeight + hold; client left-clicks its battleExplosionHeight row | the click flips the client's own global at once (vanilla, no divert); host pending empty; host screen not refreshed; no chat line |
-| U4 | host hold; two host left clicks on weaponSelfDestruction; release | two local flips (back to the start); nothing diverted/ignored, nothing applied, no chat |
-| U5 | ADVANCED Cancel on both; then options_save on both | U3/U4's vanilla flips left the machines' values unequal (the divert keeps them equal in S-B.2) |
-| U6 | hold; toggle battleSmoothCamera (not synced) and battleInstantGrenade (synced); OK | the synced row's local flip changed the in-memory session value (the divert prevents it in S-B.2) |
+- main_menu_local_flip: host at the main menu (role None): OPTIONS -> ADVANCED (OXC). Passes with and without the fix
+  (single-player control: no prefix and a vanilla local flip).
+- battle_prefixes: in battle, both machines: ADVANCED, OXC then OXCE tab. Without the fix no row is prefixed.
+- client_click_diverted: host ADVANCED scrolled to battleExplosionHeight + hold; client left-clicks its
+  battleExplosionHeight row. Without the fix the click flips the client's own global at once (vanilla, no divert); host
+  pending empty; host screen not refreshed; no chat line.
+- host_double_click: host hold; two host left clicks on weaponSelfDestruction; release. Without the fix two local flips
+  (back to the start); nothing diverted/ignored, nothing applied, no chat.
+- cancel_keeps_equal: ADVANCED Cancel on both; then options_save on both. Without the fix the vanilla flips of the two
+  rows before left the machines' values unequal (the divert keeps them equal).
+- ok_keeps_session: hold; toggle battleSmoothCamera (not synced) and battleInstantGrenade (synced); OK. Without the fix
+  the synced row's local flip changed the in-memory session value (the divert prevents it).
 
-Common guards per battle row (S-A): the 15 ids in each options.cfg == OWN_FILE; desyncSeen false on both; the
-client's coopClientBStatePushes unchanged since the battle started; hash_now full equal. The guards pass on the
-red build (an undiverted options click touches neither the battle nor the saved file).
+Common guards per battle row: the 15 ids in each options.cfg == OWN_FILE; desyncSeen false on both; the client's
+coopClientBStatePushes unchanged since the battle started; hash_now full equal. The guards also pass without the fix (an
+undiverted options click touches neither the battle nor the saved file).
 
-one run is the result; every row runs after a failure; every wait is bounded. Each row prints
-ONE "EVIDENCE <id>:" line and then "PASS <id>" or "FAIL <id>: <cells>". Exit 0 only when every row passes, 2
-otherwise. run in the foreground to completion.
+One run is the result; every row runs after a failure; every wait is bounded. Each row prints ONE "EVIDENCE <id>:" line
+and then "PASS <id>" or "FAIL <id>: <cells>". Exit 0 only when every row passes, 2 otherwise. Run in the foreground to
+completion.
 
 Run:  python tools/coop_test/test_synced_options_ui.py
 """
@@ -46,15 +47,15 @@ from harness import GameClient, make_user_dir
 import session
 from session import event_state, assert_hash_clean
 import repro_atom_walk as raw
-from test_inventory_held import read_key   # PR-14: keyBattleOptions (the HS2 precedent)
+from test_inventory_held import read_key   # keyBattleOptions, as test_host_screens' walk_under_pause reads it
 
-# ----- TASK 0 constants (docs rewrite/w2p9-task0/CONSTANTS.md) -----
-LOBBY_PORT = "47242"                 # PR-14 / section 5 STOP-IF 15: 47242 belongs to P9 S-B (47240 is S-A)
+# ----- constants -----
+LOBBY_PORT = "47242"                 # test_synced_options uses 47240
 CTRL_LABELS = (49242, 49243)         # GameClient control sockets (ephemeral local)
-HOST_OPTS = {"battleInstantGrenade": True, "battleExplosionHeight": 2, "sneakyAI": True}           # HOST_OPTS=
-CLIENT_OPTS = {"battleInstantGrenade": False, "battleExplosionHeight": 0, "alienBleeding": True}   # CLIENT_OPTS=
+HOST_OPTS = {"battleInstantGrenade": True, "battleExplosionHeight": 2, "sneakyAI": True}
+CLIENT_OPTS = {"battleInstantGrenade": False, "battleExplosionHeight": 0, "alienBleeding": True}
 
-# PR-1: the 15 table ids in table order; Options.cpp registrations (desktop branch): every bool false, both ints 0.
+# the 15 table ids in table order; Options.cpp registrations (desktop branch): every bool false, both ints 0.
 IDS = ["battleInstantGrenade", "battleExplosionHeight", "oxceEnableOffCentreShooting", "oxceUniformShootingSpread",
        "allowPsiStrengthImprovement", "allowPsionicCapture", "weaponSelfDestruction", "alienBleeding", "sneakyAI",
        "battleAutoEnd", "disableAutoEquip", "includePrimeStateInSavedLayout", "battleUFOExtenderAccuracy",
@@ -64,34 +65,34 @@ DEFAULTS = {i: (0 if i in INT_IDS else False) for i in IDS}
 OWN_HOST = dict(DEFAULTS, **HOST_OPTS)
 OWN_CLIENT = dict(DEFAULTS, **CLIENT_OPTS)
 
-# PR-1 / R3.1 / P9-1 D160-D161; W2-P10 S-A.1 PX-7 re-point (chain rule A.10, F5487): the visible rows by Advanced
-# tab. P9's 11 OXC + 3 OXCE, plus W2-P10's 9 OXC (Geoscape) and 5 OXCE (1 Geoscape, 2 Basescape, 2 Battlescape),
-# F5158 -> 20 OXC + 8 OXCE prefixed once P10 S-A green lands; the hidden unload row still has no visible row.
+# the visible rows by Advanced tab: the battle options' 11 OXC + 3 OXCE, plus the campaign options' 9 OXC
+# (Geoscape) and 5 OXCE (1 Geoscape, 2 Basescape, 2 Battlescape) -> 20 OXC + 8 OXCE prefixed; the hidden unload
+# row has no visible row.
 OXC_TAB_IDS = {"battleInstantGrenade", "battleExplosionHeight", "allowPsiStrengthImprovement", "allowPsionicCapture",
                "weaponSelfDestruction", "alienBleeding", "sneakyAI", "battleAutoEnd", "disableAutoEquip",
                "includePrimeStateInSavedLayout", "battleUFOExtenderAccuracy",
                "storageLimitsEnforced", "canSellLiveAliens", "fieldPromotions", "aggressiveRetaliation",
                "allowBuildingQueue", "craftLaunchAlways", "anytimePsiTraining", "canTransferCraftsWhileAirborne",
-               "retainCorpses"}                                                                # 20 rows (11 P9 + 9 P10)
+               "retainCorpses"}                                                  # 20 rows (11 battle + 9 campaign)
 OXCE_TAB_IDS = {"oxceEnableOffCentreShooting", "oxceUniformShootingSpread", "oxceReactionFireThreshold",
                 "oxceAutomaticPromotions", "oxceWoundedDefendBaseIf", "oxceAlternateCraftEquipmentManagement",
-                "oxceManualPromotions", "oxceGeoscapeEventsInstantDelivery"}                   # 8 rows (3 P9 + 5 P10)
+                "oxceManualPromotions", "oxceGeoscapeEventsInstantDelivery"}     # 8 rows (3 battle + 5 campaign)
 HIDDEN_ID = "oxceInventoryUnloadFixedWeapons"
-# W2-P10 PX-7: the full synced table membership (20 + 8 + the hidden unload option = 29) - a prefixed row outside it
-# is a genuine "extra" (was IDS, the 15 P9 ids, before P10).
+# the full synced table membership (20 + 8 + the hidden unload option = 29): a prefixed row outside it is a
+# genuine "extra".
 TABLE_IDS = OXC_TAB_IDS | OXCE_TAB_IDS | {HIDDEN_ID}
 assert len(OXC_TAB_IDS) == 20 and len(OXCE_TAB_IDS) == 8
 
-# PR-9 / PR-10 / PR-14: the chat line, English literals (bin/common/Language/en-US.yml, STR_YES / STR_NO).
+# the chat line, English literals (bin/common/Language/en-US.yml, STR_YES / STR_NO).
 SYSTEM = "System"
 DESC = {"battleInstantGrenade": "Instant grenades", "battleExplosionHeight": "Explosion height",
         "weaponSelfDestruction": "Alien weapon self-destruction", "sneakyAI": "Sneaky AI",
         "alienBleeding": "Alien bleeding"}
 
-# SDLKey codes (TextList keyboard scroll, TextList.cpp; PR-14).
+# SDLKey codes (TextList keyboard scroll, TextList.cpp).
 SDLK_PAGEUP = 280
 SDLK_PAGEDOWN = 281
-NON_SYNCED_ROW = "battleSmoothCamera"   # U6: a vanilla OXC Battlescape option that is NOT in the table
+NON_SYNCED_ROW = "battleSmoothCamera"   # ok_keeps_session: a vanilla OXC Battlescape option that is NOT in the table
 
 # ----- bounded waits -----
 STATE_S = 5.0     # a menu transition reaches the next top state
@@ -121,13 +122,13 @@ def wait_until(pred, timeout, interval=POLL):
 
 
 def sos(gc):
-    """synced_options_state (PR-13) of one machine, minus the reply's `ok`."""
+    """synced_options_state of one machine, minus the reply's `ok`."""
     r = gc.cmd({"cmd": "synced_options_state"})
     return {k: v for k, v in r.items() if k != "ok"}
 
 
 def adv(gc):
-    """The `advanced` view (S-B.1): {open, scroll, visibleRows, rows:[{row,name,value,id,prefixed,line,visible,wx,wy}]}."""
+    """The `advanced` view: {open, scroll, visibleRows, rows:[{row,name,value,id,prefixed,line,visible,wx,wy}]}."""
     return sos(gc).get("advanced") or {}
 
 
@@ -167,8 +168,8 @@ def norm_raw(s):
 
 
 def read_cfg(gc):
-    """The 15 ids of this machine's options.cfg, parsed (the engine's reader takes the FIRST key; F4982: compare
-    parsed values, never bytes - a quit rewrites `language`)."""
+    """The 15 ids of this machine's options.cfg, parsed (the engine's reader takes the FIRST key; compare parsed
+    values, never bytes: a quit rewrites `language`)."""
     with open(os.path.join(gc.user_dir, "options.cfg"), "r", encoding="utf-8") as f:
         text = f.read()
     out = {}
@@ -187,7 +188,7 @@ def top_is(gc, name):
     return (session.top_state(gc) or "").endswith(name)
 
 
-# ===================== menu driving (the proven T0-1 recipe) =====================
+# ===================== menu driving =====================
 
 
 def buttons(gc):
@@ -197,7 +198,7 @@ def buttons(gc):
 
 def click_exact(gc, caption, ev, timeout=STATE_S):
     """click_widget on the visible, un-hidden TextButton whose caption is exactly `caption` (nth = its position
-    among click_widget's substring matches). A popup window hides its surfaces until it opens (P8b SC-7)."""
+    among click_widget's substring matches). A popup window hides its surfaces until it opens."""
     def ready():
         st, bs = buttons(gc)
         cands = [w for w in bs if w.get("visible") and caption.lower() in str(w.get("text", "")).lower()]
@@ -256,7 +257,7 @@ def close_advanced_battle(gc, ev, tag):
 
 
 def open_advanced_mainmenu(gc, ev, tag):
-    """MainMenuState -> OPTIONS -> ADVANCED (OXC tab). Role None (U1 SP control)."""
+    """MainMenuState -> OPTIONS -> ADVANCED (OXC tab). Role None (main_menu_local_flip SP control)."""
     if not click_exact(gc, "Options", ev):
         return False
     ok, _ = wait_until(lambda: top_is(gc, "OptionsVideoState"), STATE_S)
@@ -335,7 +336,7 @@ class Ctx:
         self.bstate0 = None
 
 
-# ===================== guards (S-A) =====================
+# ===================== guards =====================
 
 
 def guard_file(r, x):
@@ -367,9 +368,9 @@ def wait_versions(x, want):
 # ===================== rows =====================
 
 
-def row_u1(r, x):
-    """SP control: host at the main menu (role None). No prefix; a vanilla local flip; Cancel restores. Passes on
-    both builds (role None never prefixes and never diverts)."""
+def row_main_menu_local_flip(r, x):
+    """SP control: host at the main menu (role None). No prefix; a vanilla local flip; Cancel restores. Passes with
+    and without the fix (role None never prefixes and never diverts)."""
     oid = "battleInstantGrenade"
     ev = r.ev
     opened = open_advanced_mainmenu(x.h, ev, "open")
@@ -415,14 +416,15 @@ def read_tab(gc):
     rows = [rw for rw in adv_rows(a) if rw.get("id") and rw.get("id") != "?"]
     present = {rw["id"] for rw in rows}
     prefixed = {rw["id"] for rw in rows if rw.get("prefixed")}
-    extra = {rw["id"] for rw in rows if rw.get("prefixed") and rw["id"] not in TABLE_IDS}  # W2-P10 PX-7: 29-id table
+    extra = {rw["id"] for rw in rows if rw.get("prefixed") and rw["id"] not in TABLE_IDS}  # the 29-id table
     hidden = any(rw.get("id") == HIDDEN_ID for rw in adv_rows(a))
     return {"present": present, "prefixed": prefixed, "extra": extra, "hidden": hidden,
             "nrows": len(adv_rows(a))}
 
 
-def row_u2(r, x):
-    """Prefix: in battle, both machines, OXC then OXCE tab. Exactly the table ids are prefixed (S-B.2); none at red."""
+def row_battle_prefixes(r, x):
+    """Prefix: in battle, both machines, OXC then OXCE tab. Exactly the table ids are prefixed; none
+    without the fix."""
     ev = r.ev
     for mname, gc in (("host", x.h), ("client", x.c)):
         if not open_advanced_battle(gc, ev, mname):
@@ -450,10 +452,10 @@ def row_u2(r, x):
     guard_file(r, x)
 
 
-def row_u3(r, x):
+def row_client_click_diverted(r, x):
     """Client click: host ADVANCED open (scrolled to the row) + hold; client left-clicks its battleExplosionHeight
-    row. S-B.2: diverted, row keeps the shared value until it lands, host screen refreshes live, chat line.
-    S-B.1 (red): the client flips its own global at once, nothing reaches the host, no chat."""
+    row. With the fix: diverted, the row keeps the shared value until it lands, the host screen refreshes live, a chat
+    line. Without it: the client flips its own global at once, nothing reaches the host, no chat."""
     oid = "battleExplosionHeight"
     ev = r.ev
     if not open_advanced_battle(x.h, ev, "host"):
@@ -514,9 +516,10 @@ def row_u3(r, x):
     guard_file(r, x)
 
 
-def row_u4(r, x):
-    """Host double-click + in-flight (Q9 a): host hold; two host left clicks on weaponSelfDestruction; release.
-    S-B.2: one divert + one ignored-in-flight, one apply, one chat. S-B.1 (red): two local flips (back to start)."""
+def row_host_double_click(r, x):
+    """Host double-click + in-flight: host hold; two host left clicks on weaponSelfDestruction; release.
+    With the fix: one divert + one ignored-in-flight, one apply, one chat. Without it: two local flips (back to
+    start)."""
     oid = "weaponSelfDestruction"
     ev = r.ev
     if not open_advanced_battle(x.h, ev, "host"):
@@ -552,7 +555,7 @@ def row_u4(r, x):
            f"ring +{len(new)} {new}; host {oid} {(h2.get('values') or {}).get(oid)} client "
            f"{(c2.get('values') or {}).get(oid)} (want {bool(want_new)})")
     want_line = [line(h0.get("localName"), oid, bool(want_new))]
-    nh, nc = new_lines(h0, h2), new_lines(x._u4_c0, c2)
+    nh, nc = new_lines(h0, h2), new_lines(x._double_click_c0, c2)
     ev["chat"] = {"host": nh, "client": nc}
     r.cell("chat", nh == want_line and nc == want_line, f"new chat host {nh} client {nc} (want {want_line})")
     close_advanced_battle(x.h, ev, "host")
@@ -560,9 +563,10 @@ def row_u4(r, x):
     guard_file(r, x)
 
 
-def row_u5(r, x):
-    """Cancel: ADVANCED Cancel on both; then options_save on both. U3/U4's undiverted flips left the machines
-    unequal at red (S-B.2's divert keeps them equal); the save guard keeps the file at OWN_FILE in both."""
+def row_cancel_keeps_equal(r, x):
+    """Cancel: ADVANCED Cancel on both; then options_save on both. Without the fix the undiverted flips of
+    client_click_diverted and host_double_click left the machines unequal (the divert keeps them equal); the save
+    guard keeps the file at OWN_FILE either way."""
     ev = r.ev
     for mname, gc in (("host", x.h), ("client", x.c)):
         if open_advanced_battle(gc, ev, mname):
@@ -589,10 +593,11 @@ def read_raw(gc, key):
     return norm_raw(m.group(1)) if m else None
 
 
-def row_u6(r, x):
-    """OK (T0-1 SAFE): host hold; toggle battleSmoothCamera (not synced) + battleInstantGrenade (synced); OK.
-    S-B.2: the save writes battleSmoothCamera but holds the synced ids at OWN, and the divert keeps the in-memory
-    session value unchanged. S-B.1 (red): the synced row's local flip changed the in-memory session value."""
+def row_ok_keeps_session(r, x):
+    """OK: host hold; toggle battleSmoothCamera (not synced) + battleInstantGrenade (synced); OK.
+    With the fix the save writes battleSmoothCamera but holds the synced ids at OWN, and the divert keeps the
+    in-memory session value unchanged. Without it the synced row's local flip changes the in-memory session
+    value."""
     oid = "battleInstantGrenade"
     ev = r.ev
     if not open_advanced_battle(x.h, ev, "host"):
@@ -610,9 +615,9 @@ def row_u6(r, x):
     sess_before = dict(sos(x.h).get("values") or {})
     click_row(x.h, NON_SYNCED_ROW)          # a vanilla non-synced toggle: reaches the file through OK
     time.sleep(0.1)
-    click_row(x.h, oid)                     # the synced toggle: diverted in S-B.2, a local flip in S-B.1
+    click_row(x.h, oid)                     # the synced toggle: diverted with the fix, a local flip without
     time.sleep(0.2)
-    # press OK on the Advanced screen -> Options::save() (guarded) + restart(OPT_BATTLESCAPE) (T0-1 SAFE)
+    # press OK on the Advanced screen -> Options::save() (guarded) + restart(OPT_BATTLESCAPE)
     okc = click_exact(x.h, "OK", ev)
     ev["okClicked"] = okc
     rb, secs = wait_until(lambda: (session.top_state(x.h) or "").endswith("BattlescapeState"), 12.0, 0.1)
@@ -653,20 +658,22 @@ def run_one(rid, fn, x, results):
         print(f"PASS {rid}", flush=True)
 
 
-ROWS = (("U2", row_u2), ("U3", row_u3), ("U4", row_u4), ("U5", row_u5), ("U6", row_u6))
+ROWS = (("battle_prefixes", row_battle_prefixes), ("client_click_diverted", row_client_click_diverted),
+        ("host_double_click", row_host_double_click), ("cancel_keeps_equal", row_cancel_keeps_equal),
+        ("ok_keeps_session", row_ok_keeps_session))
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", CTRL_LABELS[0], make_user_dir("w2p9_ui_host", options=HOST_OPTS))
-    client = GameClient("client", CTRL_LABELS[1], make_user_dir("w2p9_ui_client", options=CLIENT_OPTS))
+    host = GameClient("host", CTRL_LABELS[0], make_user_dir("synced_options_ui_host", options=HOST_OPTS))
+    client = GameClient("client", CTRL_LABELS[1], make_user_dir("synced_options_ui_client", options=CLIENT_OPTS))
     x = Ctx(host, client)
     results = {}
-    order = ["U1"] + [rid for rid, _ in ROWS]
+    order = ["main_menu_local_flip"] + [rid for rid, _ in ROWS]
     try:
         try:
-            host.spawn(); host.connect()                 # the host at the main menu (role None) for U1
-            run_one("U1", row_u1, x, results)            # SP control BEFORE hosting
+            host.spawn(); host.connect()                 # the host at the main menu (role None) for the first row
+            run_one("main_menu_local_flip", row_main_menu_local_flip, x, results)            # SP control BEFORE hosting
             client.spawn(); client.connect()
             raw.skirmish_host(host, LOBBY_PORT)
             raw.skirmish_client_at_browser(client)
@@ -677,10 +684,11 @@ def main():
             client.ok({"cmd": "profile_ok"})
             host.wait_for("start offered", lambda: raw.lobby(host).get("buttonVisible") or None)
             x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}    # OWN_FILE
-            print(f"[w2p9-sb-ui] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
+            print(f"[synced_options_ui] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
             session.drive_to_battlescape(host, client, x.seated, seat_count=2)
             x.bstate0 = event_state(client).get("coopClientBStatePushes")
-            x._u4_c0 = sos(client)   # chat baseline before U4's host apply (used by row_u4's client chat delta)
+            # chat baseline before host_double_click's host apply (used by row_host_double_click's client chat delta)
+            x._double_click_c0 = sos(client)
         except Exception as e:
             for rid in order:
                 if rid not in results:
@@ -688,15 +696,15 @@ def main():
                     print(f"FAIL {rid}: pre (bring-up/battle) {short(e)}", flush=True)
         else:
             for rid, fn in ROWS:
-                if rid == "U4":
-                    x._u4_c0 = sos(client)   # capture the client chat baseline right before U4
+                if rid == "host_double_click":
+                    x._double_click_c0 = sos(client)   # capture the client chat baseline right before host_double_click
                 run_one(rid, fn, x, results)
     finally:
         for gc in (host, client):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p9-sb-ui] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[synced_options_ui] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_synced_options_ui: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
