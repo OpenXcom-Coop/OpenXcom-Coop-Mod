@@ -1,12 +1,12 @@
-"""W2-H18 (F3259, D226 a; spec rewrite/prompts/w2h18_psi_training_replica.md (e)-(f); TASK 0 w2h18-task0/CONSTANTS.md):
-soldier training on the SHARED replica follows the host. Mod Coop_SoldierFx_Test: STR_TRAINTEST_TRAINING (psiLabs 10, gym 10,
-healthRecoveryPerDay 3) at (0, 3), index 9. Boot A (SHARED): Phase M (option off) stages ids 1-8 psi at 0, ids 1-2
-training, id 3 rtwh, id 4 healthMissing 30, rolls the month (4 host day rolls, F6205) -> H18-1..4; Phase D flips
-anytimePsiTraining on, id 5 psi at 0, id 6 psi at 100 (finishes on the first roll) -> H18-5, H18-6. Boot B
-(SEPARATE): H18-7 guard row. Levers client first (S25). Window: both probes every 0.5 s for 3 s from the hit, cells at its
-end, the client's requests == S0. Clean: wait_resync_clear, drain client then host, 4 s, requests == S0.
-RED: H18-1..6 fail on the client's cells, H18-7 passes; GREEN: all pass. "guard:" = guard (a phase miss prints one CAPTURE).
-EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
+"""Soldier training on the SHARED replica follows the host. Mod Coop_SoldierFx_Test: STR_TRAINTEST_TRAINING (psiLabs 10,
+gym 10, healthRecoveryPerDay 3) at (0, 3), index 9. Shared boot (SHARED): the monthly phase (option off) stages ids 1-8
+psi at 0, ids 1-2 training, id 3 rtwh, id 4 healthMissing 30, rolls the month (4 host day rolls) ->
+soldier_training_1..4; the daily phase flips anytimePsiTraining on, id 5 psi at 0, id 6 psi at 100 (finishes on the
+first roll) -> soldier_training_5, soldier_training_6. Separate boot (SEPARATE): soldier_training_7 guard row. Test
+commands go to the client first. Window: both probes every 0.5 s for 3 s from the hit, cells at its end, the client's
+requests == baseline. Clean: wait_resync_clear, drain client then host, 4 s, requests == baseline. Without the fix
+soldier_training_1..6 fail on the client's cells and soldier_training_7 passes. "guard:" = guard (a phase miss prints
+one CAPTURE). EVIDENCE then PASS / FAIL per row; one run; exit 0 only if all pass, else 2.
 """
 
 import json
@@ -21,8 +21,8 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierFx_Test")
-BOOT_A = ("w2h18a", (49314, 49315, 47294))
-BOOT_B = ("w2h18b", (49316, 49317), "47296")
+BOOT_SHARED = ("soldier_training_shared", (49314, 49315, 47294))
+BOOT_SEPARATE = ("soldier_training_separate", (49316, 49317), "47296")
 FAC, FAC_IDX = "STR_TRAINTEST_TRAINING", 9
 IDS = list(range(1, 9))
 PHYS = ("tu", "stamina", "health", "firing", "throwing", "strength", "melee")    # Soldier::trainPhys
@@ -36,7 +36,8 @@ stack = session.states_stripped
 opts = lambda gc: gc.cmd({"cmd": "option_values", "ids": OPTS}).get("values", {})  # noqa: E731
 psi = lambda r: (r["stats"]["psiSkill"], r["improvement"])  # noqa: E731
 phys = lambda r: {k: r["stats"][k] for k in PHYS}  # noqa: E731
-lever = lambda gc, sid, **kw: gc.ok(dict({"cmd": "set_soldier_training", "soldierId": sid}, **kw))["soldier"]  # noqa
+set_training = lambda gc, sid, **kw: gc.ok(  # noqa
+    dict({"cmd": "set_soldier_training", "soldierId": sid}, **kw))["soldier"]
 on_geo = lambda *gcs: all(stack(gc)[-1:] == [GEO] for gc in gcs)  # noqa: E731
 probe = lambda gc, ids=None: gc.ok(dict({"cmd": "soldier_training_probe"}, **({} if ids is None else {"ids": ids})))  # noqa
 rs = lambda gc: {k: v for k, v in gc.cmd({"cmd": "shared_resync_stats"}).items() if k in ("requests", "pending")}  # noqa
@@ -76,19 +77,21 @@ def need(ph, x, name, ok, detail):
         capture("phase " + ph["tag"], x, name)
         raise Miss(ph["miss"][-1])
     ph["guards"].append(name)
-def stage(ph, x, want):  # want = {id: {field: value}}, client first; both machines' S0 records = the staged values
+def stage(ph, x, want):  # want = {id: {field: value}}, client first; both machines' baseline = the staged values
     for gc in (x.client, x.host):
         for i in IDS:
-            lever(gc, i, **want[i])
+            set_training(gc, i, **want[i])
     s0 = {gc.name: recs(probe(gc)) for gc in (x.host, x.client)}
     get = lambda r, f: r["stats"][f] if f == "psiSkill" else r[f]  # noqa: E731
     bad = [(n, i, f, get(s0[n][i], f), v) for n in s0 for i, fv in want.items() for f, v in fv.items()
            if get(s0[n][i], f) != v]
-    need(ph, x, "stagedS0", not bad, f"(machine, id, field, got, want) {bad}")
-    ph["S0"], ph["req0"] = s0, rs(x.client)["requests"]
-    ph["ev"]["S0 requests"], ph["ev"]["dates S0"] = ph["req0"], {gc.name: date(gc) for gc in (x.host, x.client)}
+    need(ph, x, "stagedBaseline", not bad, f"(machine, id, field, got, want) {bad}")
+    ph["baseline"], ph["req0"] = s0, rs(x.client)["requests"]
+    ph["ev"]["baseline requests"], ph["ev"]["dates baseline"] = (ph["req0"],
+                                                                 {gc.name: date(gc) for gc in (x.host, x.client)})
 
-def window(ph, x, top_watch=None):  # both probes every 0.5 s for 3 s; requests == S0; client top == top_watch from
+# Both probes every 0.5 s for 3 s; requests == baseline; records when the client's top state first equals top_watch.
+def window(ph, x, top_watch=None):
     samples, t0, seen = [], time.time(), None
     while True:
         t = round(time.time() - t0, 2)
@@ -108,11 +111,11 @@ def window(ph, x, top_watch=None):  # both probes every 0.5 s for 3 s; requests 
         print(f"PROBE-END {ph['tag']} {n} t={samples[-1]['t']}: {json.dumps(samples[-1]['raw'][n], sort_keys=True)}",
               flush=True)
     reqs = sorted(set(s["req"] for s in samples))
-    need(ph, x, "requestsWindow", reqs == [ph["req0"]], f"client requests {reqs} vs S0 {ph['req0']}")
+    need(ph, x, "requestsWindow", reqs == [ph["req0"]], f"client requests {reqs} vs baseline {ph['req0']}")
 
 def clean(ph, x):
     h, c = x.host, x.client
-    for gc in ((h, c) if ph["tag"] == "D" else ()): gc.ok({"cmd": "geo_set_speed", "idx": 0})
+    for gc in ((h, c) if ph["tag"] == "daily" else ()): gc.ok({"cmd": "geo_set_speed", "idx": 0})
     ph["ev"]["clean"] = cl = {"pendingWait": geo.wait_resync_clear(c, timeout=10)}
     cl["client"], cl["host"] = geo.drain_popups(c), geo.drain_popups(h)
     need(ph, x, "cleanGeoscape", wait_until(lambda: on_geo(h, c), 10, 0.2), f"stacks {stack(h)} / {stack(c)}")
@@ -131,9 +134,9 @@ def month_roll(ph, x, host_top=True):  # set_geo_day 28 12; the host's MonthlyRe
     need(ph, x, "hostHit", sk.get("hit") is not None and (not host_top or stack(h)[-1:] == [MRS]),
          f"{sk.get('hit')} {stack(h)}")
     cm = wait_until(lambda: geo.drain_popups(c, interest=geo.popup(MRS))[1] and date(c)["monthsPassed"] == mp0 + 1, 10)
-    need(ph, x, "clientMonthlyReport", cm, f"{stack(c)} monthsPassed {date(c)['monthsPassed']} (S0 {mp0})")
+    need(ph, x, "clientMonthlyReport", cm, f"{stack(c)} monthsPassed {date(c)['monthsPassed']} (baseline {mp0})")
 
-def phase_m(ph, x):
+def phase_monthly(ph, x):
     h, c = x.host, x.client
     ph["ev"]["options"] = o = {gc.name: opts(gc) for gc in (h, c)}
     need(ph, x, "options", all(v.get(OPTS[0]) is False and v.get(OPTS[1]) is False for v in o.values()), o)
@@ -155,7 +158,7 @@ def phase_m(ph, x):
     month_roll(ph, x)
     window(ph, x)
 
-def phase_d(ph, x):
+def phase_daily(ph, x):
     h, c = x.host, x.client
     ok = wait_until(lambda: not rs(c)["pending"] and on_geo(h, c), 10, 0.2)
     need(ph, x, "start", ok, f"stacks {stack(h)} / {stack(c)} replica {rs(c)}")
@@ -200,21 +203,21 @@ def row_1(r, ph):
     r.cell("psi", not diff, f"the replica rolled its own psi training: ids {diff} differ")
     roster_cell(r, ph)
 def row_2(r, ph):
-    h, c, s0 = ph["end"]["host"], ph["end"]["client"], ph["S0"]
-    r.ev["physical ids 1-2 [S0 host, host, S0 client, client]"] = {
+    h, c, s0 = ph["end"]["host"], ph["end"]["client"], ph["baseline"]
+    r.ev["physical ids 1-2 [baseline host, host, baseline client, client]"] = {
         i: [phys(s0["host"][i]), phys(h[i]), phys(s0["client"][i]), phys(c[i])] for i in (1, 2)}
     r.cell("guard:hostTrained", all(sum(phys(h[i]).values()) > sum(phys(s0["host"][i]).values()) for i in (1, 2)),
-           "host physical sum not above S0")
+           "host physical sum not above baseline")
     same0 = all(phys(c[i]) == phys(s0["client"][i]) for i in (1, 2))
     r.cell("physical", all(phys(c[i]) == phys(h[i]) for i in (1, 2)),
-           "the replica never trained (client == S0)" if same0 else "client != host")
-def one(sid, name, get, gname, guard, red, red_txt):
-    """A one-soldier row: host guard, then the client's value == the host's (red_txt when it is still `red`)."""
+           "the replica never trained (client == baseline)" if same0 else "client != host")
+def one(sid, name, get, gname, guard, stale, stale_txt):
+    """A one-soldier row: host guard, then the client's value == the host's (stale_txt when it still equals `stale`)."""
     def row(r, ph):  # noqa: E306
         h, c = get(ph["end"]["host"][sid]), get(ph["end"]["client"][sid])
         r.ev[f"id {sid} {name} [host, client]"] = [h, c]
         r.cell("guard:" + gname, guard(h), h)
-        r.cell(name, c == h, red_txt if c == red else f"client {c}")
+        r.cell(name, c == h, stale_txt if c == stale else f"client {c}")
     return row
 row_3 = one(3, "(training, rtwh)", lambda s: [s["training"], s["rtwh"]], "hostReturned", lambda v: v == [True, False],
             [False, True], "the replica's id 3 is not back in training")
@@ -262,19 +265,20 @@ def boot_miss(tag, e, rids, results):
         results[rid] = False
         print(f"EVIDENCE {rid}: {json.dumps({'boot': tag})}\nFAIL {rid}: boot", flush=True)
 
-def boot_a(results, walls):
-    (tag, ports), t0 = BOOT_A, time.time()
-    rows = {"M": (("H18-1", row_1), ("H18-2", row_2), ("H18-3", row_3), ("H18-4", row_4)),
-            "D": (("H18-5", row_5), ("H18-6", row_6))}
+def boot_shared(results, walls):
+    (tag, ports), t0 = BOOT_SHARED, time.time()
+    rows = {"monthly": (("soldier_training_1", row_1), ("soldier_training_2", row_2), ("soldier_training_3", row_3),
+                        ("soldier_training_4", row_4)),
+            "daily": (("soldier_training_5", row_5), ("soldier_training_6", row_6))}
     try:
         js = shared_fixture.bring_up(tag, ports, mods=(MOD,))
     except Exception as e:
-        return boot_miss(tag, e, [rid for rid, _f in rows["M"] + rows["D"]], results)
+        return boot_miss(tag, e, [rid for rid, _f in rows["monthly"] + rows["daily"]], results)
     walls[tag + " bring-up"] = round(time.time() - t0, 1)
     try:
         x = type("X", (), {"host": js.host, "client": js.client})
-        run_phase("M", phase_m, rows["M"], x, results)
-        run_phase("D", phase_d, rows["D"], x, results)
+        run_phase("monthly", phase_monthly, rows["monthly"], x, results)
+        run_phase("daily", phase_daily, rows["daily"], x, results)
     finally:
         js.shutdown()
         walls[tag] = round(time.time() - t0, 1)
@@ -285,7 +289,7 @@ def row_7(ph, x, r):
     own = [s for s in p["soldiers"] if s["baseIndex"] == 0]
     need(ph, x, "ownBase", p["bases"][:1] and p["bases"][0]["index"] == 0 and own, p["bases"])
     sid = own[0]["id"]
-    r.ev["soldier"], r.ev["staged"] = sid, lever(c, sid, psiTraining=True, psiSkill=0)          # client only
+    r.ev["soldier"], r.ev["staged"] = sid, set_training(c, sid, psiTraining=True, psiSkill=0)          # client only
     r.ev["fac_build"] = c.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok")   # local in SEPARATE
     need(ph, x, "facilityListed", wait_until(lambda: fac_index(c) == FAC_IDX, 10), fac_index(c))
     bt = c.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": FAC_IDX, "time": 0})
@@ -299,8 +303,8 @@ def row_7(ph, x, r):
     r.ev["applyCount after"], r.ev["client soldier"] = ss(), rec
     r.cell("ownRoll", 16 <= rec["stats"]["psiSkill"] <= 24, f"(psiSkill, improvement) {psi(rec)}")
 
-def boot_b(results, walls):
-    (tag, labels, lobby), t0 = BOOT_B, time.time()
+def boot_separate(results, walls):
+    (tag, labels, lobby), t0 = BOOT_SEPARATE, time.time()
     h = GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,)))
     c = GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,)))
     x = type("X", (), {"host": h, "client": c})
@@ -310,16 +314,16 @@ def boot_b(results, walls):
             session.new_campaign(h, c, port=lobby, campaign_mode="coop")
             geo.wait_both_ready(h, c)
         except Exception as e:
-            return boot_miss(tag, e, ["H18-7"], results)
+            return boot_miss(tag, e, ["soldier_training_7"], results)
         walls[tag + " bring-up"] = round(time.time() - t0, 1)
-        ph, r = {"tag": "B", "ev": {}, "guards": [], "miss": []}, Row("H18-7")
+        ph, r = {"tag": "separate", "ev": {}, "guards": [], "miss": []}, Row("soldier_training_7")
         try:
             row_7(ph, x, r)
         except Miss:
             r.cell("guard:" + ph["miss"][-1].split(":")[0], False, ph["miss"][-1])
         except Exception as e:
             r.cell("exception", False, short(e, 800))
-            capture("H18-7", x, "exception")
+            capture("soldier_training_7", x, "exception")
         r.ev["guardsPassed"], r.ev["phase"] = ph["guards"], ph["ev"]
         r.report(results)
     finally:
@@ -328,9 +332,9 @@ def boot_b(results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot_a(results, walls)
-    boot_b(results, walls)
-    order = ["H18-%d" % n for n in range(1, 8)]
+    boot_shared(results, walls)
+    boot_separate(results, walls)
+    order = ["soldier_training_%d" % n for n in range(1, 8)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_soldier_training: {len(order) - len(failed)}/{len(order)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
