@@ -33,9 +33,9 @@ import geo
 
 # df_state wire enum: 0 standoff, 1 cautious, 2 standard, 3 aggressive, 4 disengage.
 STANDOFF, CAUTIOUS, STANDARD, AGGRESSIVE, DISENGAGE = 0, 1, 2, 3, 4
-ECHO_S = 5.0   # bound of AC1's wait for the host's df_state echo on the client (traced 3-6 ms after the press at
-               # 2-3 ms test-server calls, inside the press call at 50 ms; cap-geo F23960). A bound, not a pace: replace it
-               # only by a larger value. also the bound of AC3's client / host sampling after the weapon click
+ECHO_S = 5.0   # bound of AC1's wait for the host's df_state echo on the client (measured 3-6 ms after the press
+               # with 2-3 ms test-server calls, inside the press call with 50 ms calls). A bound, not a pace: replace
+               # it only by a larger value. Also the bound of AC3's client / host sampling after the weapon click
 
 
 def _geo(gc):
@@ -68,7 +68,7 @@ def _pick_df(d, craft_id, ufo_id):
 
 
 def _pipelined(gc, objs):
-    """Send @a objs to one game in ONE write and read their replies in order (D301 (b) AC3): the game's
+    """Send @a objs to one game in ONE write and read their replies in order (AC3's local-flip check): the game's
     TestServer thread queues every line of the write, and its next pump runs them back to back."""
     gc.sock.sendall("".join(json.dumps(o) + "\n" for o in objs).encode())
     out = []
@@ -84,7 +84,7 @@ def _pipelined(gc, objs):
 
 
 def _changes(samples):
-    """D301 (b) AC3: the (ms, client, host) samples as their count plus every sample whose values differ from the one
+    """AC3: the (ms, client, host) samples as their count plus every sample whose values differ from the one
     before it (the first and the last always shown)."""
     pts = [s for i, s in enumerate(samples) if i == 0 or i == len(samples) - 1 or s[1:] != samples[i - 1][1:]]
     return f"{len(samples)} samples, changes (ms after the click, client, host) {pts}"
@@ -165,7 +165,7 @@ def main():
         # The host's echo: a replica's stance button has no local flip (DogfightState.cpp btnAggressivePress
         # `if (_isReplicaView) { emitDfCmd("aggressive"); return; }`; the playtest rule in
         # test_shared_dogfight_shared.py:7-9), so the client's mode follows the host's next df_state frame.
-        # R-CAPGEO-1 (cap-geo F23960, cap-battle F23982): wait, bounded, for the client's own mode, then the same check.
+        # Wait, bounded, for the client's own mode, then the same check.
         client.ok({"cmd": "dogfight_action", "action": "aggressive"})
         deadline = time.time() + ECHO_S
         cd = _df_for(client, avenger_id, ufo_id)
@@ -211,7 +211,7 @@ def main():
         # so the client runs both in the same TestServer pump, before its network drain (Game.cpp: pump() then
         # updateCoopTask()): that probe reads the icon as the click itself left it, before any host frame reached the
         # client. A probe sent after the click's reply comes after that drain, where a host frame sent before the host had
-        # the request already undid a local flip (cap-battle F23985). Then client and host are probed in turn (the host
+        # the request already undid a local flip. Then client and host are probed in turn (the host
         # right after the client) until both show disabled, bound ECHO_S. (i) No local flip: the client never shows
         # disabled while the host read right after it is still enabled. (ii) No flicker: once the client shows disabled
         # it never shows enabled again.
@@ -234,14 +234,14 @@ def main():
         trace = _changes(samples)
         early = [s for s in samples if s[1] is False and s[2] is True]
         assert not early, (
-            f"D301 (b) FAILED: the client's weapon icon showed disabled before the host's state did (a local flip; the icon "
+            f"AC3 FAILED: the client's weapon icon showed disabled before the host's state did (a local flip; the icon "
             f"must follow the host only): first at +{early[0][0]} ms; {trace}")
         first_off = next((i for i, s in enumerate(samples) if s[1] is False), None)
         reverted = [s for s in samples[first_off:] if s[1] is not False] if first_off is not None else []
         assert not reverted, (
-            f"D301 (b) FAILED: the client's weapon icon showed enabled again after it showed disabled (flicker): first at "
+            f"AC3 FAILED: the client's weapon icon showed enabled again after it showed disabled (flicker): first at "
             f"+{reverted[0][0]} ms; {trace}")
-        print(f"D301 (b) AC3 {trace}")
+        print(f"AC3 {trace}")
         # host applies + streams; both settle disabled
         ok = False
         for _ in range(40):
