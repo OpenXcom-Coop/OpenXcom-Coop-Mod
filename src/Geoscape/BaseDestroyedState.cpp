@@ -226,11 +226,13 @@ void BaseDestroyedState::removeBase()
 			// unless this machine is the SHARED host.
 			std::string destroyedName = xbase->getName();
 			int baseId = (int)i;
+			// carry the CAUSE so the replica shows the same message the host does. Sent while the base is still
+			// listed: the command keys the base by its id at this index, so the replica erases this base, never
+			// the one that moves into its place.
+			SharedEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
 			_game->getSavedGame()->stopHuntingXcomCrafts(xbase); // destroyed together with the base
 			delete xbase;
 			bases->erase(bases->begin() + i);
-			// carry the CAUSE so the replica shows the same message the host does
-			SharedEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
 			break;
 		}
 	}

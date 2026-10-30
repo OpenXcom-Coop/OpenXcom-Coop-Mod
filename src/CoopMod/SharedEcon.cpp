@@ -2251,9 +2251,20 @@ void baseDestroyedApply(Game* game, Json::Value& payload, Base* base, int /*seat
 {
 	if (connectionTCP::getHost()) return; // host already removed it in BaseDestroyedState
 	g_sel.clear(); // base indices shift - every binder re-keys on its next think()
-	if (!base) return;
 	SavedGame* save = game->getSavedGame();
 	if (!save) return;
+	// The host erased the base before it ran this command, so the base the command resolved to can be the one that
+	// moved into its place. The payload's id names the destroyed base; it wins when exactly one base holds it.
+	const int destroyedId = payload.get("baseCoopId", 0).asInt();
+	if (destroyedId != 0)
+	{
+		Base* byId = nullptr;
+		int holders = 0;
+		for (Base* candidate : *save->getBases())
+			if (candidate->_coop_base_id == destroyedId) { byId = candidate; ++holders; }
+		if (holders == 1) base = byId;
+	}
+	if (!base) return;
 	std::string name = payload.get("name", base->getName()).asString();
 	// coop: the geoscape windows that hold this
 	// base or one of its crafts (a craft's window, the INTERCEPT list, a destination pick, list or confirm, a patrol, dogfight, landing,
@@ -6857,6 +6868,7 @@ void hostBaseDestroyed(Game* game, int baseId, const std::string& name, bool mis
 	Json::Value p;
 	p["name"] = name;
 	p["missiles"] = missiles;
+	p["baseCoopId"] = baseKeyAt(game, baseId); // read while the base is still listed (BaseDestroyedState::removeBase)
 	submitLocalCmd(game, "base_destroyed", baseId, p);
 }
 
