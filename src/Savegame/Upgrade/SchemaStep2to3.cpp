@@ -310,6 +310,15 @@ public:
 			return; // SHARED already is one world; only its schema stamp changes.
 		if (isPvp(set))
 			return; // PvP keeps one world per player; only the stamp changes.
+		// Older co-op builds swapped the host's own campaign out for a battle the
+		// other player's craft started. A save the host made during that battle
+		// holds only that player's world and names that player as its owner, so
+		// merging it would give the host a campaign that is not its own.
+		if (getInt(set.host.body(), "coop_save_owner_player_id", 0) != 0 && hasKey(set.host.body(), "battleGame"))
+		{
+			out.errors.push_back("STR_SAVE_UPGRADE_PARTNER_BATTLE");
+			return;
+		}
 		std::set<std::string> playerNames;
 		ryml::ConstNodeRef roster = set.host.header().find_child("coopPlayers");
 		if (!roster.invalid() && roster.is_seq())

@@ -61,7 +61,16 @@ void beginUpgrade(Game* game, OptionsOrigin origin, const std::string& filename,
 	{
 		// Blocking errors: cannot proceed. Phase A returns English strings; show
 		// them under a localized heading (see PRD 4.4).
-		pushMessage(game, origin, game->getLanguage()->getString("STR_SAVE_UPGRADE_BLOCKED"), pf.errors);
+		// An error given as a language key is shown in the player's language.
+		std::vector<std::string> lines;
+		for (const std::string& e : pf.errors)
+		{
+			if (e.compare(0, 4, "STR_") == 0)
+				lines.push_back(game->getLanguage()->getString(e));
+			else
+				lines.push_back(e);
+		}
+		pushMessage(game, origin, game->getLanguage()->getString("STR_SAVE_UPGRADE_BLOCKED"), lines);
 		return;
 	}
 
