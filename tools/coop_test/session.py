@@ -2918,7 +2918,8 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
         if "CoopState" in top:
             host.cmd({"cmd": "coop_dialog_back"})
         elif "GeoscapeState" not in top:
-            host.cmd({"cmd": "dismiss_popup"})
+            # The prompt can appear between the two reads above: keep it.
+            host.cmd({"cmd": "dismiss_popup", "keep": ["ConfirmLandingState"]})
         if not staged:
             host.cmd({"cmd": "geo_set_speed", "idx": 2})
         return None
