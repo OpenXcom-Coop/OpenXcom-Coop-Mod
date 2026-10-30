@@ -1,16 +1,18 @@
-"""W2-H81 stage S-A PMS (spec rewrite/prompts/w2h81_popup_mirror_uaf.md (f); TASK 0 rewrite/w2h81-task0/sa/CONSTANTS.md; ruling R-LH76-1-1;
-capture lh76-1-cap F22190-F22191): in a SEPARATE co-op campaign the client's mirror sweep deletes the host's UFO mirror under the client's open
-UFO-detected popup when the host's snapshot no longer lists it (S1a); INTERCEPT / CENTRE there would read the freed UFO. The fix closes the popup
-right before the delete, as its CANCEL does. Probe popup_mirror_check as in test_popup_mirror_drop.py. Owner = host, holder =
-client; levers stage only (bases, spawn_ufo, the globe centre, geo_set_speed 1 on both, set_ufo_damage on the host); every player press is a real
-click and is made only with its cell's named top shown and pmc dangling 0 read right before. Fresh boots, each shut down before the next; key "49508".
-  Boot SA (dirs w2h81_sa_*): the host loses its UFO 0.2 s after the client's popup shows (inside the host's 1000 ms grace): the sweep deletes the
-  mirror under it (S1a). Cells SA-dangling FIX, SA-held FIX, SA-top FIX, SA-alive.
-  Boot SB (dirs w2h81_sb_*): the loss 3.0 s after (outside the grace): no sweep while the popup is open; after CANCEL the mirror goes (S1b).
-  Cells SB-held, SB-after, SB-alive.
-Red (commit R1): exit 2, RED exactly on SA-dangling, SA-held, SA-top (3 of 7). A guard cell miss: ONE CAPTURE line, the row's remaining cells FAIL
-"guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell
-passes, else 2. one foreground run. Run: python tools/coop_test/test_popup_mirror_sweep.py"""
+"""In a SEPARATE co-op campaign the client's mirror sweep deletes the host's UFO mirror under the client's open
+UFO-detected popup when the host's snapshot no longer lists it; INTERCEPT / CENTRE there would read the freed UFO. The
+fix closes the popup right before the delete, as its CANCEL does. Probe popup_mirror_check as in
+test_popup_mirror_drop.py. Owner = host, holder = client; test commands only stage (bases, spawn_ufo, the globe centre,
+geo_set_speed 1 on both, set_ufo_damage on the host); every player press is a real click and is made only with its
+cell's named top shown and pmc dangling 0 read right before. Fresh boots, each shut down before the next; key "49508".
+  Boot early_loss (dirs popup_mirror_sweep_early_loss_*): the host loses its UFO 0.2 s after the client's popup shows
+  (inside the host's 1000 ms grace): the sweep deletes the mirror under it. Cells early_loss-dangling (fix),
+  early_loss-held (fix), early_loss-top (fix), early_loss-alive.
+  Boot late_loss (dirs popup_mirror_sweep_late_loss_*): the loss 3.0 s after (outside the grace): no sweep while the
+  popup is open; after CANCEL the mirror goes. Cells late_loss-held, late_loss-after, late_loss-alive.
+Without the fix: exit 2, failing exactly early_loss-dangling, early_loss-held, early_loss-top (3 of 7). A guard cell
+miss: ONE CAPTURE line, the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per
+cell, the row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2. One foreground run.
+Run: python tools/coop_test/test_popup_mirror_sweep.py"""
 import json, math, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
@@ -19,7 +21,8 @@ from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49508"
 RC_SET = (0, 3221226505, 1, 3221225477)
-MIRROR_S, GONE_SA_S, SETTLE_SA, ALIVE_S, SB_HOLD_S, SB_GONE_S, SA_DELAY, SB_DELAY = 40, 10, 1.0, 5.0, 10.0, 6.0, 0.2, 3.0
+MIRROR_S, GONE_EARLY_S, SETTLE_EARLY, ALIVE_S, LATE_HOLD_S, LATE_GONE_S, EARLY_DELAY, LATE_DELAY = (
+    40, 10, 1.0, 5.0, 10.0, 6.0, 0.2, 3.0)
 CLIENT_OFFSETS = ((0.25, 0), (-0.25, 0), (0, 0.2), (0, -0.2), (0.2, 0.15), (-0.2, 0.15), (0.2, -0.15), (-0.2, -0.15), (0.3, 0), (-0.3, 0))
 UFO = {"type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID", "trajectory": "P0",
        "state": "flying", "speed": 1}
@@ -66,7 +69,7 @@ def cpu():
 AFF = {}
 
 def note_click(gc, r):
-    """the base -> window affine from two click_widget replies (capture lh76.py)"""
+    """the base -> window affine from two click_widget replies"""
     if r.get("ok") and "baseX" in r:
         pts = AFF.setdefault(gc.name + "_pts", [])
         pts.append((r["baseX"], r["baseY"], r["winX"], r["winY"]))
@@ -109,8 +112,8 @@ def mirror_now(gc, coop_id):
     return next((u for u in ufos(gc) if u.get("coop") and u.get("coopId") == coop_id), None)
 
 def bring_up(row):
-    """SEPARATE campaign (the capture's flow) with the client's base placed near the host's -> H, C"""
-    tag = "w2h81_" + row.rid.lower()
+    """SEPARATE campaign with the client's base placed near the host's -> H, C"""
+    tag = "popup_mirror_sweep_" + row.rid.lower()
     row.host = GameClient("host", None, make_user_dir(tag + "_host"))
     row.client = GameClient("client", None, make_user_dir(tag + "_client"))
     host, client = row.host, row.client
@@ -151,7 +154,7 @@ def bring_up(row):
     return H, C
 
 def pick_ufo_point(gc, H, C):
-    """the capture's ring around H (r 0.13 / 0.16 / 0.11 / 0.19 x 16), 0.1 <= dist(C) <= 0.4"""
+    """a ring around H (r 0.13 / 0.16 / 0.11 / 0.19 x 16), 0.1 <= dist(C) <= 0.4"""
     for r in (0.13, 0.16, 0.11, 0.19):
         for k in range(16):
             p = (H[0] + r * math.cos(2 * math.pi * k / 16) / max(0.3, math.cos(H[1])), H[1] + r * math.sin(2 * math.pi * k / 16))
@@ -289,7 +292,8 @@ class Row:
         return failed
 
 def sweep_stage(row, delay):
-    """owner = host, holder = client (the capture's S rows): both clocks run; the client's popup on the mirror; at t_up + delay the owner loses it"""
+    """owner = host, holder = client: both clocks run; the client's popup on the mirror; at t_up + delay the owner
+    loses it"""
     H, C = bring_up(row)
     host, client, ev = row.host, row.client, row.ev
     ou, m = stage_ufo(row, host, client, H, C)
@@ -300,61 +304,71 @@ def sweep_stage(row, delay):
     time.sleep(max(0.0, t_up + delay - time.time()))
     ev["damage at +s"] = round(time.time() - t_up, 3)
     r = host.cmd({"cmd": "set_ufo_damage", "ufo_id": ou["id"], "damage": 1000000})  # staging: the owner loses its UFO
-    ev["lever"] = {k: r.get(k) for k in ("ok", "status", "damage", "damageMax", "error")}
+    ev["damage reply"] = {k: r.get(k) for k in ("ok", "status", "damage", "damageMax", "error")}
     if not (r.get("ok") and r.get("status") == 3):
-        raise Guard("guard:lever: %s" % r)
+        raise Guard("guard:damage: %s" % r)
     return ou
 
-def row_sa(row):
-    """SA - the client's sweep deletes the mirror under its own UFO-detected popup (S1a)"""
-    ou = sweep_stage(row, SA_DELAY)
+def row_early_loss(row):
+    """early_loss - the client's sweep deletes the mirror under its own UFO-detected popup"""
+    ou = sweep_stage(row, EARLY_DELAY)
     client, ev = row.client, row.ev
-    ev["gone s"] = wait("guard:gone the client's mirror gone", lambda: mirror_now(client, ou["coopId"]) is None, GONE_SA_S)
-    time.sleep(SETTLE_SA)
+    ev["gone s"] = wait("guard:gone the client's mirror gone", lambda: mirror_now(client, ou["coopId"]) is None,
+                        GONE_EARLY_S)
+    time.sleep(SETTLE_EARLY)
     S = {"pmc": pmc(client), "top": top(client), "host top": top(row.host)}
     ev["S"] = S
-    row.cell("SA-dangling", S["pmc"].get("dangling") == 0, "FIX: after the sweep pmc dangling %s; want 0" % S["pmc"].get("dangling"))
-    row.cell("SA-held", S["pmc"].get("holders") == 0, "FIX: after the sweep pmc holders %s (the popup closed before the delete); want 0"
-             % S["pmc"].get("holders"))
+    row.cell("early_loss-dangling", S["pmc"].get("dangling") == 0,
+             "after the sweep pmc dangling %s; want 0" % S["pmc"].get("dangling"))
+    row.cell("early_loss-held", S["pmc"].get("holders") == 0,
+             "after the sweep pmc holders %s (the popup closed before the delete); want 0" % S["pmc"].get("holders"))
     if row.guarded_press(client, "GeoscapeState", "INTERCEPT", "InterceptState") and \
             row.guarded_press(client, "InterceptState", "CANCEL", "GeoscapeState", exact=True):
-        row.cell("SA-top", True, "FIX: after the sweep top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real)")
+        row.cell("early_loss-top", True,
+                 "after the sweep top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> "
+                 "GeoscapeState (real)")
     else:
-        row.cell("SA-top", False, "FIX: top: after the sweep top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (S["top"], S["pmc"]))
-    row.alive_cell("SA-alive", client, ALIVE_S)
+        row.cell("early_loss-top", False,
+                 "top: after the sweep top %s, pmc %s; want GeoscapeState, dangling 0 (no press)"
+                 % (S["top"], S["pmc"]))
+    row.alive_cell("early_loss-alive", client, ALIVE_S)
 
-def row_sb(row):
-    """SB - the popup opened 3 s before the host's UFO is lost: no sweep until it closes (S1b)"""
-    ou = sweep_stage(row, SB_DELAY)
+def row_late_loss(row):
+    """late_loss - the popup opened 3 s before the host's UFO is lost: no sweep until it closes"""
+    ou = sweep_stage(row, LATE_DELAY)
     client, ev = row.client, row.ev
     samples, t0 = [], time.time()
-    while time.time() - t0 < SB_HOLD_S:
+    while time.time() - t0 < LATE_HOLD_S:
         samples.append([round(time.time() - t0, 2), mirror_now(client, ou["coopId"]) is not None, top(client)])
         time.sleep(0.25)
     bad, n = [s for s in samples if not s[1] or s[2] != "UfoDetectedState"], len(samples)
     end = pmc(client)
     ev["hold"] = {"samples": n, "off": bad[:5], "end pmc": end}
-    row.cell("SB-held", not bad and end.get("holders") == 1 and end.get("dangling") == 0 and end.get("mirror") == 1,
+    row.cell("late_loss-held", not bad and end.get("holders") == 1 and end.get("dangling") == 0
+             and end.get("mirror") == 1,
              "%d hold samples, %d off (mirror absent or top not UfoDetectedState) %s; end pmc %s; want 0 off, holders 1, dangling 0, mirror 1"
              % (n, len(bad), bad[:3], end))
     if row.guarded_press(client, "UfoDetectedState", "CANCEL", "GeoscapeState", exact=True):
         t1 = time.time()
-        while time.time() - t1 < SB_GONE_S and mirror_now(client, ou["coopId"]) is not None:
+        while time.time() - t1 < LATE_GONE_S and mirror_now(client, ou["coopId"]) is not None:
             time.sleep(0.1)
         ev["gone after CANCEL s"] = None if mirror_now(client, ou["coopId"]) is not None else round(time.time() - t1, 2)
         after = pmc(client)
         ev["after CANCEL"] = after
-        row.cell("SB-after", ev["gone after CANCEL s"] is not None and after.get("holders") == 0 and after.get("dangling") == 0,
+        row.cell("late_loss-after", ev["gone after CANCEL s"] is not None and after.get("holders") == 0
+                 and after.get("dangling") == 0,
                  "after CANCEL (real) mirror gone in %s s; pmc %s; want gone within %.0f s (the sweep ran with the globe on top), holders 0, "
-                 "dangling 0" % (ev["gone after CANCEL s"], after, SB_GONE_S))
+                 "dangling 0" % (ev["gone after CANCEL s"], after, LATE_GONE_S))
     else:
-        row.cell("SB-after", False, "top: no press (top %s)" % top(client))
-    row.alive_cell("SB-alive", client, ALIVE_S)
+        row.cell("late_loss-after", False, "top: no press (top %s)" % top(client))
+    row.alive_cell("late_loss-alive", client, ALIVE_S)
 
 def main():
     t0 = time.time()
     print("CPU start: %s" % cpu(), flush=True)
-    plan = (("SA", ["SA-dangling", "SA-held", "SA-top", "SA-alive"], row_sa), ("SB", ["SB-held", "SB-after", "SB-alive"], row_sb))
+    plan = (("early_loss", ["early_loss-dangling", "early_loss-held", "early_loss-top", "early_loss-alive"],
+             row_early_loss),
+            ("late_loss", ["late_loss-held", "late_loss-after", "late_loss-alive"], row_late_loss))
     fails, shut_fails, total, walls = [], [], 0, {}
     for rid, cells, fn in plan:
         row = Row(rid, cells)
