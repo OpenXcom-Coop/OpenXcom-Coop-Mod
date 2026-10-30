@@ -1,28 +1,30 @@
-"""W2-H21d S-3 (F8979 routed, F9201, F9202; spec rewrite/prompts/w2h21d_preview_battle_paths.md (f), QH21d-3 a, QH21d-4 a, QH21d-5 a;
-TASK 0 rewrite/w2h21d-task0/s3/CONSTANTS.md): in SHARED either player may answer a craft's "land?" prompt. When the host's own copy is
-not on its screen (here dismissed generically: the race's host-side state, F9203) and the host has a practice screen open - the
-Ufopaedia craft preview (P1) or a base craft equipment screen (P4) - the second player's YES starts the battle ON TOP of that screen and
-frees its practice battle; after the debriefing the host returns to it (TASK 0 T0-X: the host died 3/3, 0.4-0.7 s after its
-debriefing OK, a different first frame each time).
-  Boot LG bring_up("w2h21ldg", (49540, 49541, 46976)):
-    H21d-LG (GUARD; TASK 0 2/2) DRIVE; the client's confirm_landing; within W the host stack == [GeoscapeState, BriefingState];
-        battle_state.isPreview false; alive(host) HOLD s more.
-  Boot L1 bring_up("w2h21ld1", (49542, 49543, 46977)):
-    H21d-L1 (named RED; TASK 0 3/3) DRIVE; PV(host), non-vacuity: top BattlescapeState, isPreview true, inBattle true; the client's
-        confirm_landing; RED: within W the host stack == [GeoscapeState, BriefingState] (TASK 0: [GeoscapeState, UfopaediaStartState,
-        UfopaediaSelectState, ArticleStateCraft, StatsForNerdsState, BattlescapeState, BriefingState]); then LG's later cells.
-  Boot L2 bring_up("w2h21ld2", (49544, 49545, 46978)):
-    H21d-L2 (named RED; TASK 0 2/2) as L1 with the host's P4 (open_craft_equipment {HostBase, the SKYRANGER} + craft_inventory),
-        non-vacuity: top InventoryState, inBattle true (TASK 0: [GeoscapeState, CraftEquipmentState, InventoryState, BriefingState]).
+"""test_landing_reply_practice.py: in SHARED either player may answer a craft's "land?" prompt. When the host's own
+copy is not on its screen (here dismissed generically: the race's host-side state) and the host has a practice screen
+open - the Ufopaedia craft preview or a base craft equipment screen - the second player's YES starts the battle ON TOP
+of that screen and frees its practice battle; after the debriefing the host returns to it (when broken, the host died
+3 of 3 times, 0.4-0.7 s after its debriefing OK, a different first frame each time).
+  Boot bring_up("landing_none", (49540, 49541, 46976)):
+    landing-no_practice (a guard: passes without the fix too, 2 of 2 when measured) DRIVE; the client's
+        confirm_landing; within W the host stack == [GeoscapeState, BriefingState]; battle_state.isPreview false;
+        alive(host) HOLD s more.
+  Boot bring_up("landing_preview", (49542, 49543, 46977)):
+    landing-preview (fails 3 of 3 when broken) DRIVE; pr.pv(host), non-vacuity: top BattlescapeState, isPreview true,
+        inBattle true; the client's confirm_landing; FIX: within W the host stack == [GeoscapeState, BriefingState]
+        (when broken: [GeoscapeState, UfopaediaStartState, UfopaediaSelectState, ArticleStateCraft,
+        StatsForNerdsState, BattlescapeState, BriefingState]); then landing-no_practice's later cells.
+  Boot bring_up("landing_equipment", (49544, 49545, 46978)):
+    landing-equipment (fails 2 of 2 when broken) as landing-preview with the host's craft equipment screen
+        (open_craft_equipment {HostBase, the SKYRANGER} + craft_inventory), non-vacuity: top InventoryState, inBattle
+        true (when broken: [GeoscapeState, CraftEquipmentState, InventoryState, BriefingState]).
 DRIVE = test_client_landing_controls row_shared_client_landing's drive to both prompts (the host's site, the client's
 craft_order, the host's craft_force, the host's shared_landing_state.pending, the client's ConfirmLandingState), then
-the host's broker copy on top within W and
-its dismiss_popup -> handled "generic" for ConfirmLandingState, the host's stack [GeoscapeState], pending still true, the client's top
-ConfirmLandingState. PV = W2-H21c's pv (test_preview_restream). W = 10 s at 0.25 s polls, HOLD = 2 s, SETTLE 0.3 s before a key,
-click or lever. HL = the host's openxcom.log screen record after the YES. CRASH = new crashlogs/crash_*.log since the row
-started (first 4 frames). Setup guard per boot: stacks [GeoscapeState], localSeat 0 / 1, has_battle false (a miss fails the row
-`boot`). One boot per row, shut down before the next. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs
-after a failure; ONE run; exit 0 iff every row passes, else 2.
+the host's broker copy on top within W and its dismiss_popup -> handled "generic" for ConfirmLandingState, the host's
+stack [GeoscapeState], pending still true, the client's top ConfirmLandingState. W = 10 s at 0.25 s polls, HOLD = 2 s,
+SETTLE 0.3 s before a key, click or test command. HL = the host's openxcom.log screen record after the YES. CRASH =
+new crashlogs/crash_*.log since the row started (first 4 frames). Setup guard per boot: stacks [GeoscapeState],
+localSeat 0 / 1, has_battle false (a miss fails the row `boot`). One boot per row, shut down before the next. EVIDENCE
+before each verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every
+row passes, else 2.
 """
 
 import json
@@ -34,19 +36,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 import test_client_landing_controls as lc  # noqa: E402  (main-guarded: base0, skyranger, craft_by_id)
 import test_preview_restream as pr  # noqa: E402  (main-guarded: pv, alive, boot, shut, Row, log_*, ui, crash_*)
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded)
 
-BOOTS = (("w2h21ldg", (49540, 49541, 46976), "LG"), ("w2h21ld1", (49542, 49543, 46977), "L1"),
-         ("w2h21ld2", (49544, 49545, 46978), "L2"))
+BOOTS = (("landing_none", (49540, 49541, 46976), "no_practice"),
+         ("landing_preview", (49542, 49543, 46977), "preview"),
+         ("landing_equipment", (49544, 49545, 46978), "equipment"))
 W, POLL, HOLD, SETTLE = 10.0, 0.25, 2.0, 0.3
 GEO, BS, BRF, CLS = "GeoscapeState", "BattlescapeState", "BriefingState", "ConfirmLandingState"
 INV, CEQ, HB = "InventoryState", "CraftEquipmentState", "HostBase"
 WANT = [GEO, BRF]
-BASELINE = {"LG": "guard: the host stack [GeoscapeState, BriefingState] 2/2",
-         "L1": "named red 3/3: [GeoscapeState, UfopaediaStartState, UfopaediaSelectState, ArticleStateCraft, StatsForNerdsState, "
-               "BattlescapeState, BriefingState]; T0-X 3/3 host deaths after the debriefing OK",
-         "L2": "named red 2/2: [GeoscapeState, CraftEquipmentState, InventoryState, BriefingState]"}
-q, stack, short, wait_until = h20.q, h20.stack, h20.short, h20.wait_until
+BASELINE = {"no_practice": "guard: the host stack [GeoscapeState, BriefingState] 2/2",
+            "preview": "when broken 3/3: [GeoscapeState, UfopaediaStartState, UfopaediaSelectState, ArticleStateCraft, "
+                       "StatsForNerdsState, BattlescapeState, BriefingState]; 3/3 host deaths after the debriefing OK",
+            "equipment": "when broken 2/2: [GeoscapeState, CraftEquipmentState, InventoryState, BriefingState]"}
+q, stack, short, wait_until = sbe.q, sbe.stack, sbe.short, sbe.wait_until
 
 
 def mach(gc):
@@ -108,11 +111,12 @@ def drive(r, x):
 
 
 def practice(r, x, kind, cid):
-    """L1: PV(host); L2: the host's P4 on the landing craft. The non-vacuity cell."""
+    """preview: pr.pv(host); equipment: the host's craft equipment screen on the landing craft. The non-vacuity
+    cell."""
     host = x.host
-    if kind == "L1":
-        ok, r.ev["PV(host)"] = pr.pv(host, x.keys["host"])
-        if not r.cell("guard: PV(host) reached the preview", ok, r.ev["PV(host)"]):
+    if kind == "preview":
+        ok, r.ev["preview(host)"] = pr.pv(host, x.keys["host"])
+        if not r.cell("guard: the host reached the craft preview", ok, r.ev["preview(host)"]):
             return False
         want_top, want_pre = BS, True
     else:
@@ -121,9 +125,10 @@ def practice(r, x, kind, cid):
         time.sleep(SETTLE)
         rep2 = q(host, {"cmd": "craft_inventory"})
         ok = ok and rep2.get("opened") is True and wait_until(lambda: pr.on_top(host, INV), W, 0.05)
-        r.ev["P4(host)"] = {"open": {k: rep.get(k) for k in ("ok", "craftId", "error")},
+        r.ev["equipment(host)"] = {"open": {k: rep.get(k) for k in ("ok", "craftId", "error")},
                             "inventory": {k: rep2.get(k) for k in ("ok", "opened", "error")}, "stack": stack(host)}
-        if not r.cell("guard: the host's P4 (open_craft_equipment + craft_inventory) opened", ok, r.ev["P4(host)"]):
+        if not r.cell("guard: the host's craft equipment screen (open_craft_equipment + craft_inventory) opened", ok,
+                      r.ev["equipment(host)"]):
             return False
         want_top, want_pre = INV, None
     nv = r.ev["non-vacuity"] = {"stack": stack(host), "isPreview": q(host, {"cmd": "battle_state"}).get("isPreview"),
@@ -135,7 +140,7 @@ def practice(r, x, kind, cid):
 def row(r, x, kind, crash0):
     host, client = x.host, x.client
     ok, cid = drive(r, x)
-    if not ok or (kind != "LG" and not practice(r, x, kind, cid)):
+    if not ok or (kind != "no_practice" and not practice(r, x, kind, cid)):
         r.ev["not reached"] = "the client's YES and every later cell"
         return r.cap.update(capture(x, 0, crash0))
     n_hl = pr.log_size(host)
@@ -154,7 +159,8 @@ def row(r, x, kind, crash0):
             break
         time.sleep(POLL)
     r.ev["host timeline after the YES"] = tl
-    r.cell("%swithin %.0f s the host stack == %s" % ("" if kind == "LG" else "FIX: ", W, WANT), tl[-1][1] == WANT, tl[-1][1])
+    r.cell("%swithin %.0f s the host stack == %s" % ("" if kind == "no_practice" else "FIX: ", W, WANT),
+           tl[-1][1] == WANT, tl[-1][1])
     pre = r.ev["isPreview"] = q(host, {"cmd": "battle_state"}).get("isPreview")
     r.cell("battle_state.isPreview false", pre is False, pre)
     time.sleep(HOLD)
@@ -169,13 +175,13 @@ def row(r, x, kind, crash0):
 
 def run_boot(tag, ports, kind, results, walls):
     t0, crash0 = time.time(), pr.crash_names()
-    r = pr.Row("H21d-" + kind, BASELINE[kind])
+    r = pr.Row("landing-" + kind, BASELINE[kind])
     js, x = pr.boot(tag, ports, [r])
     if js is not None:
         try:
             row(r, x, kind, crash0)
         except Exception as e:
-            r.cell("guard: H21d-%s exception" % kind, False, short(e))
+            r.cell("guard: landing-%s exception" % kind, False, short(e))
             if not r.cap:
                 r.cap.update(capture(x, 0, crash0))
         pr.shut(js, r, tag, False)
@@ -187,7 +193,7 @@ def main():
     t0, results, walls = time.time(), {}, {}
     for tag, ports, kind in BOOTS:
         run_boot(tag, ports, kind, results, walls)
-    rids = ["H21d-" + k for _t, _p, k in BOOTS]
+    rids = ["landing-" + k for _t, _p, k in BOOTS]
     failed = [rid for rid in rids if not results.get(rid)]
     print(f"\ntest_landing_reply_practice: {len(rids) - len(failed)}/{len(rids)} passed (fail={failed}) walls "
           f"{json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)
