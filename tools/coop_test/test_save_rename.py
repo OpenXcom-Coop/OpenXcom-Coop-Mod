@@ -1,28 +1,35 @@
-"""W2-H91 (owner D303 (a) then (b); trace docs rewrite/w2-resume-dafc8555/reports/cap-vw67.md F24197-F24203; F24235-F24259): a co-op
-save's final rename (<name>.bak -> <name>) that fails because another process holds the file is retried for a short bounded time; a
-rename that still fails shows vanilla's save error on the machine whose save failed, and the save stays in <name>.bak. Vanilla
-single-player saves are unchanged. Two co-op save paths, three rows each, one fresh boot pair per row:
-  D = the deferred host save (connectionTCP::writePendingHostSave, the R14 path): a SEPARATE campaign host quick save on the geoscape
-      (save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...", the partner's world lands, MAP_RESULT_SAVE_PROGRESS writes);
-  B = SaveGameState's own write in co-op: a skirmish host's mid-battle quick save (save_game_ui quick_battle, the F5 key's path).
-  X0 no lock (control); X1 short lock: a helper process (this file's HELPER, started and killed by the row) holds <name> open with
-  Python open "rb" (share read + write, no delete: cap-vw67 E2's opener, err 5) from before the trigger until LOCK1_S after the save's
-  <name>.bak shows in the folder listing; X2 long lock: the same until LOCK2_S after, past the product's 2.0 s retry bound.
-Every row first writes a PLACEHOLDER <name> into the host's save folder, so every save renames over an existing file. The folder is
-read only by name listing + os.scandir's cached DirEntry.stat (no per-file open, which can itself block the rename: cap-vw67 F24200).
+"""A co-op save's final rename (<name>.bak -> <name>) that fails because another process holds the file is retried for a
+short bounded time; a rename that still fails shows vanilla's save error on the machine whose save failed, and the save
+stays in <name>.bak. Vanilla single-player saves are unchanged. Two co-op save paths, three rows each, one fresh boot
+pair per row:
+  D = the deferred host save (connectionTCP::writePendingHostSave): a SEPARATE campaign host quick save on the geoscape
+      (save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...", the partner's world lands,
+      MAP_RESULT_SAVE_PROGRESS writes);
+  B = SaveGameState's own write in co-op: a skirmish host's mid-battle quick save (save_game_ui quick_battle, the F5
+      key's path).
+  X0 no lock (control); X1 short lock: a helper process (this file's HELPER, started and killed by the row) holds <name>
+  open with Python open "rb" (share read + write, no delete: the opener that makes the rename fail with err 5) from
+  before the trigger until LOCK1_S after the save's <name>.bak shows in the folder listing; X2 long lock: the same until
+  LOCK2_S after, past the product's 2.0 s retry bound.
+Every row first writes a PLACEHOLDER <name> into the host's save folder, so every save renames over an existing file.
+The folder is read only by name listing + os.scandir's cached DirEntry.stat (no per-file open, which can itself block
+the rename).
 Cells (X = D0 D1 D2 B0 B1 B2):
-  X-pre GUARD (the trigger ok; D: armDeferredSave +1 since B; B: armDeferredSave +0; the save done within W_SAVE: D clearDeferredSave
-  +1 and no CoopState on the host stack, B no SaveGameState and battle_state.coopSavePending false; X1 X2: the helper HELD before the
-  trigger); X-lock GUARD (X1 X2: the helper saw <name>.bak while it held <name> and held it LOCK1_S / LOCK2_S more);
-  X-file (X0 GUARD, X1 RED: <name> holds the new save (a save header, mtime newer than the trigger) and <name>.bak is gone; X2 GUARD:
-  <name> is still the placeholder and <name>.bak holds the new save); X-dialog (X0 X1 GUARD: the host stack = B's; X2 RED: B's +
-  [ErrorMessageState] whose text is SaveGameState::error's "STR_SAVE_UNSUCCESSFUL" TOK_NL_SMALL "Save backed up in <name>.bak");
-  X2-ok FIX (the error's OK closes it: B's stack within W_OK); X2-next GUARD (after the helper exits, a second save with no lock lands:
-  <name> a new save, no <name>.bak, B's stack); X-partner GUARD (the client's stack = its B within W_PARTNER, no ErrorMessageState);
+  X-pre GUARD (the trigger ok; D: armDeferredSave +1 since B; B: armDeferredSave +0; the save done within W_SAVE: D
+  clearDeferredSave +1 and no CoopState on the host stack, B no SaveGameState and battle_state.coopSavePending false;
+  X1 X2: the helper HELD before the trigger); X-lock GUARD (X1 X2: the helper saw <name>.bak while it held <name> and
+  held it LOCK1_S / LOCK2_S more);
+  X-file (X0 GUARD, X1 FIX: <name> holds the new save (a save header, mtime newer than the trigger) and <name>.bak is
+  gone; X2 GUARD: <name> is still the placeholder and <name>.bak holds the new save); X-dialog (X0 X1 GUARD: the host
+  stack = B's; X2 FIX: B's + [ErrorMessageState] whose text is SaveGameState::error's "STR_SAVE_UNSUCCESSFUL"
+  TOK_NL_SMALL "Save backed up in <name>.bak");
+  X2-ok FIX (the error's OK closes it: B's stack within W_OK); X2-next GUARD (after the helper exits, a second save with
+  no lock lands: <name> a new save, no <name>.bak, B's stack); X-partner GUARD (the client's stack = its B within
+  W_PARTNER, no ErrorMessageState);
   X-common GUARD (both alive, no new crash_*.log since B). 38 cells.
-Red at the base (`cc5875d65`): exit 2, RED exactly on D1-file, B1-file, D2-dialog, D2-ok, B2-dialog, B2-ok (6).
-A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE EVIDENCE line per
-row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
+Without the fix: exit 2, failing exactly on D1-file, B1-file, D2-dialog, D2-ok, B2-dialog, B2-ok (6).
+A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE
+EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. One
 foreground run per invocation.
 Run: py -3 tools/coop_test/test_save_rename.py
 """
@@ -36,7 +43,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 KEY_CAMPAIGN, KEY_SKIRMISH = "49471", "49472"
 NAME = "_quick_.asav"
 BAK = NAME + ".bak"
-PLACEHOLDER = b"w2-h91 placeholder: not a save\n"
+PLACEHOLDER = b"test placeholder: not a save\n"
 # SaveGameState::error (src/Menu/SaveGameState.cpp): tr("STR_SAVE_UNSUCCESSFUL") (bin/common/Language/en-US.yml "Save failed"),
 # Unicode::TOK_NL_SMALL (char 2), then the exception text "Save backed up in " + backup.
 ERROR_TEXT = "Save failed" + "\x02" + "Save backed up in " + BAK
@@ -128,7 +135,7 @@ def folder(gc):
 
 
 def files(gc):
-    """the host's save folder: name -> [bytes, mtime_ns], from os.scandir's cached find data (no per-file open, F24200)"""
+    """the host's save folder: name -> [bytes, mtime_ns], from os.scandir's cached find data (no per-file open)"""
     out = {}
     try:
         with os.scandir(folder(gc)) as it:
@@ -318,15 +325,17 @@ def row(x, results, walls):
                    hr.get("seen") is not None and hr.get("released") is not None and hr["released"] - hr["seen"] >= hold)
         if lvl < 2:
             r.cell(p + "-file", "FIX" if lvl == 1 else "GUARD", "%s holds the new save (a save header, mtime newer than the trigger), no %s%s" % (
-                NAME, BAK, " (red today: not written, the rename failed silently, F24199)" if lvl == 1 else ""),
+                NAME, BAK, " (without the fix: not written, the rename failed silently)" if lvl == 1 else ""),
                 fs[NAME]["save"] and fs[NAME]["newer"] and not fs[BAK]["present"])
             r.cell(p + "-dialog", "GUARD", "the host stack = B's %s after the save (no error)" % B["host"], rd["host"] == B["host"])
         else:
             r.cell(p + "-file", "GUARD", "%s still the placeholder, %s holds the new save (vanilla: the save stays in the backup)" % (NAME, BAK),
                    fs[NAME]["placeholder"] and fs[BAK]["save"] and fs[BAK]["newer"])
-            r.cell(p + "-dialog", "FIX", "the host stack = B's + [ErrorMessageState], its text %r (red today: silent, no error)" % ERROR_TEXT,
+            r.cell(p + "-dialog", "FIX", "the host stack = B's + [ErrorMessageState], its text %r (without the fix: "
+                   "silent, no error)" % ERROR_TEXT,
                    rd["host"] == B["host"] + ["ErrorMessageState"] and top_state == "ErrorMessageState" and ERROR_TEXT in top_texts)
-            r.cell(p + "-ok", "FIX", "the error's OK closes it: the host stack = B's within %.0f s (red today: no error to close)" % W_OK,
+            r.cell(p + "-ok", "FIX", "the error's OK closes it: the host stack = B's within %.0f s (without the fix: "
+                   "no error to close)" % W_OK,
                    "ok s" in ev)
             nr = ev["next read"]
             r.cell(p + "-next", "GUARD", "a second save with no lock lands: %s a new save, no %s, B's stack" % (NAME, BAK),
@@ -361,7 +370,7 @@ def boot(rid, lvl):
     """D: spawn, connect, session.new_campaign(port=KEY_CAMPAIGN) SEPARATE, both tops GeoscapeState; B: repro_atom_walk.bring_up_lobby
     (KEY_SKIRMISH) + session.drive_to_battlescape(seat_count=2), both tops BattlescapeState (else x.err and x.cap)"""
     path = rid[0]
-    tag = "w2h91_" + rid.lower()
+    tag = "save_rename_" + rid.lower()
     x = SimpleNamespace(rid=rid, lvl=lvl, path=path, tag=tag, host=None, client=None, helper=None, err=None, cap=None,
                         top="GeoscapeState" if path == "D" else "BattlescapeState")
     try:
