@@ -15,19 +15,20 @@ def require(fragment: str, reason: str) -> None:
 
 
 def main() -> None:
+    # The battle's saveBlob hash reads the battle alone, so no campaign's world (a separate
+    # campaign's included) enters a battle comparison.
     require(
-        "if (boundary && !separateCampaign) computeSaveBlobHash(game, e.saveBlob);",
-        "the host must not record a whole-save hash for a separate campaign",
+        "bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut)",
+        "the battle's saveBlob hash must read only the battle, never the whole save",
     )
+    text = SOURCE.read_text(encoding="utf-8")
+    if "computeSaveBlobHash(game" in text or "computeSaveBlobHash(SavedGame" in text:
+        raise AssertionError("no caller may hash the whole save as a battle saveBlob")
     require(
-        "if (game && game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()) return;",
-        "the client must not attach a whole-save hash for a separate campaign",
-    )
-    require(
-        "syncCheckAttach(game, msg);",
+        "bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out)",
         "structured battle hashes must remain enabled for separate campaigns",
     )
-    print("PASS: separate campaign uses structured battle sync without saveBlob")
+    print("PASS: separate campaign battles compare structured hashes and a battle-only saveBlob")
 
 
 if __name__ == "__main__":
