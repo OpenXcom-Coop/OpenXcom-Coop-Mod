@@ -1,110 +1,75 @@
-"""test_unit_spawn.py: a unit the host creates mid-battle (a
-conversion) appears on the second player's machine with the host's id, built
-from the host's own saved record, together with its special built-in weapon -
-and a special weapon the host removes is removed there too (spec
-rewrite/prompts/w2p3_nonplayer_origins.md section (f) "test_unit_spawn.py
-(S-C)", sections (b)9-(b)13, amendment B1 (ST8, RQ2, RQ5, RQ7, RQ9, RQ10,
-RQ11); ledger `## W2-P3 TASK 0b` and `## W2-P3 TASK 0d` (F887,
-F888); owner ruling D128 = (b)).
+"""test_unit_spawn.py: a unit the host creates mid-battle (a conversion) appears on the second player's machine with
+the host's id, built from the host's own saved record, together with its special built-in weapon - and a special
+weapon the host removes is removed there too.
 
-Before S-C, on the W2-P3 base, a unit add is unsupported by the delta
-(W2-P2 (b)2): the host logs it once as `deltaUnsupported`, the hash reports the
-divergence, and the second player freezes (F860: at the snap's bt_action_end,
-first bucket `items`). A special weapon in `itemsAdded` is unsupported the
-same way (MJ-5).
+Without unit-add support in the delta, the host logs a unit add once as `deltaUnsupported`, the hash reports the
+divergence, and the second player freezes (at the snap's bt_action_end, first bucket `items`). A special weapon in
+`itemsAdded` is unsupported the same way.
 
-Two scenarios, ONE boot, in this order (TASK 0b's C12a capture order):
+Two scenarios, ONE boot, in this order:
 
-  C12a-1  conversion with a special weapon. H (host seat) gets a loaded
-          STR_RIFLE (battle_give, BOTH: rifle RIFLE_ID, clip CLIP_ID), H on
-          C12A_H_TILE, S (client seat) on C12A_S_TILE (BOTH);
-          battle_set_unit_state {unit S, spawnUnit STR_SECTOID_LEADER,
-          spawnUnitFaction 1, respawn true} on BOTH (the S-C.1 lever fields,
-          absorbed on the host); H tu TU_MAX (BOTH); host set_seed SEED_C12A,
-          host battle_fire {unit H, snap, C12A_FLOOR}. The snap hits the floor;
-          at the projectile's end BattlescapeGame::convertInfected() converts S
-          (F858: the snap need not hit S) into L = L_ID, which owns the
-          ALIEN_PSI_WEAPON X = X_ID. The host dismisses its own "has been
-          killed" infobox when one shows (F425; F861: none shows in the
-          harness). Then L is pinned on BOTH (psiSkill 0, reactions 0, tu 0 +
-          refill).
-          GREEN: host `closedContexts` {origin host, kind shoot, actorId H,
-          nestedIn 0, hasFinal true} for H's action, whose evs (host log, and
-          the client log holds them) are exactly shot -> hit -> spawn ->
-          bt_action_end; the spawn payload is {unit L, cause convert, from S};
-          that spawn ev's delta (host `deltaRing` entry of its seq) has
-          unitsAdded 1 ([L]) and itemsAdded >= 1 (X among them); on BOTH: L
-          with id L_ID, type STR_SECTOID_LEADER, faction hostile, on S's former
-          tile; S status DEAD, onTile false; L specialWeapons [X] and
-          psiWeapon X; item X special true, owner L, type ALIEN_PSI_WEAPON;
-          the itemIdCtr bucket equal; the pin of L applied on both.
-          RED (TASK 0d / F860): host (shot)(hit)(bt_action_end)(reveal 0), no
-          spawn ev; host deltaUnsupported +2 (the unit add, the special-weapon
-          item add); the client freezes at the bt_action_end, first bucket
-          `items`; L and X exist on the host only; the client refuses the pin
-          of L ("no such unit id").
-  C12a-2  the special weapon removed (ST8: runs at red too). battle_set_unit_state
-          {unit L, spawnUnit STR_SECTOID_SOLDIER, spawnUnitFaction 1, respawn
-          true} on BOTH; H tu TU_MAX (BOTH); host set_seed SEED_C12A2, host
-          battle_fire {unit H, snap, C12A_FLOOR}; L converts into M = M_ID and
-          L's special weapon X is removed (convertUnit -> itemDropInventory ->
-          removeSpecialWeapons, F859); M is pinned on BOTH.
-          GREEN: H's second action = shot -> hit -> spawn -> bt_action_end in
-          a host context {origin host, kind shoot, actorId H}; the spawn
-          payload is {unit M, cause convert, from L}; that spawn ev's delta has
-          unitsAdded 1 ([M]) and itemsRemoved containing X; X absent on both;
-          L specialWeapons [] and psiWeapon -1 on both, L DEAD and off its tile
-          on both; M with id M_ID, type STR_SECTOID_SOLDIER, hostile, on
-          C12A_S_TILE on both.
-          RED (TASK 0b capture, ST8): the client refuses the L staging ("no
-          such unit id"); the host converts L into M and removes X (host
-          deltaUnsupported +1 more: the unit add of M); the client stays frozen
-          at C12a-1's seq.
+  convert_special_weapon  conversion with a special weapon. H (host seat) gets a loaded STR_RIFLE (battle_give, BOTH:
+                          rifle RIFLE_ID, clip CLIP_ID), H on H_TILE, S (client seat) on S_TILE (BOTH);
+                          battle_set_unit_state {unit S, spawnUnit STR_SECTOID_LEADER, spawnUnitFaction 1, respawn
+                          true} on BOTH (test command fields, absorbed on the host); H tu TU_MAX (BOTH); host set_seed
+                          SEED_FIRST_SNAP, host battle_fire {unit H, snap, SNAP_FLOOR}. The snap hits the floor; at
+                          the projectile's end BattlescapeGame::convertInfected() converts S (the snap need not hit S)
+                          into L = L_ID, which owns the ALIEN_PSI_WEAPON X = X_ID. The host dismisses its own "has
+                          been killed" infobox when one shows (none shows in the harness). Then L is pinned on BOTH
+                          (psiSkill 0, reactions 0, tu 0 + refill).
+                          CHECKS: host `closedContexts` {origin host, kind shoot, actorId H, nestedIn 0, hasFinal
+                          true} for H's action, whose evs (host log, and the client log holds them) are exactly shot
+                          -> hit -> spawn -> bt_action_end; the spawn payload is {unit L, cause convert, from S}; that
+                          spawn ev's delta (host `deltaRing` entry of its seq) has unitsAdded 1 ([L]) and itemsAdded
+                          >= 1 (X among them); on BOTH: L with id L_ID, type STR_SECTOID_LEADER, faction hostile, on
+                          S's former tile; S status DEAD, onTile false; L specialWeapons [X] and psiWeapon X; item X
+                          special true, owner L, type ALIEN_PSI_WEAPON; the itemIdCtr bucket equal; the pin of L
+                          applied on both.
+                          WITHOUT UNIT-ADD SUPPORT: host (shot)(hit)(bt_action_end)(reveal 0), no spawn ev; host
+                          deltaUnsupported +2 (the unit add, the special-weapon item add); the client freezes at the
+                          bt_action_end, first bucket `items`; L and X exist on the host only; the client refuses the
+                          pin of L ("no such unit id").
+  special_weapon_removed  the special weapon removed (runs whether or not the first scenario passed).
+                          battle_set_unit_state {unit L, spawnUnit STR_SECTOID_SOLDIER, spawnUnitFaction 1, respawn
+                          true} on BOTH; H tu TU_MAX (BOTH); host set_seed SEED_SECOND_SNAP, host battle_fire {unit H,
+                          snap, SNAP_FLOOR}; L converts into M = M_ID and L's special weapon X is removed (convertUnit
+                          -> itemDropInventory -> removeSpecialWeapons); M is pinned on BOTH.
+                          CHECKS: H's second action = shot -> hit -> spawn -> bt_action_end in a host context {origin
+                          host, kind shoot, actorId H}; the spawn payload is {unit M, cause convert, from L}; that
+                          spawn ev's delta has unitsAdded 1 ([M]) and itemsRemoved containing X; X absent on both; L
+                          specialWeapons [] and psiWeapon -1 on both, L DEAD and off its tile on both; M with id M_ID,
+                          type STR_SECTOID_SOLDIER, hostile, on S_TILE on both.
+                          WITHOUT UNIT-ADD SUPPORT: the client refuses the L staging ("no such unit id"); the host
+                          converts L into M and removes X (host deltaUnsupported +1 more: the unit add of M); the
+                          client stays frozen at convert_special_weapon's seq.
 
-Common asserts (spec (f) as amended by B1 RQ5): W2-P2's common asserts
-(hash_now {full:true} ALL buckets EQUAL; desyncSeen false on both; client
-coopClientBStatePushes unchanged and host 0; client deltaEvsApplied increased;
-deltaUnresolved, deltaUnsupported, deltaRemoveMissing, deltaAddExisting 0 on
-both; lever-made items created on BOTH with equal ids; staging writes on BOTH
-with equal responses); host contextBeginRefused 0; contextsOpened grew by
-exactly the number of contexts the scenario closed; every chain ev carries the
-id of a context the scenario closed; each context has exactly one
-bt_action_end, its last ev, recorded in closedContexts (endSeq); no `sync`
-inside a context; the client log holds the host's seqs/kinds/actionIds.
-contextsClosedAtEndTurn is a diagnostic (printed, never asserted, RQ5). The
-client DESYNC line's `kind` label is never asserted (F888: `?` for a
-bt_action_end).
+Common asserts (test_delta_core.common_fails): hash_now {full:true} ALL buckets EQUAL; desyncSeen false on both;
+client coopClientBStatePushes unchanged and host 0; client deltaEvsApplied increased; deltaUnresolved,
+deltaUnsupported, deltaRemoveMissing, deltaAddExisting 0 on both; items made by test commands created on BOTH with
+equal ids; staging writes on BOTH with equal responses. Also: host contextBeginRefused 0; contextsOpened grew by
+exactly the number of contexts the scenario closed; every chain ev carries the id of a context the scenario closed;
+each context has exactly one bt_action_end, its last ev, recorded in closedContexts (endSeq); no `sync` inside a
+context; the client log holds the host's seqs/kinds/actionIds. contextsClosedAtEndTurn is a diagnostic (printed, never
+asserted). The client DESYNC line's `kind` label is never asserted (it reads `?` for a bt_action_end).
 
-Probes: event_state deltaRing (S-C.1, B1 RQ7: the host's last 32 attached
-deltas by seq, each with unitsAddedIds / itemsAddedIds / itemsRemovedIds),
-lastDelta (unitsAdded), closedContexts, contextsOpened, contextBeginRefused,
-cueCounts; battle_state units[] type, originalFaction, spawnUnit, respawn,
-specialWeapons (the ids of the special weapons the unit owns), psiWeapon
-(getSpecialWeapon(BT_PSIAMP), -1 when none), status, onTile; battle_items
-special / owner / type; the host's `[coop-cue] <kind> seq <n> actionId <id>:
-<payload>` log line for the cue payloads; hash_now {full:true}.
+Probes: event_state deltaRing (the host's last 32 attached deltas by seq, each with unitsAddedIds / itemsAddedIds /
+itemsRemovedIds), lastDelta (unitsAdded), closedContexts, contextsOpened, contextBeginRefused, cueCounts; battle_state
+units[] type, originalFaction, spawnUnit, respawn, specialWeapons (the ids of the special weapons the unit owns),
+psiWeapon (getSpecialWeapon(BT_PSIAMP), -1 when none), status, onTile; battle_items special / owner / type; the host's
+`[coop-cue] <kind> seq <n> actionId <id>: <payload>` log line for the cue payloads; hash_now {full:true}.
 
-Bring-up (deterministic, never searched here; ledger `## W2-P3 TASK 0b`,
-scratch w2p3/T0b/constants.md): set_seed SEED_ROSTER on the HOST right before
-its open_new_battle; the DEFAULT NEW BATTLE map with set_seed SEED_MAP right
-before newbattle_ok, seat_count=2, MAP_FP asserted on both; the unit order
-UNIT_ORDER asserted (L = last unit id + 1); session.pin_ai_neutral (pins A).
-Every lever pair applies to the CLIENT first, then the HOST. The
-seeds are set on the HOST immediately before the press that starts the chain.
+Bring-up (deterministic, never searched here; the constants below were measured): set_seed SEED_ROSTER on the HOST
+right before its open_new_battle; the DEFAULT NEW BATTLE map with set_seed SEED_MAP right before newbattle_ok,
+seat_count=2, MAP_FP asserted on both; the unit order UNIT_ORDER asserted (L = last unit id + 1);
+session.pin_ai_neutral (pins A). Every staging command pair applies to the CLIENT first, then the HOST. The seeds are
+set on the HOST immediately before the press that starts the chain.
 
-RED-THEN-GREEN (spec (d) row S-C). Commit S-C.1 (this file, the lever fields,
-the deltaRing and unit/item probes, field_poke support; product behaviour
-unchanged) is run ONCE and both scenarios must FAIL with the RED above;
-commit S-C.2 (unitsAdded, the special-weapon branches, the spawn cues) is run
-ONCE and both must PASS. Each scenario prints ONE "EVIDENCE <id>:" line with
-both machines' fields BEFORE its green conditions are checked; main() runs
-every scenario even after an earlier one failed and prints "PASS <id>" /
-"FAIL <id>: <message>". Every wait is bounded; a wait that times out is
-recorded in the EVIDENCE line and fails the scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its checks; main() runs every
+scenario even after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is bounded; a
+wait that times out is recorded in the EVIDENCE line and fails the scenario.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
-(a bring-up failure is also 2). run in the foreground to completion.
+One run is the result. No skip path, no second boot, no alternative map or actor. Exit 0 only when both scenarios
+pass, 2 otherwise (a bring-up failure is also 2).
 
 Run:  python tools/coop_test/test_unit_spawn.py
 """
@@ -124,31 +89,31 @@ from test_ai_origins import (host_payloads, ctx_probes, new_closed, opened_delta
                                 bring_up_lobby_roster_pinned)
 from test_reaction_prox import context_fails
 
-# ----- bring-up (W2-P3 TASK 0b, ledger `## W2-P3 TASK 0b`, T0b constants.md "Common bring-up") -----
+# ----- bring-up (measured constants) -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok; DEFAULT NEW BATTLE (no mission)
 MAP_FP = -4.48310638993e+18      # host AND client battle_state.mapFingerprint (STR_UFO_GROUND_ASSAULT, small scout)
 SEATED = [8, 9]                  # the client seat's soldiers
 A_ID = 1000000                   # the only alien, pinned by session.pin_ai_neutral
 UNIT_ORDER = [8, 9, 10, 11, 12, 13, 14, 1000000]   # battle_state.units order = _units order (L = last id + 1)
-FIRST_LEVER_ITEM_ID = 60         # 60 items at start (ids 0..59): the first lever-made item is 60
+FIRST_STAGED_ITEM_ID = 60        # 60 items at start (ids 0..59): the first item a test command makes is 60
 PORT = "48635"
 TU_MAX = 255                     # battle_set_unit_state tu: clamped to the unit's max TU
 
-# ----- C12a (T0b constants.md "C12a"; F857-F862) -----
+# ----- the two conversions (measured constants) -----
 S_ID, H_ID = 8, 10               # S: client seat (converted); H: host seat (the shooter)
-C12A_H_TILE, C12A_H_DIR = (4, 6, 0), 0
-C12A_S_TILE, C12A_S_DIR = (8, 6, 0), 0   # off H's line of fire
-C12A_FLOOR = (4, 3, 0)           # empty floor tile 3 north of H: every snap lands here (impact 0)
+H_TILE, H_DIR = (4, 6, 0), 0
+S_TILE, S_DIR = (8, 6, 0), 0     # off H's line of fire
+SNAP_FLOOR = (4, 3, 0)           # empty floor tile 3 north of H: every snap lands here (impact 0)
 RIFLE_ID, CLIP_ID = 60, 61       # battle_give {unit H, STR_RIFLE, ammo STR_RIFLE_CLIP, clear_hands} on both
-SEED_C12A = 1                    # host set_seed right before the first battle_fire
-SEED_C12A2 = 2                   # host set_seed right before the second battle_fire
+SEED_FIRST_SNAP = 1              # host set_seed right before the first battle_fire
+SEED_SECOND_SNAP = 2             # host set_seed right before the second battle_fire
 L_ID, L_TYPE = 1000001, "STR_SECTOID_LEADER"
 X_ID, X_TYPE = 62, "ALIEN_PSI_WEAPON"   # L's special weapon (items.rul:1506), itemIdCtr 62 -> 63
 M_ID, M_TYPE = 1000002, "STR_SECTOID_SOLDIER"
 FACTION_HOSTILE = 1
 STATUS_DEAD = 6                  # src/Mod/Unit.h enum UnitStatus
-CHAIN = ["shot", "hit", "spawn", "bt_action_end"]   # H's snap: one floor hit (T0b 3/3), then the conversion
+CHAIN = ["shot", "hit", "spawn", "bt_action_end"]   # H's snap: one floor hit (3 of 3 measured runs), then conversion
 PAYLOAD_KINDS = ("shot", "hit", "spawn", "death", "corpse")
 UNIT_KEYS = ("type", "faction", "originalFaction", "status", "isOut", "onTile", "x", "y", "z", "direction", "tu",
              "health", "spawnUnit", "respawn", "specialWeapons", "psiWeapon")
@@ -204,11 +169,11 @@ def ring_view(r):
                                   "unitsAddedIds", "itemsAddedIds", "itemsRemovedIds", "battle")}
 
 
-# ===================== levers =====================
+# ===================== staging commands =====================
 
 
 def both_rec(host, client, req, keys, fails, what):
-    """`req` on BOTH machines (client first, F607), never raising: a refusal on
+    """`req` on BOTH machines (client first), never raising: a refusal on
     either machine or a response that differs on `keys` is appended to
     `fails`. Returns (host response, client response)."""
     rc = client.cmd(dict(req))
@@ -244,8 +209,8 @@ def pin_both(host, client, uid, fails, what):
 
 def host_chain_idle(host, dismissed):
     """HOST only: no BState queued or running, no action context open, and no
-    vanilla infobox on top - an InfoboxState on top is dismissed (host only,
-    F425) and recorded in `dismissed`."""
+    vanilla infobox on top - an InfoboxState on top is dismissed (host only)
+    and recorded in `dismissed`."""
     lw = host.cmd({"cmd": "list_widgets"}).get("state", "")
     if "Infobox" in lw:
         dismissed.append((lw.split(">")[-1], host.cmd({"cmd": "dismiss_popup"}).get("handled")))
@@ -268,7 +233,7 @@ def client_settled(host, client):
 
 def snap(host, client, seed, notes):
     """H tu TU_MAX (BOTH), host set_seed `seed`, host battle_fire {unit H, snap,
-    C12A_FLOOR}; bounded waits: the host chain idle (host only), then the
+    SNAP_FLOOR}; bounded waits: the host chain idle (host only), then the
     client caught up or frozen. Returns the scenario record."""
     both(host, client, {"cmd": "battle_set_unit_state", "unit": H_ID, "tu": TU_MAX}, ("tu",))
     before = {"host": probes(host), "client": probes(client)}
@@ -276,8 +241,8 @@ def snap(host, client, seed, notes):
     kb = {"host": cue_probes(host), "client": cue_probes(client)}
     seq0 = before["host"]["lastSeqEmitted"] or 0
     host.ok({"cmd": "set_seed", "seed": seed})
-    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "snap", "x": C12A_FLOOR[0], "y": C12A_FLOOR[1],
-                     "z": C12A_FLOOR[2]})
+    fire = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "snap", "x": SNAP_FLOOR[0], "y": SNAP_FLOOR[1],
+                     "z": SNAP_FLOOR[2]})
     if not fire.get("ok"):
         notes.append(f"battle_fire refused: {fire}")
     dismissed = []
@@ -407,30 +372,30 @@ def unit_fails(rec, uid, want, what):
 # ===================== scenarios =====================
 
 
-def c12a_convert(host, client, ctx):
+def scenario_convert_special_weapon(host, client, ctx):
     notes = []
     fails = []
     g = both(host, client, {"cmd": "battle_give", "unit": H_ID, "item": "STR_RIFLE", "ammo": "STR_RIFLE_CLIP",
                             "clear_hands": True}, ("weaponId", "ammoId"))
-    tele_both(host, client, H_ID, C12A_H_TILE, C12A_H_DIR)
-    tele_both(host, client, S_ID, C12A_S_TILE, C12A_S_DIR)
+    tele_both(host, client, H_ID, H_TILE, H_DIR)
+    tele_both(host, client, S_ID, S_TILE, S_DIR)
     st = both(host, client, {"cmd": "battle_set_unit_state", "unit": S_ID, "spawnUnit": L_TYPE,
                              "spawnUnitFaction": FACTION_HOSTILE, "respawn": True},
               ("spawnUnit", "spawnUnitFaction", "respawn"))
     staged_diff = diff_buckets(host, client)
     s_staged = {"host": uview(units(host).get(S_ID)), "client": uview(units(client).get(S_ID))}
-    rec = snap(host, client, SEED_C12A, notes)
+    rec = snap(host, client, SEED_FIRST_SNAP, notes)
     pin = pin_both(host, client, L_ID, fails, "pin L (both)")
-    ctx["c12a1"] = rec
-    fails0, evs, spawn = chain_fails(rec, "C12a-1")
-    ring_fails, sring = spawn_fails(rec, spawn, L_ID, S_ID, "C12a-1")
-    print(f"EVIDENCE C12a-1: rifle={g.get('weaponId')} clip={g.get('ammoId')} H {C12A_H_TILE}/{C12A_H_DIR} S "
-          f"{C12A_S_TILE}/{C12A_S_DIR} floor {C12A_FLOOR}; S staging response spawnUnit/spawnUnitFaction/respawn="
+    ctx["convert_special_weapon"] = rec
+    fails0, evs, spawn = chain_fails(rec, "convert_special_weapon")
+    ring_fails, sring = spawn_fails(rec, spawn, L_ID, S_ID, "convert_special_weapon")
+    print(f"EVIDENCE convert_special_weapon: rifle={g.get('weaponId')} clip={g.get('ammoId')} H {H_TILE}/{H_DIR} S "
+          f"{S_TILE}/{S_DIR} floor {SNAP_FLOOR}; S staging response spawnUnit/spawnUnitFaction/respawn="
           f"{(st.get('spawnUnit'), st.get('spawnUnitFaction'), st.get('respawn'))} S staged={s_staged} stagedDiff="
           f"{staged_diff}; H's action evs={sv(evs)}; spawn={spawn and (spawn['seq'], spawn['actionId'])} its delta="
           f"{ring_view(sring)}; units={units_evidence(rec, [S_ID, H_ID, L_ID])}; items="
-          f"{items_evidence(rec, [RIFLE_ID, CLIP_ID, X_ID])}; pin L={pin}; {snap_evidence(rec, 'C12a-1')}",
-          flush=True)
+          f"{items_evidence(rec, [RIFLE_ID, CLIP_ID, X_ID])}; pin L={pin}; "
+          f"{snap_evidence(rec, 'convert_special_weapon')}", flush=True)
     fails = list(notes) + fails
     if (g.get("weaponId"), g.get("ammoId")) != (RIFLE_ID, CLIP_ID):
         fails.append(f"battle_give H: rifle/clip {(g.get('weaponId'), g.get('ammoId'))} (want "
@@ -442,24 +407,25 @@ def c12a_convert(host, client, ctx):
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
     fails += fails0 + ring_fails
     if sring and X_ID not in (sring.get("itemsAddedIds") or []):
-        fails.append(f"C12a-1: the spawn ev's delta itemsAddedIds {sring.get('itemsAddedIds')} (want itemsAdded >= 1 "
-                     f"with X {X_ID})")
-    fails += unit_fails(rec, L_ID, {"type": L_TYPE, "faction": FACTION_HOSTILE, "x": C12A_S_TILE[0],
-                                    "y": C12A_S_TILE[1], "z": C12A_S_TILE[2], "onTile": True, "isOut": False,
-                                    "specialWeapons": [X_ID], "psiWeapon": X_ID}, "C12a-1 L")
-    fails += unit_fails(rec, S_ID, {"status": STATUS_DEAD, "onTile": False}, "C12a-1 S")
+        fails.append(f"convert_special_weapon: the spawn ev's delta itemsAddedIds {sring.get('itemsAddedIds')} "
+                     f"(want itemsAdded >= 1 with X {X_ID})")
+    fails += unit_fails(rec, L_ID, {"type": L_TYPE, "faction": FACTION_HOSTILE, "x": S_TILE[0],
+                                    "y": S_TILE[1], "z": S_TILE[2], "onTile": True, "isOut": False,
+                                    "specialWeapons": [X_ID], "psiWeapon": X_ID}, "convert_special_weapon L")
+    fails += unit_fails(rec, S_ID, {"status": STATUS_DEAD, "onTile": False}, "convert_special_weapon S")
     for name, it in (("host", rec["ih"].get(X_ID)), ("client", rec["ic"].get(X_ID))):
         if not it or (it.get("type"), it.get("special"), it.get("owner")) != (X_TYPE, True, L_ID):
-            fails.append(f"C12a-1: item X {X_ID} on the {name} {iview(it)} (want type {X_TYPE}, special true, "
-                         f"owner {L_ID})")
+            fails.append(f"convert_special_weapon: item X {X_ID} on the {name} {iview(it)} (want type {X_TYPE}, "
+                         f"special true, owner {L_ID})")
     if rec["itemIdCtr"][0] != rec["itemIdCtr"][1]:
-        fails.append(f"C12a-1: itemIdCtr bucket host/client {rec['itemIdCtr']} (want equal: no client mint)")
-    fails += context_fails(rec, "C12a-1")
-    fails += common_fails(host, client, rec["before"], {}, "C12a-1")
+        fails.append(f"convert_special_weapon: itemIdCtr bucket host/client {rec['itemIdCtr']} "
+                     "(want equal: no client mint)")
+    fails += context_fails(rec, "convert_special_weapon")
+    fails += common_fails(host, client, rec["before"], {}, "convert_special_weapon")
     finish(fails)
 
 
-def c12a_special_removed(host, client, ctx):
+def scenario_special_weapon_removed(host, client, ctx):
     notes = []
     fails = []
     rh, rc = both_rec(host, client, {"cmd": "battle_set_unit_state", "unit": L_ID, "spawnUnit": M_TYPE,
@@ -471,45 +437,47 @@ def c12a_special_removed(host, client, ctx):
                           rc.get("error"))}
     l_before = {"host": uview(units(host).get(L_ID)), "client": uview(units(client).get(L_ID))}
     x_before = {"host": iview(items(host).get(X_ID)), "client": iview(items(client).get(X_ID))}
-    rec = snap(host, client, SEED_C12A2, notes)
+    rec = snap(host, client, SEED_SECOND_SNAP, notes)
     pin = pin_both(host, client, M_ID, fails, "pin M (both)")
-    fails0, evs, spawn = chain_fails(rec, "C12a-2")
-    ring_fails, sring = spawn_fails(rec, spawn, M_ID, L_ID, "C12a-2")
+    fails0, evs, spawn = chain_fails(rec, "special_weapon_removed")
+    ring_fails, sring = spawn_fails(rec, spawn, M_ID, L_ID, "special_weapon_removed")
     x_gone = {"host": X_ID not in rec["ih"], "client": X_ID not in rec["ic"]}
     removed_in = [ring_view(r) for r in (rec["ring"] or []) if (r.get("seq") or 0) > rec["seq0"]
                   and X_ID in (r.get("itemsRemovedIds") or [])]
-    print(f"EVIDENCE C12a-2: L staging (ok, spawnUnit, spawnUnitFaction, respawn, error)={staging}; L before the "
-          f"snap={l_before}; X before the snap={x_before}; H's action evs={sv(evs)}; spawn="
+    print(f"EVIDENCE special_weapon_removed: L staging (ok, spawnUnit, spawnUnitFaction, respawn, error)={staging}; "
+          f"L before the snap={l_before}; X before the snap={x_before}; H's action evs={sv(evs)}; spawn="
           f"{spawn and (spawn['seq'], spawn['actionId'])} its "
           f"delta={ring_view(sring)}; deltas removing X {X_ID}={removed_in}; X gone={x_gone}; units="
           f"{units_evidence(rec, [L_ID, M_ID])}; items={items_evidence(rec, [X_ID])}; pin M={pin}; "
-          f"{snap_evidence(rec, 'C12a-2')}", flush=True)
+          f"{snap_evidence(rec, 'special_weapon_removed')}", flush=True)
     fails = list(notes) + fails
     for name in ("host", "client"):
         xb = x_before[name]
         if not xb or (xb.get("special"), xb.get("owner")) != (True, L_ID):
-            fails.append(f"C12a-2 precondition: item X {X_ID} on the {name} before the snap {xb} (want L's special "
-                         f"weapon: special true, owner {L_ID})")
+            fails.append(f"special_weapon_removed precondition: item X {X_ID} on the {name} before the snap {xb} "
+                         f"(want L's special weapon: special true, owner {L_ID})")
     fails += fails0 + ring_fails
     if sring and X_ID not in (sring.get("itemsRemovedIds") or []):
-        fails.append(f"C12a-2: the spawn ev's delta itemsRemovedIds {sring.get('itemsRemovedIds')} (want X {X_ID} "
-                     f"among them)")
+        fails.append(f"special_weapon_removed: the spawn ev's delta itemsRemovedIds {sring.get('itemsRemovedIds')} "
+                     f"(want X {X_ID} among them)")
     if not x_gone["host"] or not x_gone["client"]:
-        fails.append(f"C12a-2: item X {X_ID} present after the snap host={not x_gone['host']} client="
+        fails.append(f"special_weapon_removed: item X {X_ID} present after the snap host={not x_gone['host']} client="
                      f"{not x_gone['client']} (want absent on both)")
     fails += unit_fails(rec, L_ID, {"status": STATUS_DEAD, "onTile": False, "specialWeapons": [], "psiWeapon": -1},
-                        "C12a-2 L")
-    fails += unit_fails(rec, M_ID, {"type": M_TYPE, "faction": FACTION_HOSTILE, "x": C12A_S_TILE[0],
-                                    "y": C12A_S_TILE[1], "z": C12A_S_TILE[2], "onTile": True, "isOut": False},
-                        "C12a-2 M")
+                        "special_weapon_removed L")
+    fails += unit_fails(rec, M_ID, {"type": M_TYPE, "faction": FACTION_HOSTILE, "x": S_TILE[0],
+                                    "y": S_TILE[1], "z": S_TILE[2], "onTile": True, "isOut": False},
+                        "special_weapon_removed M")
     if rec["itemIdCtr"][0] != rec["itemIdCtr"][1]:
-        fails.append(f"C12a-2: itemIdCtr bucket host/client {rec['itemIdCtr']} (want equal: no client mint)")
-    fails += context_fails(rec, "C12a-2")
-    fails += common_fails(host, client, rec["before"], {}, "C12a-2")
+        fails.append(f"special_weapon_removed: itemIdCtr bucket host/client {rec['itemIdCtr']} "
+                     "(want equal: no client mint)")
+    fails += context_fails(rec, "special_weapon_removed")
+    fails += common_fails(host, client, rec["before"], {}, "special_weapon_removed")
     finish(fails)
 
 
-SCENARIOS = (("C12a-1", c12a_convert), ("C12a-2", c12a_special_removed))
+SCENARIOS = (("convert_special_weapon", scenario_convert_special_weapon),
+             ("special_weapon_removed", scenario_special_weapon_removed))
 
 
 # ===================== bring-up =====================
@@ -527,12 +495,12 @@ def boot(host, client):
     assert seated.get("soldierIds") == SEATED, f"seated {seated.get('soldierIds')} (baked {SEATED})"
     order = ([u["id"] for u in hs.get("units", [])], [u["id"] for u in cs.get("units", [])])
     assert order == (UNIT_ORDER, UNIT_ORDER), f"battle_state unit order host/client={order} (baked {UNIT_ORDER})"
-    pinned = pin_ai_neutral(host, client, tag="w2p3-sc")
+    pinned = pin_ai_neutral(host, client, tag="unit_spawn")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (baked [{A_ID}])"
     ih, ic = items(host), items(client)
-    assert (len(ih), max(ih) + 1, len(ic), max(ic) + 1) == (FIRST_LEVER_ITEM_ID,) * 4, (
+    assert (len(ih), max(ih) + 1, len(ic), max(ic) + 1) == (FIRST_STAGED_ITEM_ID,) * 4, (
         f"items at start host n={len(ih)} max={max(ih)} client n={len(ic)} max={max(ic)} (baked "
-        f"{FIRST_LEVER_ITEM_ID} items, ids 0..{FIRST_LEVER_ITEM_ID - 1})")
+        f"{FIRST_STAGED_ITEM_ID} items, ids 0..{FIRST_STAGED_ITEM_ID - 1})")
     for gc in (host, client):
         es = event_state(gc)
         u0 = session.units_by_id(battle_state(gc)).get(S_ID) or {}
@@ -542,11 +510,11 @@ def boot(host, client):
                 and all(k in u0 for k in ("type", "originalFaction", "spawnUnit", "respawn", "specialWeapons",
                                           "psiWeapon"))
                 and "special" in i0), (
-            f"{gc.name} lacks the S-C.1 probes: deltaRing={es.get('deltaRing')!r} closedContexts="
+            f"{gc.name} lacks the unit-spawn probes: deltaRing={es.get('deltaRing')!r} closedContexts="
             f"{es.get('closedContexts')!r} unit {S_ID} keys={sorted(u0)} item keys={sorted(i0)}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2p3-sc] boot ok: SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={SEATED} "
+    print(f"[unit_spawn] boot ok: SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={SEATED} "
           f"order={UNIT_ORDER} pinned={pinned} items={len(ih)} probes host={ctx_probes(host)} "
           f"client={ctx_probes(client)} host deltaRing={len(ring_of(host))} entries", flush=True)
     return {}
@@ -554,8 +522,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49856, make_user_dir("w2p3_unit_spawn_host"))
-    client = GameClient("client", 49857, make_user_dir("w2p3_unit_spawn_client"))
+    host = GameClient("host", 49856, make_user_dir("unit_spawn_host"))
+    client = GameClient("client", 49857, make_user_dir("unit_spawn_client"))
     results = {}
     try:
         try:
@@ -577,7 +545,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p3-sc] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[unit_spawn] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_unit_spawn: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "
