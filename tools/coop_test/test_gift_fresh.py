@@ -1,6 +1,11 @@
 """Autonomous test: brand-new hosted campaign, connect a client, gift the
 first host soldier, verify the client sees them at the host's base.
 
+Separate is one host-owned world: a gift changes the soldier's owner and the
+soldier stays at the host's base. There is no mirror base and no physical
+move between worlds. The player-visible result: the client owns the soldier at the host's base, and the host's own
+soldier list no longer shows it.
+
 Run:  python tools/coop_test/test_gift_fresh.py
 """
 
@@ -25,28 +30,38 @@ def main():
 
         # --- pick host's first soldier, gift, verify ---
         hs = host.ok({"cmd": "get_soldiers"})
-        hbase = next(b for b in hs["bases"] if not b["coopBaseFlag"] and b["soldiers"])
-        soldier = hbase["soldiers"][0]
-        host_base_id = hbase["coopBaseId"]
-        print(f"gifting {soldier['name']} from '{hbase['name']}' (coopBaseId={host_base_id})")
+        hbase = next(b for b in hs["bases"] if b["name"] == "HostBase")
+        soldier = next(s for s in hbase["soldiers"] if s["owner"] == 0)
+        sid = soldier["id"]
+        print(f"gifting {soldier['name']} (id={sid}) from '{hbase['name']}'")
 
         host.ok({"cmd": "gift", "name": soldier["name"], "owner": 1})
 
-        def client_sees():
-            r = client.cmd({"cmd": "get_mirror_soldiers", "coopBaseId": host_base_id})
-            if r.get("ok"):
-                for s in r["soldiers"]:
-                    if s["name"] == soldier["name"] and s["owner"] == 1:
-                        return s
+        def at_host_base(gc):
+            for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+                if b["name"] == "HostBase":
+                    return next((s for s in b["soldiers"] if s["id"] == sid), None)
             return None
 
-        s = client.wait_for("soldier at host base on client", client_sees, timeout=60)
-        print(f"PASS: client sees {s['name']} owner={s['owner']} coopBase={s['coopBase']}")
+        def client_sees():
+            s = at_host_base(client)
+            return s if s and s["name"] == soldier["name"] and s["owner"] == 1 else None
 
-        hs2 = host.ok({"cmd": "get_soldiers"})
-        for b in hs2["bases"]:
-            assert all(x["name"] != soldier["name"] for x in b["soldiers"]), "host still has the soldier"
-        print("PASS: gone from host rosters")
+        s = client.wait_for("soldier at host base on client", client_sees, timeout=60)
+        print(f"PASS: client sees {s['name']} owner={s['owner']} at HostBase")
+
+        hs2 = at_host_base(host)
+        assert hs2 and hs2["owner"] == 1, f"host world did not record the new owner: {hs2}"
+        host.ok({"cmd": "open_screen", "screen": "soldiers", "base": "HostBase"})
+        host.wait_for("host soldiers screen",
+                      lambda: (host.cmd({"cmd": "screen_state"}).get("top") == "soldiers") or None,
+                      timeout=15, interval=0.3)
+        shown = host.cmd({"cmd": "screen_state"}).get("displayed", [])
+        host.ok({"cmd": "close_screens"})
+        assert sid not in shown, f"host's soldier list still shows the gifted soldier: {shown}"
+        others = sorted(s["id"] for s in hbase["soldiers"] if s["owner"] == 0 and s["id"] != sid)
+        assert sorted(shown) == others, f"host's soldier list {shown} != its other soldiers {others}"
+        print("PASS: gone from the host's soldier list")
         print("TEST PASSED")
     finally:
         host.shutdown(); client.shutdown()

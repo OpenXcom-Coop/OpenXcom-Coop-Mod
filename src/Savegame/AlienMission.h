@@ -50,6 +50,9 @@ class AlienMission
 private:
 	const RuleAlienMission &_rule;
 	std::string _region, _race;
+	// Persistent Separate Campaign target owner. Empty keeps legacy/shared
+	// missions visible to every player.
+	std::string _ownerPlayerName;
 	size_t _nextWave;
 	size_t _nextUfoCounter;
 	size_t _spawnCountdown;
@@ -77,6 +80,8 @@ private:
 	const std::string &getRace() const { return _race; }
 	/// Sets the mission's race.
 	void setRace(const std::string &race) { _race = race; }
+	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
+	void setOwnerPlayerName(const std::string& owner) { _ownerPlayerName = owner; }
 	/// Gets the minutes until next wave spawns.
 	size_t getWaveCountdown() const { return _spawnCountdown; }
 	/// Sets the minutes until next wave spawns.

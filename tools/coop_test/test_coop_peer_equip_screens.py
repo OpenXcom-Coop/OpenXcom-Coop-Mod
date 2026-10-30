@@ -1,37 +1,24 @@
-"""Regression test: a soldier's equipment must survive being looked at from a
-peer's co-op base, on BOTH equip screens.
+"""Regression test: a soldier's equipment must survive being looked at from the
+other player's base, on BOTH equip screens, in the single host-owned SEPARATE
+world.
 
 Reported from a SEPARATE playtest: a soldier equipped with a weapon in each hand
 and rockets in the backpack is transferred to another player's base; at that base
 "they are missing the weapons in their hands", the craft equip screen disagrees
 with the soldier equip screen, and items dropped onto the soldier there "drop
-right back down to the ground items lower panel".
+right back down to the ground items lower panel". The root cause was items
+sharing one coopID, so a type-only match refused the visitor's own weapons
+whenever the base owner had equipped that type on the craft.
 
-ROOT CAUSE (older versions). A per-player item check on the equip screens matched
-the peer's items by type alone, so a visiting player's OWN weapon was refused a
-slot whenever the peer had equipped that item type on that craft, and was
-dumped back to the floor.
+WHAT IS ASSERTED, at the host's own base and at the client's base (co-op vs
+plain parity: whatever holds at your own base must hold at the partner's):
 
-The equip screens are vanilla's and have no per-player item check at a peer
-base. This test guards the visible symptom:
-the transferred soldier keeps its full loadout on both screens, at home and at
-the peer base.
-
-WHAT IS ASSERTED. Three things, in both a co-op and a plain own-base setting
-(that is the co-op-vs-vanilla parity: whatever holds at your own base must hold
-at a peer's):
-
-  1. every deployed soldier wears its COMPLETE equipment layout - nothing that
-     the layout reserves is left lying on the ground pane;
+  0. precondition: the client equips its own crew by hand at its base. The
+     two-world craft item manifest (whose type-only match stripped the weapons)
+     does not exist in the single world: equipping writes none;
+  1. the transferred soldier wears its COMPLETE layout on both screens;
   2. the two screens put the same items in the same slots on that soldier;
   3. the two screens hold the same set of physical item instances (`all`).
-
-Deliberately NOT asserted: ground-pane equality. The base screen deploys every
-soldier at the base while the craft screen deploys only that craft's crew, so a
-benched soldier's gear is carried in one view and loose in the other; loose
-weapons additionally auto-chamber ammo, which moves clips off the ground tile.
-Both effects reproduce at a plain own base with no co-op involved - they are
-stock OXCE, and `all` is the quantity that is genuinely conserved.
 
 Run:  python tools/coop_test/test_coop_peer_equip_screens.py
 """
@@ -41,86 +28,38 @@ import sys
 
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
-import session
 import test_coop_transferred_equipment as T
 
-OPT = "oxceAlternateCraftEquipmentManagement"
 GEAR = [("STR_RIFLE", "right", 1), ("STR_PISTOL", "left", 1), ("STR_SMALL_ROCKET", "backpack", 2)]
-# what the peer equips on its own crew, by hand, before the transfer
+# what the client equips on its own crew, by hand
 PEER_DRAGS = (("STR_RIFLE", "right"), ("STR_PISTOL", "left"), ("STR_SMALL_ROCKET", "backpack"))
-
-
-def _has(gc, n):
-    return any(n in s for s in gc.cmd({"cmd": "get_state"})["states"])
 
 
 def open_base_inventory(gc, base_name):
     gc.ok({"cmd": "open_soldiers", "base": base_name})
-    gc.wait_for("soldiers", lambda: _has(gc, "SoldiersState") or None, timeout=30)
+    gc.wait_for("soldiers", lambda: T._has_state(gc, "SoldiersState") or None, timeout=30)
     r = gc.ok({"cmd": "soldiers_inventory"})
     assert r.get("opened"), f"base inventory did not open: {r}"
-    gc.wait_for("inventory", lambda: _has(gc, "InventoryState") or None, timeout=30)
+    gc.wait_for("inventory", lambda: T._has_state(gc, "InventoryState") or None, timeout=30)
 
 
 def close_base_inventory(gc):
     gc.ok({"cmd": "battle_inventory", "action": "ok"})
-    gc.wait_for("inventory closed", lambda: (not _has(gc, "InventoryState")) or None, timeout=30)
+    gc.wait_for("inventory closed", lambda: (not T._has_state(gc, "InventoryState")) or None,
+                timeout=30)
     gc.ok({"cmd": "soldiers_ok"})
-    gc.wait_for("soldiers closed", lambda: (not _has(gc, "SoldiersState")) or None, timeout=30)
+    gc.wait_for("soldiers closed", lambda: (not T._has_state(gc, "SoldiersState")) or None,
+                timeout=30)
 
 
-def expected_layout():
-    out = {}
-    for item, slot, qty in GEAR:
-        out.setdefault(T.SLOT_ID[slot], []).extend([item] * qty)
-    return {k: sorted(v) for k, v in out.items()}
-
-
-def read_both_screens(gc, base_name, craft_id, seat, coop=False):
-    """Read the soldier equip screen and the craft equip screen for the same
-    base. `seat` re-seats the soldier between the two: with alternate craft
-    equipment management ON the base inventory de-assigns every soldier from its
-    craft on open and re-assigns on OK, so the seat must be re-established
-    before the craft screen is opened or its crew is empty."""
-    base_g = T.base_equip_screen(gc, base_name)
-    seat()
-    craft_g = T.craft_equip_screen(gc, craft_id, base_name=None if coop else base_name, coop=coop)
-    return base_g, craft_g
-
-
-def assert_screens_agree(base_g, craft_g, who, label):
-    want = expected_layout()
-    base_lo = T.loadout_of(base_g, who)
-    craft_lo = T.loadout_of(craft_g, who)
-
-    # 1. nothing the layout reserves was left on the floor
-    assert T.items_only(base_lo) == want, (
-        f"{label}: the soldier equip screen STRIPPED equipment - expected {want}, "
-        f"got {T.items_only(base_lo)} (the rest is on the ground pane: {base_g['items']})")
-    assert T.items_only(craft_lo) == want, (
-        f"{label}: the craft equip screen STRIPPED equipment - expected {want}, "
-        f"got {T.items_only(craft_lo)}")
-
-    # 2. same items in the same slots on both screens
-    assert base_lo == craft_lo, (
-        f"{label}: the two equip screens disagree on the soldier's loadout:\n"
-        f"  soldier screen: {base_lo}\n  craft   screen: {craft_lo}")
-
-    # 3. same physical items present (see the module docstring on why NOT `items`)
-    assert base_g["all"] == craft_g["all"], (
-        f"{label}: the two equip screens hold different item instances:\n"
-        f"  soldier screen: {base_g['all']}\n  craft   screen: {craft_g['all']}")
-    print(f"PASS {label}: full loadout {T.items_only(base_lo)}, both screens agree")
-
-
-def equip_by_hand(gc, base_name, crew_limit=3):
-    """Really drag items onto the local crew on the base equip screen, the way a
-    player does (inventory_move). Returns how many items moved."""
+def equip_by_hand(gc, base_name, owner_seat, crew_limit=3):
+    """Really drag items onto the local player's own crew, the way a player
+    does."""
+    own = {s["id"] for s in T.report(gc, base_name)["soldiers"] if s["owner"] == owner_seat}
     open_base_inventory(gc, base_name)
     g = gc.ok({"cmd": "inventory_ground"})
     moved = 0
-    for unit in g["soldiers"][:crew_limit]:
+    for unit in [u for u in g["soldiers"] if u["id"] in own][:crew_limit]:
         for item, slot in PEER_DRAGS:
             r = gc.cmd({"cmd": "inventory_move", "name": unit["name"], "item": item, "slot": slot})
             if r.get("moved"):
@@ -129,78 +68,87 @@ def equip_by_hand(gc, base_name, crew_limit=3):
     return moved
 
 
+def read_both_screens(gc, base_name, cid, reseat):
+    """Soldier equip screen, then craft equip screen, at base_name. With
+    alternate craft equipment management ON the base inventory unseats every
+    soldier on open, so the seat is re-established before the craft screen."""
+    base_g = T.base_equip_screen(gc, base_name)
+    reseat()
+    craft_g = T.craft_equip_screen(gc, base_name, cid)
+    return base_g, craft_g
+
+
+def assert_screens_agree(base_g, craft_g, sid, label):
+    want = T.expected_loadout(GEAR)
+    base_lo, craft_lo = T.loadout_of(base_g, sid), T.loadout_of(craft_g, sid)
+    assert T.items_only(base_lo) == want, (
+        f"{label}: the soldier equip screen STRIPPED equipment - expected {want}, "
+        f"got {T.items_only(base_lo)} (ground pane: {base_g['items']})")
+    assert T.items_only(craft_lo) == want, (
+        f"{label}: the craft equip screen STRIPPED equipment - expected {want}, "
+        f"got {T.items_only(craft_lo)}")
+    assert base_lo == craft_lo, (
+        f"{label}: the two equip screens disagree on the soldier's loadout:\n"
+        f"  soldier screen: {base_lo}\n  craft   screen: {craft_lo}")
+    assert base_g["all"] == craft_g["all"], (
+        f"{label}: the two equip screens hold different item instances:\n"
+        f"  soldier screen: {base_g['all']}\n  craft   screen: {craft_g['all']}")
+    print(f"PASS {label}: full loadout {T.items_only(base_lo)}, both screens agree")
+
+
 def main():
-    host = GameClient("host", 47811, make_user_dir("host-user"))
-    client = GameClient("client", 47812, make_user_dir("client-user"))
+    js = T.bring_up("xeqpeer")
+    host, client = js.host, js.client
     try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client)
-        host.ok({"cmd": "set_option", "name": OPT, "value": True})
-        client.ok({"cmd": "set_option", "name": OPT, "value": True})
-        hb = T.own_base(host)["name"]
-        cb = T.own_base(client)["name"]
+        T.set_alt(host, client, True)
+        HB, CB = T.HB, T.CB
 
-        # The peer first equips its own crew by hand with the item types the target
-        # soldier carries (PEER_DRAGS), as in the reported game.
-        moved = equip_by_hand(client, cb)
-        assert moved > 0, "precondition failed - the peer equipped nothing by hand"
+        # 0. the client equips its own crew by hand at its own base
+        moved = equip_by_hand(client, CB, 1)
+        assert moved > 0, "precondition failed - the client equipped nothing by hand"
+        manifest = next(c for c in T.report(client, CB)["crafts"]
+                        if c["type"] == T.SKYRANGER)["coopItems"]
+        ids = sorted({(e["type"], e["id"]) for e in manifest})
+        assert len(ids) == len(manifest), (
+            f"the craft item manifest has DUPLICATE (type, id) pairs - a type-only "
+            f"match follows: {manifest}")
+        assert not manifest, (
+            f"equipping by hand wrote a two-world craft item manifest: {manifest}")
+        print(f"client crew equipped by hand ({moved} moves); manifest {len(manifest)} "
+              f"entries, all (type,id) distinct")
 
-        # equip the target soldier and transfer it to the peer's base
-        r = host.ok({"cmd": "base_report", "base": hb})
-        target = next(s for s in r["soldiers"] if s["craft"] == -1)
-        host.ok({"cmd": "rename_soldier", "name": target["name"], "newName": "Zzz Target"})
+        # the host's target soldier, equipped
+        sid = T.free_soldier(host, host, client, HB, 0)
+        T.rename(host, host, client, HB, sid, "Zzz Target")
         for item, slot, qty in GEAR:
-            host.ok({"cmd": "give_layout", "item": item, "slot": slot,
-                     "name": "Zzz", "count": 1, "qty": qty})
+            T.give_layout(host, client, HB, "Zzz Target", item, slot, qty)
 
-        # (parity) the same two screens at the host's OWN base must already agree
-        own_craft = next(c for c in r["crafts"] if c["type"] == "STR_SKYRANGER")["id"]
-        # bench one of the existing crew so there is a seat to take - this is also
-        # the reported repro ("unequip another soldier from the craft and equip the
-        # target soldier"), and it is what puts a benched soldier's gear on the
-        # craft screen's floor but on its owner's body in the soldier screen.
-        bench = next(s for s in r["soldiers"] if s["craft"] == own_craft)
-        host.ok({"cmd": "craft_assign", "soldier_id": bench["id"],
-                 "craft_id": own_craft, "base": hb, "on": False})
+        # (parity) the same two screens at the host's OWN base
+        own_craft = T.craft_id(host, HB)
+        bench = next(s for s in T.report(host, HB)["soldiers"]
+                     if s["craft"] == own_craft and s["owner"] == 0)
+        T.seat(host, host, client, HB, bench["id"], own_craft, False)
 
         def seat_own():
-            host.ok({"cmd": "craft_assign", "soldier_id": target["id"],
-                     "craft_id": own_craft, "base": hb, "on": True})
+            T.seat(host, host, client, HB, sid, own_craft, True)
         seat_own()
-        b, c = read_both_screens(host, hb, own_craft, seat_own)
-        assert_screens_agree(b, c, "Zzz", "own base")
-        host.ok({"cmd": "craft_assign", "soldier_id": target["id"],
-                 "craft_id": own_craft, "base": hb, "on": False})
+        b, c = read_both_screens(host, HB, own_craft, seat_own)
+        assert_screens_agree(b, c, sid, "own base")
+        T.seat(host, host, client, HB, sid, own_craft, False)
 
-        tr = host.ok({"cmd": "transfer_to_coop_base", "name": "Zzz", "toBase": cb})
-        assert tr.get("transferred"), f"transfer failed: {tr}"
-        host.ok({"cmd": "visit_coop_base", "base": cb})
-        host.wait_for("inside peer base",
-                      lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-        rep = host.wait_for(
-            "guest at the peer base",
-            lambda: (lambda x: x if any("Zzz" in s["name"] for s in x["soldiers"]) else None)(
-                host.ok({"cmd": "base_report", "coop": True})), timeout=30)
-        guest = next(s for s in rep["soldiers"] if "Zzz" in s["name"])
-        peer_craft = next(c for c in rep["crafts"] if c["type"] == "STR_SKYRANGER")["id"]
+        # ... and at the client's base, after a transfer there
+        T.send_soldier(host, host, client, sid, HB, CB)
+        T.arrive(host, client, CB, sid)
+        peer_craft = T.craft_id(host, CB)
 
         def seat_peer():
-            g = next(s for s in host.ok({"cmd": "base_report", "coop": True})["soldiers"]
-                     if "Zzz" in s["name"])
-            host.ok({"cmd": "craft_assign", "soldier_id": g["id"],
-                     "craft_id": peer_craft, "coop": True, "on": True})
+            T.seat(host, host, client, CB, sid, peer_craft, True)
         seat_peer()
-
-        # ... and must agree exactly the same way at the PEER's base
-        b, c = read_both_screens(host, cb, peer_craft, seat_peer, coop=True)
-        assert_screens_agree(b, c, "Zzz", "peer base")
-
-        host.ok({"cmd": "leave_base"})
-        session.wait_back_on_geoscape(host, "back home")
+        b, c = read_both_screens(host, CB, peer_craft, seat_peer)
+        assert_screens_agree(b, c, sid, "client's base")
         print("TEST PASSED")
     finally:
-        host.shutdown(); client.shutdown()
+        js.shutdown()
 
 
 if __name__ == "__main__":

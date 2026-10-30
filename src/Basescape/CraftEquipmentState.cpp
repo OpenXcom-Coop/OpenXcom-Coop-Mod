@@ -41,6 +41,7 @@
 #include "../Mod/Armor.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Soldier.h"
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Mod/RuleItemCategory.h"
@@ -56,6 +57,8 @@
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5)
+#include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -69,10 +72,12 @@ namespace OpenXcom
 CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
 	_lstScroll(0), _sel(0), _craft(craft), _base(base), _totalItems(0), _totalItemStorageSize(0.0), _ammoColor(0),
 	_reload(true), _returningFromGlobalTemplates(false), _returningFromInventory(false), _firstInit(true), _isNewBattle(false),
-	_localBatch(false)
+	_displayedCrew(0), _displayedSpaceUsed(0), _displayedSpaceAvailable(0), _localBatch(false)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
-	bool craftHasACrew = c->getNumTotalSoldiers() > 0;
+	_craftId = c->getId();
+	_craftType = c->getRules()->getType();
+	bool craftHasACrew = getDisplayedCrew() > 0;
 	_isNewBattle = _game->getSavedGame()->getMonthsPassed() == -1;
 
 	// Create objects
@@ -152,13 +157,7 @@ CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
 
 	_txtStores->setText(tr("STR_STORES"));
 
-	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
-
-	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
-
-	std::ostringstream ss3;
-	ss3 << tr("STR_SOLDIERS_UC") << ">" << Unicode::TOK_COLOR_FLIP << c->getNumTotalSoldiers();
-	_txtCrew->setText(ss3.str());
+	refreshCrewCapacity();
 
 	// populate sort options
 	_categoryStrings.push_back("STR_ALL");
@@ -238,6 +237,7 @@ CraftEquipmentState::CraftEquipmentState(Base *base, size_t craft) :
  */
 CraftEquipmentState::~CraftEquipmentState()
 {
+	_sharedRefresh.unbind(this);
 	delete _timerLeft;
 	delete _timerRight;
 }
@@ -273,7 +273,9 @@ void CraftEquipmentState::init()
 			{
 				c->calculateTotalSoldierEquipment();
 			}
-			if (_returningFromInventory)
+			// (Separate staged nothing: the host's soldier_layout apply moves the gear)
+			if (_returningFromInventory
+				&& !(_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()))
 			{
 				// now that we're back from the inventory screen, we need to remove all the excess base gear
 				// SHARED (GAP-5): multi-step local reconciliation - keep it local
@@ -296,6 +298,7 @@ void CraftEquipmentState::init()
 	_firstInit = false;
 
 	touchComponentsRefresh();
+	_sharedRefresh.bind(_game, this, _base);
 }
 
 /**
@@ -361,9 +364,15 @@ void CraftEquipmentState::initList()
 
 		Unit* isVehicle = rule->getVehicleUnit();
 		int cQty = 0;
+		int physicalVehicleQty = 0;
 		if (isVehicle)
 		{
-			cQty = c->getVehicleCount(itemType);
+			physicalVehicleQty = c->getVehicleCount(itemType);
+			cQty = _game->getCoopMod()
+				&& _game->getCoopMod()->isSeparateCampaign()
+				? SeparateEcon::vehicleSelectionCount(_game, c, itemType,
+					connectionTCP::localSeat())
+				: physicalVehicleQty;
 		}
 		else
 		{
@@ -379,7 +388,7 @@ void CraftEquipmentState::initList()
 			reserved = c->getSoldierItems()->getItem(rule);
 		}
 		if ((isVehicle || rule->isInventoryItem()) && rule->canBeEquippedToCraftInventory() &&
-			(bQty > 0 || cQty > 0 || reserved > 0))
+			(bQty > 0 || cQty > 0 || physicalVehicleQty > 0 || reserved > 0))
 		{
 			// check research requirements
 			if (!_game->getSavedGame()->isResearched(rule->getRequirements()))
@@ -453,7 +462,16 @@ void CraftEquipmentState::initList()
 				{
 					// try to automatically add more items (if possible)
 					int itemsToAdd = std::min(bQty, reserved - cQty);
-					if (itemsToAdd > 0)
+					// Separate: the stores are host-authoritative, so the top-up goes to the
+					// host as craft_equip (only the base owner changes a craft's items).
+					if (itemsToAdd > 0 && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+					{
+						if (!_base->_isForeignBase)
+						{
+							SeparateEcon::submitCraftEquip(_game, c, itemType, cQty + itemsToAdd);
+						}
+					}
+					else if (itemsToAdd > 0)
 					{
 						_base->getStorageItems()->removeItem(rule, itemsToAdd);
 						bQty -= itemsToAdd;
@@ -528,6 +546,30 @@ void CraftEquipmentState::initList()
 void CraftEquipmentState::think()
 {
 	State::think();
+
+	if (_sharedRefresh.consume())
+	{
+		// Re-find this screen's craft by identity: selling or transferring an
+		// earlier craft at the base shifts the indices, and the screen must not
+		// silently switch to another craft. Close it if the craft is gone.
+		size_t found = _base->getCrafts()->size();
+		if (SharedEcon::baseIndex(_game, _base) >= 0)
+			for (size_t i = 0; i < _base->getCrafts()->size(); ++i)
+			{
+				const Craft* c = _base->getCrafts()->at(i);
+				if (c->getId() == _craftId && c->getRules()->getType() == _craftType)
+				{ found = i; break; }
+			}
+		if (found >= _base->getCrafts()->size())
+		{
+			_game->popState();
+			return;
+		}
+		_craft = found;
+		const size_t scroll = _lstEquipment->getScroll();
+		initList();
+		_lstEquipment->scrollTo(scroll);
+	}
 
 	_timerLeft->think(this, 0);
 	_timerRight->think(this, 0);
@@ -664,7 +706,11 @@ void CraftEquipmentState::updateQuantity()
 	int cQty = 0;
 	if (item->getVehicleUnit())
 	{
-		cQty = c->getVehicleCount(_items[_sel]);
+		cQty = _game->getCoopMod()
+			&& _game->getCoopMod()->isSeparateCampaign()
+			? SeparateEcon::vehicleSelectionCount(_game, c, _items[_sel],
+				connectionTCP::localSeat())
+			: c->getVehicleCount(_items[_sel]);
 	}
 	else
 	{
@@ -716,8 +762,36 @@ void CraftEquipmentState::updateQuantity()
 	_lstEquipment->setCellText(_sel, 1, ss.str());
 	_lstEquipment->setCellText(_sel, 2, ss2.str());
 
-	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(c->getSpaceAvailable()));
-	_txtUsed->setText(tr("STR_SPACE_USED").arg(c->getSpaceUsed()));
+	refreshCrewCapacity();
+}
+
+int CraftEquipmentState::getDisplayedCrew() const
+{
+	Craft *craft = _base->getCrafts()->at(_craft);
+	if (!connectionTCP::isSeparateCampaignStatic())
+		return craft->getNumTotalSoldiers();
+
+	int count = 0;
+	for (Soldier *soldier : *_base->getSoldiers())
+		if (soldier->getCraft() == craft && SharedEcon::ownsSoldier(_game, soldier))
+			++count;
+	return count;
+}
+
+void CraftEquipmentState::refreshCrewCapacity()
+{
+	Craft *craft = _base->getCrafts()->at(_craft);
+	_displayedCrew = getDisplayedCrew();
+	_displayedSpaceUsed = connectionTCP::isSeparateCampaignStatic()
+		? craft->getSpaceUsedByOwner(connectionTCP::localSeat())
+		: craft->getSpaceUsed();
+	_displayedSpaceAvailable = craft->getSpaceAvailable();
+
+	_txtAvailable->setText(tr("STR_SPACE_AVAILABLE").arg(_displayedSpaceAvailable));
+	_txtUsed->setText(tr("STR_SPACE_USED").arg(_displayedSpaceUsed));
+	std::ostringstream ss;
+	ss << tr("STR_SOLDIERS_UC") << ">" << Unicode::TOK_COLOR_FLIP << _displayedCrew;
+	_txtCrew->setText(ss.str());
 }
 
 /**
@@ -741,7 +815,12 @@ void CraftEquipmentState::moveLeft()
 void CraftEquipmentState::submitSharedCraftEquip(const RuleItem* item, int signedChange)
 {
 	Craft* c = _base->getCrafts()->at(_craft);
-	int current = c->getItems()->getItem(item);
+	int current = item->getVehicleUnit()
+		? (_game->getCoopMod()->isSeparateCampaign()
+			? SeparateEcon::vehicleSelectionCount(_game, c, item->getType(),
+				connectionTCP::localSeat())
+			: c->getVehicleCount(item->getType()))
+		: c->getItems()->getItem(item);
 	int target;
 	if (signedChange >= INT_MAX)        // move everything the base holds onto the craft
 		target = current + _base->getStorageItems()->getItem(item);
@@ -750,7 +829,10 @@ void CraftEquipmentState::submitSharedCraftEquip(const RuleItem* item, int signe
 	else
 		target = current + signedChange;
 	if (target < 0) target = 0;
-	SharedEcon::submitCraftEquip(_game, c, item->getType(), target);
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::submitCraftEquip(_game, c, item->getType(), target);
+	else
+		SeparateEcon::submitCraftEquip(_game, c, item->getType(), target);
 }
 
 /**
@@ -761,11 +843,16 @@ void CraftEquipmentState::moveLeftByValue(int change)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	const RuleItem *item = _game->getMod()->getItem(_items[_sel], true);
-	// SHARED: base stores are shared + host-authoritative - route the move (never
-	// mutate locally on a replica). Vehicles are deferred; the local-batch loops
-	// (templates / alt-management inventory) keep their existing local behavior.
-	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
-		&& _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()
+		&& _base->_isForeignBase && !item->getVehicleUnit())
+		return;
+	// Shared/Separate base stores are host-authoritative, so route normal items.
+	// Vehicles use this command lane only in Separate Campaign; Shared Campaign
+	// keeps its existing local behavior. Template/local-batch loops remain local.
+	if (!_isNewBattle && !_localBatch
+		&& _game->getCoopMod()
+		&& (!item->getVehicleUnit() || _game->getCoopMod()->isSeparateCampaign())
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		submitSharedCraftEquip(item, change <= 0 ? change : -change);
 		return;
@@ -862,10 +949,15 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 	const RuleItem *item = _game->getMod()->getItem(_items[_sel], true);
-	// SHARED (PRD-J09 GAP-5): host-authoritative shared stores - route the move
-	// instead of mutating this replica locally (see moveLeftByValue).
-	if (!_isNewBattle && !_localBatch && !item->getVehicleUnit()
-		&& _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()
+		&& _base->_isForeignBase && !item->getVehicleUnit())
+		return;
+	// Route host-authoritative Shared/Separate stores instead of mutating a
+	// replica locally. Vehicle routing is enabled only for Separate Campaign.
+	if (!_isNewBattle && !_localBatch
+		&& _game->getCoopMod()
+		&& (!item->getVehicleUnit() || _game->getCoopMod()->isSeparateCampaign())
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		submitSharedCraftEquip(item, change);
 		return;
@@ -1027,6 +1119,15 @@ bool CraftEquipmentState::harnessMove(const std::string& itemType, int change)
 	return false;
 }
 
+std::string CraftEquipmentState::harnessDisplayedItem(
+	size_t column, const std::string& itemType) const
+{
+	for (size_t row = 0; row < _items.size(); ++row)
+		if (_items[row] == itemType)
+			return _lstEquipment->getCellText(row, column);
+	return std::string();
+}
+
 /**
  * Harness: click the Inventory button of this screen, i.e. the real
  * "Bases > Equip craft > <craft> > Equipment > Inventory" path - the craft-side
@@ -1048,9 +1149,30 @@ void CraftEquipmentState::harnessInventory()
 void CraftEquipmentState::btnInventoryClick(Action *)
 {
 	Craft *craft = _base->getCrafts()->at(_craft);
-	if (craft->getNumTotalSoldiers() > 0)
+	if (getDisplayedCrew() > 0)
 	{
-		if (Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle)
+		// Separate single world: the screen moves nothing. It shows the base's
+		// stores beside the craft's items (what the staging below moves onto the
+		// craft), and the layouts it produces reach the host as one soldier_layout
+		// command whose applier moves the gear between the craft and the stores on
+		// every machine. A visitor's screen at the other player's base shows that
+		// base's stores too: a visitor equips their own soldiers from them.
+		ItemContainer storeView;
+		const bool separateView = Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle
+			&& _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign();
+		if (separateView)
+		{
+			for (const std::string& type : _items)
+			{
+				const RuleItem* rule = _game->getMod()->getItem(type, true);
+				const int stored = _base->getStorageItems()->getItem(rule);
+				if (!rule->getVehicleUnit() && rule->canBeEquippedBeforeBaseDefense() && stored > 0)
+				{
+					storeView.addItem(rule, stored);
+				}
+			}
+		}
+		else if (Options::oxceAlternateCraftEquipmentManagement && !_isNewBattle)
 		{
 			// This is a bit tricky... here's what we're doing:
 			// * Remember the extra craft items (i.e. items that are on the craft, but not equipped by soldiers)
@@ -1103,6 +1225,10 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 		}
 		SharedEcon::baseEquipOpen(_game, _base); // coop: the soldiers' gear before vanilla's open (Ctrl+Alt clears it)
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
+		if (separateView)
+		{
+			bgen.setInventoryStoreItems(&storeView);
+		}
 		bgen.runInventory(craft);
 
 		_game->getScreen()->clear();
@@ -1137,17 +1263,37 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 		}
 	}
 	SharedEcon::submitLoadoutTemplate(_game, _base, index); // coop: the slot to the host
+
+	// Separate: the host keeps a client's templates in its player profile
+	// (the slot's name is already set, so name and contents travel together).
+	SeparateEcon::submitCraftLoadoutTemplate(_game, index);
 }
 
 void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 {
+	// One-world campaigns: the host loads the template (one craft_loadout command
+	// with the listed items and the template) and reports what was missing; this
+	// screen refreshes when the apply lands. In Separate only the base owner
+	// changes a craft's items, as the screen's own moves do.
+	const bool oneWorld = !_isNewBattle && _game->getCoopMod()
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign());
+	if (oneWorld)
+	{
+		if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
+			return;
+		_btnQuickSearch->setText("");
+		_cbxFilterBy->setSelected(0);
+		initList();
+		SharedEcon::submitCraftLoadout(_game, _base->getCrafts()->at(_craft), _items,
+			*_game->getSavedGame()->getGlobalCraftLoadout(index), onlyAddItems);
+		return;
+	}
+
 	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, _base->getCrafts()->at(_craft)); // coop: SHARED - the craft's items before the template load
 	// temporarily turn off alternate craft equipment management to allow removing all items from the craft
 	bool backup = Options::oxceAlternateCraftEquipmentManagement;
 	Options::oxceAlternateCraftEquipmentManagement = false;
 
-	// SHARED (GAP-5): a template load is a clear-then-reload whose second pass reads
-	// the local state the first pass produced - keep it local (deferred sub-case).
 	_localBatch = true;
 
 	// reset filters and reload the full equipment list

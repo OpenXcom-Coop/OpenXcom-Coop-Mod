@@ -291,6 +291,31 @@ finally:
 | `test_joint_world_equal.py` | the equality helper itself, **including a negative control** |
 | `test_joint_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_joint_month_run.py` | the long run: 2 month ends + a battle in one campaign |
+| `test_shared_world_equal.py` | the equality helper itself, **including a negative control** |
+| `test_shared_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
+| `test_shared_month_run.py` | the long run: 2 month ends + a battle in one campaign |
+| `test_separate_campaign_core.py` | focused schema-3 Separate core: named unified world, full single-player Monthly Report income, and the global eight-base cap |
+| `test_separate_campaign_ui.py` | focused Separate UI: foreign-base permissions, purple mini-base border, direct globe navigation, and BASES selecting an own base |
+| `test_separate_campaign_soldiers.py` | focused Separate personnel: foreign-base arrival cleanup, owner-prefixed popup, and private Soldier List views |
+| `test_separate_campaign_craft.py` | focused Separate craft: owner-filtered crew icons/list and the two-player 7+7 Skyranger quota |
+| `test_separate_campaign_dogfight.py` | focused Separate interception: locally owned craft rows, concurrent owner-only dogfight windows, and host-authoritative craft/UFO damage sync |
+| `test_separate_campaign_radar.py` | own and foreign Separate bases have equivalent radar detection rates with identical facilities and UFO distance |
+| `test_separate_campaign_component_contract.py` | SeparateCon player/faction/research save component and build integration |
+| `test_separate_campaign_research_ownership_contract.py` | research is player-name scoped by default and instantly copied only in Shared Research mode |
+| `test_separate_campaign_profiles.py` | live private-default and instant-shared research policies plus faction comparison |
+| `test_separate_campaign_legacy_research_contract.py` | old global Separate discoveries migrate once to the host profile only |
+| `test_separate_campaign_research_query_contract.py` | player/base-scoped research queries with safe solo/Shared fallback |
+| `test_separate_campaign_research_availability_contract.py` | research dependencies, unlocks and repeatable bonuses use the base owner's tree |
+| `test_separate_campaign_research_sharing_option_contract.py` | the single host-authoritative Shared Research toggle is disabled by default |
+| `test_separate_campaign_research_faction_warning_contract.py` | different faction/difficulty selections recommend and apply private research after initial base placement |
+| `test_separate_campaign_research_completion_contract.py` | completed research is recorded for the base owner and mirrored through the authoritative completion packet |
+| `test_separate_campaign_facility_damage.py` | host-authoritative facility damage produces the same final layout on both peers |
+| `test_separate_campaign_mission.py` | owner-only landing prompt and crash-free client YES battle start |
+| `test_separate_single_world.py` | full end-to-end Separate integration, including save/resume; retained as the slower aggregate regression |
+| `test_separate_single_world_contract.py` | build-independent source guard for Separate host battle authority, wire isolation, ownership policy, funding and the global base cap |
+| `test_separate_visitor_actions.py` | a visitor at another player's base: sack/rename go through the host, no local reorder, destination capacity, rearm refused with a message, one base order, 9+ base mini strip |
+
+The 40K/ROSIGMA tests and `test_separate_campaign_parallel_resume_selection.py` (needs a SAVE argument) are local-only: `local_only_tests.json` keeps them out of every runner's discovery, and without their mods or save they exit non-zero with a "needs ... at <path>" message.
 
 #### Shared / replicated JOINT dogfights
 

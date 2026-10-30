@@ -12,7 +12,7 @@ transfer - a replica's own transfers are frozen (PRD-J04) and the matching one
 was already force-delivered + deleted by transfer_arrived - so its `_base` stays
 null. Pressing "Go to Base" (bound to keyOk) then does
 `new BasescapeState(_base=nullptr, ...)`, and the coop mod's ctor block
-`if (_base->_coopBase == true)` dereferences the null base -> 0xC0000005 read at
+`if (_base->_isForeignBase == true)` dereferences the null base -> 0xC0000005 read at
 [null+0x1d0].
 
 Two scenarios, both firing the REAL "Go to Base" handler on the client:

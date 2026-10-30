@@ -33,6 +33,7 @@ class AlienBase : public Target
 private:
 	std::string _pactCountry;
 	std::string _race;
+	std::string _ownerPlayerName;
 	bool _inBattlescape, _discovered;
 	AlienDeployment *_deployment;
 	int _startMonth;
@@ -67,6 +68,9 @@ public:
 	bool isDiscovered() const;
 	/// Sets the alien base's discovered status.
 	void setDiscovered(bool discovered);
+	/// Player owning the faction-specific mission which created this base.
+	const std::string &getOwnerPlayerName() const { return _ownerPlayerName; }
+	void setOwnerPlayerName(const std::string &owner) { _ownerPlayerName = owner; }
 
 	AlienDeployment *getDeployment() const;
 	void setDeployment(AlienDeployment *deployment);

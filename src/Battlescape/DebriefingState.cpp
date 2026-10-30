@@ -27,6 +27,7 @@
 #include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
 #include "../CoopMod/CoopScriptOwner.h" // coop: CoopScriptDebriefOwner around postMissionProcedures
 #include "../CoopMod/CoopBattleSetup.h" // coop: coopGuestTankRecovered
+#include "../CoopMod/SeparateEcon.h"
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/LocalizedText.h"
@@ -527,12 +528,26 @@ void DebriefingState::init()
 	ss3 << total;
 	_lstTotal->addRow(2, tr("STR_TOTAL_UC").c_str(), ss3.str().c_str());
 
-	// add the points to our activity score
-	if (_region)
+	// A faction-specific target contributes only to its owner's progression.
+	// Common missions and same-faction campaigns retain vanilla activity scoring.
+	const std::string factionScoreOwner = _game->getSavedGame()->getSavedBattle()
+		? _game->getSavedGame()->getSavedBattle()->getFactionScoreOwnerPlayerName()
+		: std::string();
+	const bool privateFactionMissionScore = !factionScoreOwner.empty()
+		&& _game->getCoopMod()->isSeparateCampaign()
+		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
+	if (privateFactionMissionScore)
+	{
+		SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
+		separate.ensureFactionScores(_game->getSavedGame()->getCoopPlayers(),
+			_game->getSavedGame()->getResearchScores().size());
+		separate.addFactionScore(factionScoreOwner, total);
+	}
+	else if (_region)
 	{
 		_region->addActivityXcom(total);
 	}
-	if (_country)
+	if (!privateFactionMissionScore && _country)
 	{
 		_country->addActivityXcom(total);
 	}
@@ -900,9 +915,32 @@ void DebriefingState::btnOkClick(Action *)
 			_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_AUTO_GEOSCAPE, _palette));
 		}
 
-		if (_eventToSpawn)
+		if (_eventToSpawn && _game->getCoopMod()->isSeparateCampaign())
 		{
-			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn);
+			// Separate: the host applies the mission's event to the battle owner
+			// (wallet, base, research) and only the owner sees the window. The
+			// client replica never runs it; it gets the host's result instead.
+			if (_game->getCoopMod()->getServerOwner()
+				&& _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn))
+			{
+				GeoscapeEventState* eventState = new GeoscapeEventState(
+					*_eventToSpawn, _eventOwnerPlayerName);
+				const std::string eventResearch = eventState->getResearchName();
+				const std::string eventBonus = eventState->getBonusResearchName();
+				const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
+				if (_eventOwnerPlayerName.empty()
+					|| _eventOwnerPlayerName == connectionTCP::seatName(connectionTCP::localSeat()))
+					_game->pushState(eventState);
+				else
+					delete eventState;
+				SeparateEcon::hostGeoscapeEvent(_game, _eventToSpawn->getName(),
+					eventResearch, eventBonus, _eventOwnerPlayerName, &eventDisplay);
+			}
+		}
+		else if (_eventToSpawn)
+		{
+			bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(_eventToSpawn,
+				_separateMissionOwner);
 			if (canSpawn)
 			{
 				const Json::Value h15Mark = SharedEcon::eventMark(_game);
@@ -1010,6 +1048,8 @@ void DebriefingState::addStat(const std::string &name, int quantity, int score)
  */
 void DebriefingState::prepareDebriefing()
 {
+	if (_game->getSavedGame()->getSavedBattle())
+		_separateMissionOwner = _game->getSavedGame()->getSavedBattle()->getBattleOwnerPlayerName();
 	for (auto& itemType : _game->getMod()->getItemsList())
 	{
 		RuleItem *rule = _game->getMod()->getItem(itemType);
@@ -2172,7 +2212,8 @@ void DebriefingState::prepareDebriefing()
 		// Unlock research defined in alien deployment, if the mission was a success
 		const RuleResearch *research = _game->getMod()->getResearch(ruleDeploy->getUnlockedResearchOnSuccess());
 		const RuleResearch *bonus = nullptr;
-		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus))
+		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus,
+			_separateMissionOwner))
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
@@ -2204,13 +2245,15 @@ void DebriefingState::prepareDebriefing()
 
 		// Generate a success event
 		_eventToSpawn = _game->getMod()->getEvent(ruleDeploy->chooseSuccessEvent());
+		_eventOwnerPlayerName = battle->getBattleOwnerPlayerName();
 	}
 	else if (!success && ruleDeploy)
 	{
 		// Unlock research defined in alien deployment, if the mission was a failure
 		const RuleResearch* research = _game->getMod()->getResearch(ruleDeploy->getUnlockedResearchOnFailure());
 		const RuleResearch* bonus = nullptr;
-		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus))
+		if (save->handleResearchUnlockedByMissions(research, _game->getMod(), ruleDeploy, &bonus,
+			_separateMissionOwner))
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
@@ -2226,6 +2269,7 @@ void DebriefingState::prepareDebriefing()
 
 		// Generate a failure event
 		_eventToSpawn = _game->getMod()->getEvent(ruleDeploy->chooseFailureEvent());
+		_eventOwnerPlayerName = battle->getBattleOwnerPlayerName();
 	}
 
 	if (ignoredUfo)

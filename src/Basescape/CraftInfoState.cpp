@@ -46,7 +46,7 @@
 #include "CraftArmorState.h"
 #include "CraftPilotsState.h"
 #include "../Ufopaedia/Ufopaedia.h"
-#include "../CoopMod/SharedEcon.h" // coop
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -57,7 +57,7 @@ namespace OpenXcom
  * @param base Pointer to the base to get info from.
  * @param craftId ID of the selected craft.
  */
-CraftInfoState::CraftInfoState(Base *base, size_t craftId) : _base(base), _craftId(craftId), _craft(0)
+CraftInfoState::CraftInfoState(Base *base, size_t craftId) : _base(base), _craftId(craftId), _craft(0), _visibleCrewCount(0)
 {
 	// Create objects
 	if (_game->getSavedGame()->getMonthsPassed() != -1)
@@ -275,10 +275,15 @@ void CraftInfoState::init()
 
 		SurfaceSet *customArmorPreviews = _game->getMod()->getSurfaceSet("CustomArmorPreviews");
 		int x = 0;
+		_visibleCrewCount = 0;
 		for (const auto* soldier : *_base->getSoldiers())
 		{
-			if (soldier->getCraft() == _craft)
+			// The strategic world contains both players' soldiers. Match the Crew
+			// button's CraftSoldiersState view: render only this player's assigned
+			// soldiers, otherwise the summary shows phantom crew at a foreign base.
+			if (soldier->getCraft() == _craft && SharedEcon::ownsSoldier(_game, soldier))
 			{
+				++_visibleCrewCount;
 				for (int index : soldier->getArmor()->getCustomArmorPreviewIndex())
 				{
 					Surface *customFrame1 = customArmorPreviews->getFrame(index);
@@ -305,7 +310,7 @@ void CraftInfoState::init()
 		{
 
 			// coop
-			if (vehicle->getCoopBase() != 1 && _base->_coopBase == false)
+			if (vehicle->getCoopBase() != 1 && _base->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -493,138 +498,6 @@ std::string CraftInfoState::formatTime(int total)
  */
 void CraftInfoState::btnOkClick(Action *)
 {
-
-	// coop campaign
-	// coop: also while the live world is the partner's
-	// base view after a 67 cleared the visit flag (a craft seat changed then is kept).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
-	{
-
-		// save the other player's base (CLIENT only), e.g., soldiers, etc.
-		std::string filename = "basehost";
-	
-		SavedGame* basehost_save = new SavedGame();
-
-		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-		// if save found
-		if (basehost_save)
-		{
-
-			for (auto& saved_base : *basehost_save->getBases())
-			{
-
-				// First, remove everything that isn't from base -1!
-				auto& soldiers = *saved_base->getSoldiers(); 
-
-				// Free any soldiers in memory whose coopBase != -1.
-				for (auto it = soldiers.begin(); it != soldiers.end(); )
-				{
-					if ((*it)->getCoopBase() == _base->_coop_base_id) // Check coopBase
-					{
-						delete *it;              // Free the soldier from memory
-						it = soldiers.erase(it); // Remove the pointer from the vector and update the iterator
-					}
-					else
-					{
-						++it; // Advance to the next only if nothing was removed
-					}
-				}
-
-				// Also vehicles
-				auto& crafts = *saved_base->getCrafts(); // Refer to the vector that contains Craft* objects
-
-				for (auto& craft : crafts)
-				{
-					auto& vehicles = *craft->getVehicles();
-
-					for (auto it = vehicles.begin(); it != vehicles.end();)
-					{
-						if ((*it)->getCoopBase() == _base->_coop_base_id)  // Check coopBase
-						{
-							delete *it;              // Free the vehicle from memory
-							it = vehicles.erase(it); // Remove the pointer from the vector and update the iterator
-						}
-						else
-						{
-							++it; // Move to the next only if not removed
-						}
-					}
-				}
-			}
-
-			// Add the new soldiers to the first base's soldier list
-			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
-
-			for (auto* soldier : *_base->getSoldiers())
-			{
-				// coop: a received gift's display copy is
-				// never written to "basehost" (see SoldiersState::btnOkClick).
-				if (connectionTCP::visitDisplayCopies.count(soldier))
-					continue;
-				if (soldier->getCraft())
-				{
-
-					soldier->setCoopCraft(soldier->getCraft()->getId());
-					soldier->setCoopCraftType(soldier->getCraft()->getType());
-
-				}
-				else
-				{
-					// A guest taken OFF the craft must have its persisted seat cleared
-					// too - see the matching note in SoldiersState::btnOkClick. Without
-					// this the stale CoopCraft re-seats the soldier when the co-op base
-					// is next rebuilt (leave to the geoscape and come back).
-					soldier->setCoopCraft(-1);
-					soldier->setCoopCraftType("");
-				}
-
-				soldier->setCoopBase(_base->_coop_base_id);
-				soldier->setCoopName(soldier->getName());
-
-				target_soldiers.push_back(soldier);
-
-			}
-
-			auto& target_vehicles = *basehost_save->getBases()->front()->getCrafts()->front()->getVehicles();
-
-			// add the new vehicles
-			for (auto* craft : *_base->getCrafts())
-			{
-
-				for (auto* vehicle : *craft->getVehicles())
-				{
-
-					vehicle->setCoopBase(_base->_coop_base_id);
-					vehicle->setCoopCraft(craft->getId());
-					vehicle->setCoopCraftType(craft->getType());
-
-					target_vehicles.push_back(vehicle);
-				}
-			}
-
-			// save changes
-			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
-
-			// prevent duplication after saving...
-			auto& soldiers = *_base->getSoldiers();
-			for (auto it = soldiers.begin(); it != soldiers.end();)
-			{
-
-				if ((*it)->getCoopBase() == -1)
-				{
-					delete *it;             // Free the memory
-					it = soldiers.erase(it); // Remove from the list and update the iterator
-				}
-				else
-				{
-					++it; // Advance to the next element only if not removed
-				}
-			}
-
-		}
-	}
-
 	_game->popState();
 }
 
@@ -861,7 +734,7 @@ void CraftInfoState::edtCraftChange(Action *action)
 {
 
 	// coop
-	if (_base->_coopBase == true)
+	if (_base->_isForeignBase == true)
 	{
 		return;
 	}

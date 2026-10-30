@@ -22,6 +22,10 @@ $ErrorActionPreference = "Stop"
 $testDir = Join-Path (Get-Location) "tools/coop_test"
 $tests = Get-ChildItem (Join-Path $testDir "boot_check.py"), (Join-Path $testDir "test_*.py") |
          Select-Object -ExpandProperty BaseName | Sort-Object
+# Local-only tests (mod installs, private saves, CLI arguments) are never discovered.
+# One list for every runner: tools/coop_test/local_only_tests.json.
+$localOnly = @((Get-Content (Join-Path $testDir "local_only_tests.json") -Raw | ConvertFrom-Json).tests.PSObject.Properties.Name)
+$tests = @($tests | Where-Object { $localOnly -notcontains $_ })
 
 $weights = @{}
 $inputs = @()

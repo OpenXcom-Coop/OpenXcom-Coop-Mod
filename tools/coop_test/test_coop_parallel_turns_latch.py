@@ -34,8 +34,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
-import session  # noqa: E402
-import geo  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
@@ -82,31 +80,9 @@ def geo_flag(gc):
 # ---- battle entry --------------------------------------------------------------
 
 def separate_landing(host, client, lander):
-    """Fly the lander's first craft to a fresh terror site and confirm the coop landing."""
-    b0 = base0(lander)
-    if not b0["crafts"]:
-        raise Inconclusive(lander.name + ": no craft")
-    cid = b0["crafts"][0]["id"]
-    site = lander.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
-                      "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
-                      "lat": b0["lat"] + 0.10, "race": "STR_SECTOID", "hours": 240})["site_id"]
-    lander.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT", "lon": b0["lon"] + 0.34,
-               "lat": b0["lat"] + 0.10, "dest": f"site:{site}", "fuel": 999999, "lowFuel": False})
-
-    def landing():
-        if has(lander, "ConfirmLandingState"):
-            return True
-        for gc in (host, client):
-            t = states(gc)[-1]
-            if "CoopState" in t:
-                gc.cmd({"cmd": "coop_dialog_back"})
-            elif "GeoscapeState" not in t:
-                gc.cmd({"cmd": "dismiss_popup"})
-        host.cmd({"cmd": "geo_set_speed", "idx": 2})
-        return None
-
-    lander.wait_for("landing prompt", landing, timeout=120, interval=0.5)
-    lander.ok({"cmd": "coop_mission_start"})
+    """Fly the lander's transport to a fresh terror site and confirm the landing."""
+    separate_campaign_fixture.fly_to_new_site(host, client, lander)
+    lander.ok({"cmd": "confirm_landing"})
 
 
 def through_inventory(host, client):
@@ -193,13 +169,10 @@ def banner_row(results, host, client):
 # ---- rows --------------------------------------------------------------------------
 
 def separate_row(results, row, lander_role, host_opts, tag, ports):
-    host = GameClient("host", ports[0], make_user_dir(tag + "_host", options=host_opts))
-    client = GameClient("client", ports[1], make_user_dir(tag + "_client", options=ON))
-    host.spawn(); client.spawn()
-    host.connect(); client.connect()
+    js = separate_campaign_fixture.bring_up(tag, ports, host_options=host_opts,
+                                            client_options=ON)
+    host, client = js.host, js.client
     try:
-        session.new_campaign(host, client, port=ports[2])
-        geo.wait_both_ready(host, client)
         geo_flags = {gc.name: geo_flag(gc) for gc in (host, client)}
         if geo_flags != {"host": host_opts["CoopTurnMode"], "client": "parallel"}:
             raise Inconclusive(f"the turn-mode options did not take: {geo_flags}")
@@ -209,11 +182,7 @@ def separate_row(results, row, lander_role, host_opts, tag, ports):
         results[row] = verdict(host, client, host_opts["CoopTurnMode"], geo_flags)
     finally:
         alive = all(gc.proc.poll() is None for gc in (host, client))
-        for gc in (host, client):
-            try:
-                gc.shutdown()
-            except Exception:
-                pass
+        js.shutdown()
     return alive
 
 

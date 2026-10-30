@@ -73,6 +73,7 @@ private:
 public:
 	VoteMenu(
 		std::uint64_t voteId,
+		const std::string &action,
 		const std::string &title,
 		const std::string &question,
 		int totalPlayers,

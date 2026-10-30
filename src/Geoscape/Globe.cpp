@@ -53,6 +53,7 @@
 #include "../Mod/Texture.h"
 #include "../Interface/Cursor.h"
 #include "../Engine/Screen.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -827,6 +828,8 @@ std::vector<Target*> Globe::getTargets(int x, int y, bool craft, Craft *currentC
 	}
 	for (auto* wp : *_game->getSavedGame()->getWaypoints())
 	{
+		if (!isWaypointVisible(wp))
+			continue;
 		if (targetNear(wp, x, y))
 		{
 			v.push_back(wp);
@@ -1204,7 +1207,7 @@ void Globe::drawRadars()
 	{
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1216,7 +1219,7 @@ void Globe::drawRadars()
 		}
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1249,16 +1252,12 @@ void Globe::drawRadars()
 					}
 				}
 
-				// coop
-				if (xbase->_coopBase == false)
-				{
-					xbase->_radar_range_coop = range;
-				}
-				if (xbase->_radar_range_coop != 0 && xbase->_coopBase == true)
+				// coop: a PvP mirror draws the peer base's synced radar range
+				if (xbase->isPeerMirror() && xbase->_radar_range_coop != 0)
 				{
 					range = xbase->_radar_range_coop;
 				}
-	
+
 				range = Nautical(range);
 
 				if (range>0) drawGlobeCircle(lat,lon,range,48);
@@ -1533,7 +1532,7 @@ void Globe::drawDetail()
 		{
 
 			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -1545,7 +1544,7 @@ void Globe::drawDetail()
 			}
 
 			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -1725,6 +1724,8 @@ void Globe::drawFlights()
 	{
 		for (auto* xcraft : *xbase->getCrafts())
 		{
+			if (!isCraftFlightVisible(xcraft))
+				continue;
 			// Hide crafts docked at base
 			if (xcraft->getStatus() != "STR_OUT" || xcraft->getDestination() == 0 /*|| pointBack(xcraft->getLongitude(), xcraft->getLatitude())*/)
 				continue;
@@ -1828,7 +1829,7 @@ void Globe::drawMarkers()
 	{
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1840,7 +1841,7 @@ void Globe::drawMarkers()
 		}
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_coopBase == false)
+		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1857,6 +1858,8 @@ void Globe::drawMarkers()
 	// Draw the waypoint markers
 	for (auto* wp : *_game->getSavedGame()->getWaypoints())
 	{
+		if (!isWaypointVisible(wp))
+			continue;
 		drawTarget(wp, _markers);
 	}
 
@@ -1888,6 +1891,43 @@ void Globe::drawMarkers()
 		}
 	}
 	_markers->unlock();
+}
+
+bool Globe::isCraftFlightVisible(const Craft *craft) const
+{
+	if (!craft || !_game->getCoopMod()->isSeparateCampaign())
+		return true;
+
+	const Base *base = craft->getBase();
+	if (!base || base->getOwnerPlayerName().empty())
+		return true;
+
+	return base->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
+}
+
+bool Globe::isWaypointVisible(const Waypoint *waypoint) const
+{
+	if (!waypoint || !_game->getCoopMod()->isSeparateCampaign())
+		return true;
+
+	bool foreignFollower = false;
+	bool localFollower = false;
+	for (const Base *base : *_game->getSavedGame()->getBases())
+	{
+		for (const Craft *craft : *base->getCrafts())
+		{
+			if (craft->getDestination() != waypoint)
+				continue;
+			if (isCraftFlightVisible(craft))
+				localFollower = true;
+			else
+				foreignFollower = true;
+		}
+	}
+
+	// Ordinary mission waypoints remain visible. Only a route point belonging
+	// exclusively to another player's craft is private.
+	return !foreignFollower || localFollower;
 }
 
 /**

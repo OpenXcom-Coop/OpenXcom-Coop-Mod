@@ -5,6 +5,14 @@ research:
     cost: 10
     points: 1
     spawnedItem: STR_MEDI_KIT
+  # Research side effects: completing this topic raises a custom
+  # counter and schedules a geoscape event with a widely random countdown.
+  - name: STR_COOP_RS_COUNTER_EVENT
+    cost: 10
+    points: 1
+    increaseCounter:
+      - COOP_RS_COUNTER
+    spawnedEvent: STR_COOP_RS_EVENT
   # Q10 (mission-outcome research): unlocked when a terror site expires on its
   # own, or when the battle there is lost; each has getOneFree bonuses, so a test
   # can check both players got the SAME bonus.
@@ -40,6 +48,13 @@ research:
     cost: 10
   - name: STR_COOP_RS_FREE_8
     cost: 10
+
+events:
+  # Spawned by STR_COOP_RS_COUNTER_EVENT; never fires inside the test.
+  - name: STR_COOP_RS_EVENT
+    description: STR_COOP_RS_EVENT
+    timer: 14400
+    timerRandom: 200000
 
 alienDeployments:
   - type: STR_TERROR_MISSION

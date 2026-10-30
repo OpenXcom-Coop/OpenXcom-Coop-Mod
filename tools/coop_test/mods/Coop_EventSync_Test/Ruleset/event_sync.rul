@@ -3,6 +3,8 @@
 # almost never agree; the test reads the countdowns through the geo_events test command.
 # The minimum (timer: 1440, one day) keeps every event from firing on its own inside
 # a test's 3-hour window; rows that need a fire shorten the countdown explicitly.
+# The certain and conditional events also pay 100000 funds, so a test can check
+# that an event's reward goes to the event owner's wallet only.
 research:
   - name: STR_COOP_EV_CERTAIN_TOPIC
     cost: 10
@@ -25,10 +27,40 @@ research:
   - name: STR_COOP_EV_COND_HOST_TOPIC
     cost: 10
     points: 1
+  # STR_COOP_EV_EFFECTS grants this topic; its research side effects raise a
+  # counter, schedule STR_COOP_EV_FOLLOWUP and send a medi-kit to the owner's base.
+  - name: STR_COOP_EV_EFFECTS_TOPIC
+    cost: 10
+    points: 1
+    increaseCounter:
+      - COOP_EV_COUNTER
+    spawnedEvent: STR_COOP_EV_FOLLOWUP
+    spawnedItem: STR_MEDI_KIT
 
 events:
+  # Spawned by a test (spawn_event); the topic carries the side effects above.
+  - name: STR_COOP_EV_EFFECTS
+    description: STR_COOP_EV_RANDOM_DESCRIPTION
+    researchList:
+      - STR_COOP_EV_EFFECTS_TOPIC
+    timer: 1440
+  # Never fires inside a test; its countdown is the host's random roll.
+  - name: STR_COOP_EV_FOLLOWUP
+    description: STR_COOP_EV_RANDOM_DESCRIPTION
+    timer: 14400
+    timerRandom: 200000
+  # Spawned by a test: an item, a craft and a soldier for the owner's base.
+  - name: STR_COOP_EV_REWARD
+    description: STR_COOP_EV_RANDOM_DESCRIPTION
+    everyItemList:
+      - STR_MEDI_KIT
+    spawnedCraftType: STR_SKYRANGER
+    spawnedPersons: 1
+    spawnedPersonType: STR_SOLDIER
+    timer: 1440
   - name: STR_COOP_EV_CERTAIN
     description: STR_COOP_EV_CERTAIN_DESCRIPTION
+    funds: 100000
     researchList:
       - STR_COOP_EV_CERTAIN_TOPIC
     timer: 1440
@@ -47,12 +79,14 @@ events:
     timerRandom: 20000
   - name: STR_COOP_EV_COND
     description: STR_COOP_EV_COND_DESCRIPTION
+    funds: 100000
     researchList:
       - STR_COOP_EV_COND_TOPIC
     timer: 1440
     timerRandom: 20000
   - name: STR_COOP_EV_COND_HOST
     description: STR_COOP_EV_COND_DESCRIPTION
+    funds: 100000
     researchList:
       - STR_COOP_EV_COND_HOST_TOPIC
     timer: 1440

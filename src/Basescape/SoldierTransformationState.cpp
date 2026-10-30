@@ -38,7 +38,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Savegame/Transfer.h"
-#include "../CoopMod/SharedEcon.h" // coop
+#include "../CoopMod/SharedEcon.h"
 
 namespace OpenXcom
 {
@@ -436,7 +436,13 @@ void SoldierTransformationState::btnCancelClick(Action *action)
  */
 void SoldierTransformationState::btnStartClick(Action *action)
 {
-	if (SharedEcon::submitSoldierTransform(_game, _base, _transformationRule->getName(), _sourceSoldier, _edtSoldier->getText())) { _game->popState(); return; } // coop: SHARED - the host runs it for both worlds
+	// coop: a one-world campaign (SHARED or Separate) transforms on the host,
+	// which runs this screen's transformation once for every machine.
+	if (SharedEcon::submitSoldierTransform(_game, _base, _transformationRule->getName(), _sourceSoldier, _edtSoldier->getText()))
+	{
+		_game->popState();
+		return;
+	}
 	// Pay upfront, no refunds
 	_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - _transformationRule->getCost());
 

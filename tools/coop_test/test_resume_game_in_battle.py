@@ -194,11 +194,10 @@ def _fly_shared_squad_into_a_battle(js):
     blon, blat = base["lon"], base["lat"]
     cid = next(c for c in base["crafts"] if "SKYRANGER" in c["type"])["id"]
 
-    soldiers = []
-    for b in host.ok({"cmd": "get_soldiers"})["bases"]:
-        soldiers.extend(b["soldiers"])
-    for sid in sorted(s["id"] for s in soldiers)[:2]:
-        host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
+    # The campaign fixture already starts this craft with a crew. Do not run the
+    # old extra craft_assign setup here: Separate bases may legitimately contain
+    # overlapping strategic soldier ids, while this legacy harness command is
+    # id-only and can resolve the matching id from the other player's base.
 
     site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
                     "deployment": "STR_TERROR_MISSION", "lon": blon + 0.35,

@@ -201,4 +201,16 @@ void CraftEquipmentSaveState::saveTemplate()
 	}
 }
 
+/**
+* Test harness: picks a slot, types its name and saves, as a player does.
+* @param row Template slot.
+* @param name Name typed into the slot.
+*/
+void CraftEquipmentSaveState::harnessSave(int row, const std::string& name)
+{
+	_selectedRow = row;
+	_edtSave->setText(name);
+	saveTemplate();
+}
+
 }

@@ -23,6 +23,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/BaseFacility.h"
 #include "../Mod/RuleBaseFacility.h"
+#include <limits>
 
 namespace OpenXcom
 {
@@ -34,7 +35,7 @@ namespace OpenXcom
  * @param x X position in pixels.
  * @param y Y position in pixels.
  */
-MiniBaseView::MiniBaseView(int width, int height, int x, int y) : InteractiveSurface(width, height, x, y), _bases(0), _texture(0), _base(0), _hoverBase(0), _red(0), _green(0), _blue(0)
+MiniBaseView::MiniBaseView(int width, int height, int x, int y) : InteractiveSurface(width, height, x, y), _bases(0), _texture(0), _base(0), _hoverBase(0), _red(0), _green(0), _blue(0), _foreignBorder(247)
 {
 }
 
@@ -52,7 +53,31 @@ MiniBaseView::~MiniBaseView()
 void MiniBaseView::setBases(std::vector<Base*> *bases)
 {
 	_bases = bases;
+	rebuildDisplaySlots();
 	_redraw = true;
+}
+
+void MiniBaseView::rebuildDisplaySlots()
+{
+	const size_t empty = std::numeric_limits<size_t>::max();
+	_displaySlots.assign(MAX_BASES, empty);
+	if (!_bases) return;
+
+	size_t slot = 0;
+	// Keep the strip compact: own bases fill the left-hand slots, then foreign
+	// bases follow immediately. This groups ownership without leaving empty gaps.
+	// Own bases come from the whole list: a migrated Separate save can hold more
+	// than MAX_BASES bases, and an own base past index 8 must still get a slot.
+	for (size_t i = 0; i < _bases->size() && slot < MAX_BASES; ++i)
+	{
+		if (_bases->at(i) && !_bases->at(i)->_isForeignBase)
+			_displaySlots[slot++] = i;
+	}
+	for (size_t i = 0; i < _bases->size() && slot < MAX_BASES; ++i)
+	{
+		if (_bases->at(i) && _bases->at(i)->_isForeignBase)
+			_displaySlots[slot++] = i;
+	}
 }
 
 /**
@@ -91,23 +116,27 @@ void MiniBaseView::setSelectedBase(size_t base)
  */
 void MiniBaseView::draw()
 {
+	rebuildDisplaySlots();
 	Surface::draw();
-	for (size_t i = 0; i < MAX_BASES; ++i)
+	for (size_t slot = 0; slot < MAX_BASES; ++slot)
 	{
+		const size_t i = _displaySlots[slot];
 		// Draw base squares
-		if (i == _base)
+		const Uint8 borderColor = i < (_bases ? _bases->size() : 0)
+			? getBaseBorderColor(i) : 0;
+		if (borderColor != 0)
 		{
 			SDL_Rect r;
-			r.x = i * (MINI_SIZE + 2);
+			r.x = slot * (MINI_SIZE + 2);
 			r.y = 0;
 			r.w = MINI_SIZE + 2;
 			r.h = MINI_SIZE + 2;
-			drawRect(&r, 1);
+			drawRect(&r, borderColor);
 		}
-		_texture->getFrame(41)->blitNShade(this, i * (MINI_SIZE + 2), 0);
+		_texture->getFrame(41)->blitNShade(this, slot * (MINI_SIZE + 2), 0);
 
 		// Draw facilities
-		if (i < _bases->size())
+		if (_bases && i < _bases->size())
 		{
 			SDL_Rect r;
 			lock();
@@ -121,7 +150,7 @@ void MiniBaseView::draw()
 				else
 					color = _red;
 
-				r.x = i * (MINI_SIZE + 2) + 2 + fac->getX() * 2;
+				r.x = slot * (MINI_SIZE + 2) + 2 + fac->getX() * 2;
 				r.y = 2 + fac->getY() * 2;
 				r.w = fac->getRules()->getSizeX() * 2;
 				r.h = fac->getRules()->getSizeY() * 2;
@@ -148,6 +177,18 @@ void MiniBaseView::draw()
 	}
 }
 
+Uint8 MiniBaseView::getBaseBorderColor(size_t base) const
+{
+	// In unified Separate, _isForeignBase is the seat-local presentation flag.
+	// Selection keeps the normal white border. Unselected foreign bases use a
+	// lighter purple border so ownership remains visible without overpowering it.
+	if (base == _base)
+		return 1;
+	if (_bases && base < _bases->size() && _bases->at(base)->_isForeignBase)
+		return _foreignBorder;
+	return 0;
+}
+
 /**
  * Selects the base the mouse is over.
  * @param action Pointer to an action.
@@ -155,8 +196,24 @@ void MiniBaseView::draw()
  */
 void MiniBaseView::mouseOver(Action *action, State *state)
 {
-	_hoverBase = (int)floor(action->getRelativeXMouse() / ((MINI_SIZE + 2) * action->getXScale()));
+	const size_t slot = (size_t)floor(action->getRelativeXMouse() / ((MINI_SIZE + 2) * action->getXScale()));
+	_hoverBase = slot < _displaySlots.size() ? _displaySlots[slot]
+		: std::numeric_limits<size_t>::max();
 	InteractiveSurface::mouseOver(action, state);
+}
+
+size_t MiniBaseView::getBaseAtSlot(size_t slot)
+{
+	rebuildDisplaySlots();
+	return slot < _displaySlots.size() ? _displaySlots[slot]
+		: std::numeric_limits<size_t>::max();
+}
+
+int MiniBaseView::getDisplaySlot(size_t base) const
+{
+	for (size_t slot = 0; slot < _displaySlots.size(); ++slot)
+		if (_displaySlots[slot] == base) return static_cast<int>(slot);
+	return -1;
 }
 
 void MiniBaseView::setColor(Uint8 color)

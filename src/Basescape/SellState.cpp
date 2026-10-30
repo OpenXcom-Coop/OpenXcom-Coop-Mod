@@ -59,6 +59,7 @@
 #include "../Engine/Sound.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -687,7 +688,7 @@ void SellState::btnOkClick(Action *)
 	// shared_apply. The command is atomic (host re-prices + re-checks quantities;
 	// a partial availability rejects the whole thing, matching vanilla's single
 	// OK button). SEPARATE/solo path below is untouched.
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		if (SharedEcon::awaiting(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE))) return; // coop: one confirm at a time
 		Json::Value items(Json::arrayValue);
@@ -743,7 +744,10 @@ void SellState::btnOkClick(Action *)
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
-			coopSeq = SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
+			if (_game->getCoopMod()->isSharedCampaign())
+				coopSeq = SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
+			else
+				SeparateEcon::submitLocalCmd(_game, "sell", baseId, payload);
 		}
 		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop: wait for the host
 		_game->popState();

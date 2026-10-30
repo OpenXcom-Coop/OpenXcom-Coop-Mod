@@ -61,6 +61,14 @@ private:
 	BattlescapeState *_parent;
 	Base *_base;
 	std::map<Soldier*, Craft*> _backup;
+	/// coop: each soldier's personal template (serialized) when the screen opened.
+	std::map<Soldier*, std::string> _personalAtOpen;
+	/// coop: true for a base screen of a one-world campaign (SHARED or Separate).
+	bool oneWorldBaseScreen() const;
+	/// coop: true for a base screen of a Separate single-world campaign.
+	bool separateBaseScreen() const;
+	/// coop: sends the layouts this screen changed to the host (soldier_layout).
+	void submitOneWorldLayouts();
 	bool _resetCustomDeploymentBackup;
 	std::string _currentTooltip;
 	std::string _currentDamageTooltip;
@@ -159,6 +167,9 @@ public:
 	void txtArmorTooltipIn(Action *action);
 	/// Handler for hiding armor tooltip.
 	void txtArmorTooltipOut(Action *action);
+
+	// test harness only: the inventory view, so the TestServer can select a unit in it
+	Inventory *getInventoryForTest() const { return _inv; }
 
 private:
 	/// Update the visibility and icons for the template buttons.

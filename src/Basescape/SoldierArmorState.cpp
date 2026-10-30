@@ -41,6 +41,7 @@
 #include "../Mod/RuleSoldier.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -322,9 +323,10 @@ void SoldierArmorState::lstArmorClick(Action *)
 void SoldierArmorState::applyArmorSelection(Armor* next)
 {
 	Soldier *soldier = _base->getSoldiers()->at(_soldier);
-	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
-		SharedEcon::submitSoldierArmor(_game, _base, soldier, next->getType());
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, soldier, next->getType());
+		else SeparateEcon::submitSoldierArmor(_game, _base, soldier, next->getType());
 		return;
 	}
 	Armor *prev = soldier->getArmor();

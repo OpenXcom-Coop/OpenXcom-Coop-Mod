@@ -343,7 +343,11 @@ void Soldier::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) cons
 	{
 		// coop
 		Base* base = _craft->getBase();
-		if (base && base->_coopBase == true)
+		// A named owner means this is a real base in the unified Separate world.
+		// _isForeignBase is only a local permission/presentation flag there, so omitting
+		// the craft link would make the same save load differently on each seat.
+		// Keep the omission solely for old ownerless mirror/PvP bases.
+		if (base && base->_isForeignBase == true && base->getOwnerPlayerName().empty())
 		{
 			// do nothing
 		}
@@ -1622,15 +1626,6 @@ int Soldier::getPsiStrImprovement() const
 }
 
 /**
- * coop: sets this month's psi improvement scores (the SHARED replica adopts the host's).
- */
-void Soldier::setPsiImprovements(int improvement, int psiStrImprovement)
-{
-	_improvement = improvement;
-	_psiStrImprovement = psiStrImprovement;
-}
-
-/**
  * Returns the soldier's death details.
  * @return Pointer to death data. NULL if no death has occurred.
  */
@@ -1671,6 +1666,29 @@ void Soldier::clearEquipmentLayout()
 		delete entry;
 	}
 	_equipmentLayout.clear();
+}
+
+/**
+ * coop (single host-owned world): replaces the equipment layout with @a layout,
+ * which is taken over and left empty. With @a base (the soldier's base, the
+ * alternate craft equipment management on, the soldier on a craft at home), the
+ * gear moves as unseating and re-seating around the inventory screen moves it:
+ * the old layout's items leave the craft for the base stores and the new layout's
+ * items come from the stores onto the craft.
+ */
+void Soldier::replaceEquipmentLayout(std::vector<EquipmentLayoutItem*>& layout, Base* base)
+{
+	const bool moveGear = base && _craft;
+	if (moveGear)
+	{
+		autoMoveEquipment(_craft, base, 1); // old layout: craft -> base
+	}
+	clearEquipmentLayout();
+	_equipmentLayout.swap(layout);
+	if (moveGear)
+	{
+		autoMoveEquipment(_craft, base, -1); // new layout: base -> craft
+	}
 }
 
 /**

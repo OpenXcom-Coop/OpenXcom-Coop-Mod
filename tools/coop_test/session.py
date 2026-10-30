@@ -31,7 +31,9 @@ SAVE_EXTS = (".sav", ".asav", ".data")
 
 
 def states(gc):
-    return gc.cmd({"cmd": "get_state"})["states"]
+    # The TestServer socket is available before a large mod has finished loading.
+    # During that window get_state legitimately has no state array yet.
+    return gc.cmd({"cmd": "get_state"}).get("states", [])
 
 
 def _wait_stacks_change(machines, seen, cap, interval=0.02):
@@ -168,7 +170,9 @@ def resume_campaign_via_button(host, client_name="ClientPlayer"):
 def new_campaign(host, client, port="47900",
                  host_name="HostPlayer", client_name="ClientPlayer",
                  host_base="HostBase", client_base="ClientBase",
-                 campaign_mode="coop", transport="tcp"):
+                 campaign_mode="coop", transport="tcp",
+                 host_difficulty=None, client_difficulty=None,
+                 host_settle_seconds=2):
     """Bring up a fresh co-op campaign through the redesigned flow.
 
     campaign_mode selects the New Game dropdown choice: "coop" (SEPARATE,
@@ -184,7 +188,10 @@ def new_campaign(host, client, port="47900",
     # host: New Game -> Co-op -> difficulty OK (world created, HostMenu opens)
     host.ok({"cmd": "open_new_game", "mode": campaign_mode})
     host.wait_for("difficulty", lambda: _has_state(host, "NewGameState"))
-    host.ok({"cmd": "newgame_ok"})
+    host_newgame = {"cmd": "newgame_ok"}
+    if host_difficulty is not None:
+        host_newgame["difficulty"] = host_difficulty
+    host.ok(host_newgame)
     host.wait_for("host window", lambda: _has_state(host, "HostMenu"))
 
     # one session key per harness lane. The UDP client also dials its host's port +- a radius (NAT port guessing,
@@ -195,10 +202,27 @@ def new_campaign(host, client, port="47900",
 
     # host window -> lobby
     if transport == "udp":
-        host.ok({"cmd": "host_udp", "port": port, "player": host_name, "password": udp_pw})
+        client_udp_port = str(int(port) + 1)
+        host.ok({"cmd": "host_udp", "port": port, "player": host_name,
+                 "password": udp_pw, "campaign": True})
     else:
-        host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port, "player": host_name})
+        hosted = host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": port,
+                          "player": host_name, "campaign": True})
+        # TCP port "0" asks the game to reserve an OS-selected free port.  The
+        # TestServer command reports the concrete port so the client can dial
+        # that listener instead of the literal zero.
+        print(f"[tcp] host listening on :{hosted.get('port', port)}")
+        host.wait_for(
+            "host TCP listener",
+            lambda: (host.cmd({"cmd": "get_coop"}).get("onConnect") == 1) or None,
+            timeout=30, interval=0.25,
+        )
     host.wait_for("host lobby", lambda: _has_state(host, "LobbyMenu"))
+
+    # The lobby UI can appear one frame before a large mod's host transport has
+    # completed its asynchronous startup. Stock data hides this race; give the
+    # real socket a brief settling window before the peer dials it.
+    time.sleep(host_settle_seconds)
 
     # client joins and lands in the lobby (no ready button). Both machines then
     # show the "player joined" popup over the lobby; dismiss it the way a player
@@ -207,10 +231,29 @@ def new_campaign(host, client, port="47900",
     # longer to surface the lobby than on TCP.
     if transport == "udp":
         client.ok({"cmd": "join_udp", "ip": "127.0.0.1", "port": port,
-                   "localport": client_udp_port, "player": client_name, "password": udp_pw})
+                   "localport": client_udp_port, "player": client_name,
+                   "password": udp_pw, "campaign": True})
     else:
-        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
-    client.wait_for("client lobby", lambda: _has_state(client, "LobbyMenu"), timeout=120)
+        # Keep the same rendezvous key used by host_tcp. GameClient.cmd maps
+        # that key to the concrete ephemeral listener selected by the host.
+        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port,
+                   "player": client_name, "campaign": True})
+    try:
+        joined = client.wait_for(
+            "client lobby",
+            lambda: ("lobby" if _has_state(client, "LobbyMenu") else
+                     "terminal" if any(name in states(client)
+                                       for name in ("ModCheckMenu", "ErrorMessageState")) else None),
+            timeout=120)
+        if joined != "lobby":
+            raise TimeoutError(f"client join stopped in {joined} state")
+    except TimeoutError:
+        print("DEBUG TCP join host states:", host.cmd({"cmd": "get_state"}))
+        print("DEBUG TCP join client states:", client.cmd({"cmd": "get_state"}))
+        print("DEBUG TCP join host coop:", host.cmd({"cmd": "get_coop"}))
+        print("DEBUG TCP join client coop:", client.cmd({"cmd": "get_coop"}))
+        print("DEBUG TCP join client screen:", client.cmd({"cmd": "screen_state"}))
+        raise
     for gc in (host, client):
         gc.wait_for("join popup", lambda gc=gc: _has_state(gc, "Profile"))
         gc.ok({"cmd": "profile_ok"})
@@ -241,18 +284,40 @@ def new_campaign(host, client, port="47900",
         )
         press_back_when_shown(host, "host BEGIN", codes=(60, 62))
     else:
-        # SEPARATE: the client places its own base and pushes its world blob;
-        # the host waits for that blob, then clicks BEGIN.
+        # SEPARATE: the client contributes its first base once. The host merges
+        # it into the authoritative world and retains no player-world blob.
+        # Mod campaigns may ask the client for its faction/difficulty before
+        # base placement. Stock campaigns skip this screen.
+        if client_difficulty is not None:
+            client.wait_for("client faction selection",
+                            lambda: _has_state(client, "NewGameState"))
+            client.ok({"cmd": "newgame_ok", "difficulty": client_difficulty})
         client.wait_for("client base placement", lambda: _has_state(client, "BuildNewBaseState"))
         client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": client_base})
 
         host.wait_for(
             "all players placed bases",
-            lambda: host.cmd({"cmd": "has_coop_file",
-                              "key": f"host_{host.cmd({'cmd': 'save_markers'})['saveID']}_{client_name}.data"}).get("present") or None,
+            lambda: next((b for b in host.cmd({"cmd": "geo_state"}).get("bases", [])
+                          if b.get("ownerPlayerName") == client_name), None),
             timeout=120,
         )
         press_back_when_shown(host, "host BEGIN", codes=(60, 62))
+
+        # Popping the one visible base-placement gate lets the host finish
+        # month-zero initialization and stream the settled world. The client's
+        # adopted-world ack releases its hold automatically. A second host
+        # CoopState here is the duplicate wait/"placed" dialog regression.
+        host.wait_for(
+            "client settled-world ack",
+            lambda: host.cmd({"cmd": "get_coop"}).get("resumeAck") or None,
+            timeout=120,
+        )
+        host.wait_for(
+            "single Separate wait dialog only",
+            lambda: ("GeoscapeState" in _states(host)[-1]
+                     if _states(host) else None),
+            timeout=30,
+        )
 
     # session up: both synced — client sees the geoscape with no dialogs
     try:
@@ -288,6 +353,31 @@ def resume_campaign(host, client, save_file, port="47900",
 
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
+
+    # Both machines show the "player joined" popup over the lobby, the host's
+    # a moment after the join. Until it is closed LobbyMenu does not think, so
+    # neither machine receives a populated roster even though TCP is connected.
+    # Dismiss it on both, whenever it appears, the way a player would.
+    def roster_ready(m):
+        for gc in (host, client):
+            if _has_state(gc, "Profile"):
+                gc.ok({"cmd": "profile_ok"})
+        ls = m.cmd({"cmd": "lobby_state"})
+        return ls if (ls.get("hostRowName", "").strip()
+                      and ls.get("clientRowName", "").strip()) else None
+
+    for machine, who in ((host, "host"), (client, "client")):
+        machine.wait_for(
+            f"{who} resume lobby roster",
+            lambda m=machine: roster_ready(m),
+            timeout=30,
+        )
+        roster = machine.ok({"cmd": "lobby_state"})
+        # Different-faction Separate lobbies append " (Faction)" to the
+        # displayed row. Resume identity still compares the locked player name.
+        row_player = lambda value: value.strip().split(" (", 1)[0]
+        assert row_player(roster["hostRowName"]) == host_name, roster
+        assert row_player(roster["clientRowName"]) == client_name, roster
 
     # Press the REAL RESUME button (see helper) instead of the direct-call shortcut.
     resume_campaign_via_button(host, client_name)
@@ -346,6 +436,31 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": client_name})
     client.wait_for("client resume lobby", lambda: _has_state(client, "LobbyMenu"))
 
+    # The join notification Profile can cover either lobby. LobbyMenu cannot
+    # update its visible roster until that state closes.
+    for machine in (host, client):
+        if _has_state(machine, "Profile"):
+            machine.ok({"cmd": "profile_ok"})
+
+    for machine, who in ((host, "host"), (client, "client")):
+        machine.wait_for(
+            f"{who} battle-resume lobby roster",
+            lambda m=machine: (
+                m.cmd({"cmd": "lobby_state"})
+                if (m.cmd({"cmd": "lobby_state"}).get("hostRowName", "").strip()
+                    and m.cmd({"cmd": "lobby_state"}).get("clientRowName", "").strip())
+                else None
+            ),
+            timeout=30,
+        )
+        roster = machine.ok({"cmd": "lobby_state"})
+        def lobby_name_matches(row, player):
+            row = row.strip()
+            return row == player or row.startswith(player + " (")
+
+        assert lobby_name_matches(roster["hostRowName"], host_name), roster
+        assert lobby_name_matches(roster["clientRowName"], client_name), roster
+
     # Press the REAL resume button (btnCancelClick). This is the branch where the
     # mid-battle-resume bug lived - the direct lobby_resume_campaign shortcut skips
     # it. See resume_campaign_via_button.
@@ -357,6 +472,15 @@ def resume_campaign_battle(host, client, save_file, port="47900",
     deadline = time.time() + timeout
     while time.time() < deadline:
         if _in_battle(host) and _in_battle(client):
+            time.sleep(1.0)
+            for machine, who in ((host, "host"), (client, "client")):
+                stack = states(machine)
+                unexpected = [s for s in stack
+                              if "BriefingState" in s or "InventoryState" in s]
+                if unexpected:
+                    raise AssertionError(
+                        f"{who} reopened pre-battle UI while resuming a saved "
+                        f"battle: {stack}")
             print("battle resume: BOTH machines report inBattle")
             return
         time.sleep(interval)

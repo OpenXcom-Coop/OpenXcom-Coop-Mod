@@ -183,7 +183,7 @@ void ResearchState::lstResearchMousePress(Action *action)
 	// PRD-J06 (SHARED): the mouse-wheel shortcut re-allocates scientists by directly
 	// mutating the shared world - disabled in SHARED, where allocation is host-
 	// authoritative (open the project and use OK -> res_alloc). SEPARATE untouched.
-	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		return;
 	}
@@ -329,7 +329,7 @@ void ResearchState::lstResearchLeftArrowClick(Action* action)
 void ResearchState::moveTopicUp(Action* action, unsigned int row, bool max)
 {
 	// coop (issue #65): SHARED must not reorder the shared research list.
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false) return;
 	auto& topics = _base->getResearch();
 	if (max)
 	{
@@ -382,7 +382,7 @@ void ResearchState::lstResearchRightArrowClick(Action* action)
 void ResearchState::moveTopicDown(Action* action, unsigned int row, bool max)
 {
 	// coop (issue #65): SHARED must not reorder the shared research list.
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false) return;
 	auto& topics = _base->getResearch();
 	if (max)
 	{

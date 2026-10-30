@@ -442,6 +442,13 @@ void MainMenuState::init()
 
 	connectionTCP::_coopGamemode = 0;
 	connectionTCP::_isHotseatActive = false; // coop: back at the main menu no hotseat stays armed
+	// The main menu holds no world, so no seat survives it: a process that
+	// played as a client must host its next campaign as seat 0.
+	connectionTCP::coop_save_owner_player_id = 0;
+	// A host's session values were shown in this player's options for that
+	// session only; the player's own values come back here.
+	Options::clearSessionOverrides();
+	_game->getCoopMod()->clearFactionFinaleState();
 	connectionTCP::session.resetSession();
 	_game->getCoopMod()->coopMissionEnd = false;
 	_game->getCoopMod()->coopInventory = false;

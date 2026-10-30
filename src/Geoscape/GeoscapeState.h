@@ -20,6 +20,7 @@
 #include "../Engine/State.h"
 #include <list>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -38,6 +39,7 @@ class ComboBox;
 class Timer;
 class DogfightState;
 class Craft;
+class Target;
 class Ufo;
 class MissionSite;
 class Target;
@@ -80,6 +82,9 @@ private:
 	std::list<State*> _popups;
 	std::list<DogfightState*> _dogfights, _dogfightsToBeStarted;
 	std::vector<Craft*> _activeCrafts;
+	// Separate host-side guard: do not queue one storage dialog per simulated
+	// hour while the owner is already resolving the same overfull base.
+	std::set<const Base*> _separateStorageAlerts;
 	size_t _minimizedDogfights;
 	int _slowdownCounter;
 
@@ -93,7 +98,7 @@ private:
 	// PRD-DF02: commandingSeat = lastCraftOrderSeat(craft), carried in df_open so a
 	// replica opens the window minimized unless it IS the commanding seat (<=0 = host-
 	// commanded/HK -> the host commands, so every client gets the minimized icon).
-	struct DfMember { std::string craftType; int craftId; int ufoId; bool ufoIsAttacking; int commandingSeat; };
+	struct DfMember { std::string craftType; int baseId; int craftId; int ufoId; bool ufoIsAttacking; int commandingSeat; };
 	int _dfEpoch = 0;
 	std::string _dfMembershipSig;
 	int _dfReplicaEpoch = 0;
@@ -112,13 +117,15 @@ private:
 	void sharedBroadcastDogfights();
 	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
 	void sharedReconcileReplicaDogfights();
+	/// REPLICA: delete the UFOs the host no longer lists (marked by the position snapshot).
+	void replicaRemoveDespawnedUfos();
 
 	// PRD-J10 landing broker (HOST only). A craft another seat commanded reached a
 	// landable target: instead of popping ConfirmLandingState here, we ask THAT
 	// seat and park the craft until it answers. This map is both the "already
 	// asked, do not ask again every tick" guard and the stash of the world data the
 	// dialog needs, which only the host's globe can compute.
-	struct SharedLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; };
+	struct SharedLandingPrompt { Texture* missionTexture; Texture* globeTexture; int shade; Uint32 sentTicks; };
 	std::map<Craft*, SharedLandingPrompt> _sharedLandingPending;
 	/// PRD-J10: broker this landing to the commanding seat instead of asking here.
 	/// True = brokered (the caller must NOT pop its own dialog).
@@ -183,6 +190,8 @@ public:
 	Globe *getGlobe() const;
 	/// Handler for clicking the globe.
 	void globeClick(Action *action);
+	/// Route targets found under one globe click. Public for the co-op harness.
+	void openGlobeTargets(const std::vector<Target*>& targets);
 	/// Handler for clicking the Intercept button.
 	void btnInterceptClick(Action *action);
 	/// Handler for clicking the UFO Tracker button.
@@ -256,7 +265,8 @@ public:
 	/// static-per-fight fields (disable flags, initial mode) as the host.
 	/// PRD-DF02: @a startMinimized opens the replica window as a minimized icon (the
 	/// presentation policy: only the commanding seat gets the full window).
-	void startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized = false);
+	void startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking,
+		bool startMinimized = false, bool harnessHold = false);
 	/// PRD-DF01 REPLICA: adopt a df_open membership set (opens/closes windows).
 	void sharedApplyDogfightMembership(const Json::Value& dogfights, int epoch);
 	/// PRD-DF01 REPLICA: adopt a df_state frame set (epoch-guarded; routes each
@@ -265,16 +275,19 @@ public:
 	/// PRD-DF02 (HOST): apply a replicated df_cmd to the authoritative DogfightState
 	/// for (craftId,craftType,ufoId). Returns false if no such live fight exists
 	/// (stale/reshuffled membership -> the caller drops + logs once).
-	bool sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+	bool sharedApplyDogfightCmd(int baseId, int craftId, int ufoId, const std::string& craftType,
 	                           const std::string& action, int arg);
 	/// PRD-J10 SHARED (HOST): the commanding seat answered a brokered landing
 	/// prompt. @a yes -> generate the battle exactly as the host's own
 	/// ConfirmLandingState would; otherwise patrol here / return to base.
-	void sharedLandingReply(Craft* craft, bool yes, bool patrol);
+	void sharedLandingReply(Craft* craft, bool yes, bool patrol,
+		bool hostDialogAnswered = false);
 	/// SHARED replica: a craft reached its patrol waypoint on the host (patrol_prompt).
 	/// Pops the "reached destination" alert and clears the stale destination line +
 	/// orphan waypoint marker the client's frozen sim never would.
 	void clientCraftReachedWaypoint(Craft* craft);
+	/// Shows (or, for another Separate player's base, applies) a base loss.
+	void showBaseDestroyed(Base* base, Ufo* ufo, bool missiles);
 	/// Test-harness: is a brokered landing decision outstanding on this host?
 	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.
@@ -328,11 +341,13 @@ public:
 	/// Update the resolution settings, we just resized the window.
 	void resize(int &dX, int &dY) override;
 	/// Handle alien mission generation.
-	void determineAlienMissions(bool isNewMonth = true, const RuleEvent* eventRules = nullptr);
+	/// eventOwnerPlayerName: the Separate owner of the event whose mission scripts run.
+	void determineAlienMissions(bool isNewMonth = true, const RuleEvent* eventRules = nullptr,
+		const std::string& eventOwnerPlayerName = std::string());
 private:
 	bool attemptAlienRaceEvolution(int month, AlienBase* ab) const;
 	/// Process each individual mission script command.
-	bool processCommand(RuleMissionScript *command);
+	bool processCommand(RuleMissionScript *command, const std::string& ownerPlayerName = std::string());
 	bool buttonsDisabled();
 	void updateSlackingIndicator();
 };

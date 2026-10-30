@@ -23,8 +23,14 @@
 // Co-op save schema version. Bumped whenever the on-disk co-op save format
 // changes; every save writes it into the header as "saveSchema". The in-game
 // Save Upgrader (src/Savegame/Upgrade/) detects older schemas and migrates
-// them up to this current value one step at a time. See PRD save-upgrader.md.
-#define SAVE_SCHEMA_CURRENT 2
+// them up one step at a time to the schema of the save's game mode.
+// SAVE_SCHEMA_CURRENT is the newest schema this build reads and writes: the
+// cooperative Separate campaign's one-world layout. Solo, SHARED and PvP saves
+// did not change with it and are still written at SAVE_SCHEMA_OTHER_MODES, so
+// a build that only knows that schema can still open them.
+// SaveUpgrade::schemaForMode picks between the two.
+#define SAVE_SCHEMA_CURRENT 3
+#define SAVE_SCHEMA_OTHER_MODES 2
 
 #define OPENXCOM_VERSION_ENGINE "Extended"
 #define OPENXCOM_VERSION_SHORT "Extended 8.4.2"

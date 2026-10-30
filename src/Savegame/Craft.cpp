@@ -494,7 +494,10 @@ void Craft::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 	// coop
 	if (!_coopItems.empty() && _base)
 	{
-		if (_base->_coopBase == false)
+		// A named owner means a real base of the unified Separate world, where
+		// _isForeignBase is only this seat's view flag (same rule as Soldier::save).
+		// Only an ownerless mirror/PvP base omits coopItems.
+		if (_base->_isForeignBase == false || !_base->getOwnerPlayerName().empty())
 		{
 			writer.write("coopItems", _coopItems);
 		}
@@ -1204,7 +1207,7 @@ std::string Craft::getGeoscapeStatusString(Language* lang) const
  */
 std::string Craft::getDisplayStatus(Language* lang) const
 {
-	if (coop)
+	if (coop || _hostGeoStatus)
 	{
 		return _coopGeoStatus;
 	}
@@ -1684,14 +1687,25 @@ bool Craft::isDestroyed() const
 int Craft::getSpaceAvailable() const
 {
 
-	// SHARED: ONE shared physical craft with a single real capacity N. Both players load
-	// the same craft, so available = full N minus the COMBINED used (getSpaceUsed already
-	// sums every owner's aboard soldiers) - NOT the SEPARATE per-player half/-4 split,
-	// which locked each seat to a fixed sub-count. The combined used is host-authoritative
-	// and identical on both machines because the shared roster + craft_assign are synced.
+	// SHARED has one unrestricted physical capacity shared by both owners.
 	if (connectionTCP::isSharedCampaignStatic())
 	{
 		return getMaxUnitsClamped() - getSpaceUsed();
+	}
+	// SEPARATE uses equal per-player quotas on that one physical craft. With the
+	// currently supported two-player campaign a 14-place Skyranger gives each
+	// player seven places; the peer's crew does not consume the local quota.
+	if (connectionTCP::isSeparateCampaignStatic())
+	{
+		const int capacity = getMaxUnitsClamped();
+		// Round an odd per-player quota up, otherwise a one-seat mod craft gets
+		// a quota of zero and its initially assigned pilot can never be put back.
+		// The physical-space check still prevents both players from exceeding the
+		// craft's real capacity (for capacity 1, the first assignment occupies it).
+		const int ownerAvailable = (capacity + 1) / 2
+			- getSpaceUsedByOwner(connectionTCP::localSeat());
+		const int physicalAvailable = capacity - getSpaceUsed();
+		return std::max(0, std::min(ownerAvailable, physicalAvailable));
 	}
 
 	// coop
@@ -1739,6 +1753,24 @@ int Craft::getSpaceUsed() const
 		}
 	}
 	return vehicleSpaceUsed;
+}
+
+int Craft::getSpaceUsedByOwner(int ownerSeat) const
+{
+	int used = 0;
+	const std::string ownerPlayerName = connectionTCP::seatName(ownerSeat);
+	for (const Vehicle* vehicle : _vehicles)
+		if (vehicle && ((!vehicle->getOwnerPlayerName().empty()
+			&& vehicle->getOwnerPlayerName() == ownerPlayerName)
+			|| (vehicle->getOwnerPlayerName().empty()
+				&& vehicle->getCoop() == ownerSeat)))
+			used += vehicle->getTotalSize();
+	for (const Soldier* soldier : *_base->getSoldiers())
+	{
+		if (soldier->getCraft() == this && soldier->getOwnerPlayerId() == ownerSeat)
+			used += soldier->getArmor()->getTotalSize();
+	}
+	return used;
 }
 
 /**
@@ -1876,6 +1908,23 @@ void Craft::addPilot(int pilotId)
 	if (std::find(_pilots.begin(), _pilots.end(), pilotId) == _pilots.end())
 	{
 		_pilots.push_back(pilotId);
+	}
+}
+
+/**
+ * Replaces a soldier id without changing that soldier's pilot assignment.
+ * Separate Campaign uses this while upgrading player-local soldier ids into
+ * the single authoritative world's id space.
+ */
+void Craft::remapPilotId(int oldId, int newId)
+{
+	for (int& pilotId : _pilots)
+	{
+		if (pilotId == oldId)
+		{
+			pilotId = newId;
+			return;
+		}
 	}
 }
 
@@ -2560,9 +2609,18 @@ CraftPlacementErrors Craft::validateAddingSoldier(int space, const Soldier* s) c
  * Validates craft space and craft constraints on adding vehicles to a craft.
  * @return Maximum allowed number of vehicles to add.
  */
-int Craft::validateAddingVehicles(int totalSize) const
+int Craft::validateAddingVehicles(int totalSize, int ownerSeat) const
 {
-	int maximumAllowed = getSpaceAvailable() / totalSize;
+	int available = getSpaceAvailable();
+	if (connectionTCP::isSeparateCampaignStatic() && ownerSeat >= 0)
+	{
+		const int capacity = getMaxUnitsClamped();
+		const int ownerAvailable = (capacity + 1) / 2
+			- getSpaceUsedByOwner(ownerSeat);
+		const int physicalAvailable = capacity - getSpaceUsed();
+		available = std::max(0, std::min(ownerAvailable, physicalAvailable));
+	}
+	int maximumAllowed = available / totalSize;
 
 	{
 		maximumAllowed = std::min(maximumAllowed, getMaxVehiclesAndLargeSoldiersClamped() - getNumVehiclesAndLargeSoldiers());

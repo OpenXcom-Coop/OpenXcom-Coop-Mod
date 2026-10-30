@@ -45,6 +45,7 @@
 #include "TransferBaseState.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -379,7 +380,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 	// storage and broadcasts shared_apply. Atomic + host-repriced. Both the OK
 	// (execute) and Sell buttons funnel through here, so this one branch covers
 	// both. SEPARATE/solo path below is unchanged.
-	if (_game->getCoopMod()->isSharedCampaign())
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		if (SharedEcon::awaiting(SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE))) return; // coop: one confirm at a time
 		Json::Value prisoners(Json::arrayValue);
@@ -405,7 +406,8 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
-			coopSeq = SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
+			if (_game->getCoopMod()->isSharedCampaign()) coopSeq = SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
+			else SeparateEcon::submitLocalCmd(_game, "containment", baseId, payload);
 		}
 		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop: wait for the host
 		_game->popState();

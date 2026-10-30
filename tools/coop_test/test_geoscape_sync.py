@@ -41,6 +41,7 @@ from geo import (wait_both_ready, drain_popups, on_geoscape, top_state,
 
 HOST_LON, HOST_LAT = 0.35, 0.85
 GEO = "GeoscapeState"
+UFO_DESTROYED = 3  # Ufo::UfoStatus DESTROYED
 
 
 def keep_awake():
@@ -82,13 +83,16 @@ def geo_snapshot(gc):
         "day": r["time"]["day"], "month": r["time"]["month"], "year": r["time"]["year"],
         "funds": r["funds"],
         "ufos": {u["id"]: bool(u["detected"]) for u in r.get("ufos", [])},
-        # Current membership keyed by the coop cross-instance id (_coop_ufo_id /
-        # _coop_mission_id, shared host<->client), NOT the local getId() which
-        # differs per instance. These are ALL savegame entities (detected or
-        # not), so they measure existence sync rather than per-player radar
-        # detection.
-        "ufo_ids": {u.get("coopId", u["id"]) for u in r.get("ufos", [])},
-        "site_ids": {s.get("coopId", s["id"]) for s in r.get("missionSites", [])},
+        # Current membership keyed by the cross-instance id. Separate is one host
+        # world: the replica builds each UFO and mission site from the host's
+        # snapshot under the host's getId(), and its own _coop_ufo_id /
+        # _coop_mission_id are minted locally, so getId() is the shared key. A
+        # UFO the host despawned stays on the replica as DESTROYED (hidden) until
+        # it is dropped, so a DESTROYED UFO counts as gone. These are ALL
+        # savegame entities (detected or not), so they measure existence sync
+        # rather than per-player radar detection.
+        "ufo_ids": {u["id"] for u in r.get("ufos", []) if u["status"] != UFO_DESTROYED},
+        "site_ids": {s["id"] for s in r.get("missionSites", [])},
     }
 
 

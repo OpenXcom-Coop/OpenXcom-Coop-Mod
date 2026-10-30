@@ -10,13 +10,16 @@ ResearchCompleteState::ResearchCompleteState (ResearchCompleteState.cpp:103) <-
 GeoscapeState::time1Day. In the dump the topic was XCF's STR_SECRET_FILES_1,
 which XCF lets a player research again while it still has getOneFree rewards.
 
-Rows (vanilla rules, no external mod):
-  A  SEPARATE: the host re-researches a topic it already knows (the XCF
-     repeatable-topic shape). RED: the host crashes on the daily tick.
-  B  SEPARATE: both players research the same repeatable topic (getOneFree
-     rewards left, so research sync keeps the client's own project running); the
-     host finishes first, sync marks it known on the client, then the client's
-     own project finishes. RED: the client crashes.
+Rows (vanilla rules, no external mod). SEPARATE is one host-owned world with
+private research by default: the host simulates every base and mirrors each
+completion to the replica (research_done).
+  A  SEPARATE: the host player re-researches a topic it already knows (the XCF
+     repeatable-topic shape). Failure: the host crashes on the daily tick. The
+     client replica then applies the host's completion.
+  B  SEPARATE: the client player re-researches a topic it already knows. The
+     host completes the client base's project (newResearch == nullptr) and the
+     client replica, which owns the completion popup, applies it. Failure: either
+     process crashes.
   S  SHARED: the host re-researches a known topic. The SHARED path never sends
      the SEPARATE packet (and research_done already carries "" for a null
      newResearch), so this row is green before and after the fix; it guards the
@@ -70,10 +73,10 @@ def is_real_crash(path):
     return "SEH exception" in txt or "no active exception" not in txt
 
 
-def research_names(gc):
+def research_names(gc, base=None):
     g = gc.ok({"cmd": "geo_state"})
     for b in g["bases"]:
-        if not b["coopBase"] and not b["coopIcon"]:
+        if (b["name"] == base) if base else (not b["coopBase"] and not b["coopIcon"]):
             return [r["name"] for r in b["research"]]
     return []
 
@@ -94,34 +97,37 @@ def advance_day(host, client, label):
 def separate_rows(host, client):
     # Row A: the host completes a topic it already knows -> newResearch == nullptr.
     geo.slow_clock(host, client)
-    host.ok({"cmd": "discover_research", "topic": TOPIC_A})
-    host.ok({"cmd": "start_research", "topic": TOPIC_A, "cost": 1, "scientists": 1})
+    for gc in (host, client):  # keep both replicas of the one world equal
+        gc.ok({"cmd": "separate_profile_set", "player": "HostPlayer", "research": TOPIC_A})
+        gc.ok({"cmd": "start_research", "base": "HostBase", "topic": TOPIC_A,
+               "cost": 1, "scientists": 1})
+    if not researched(host, TOPIC_A):
+        raise Inconclusive(f"row A: the host player does not know {TOPIC_A}")
     advance_day(host, client, "A")
     if TOPIC_A in research_names(host):
         raise Inconclusive(f"row A: host project {TOPIC_A} never completed")
-    client.wait_for("row A: client got the host's completion via research sync",
-                    lambda: researched(client, TOPIC_A) or None, timeout=30, interval=0.5)
-    print(f"PASS row A: host re-researched known {TOPIC_A}, sync reached the client")
+    # The replica also started nothing; it must show the host base's finished state.
+    client.wait_for("row A: client replica applied the host's completion",
+                    lambda: (TOPIC_A not in research_names(client, "HostBase")) or None,
+                    timeout=30, interval=0.5)
+    print(f"PASS row A: host re-researched known {TOPIC_A}, the replica applied it")
 
-    # Row B: the host finishes first; sync marks the topic known on the client
-    # while the client's own project is still running; then the client's finishes.
+    # Row B: the client player already knows TOPIC_B; the host runs that player's
+    # project at ClientBase and mirrors the completion to the client.
     geo.slow_clock(host, client)
-    host.ok({"cmd": "start_research", "topic": TOPIC_B, "cost": 1, "scientists": 1})
-    client.ok({"cmd": "start_research", "topic": TOPIC_B, "cost": 100000, "scientists": 1})
-    advance_day(host, client, "B1")
-    try:
-        client.wait_for("row B: client got the host's completion via research sync",
-                        lambda: researched(client, TOPIC_B) or None, timeout=30, interval=0.5)
-    except TimeoutError:
-        raise Inconclusive("row B: research sync never delivered the host's completion")
-    if TOPIC_B not in research_names(client):
-        raise Inconclusive(f"row B: client project {TOPIC_B} ended before its own completion")
-    geo.slow_clock(host, client)
-    client.ok({"cmd": "set_research_cost", "topic": TOPIC_B, "cost": 1})
-    advance_day(host, client, "B2")
-    if TOPIC_B in research_names(client):
-        raise Inconclusive(f"row B: client project {TOPIC_B} never completed")
-    print(f"PASS row B: client completed {TOPIC_B} after sync had marked it known")
+    for gc in (host, client):  # keep both replicas of the one world equal
+        gc.ok({"cmd": "separate_profile_set", "player": "ClientPlayer", "research": TOPIC_B})
+        gc.ok({"cmd": "start_research", "base": "ClientBase", "topic": TOPIC_B,
+               "cost": 1, "scientists": 1})
+    if not researched(client, TOPIC_B):
+        raise Inconclusive(f"row B: the client player does not know {TOPIC_B}")
+    advance_day(host, client, "B")
+    if TOPIC_B in research_names(host, "ClientBase"):
+        raise Inconclusive(f"row B: host never completed the client base's {TOPIC_B}")
+    client.wait_for("row B: client replica applied the completion",
+                    lambda: (TOPIC_B not in research_names(client, "ClientBase")) or None,
+                    timeout=30, interval=0.5)
+    print(f"PASS row B: client player's known {TOPIC_B} completed on both machines")
 
 
 def shared_row(out):

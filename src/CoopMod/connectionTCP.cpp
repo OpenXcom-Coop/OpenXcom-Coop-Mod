@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2010-2016 OpenXcom Developers.
  * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
  *
@@ -149,6 +149,8 @@
 #include "CoopSpeed.h"
 #include "CoopDelta.h"
 #include "CoopSyncedOptions.h" // synced game options (the layer state, the probe view)
+#include "SeparateEcon.h"
+#include "../Menu/StatisticsState.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
 
@@ -223,8 +225,6 @@ static std::atomic<bool> g_coopHostDropPeerOnRxThrow{false};
 bool coopSession = false;
 // allow sending a file to the client
 bool sendFileClient = false;
-// is the file to be sent a base?
-bool sendFileBase = false;
 // allow sending a file to the host
 bool sendFileHost = false;
 // allow sending a file to the host
@@ -303,7 +303,6 @@ bool connectionTCP::_isActiveAISync = false;
 
 bool connectionTCP::_isActivePlayerSync = false; 
 
-bool connectionTCP::_enable_time_sync = true;
 
 bool connectionTCP::_enable_reaction_shoot = true;
 
@@ -328,7 +327,6 @@ bool connectionTCP::moveCoopItems = false;
 
 bool connectionTCP::no_bases = false;
 
-bool connectionTCP::isCoopBaseLoading = false;
 
 bool connectionTCP::_isHotseatActive = false;
 
@@ -850,6 +848,8 @@ bool connectionTCP::loadProgressBusy = false;
 bool connectionTCP::forceCloseCoopStateMenu = false;
 
 bool connectionTCP::forceClosePasswordCheckMenu = false;
+
+bool connectionTCP::nextStageBriefing = false;
 
 int connectionTCP::manuallyAddedServerRemoveID = -1;
 
@@ -8745,90 +8745,6 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 		deploymentType = deployment ? deployment->getType() : std::string();
 		if (!deploymentType.empty())
 			CoopHandshake::adoptCarriedDeployment(deploymentType);
-	}
-
-	// (4) SEPARATE: an older version's battle copy of a partner's soldier (a host-world soldier with coop 1 and no owner,
-	// ownerplayerid 999) becomes a merged copy (the SEPARATE return's shape: coopName "coop-origin:<seat>:<owner's own id>",
-	// owner = seat, coopBase -1), so the battle's end returns its record to the owner's world and deletes the copy.
-	// Its owner's soldier is the ONE soldier of the partner's world (converted by (0)) with the same key
-	// (coopname, else name) on the same craft (coopcraft, coopcrafttype); no match or several = unchanged, counted.
-	if ((gamemode == 0 || gamemode == 1) && save->getCampaignType() != CoopCampaignType::Shared && save->getCoopPlayers().size() > 1) // a PvP battle carries one player's craft: no guest copies
-	{
-		std::string partnerBlob;
-		{
-			std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
-			const std::string* found = connectionTCP::findHostClientBlob(save->getCoopPlayers()[1]);
-			if (found)
-				partnerBlob = *found;
-		}
-		struct PartnerSoldier { int id; std::string key; int coopCraft; std::string coopCraftType; };
-		std::vector<PartnerSoldier> partnerSoldiers;
-		if (!partnerBlob.empty())
-		{
-			try
-			{
-				SaveUpgrade::SaveWorld world;
-				world.ingestStream(partnerBlob);
-				const SaveUpgrade::SaveWorld& partnerWorld = world;
-				ryml::ConstNodeRef bases = partnerWorld.body().find_child(ryml::to_csubstr("bases"));
-				if (!bases.invalid() && bases.is_seq())
-				{
-					for (ryml::ConstNodeRef base : bases.children())
-					{
-						if (!base.is_map())
-							continue;
-						ryml::ConstNodeRef soldiers = base.find_child(ryml::to_csubstr("soldiers"));
-						if (soldiers.invalid() || !soldiers.is_seq())
-							continue;
-						for (ryml::ConstNodeRef soldier : soldiers.children())
-						{
-							if (!soldier.is_map())
-								continue;
-							std::string key = SaveUpgrade::yamlutil::getStr(soldier, ryml::to_csubstr("coopname"));
-							if (key.empty())
-								key = SaveUpgrade::yamlutil::getStr(soldier, ryml::to_csubstr("name"));
-							partnerSoldiers.push_back({ (int)SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("id"), -1), key,
-								(int)SaveUpgrade::yamlutil::getInt(soldier, ryml::to_csubstr("coopcraft"), -1),
-								SaveUpgrade::yamlutil::getStr(soldier, ryml::to_csubstr("coopcrafttype")) });
-						}
-					}
-				}
-			}
-			catch (...)
-			{
-				partnerSoldiers.clear();
-			}
-		}
-		int copiesTagged = 0, copiesUnmatched = 0;
-		for (auto* base : *save->getBases())
-		{
-			for (auto* soldier : *base->getSoldiers())
-			{
-				if (!soldier || soldier->getCoop() != 1 || soldier->getOwnerPlayerId() != 999)
-					continue;
-				const std::string key = soldier->getCoopName().empty() ? soldier->getName() : soldier->getCoopName();
-				int matches = 0, ownerId = -1;
-				for (const auto& p : partnerSoldiers)
-				{
-					if (p.key == key && p.coopCraft == soldier->getCoopCraft() && p.coopCraftType == soldier->getCoopCraftType())
-					{
-						matches++;
-						ownerId = p.id;
-					}
-				}
-				if (matches != 1 || ownerId < 0)
-				{
-					copiesUnmatched++;
-					continue;
-				}
-				soldier->setCoopNameTag("coop-origin:1:" + std::to_string(ownerId));
-				soldier->setOwnerPlayerId(1);
-				soldier->setCoopBase(-1);
-				copiesTagged++;
-			}
-		}
-		Log(LOG_INFO) << "[coop-convert] SEPARATE battle copies of the partner's soldiers - merged copies " << copiesTagged
-			<< ", unmatched " << copiesUnmatched;
 	}
 
 	Log(LOG_INFO) << "[coop-convert] an older version's mid-battle co-op save converted - partner worlds: battle snapshots "
@@ -30083,7 +29999,7 @@ static bool coopRemoveParkedTank(SavedGame* own, int baseId, int craftId, const 
 {
 	for (auto* base : *own->getBases())
 	{
-		if (base->_coopBase || base->_coopIcon)
+		if (base->_isForeignBase || base->_coopIcon)
 			continue;
 		for (auto* craft : *base->getCrafts())
 		{
@@ -30109,7 +30025,7 @@ static bool coopRemoveParkedTank(SavedGame* own, int baseId, int craftId, const 
 // world to the host. Its own-world blob missing (never expected) -> the main menu (the issue #82 chokepoint).
 bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtOk)
 {
-	const std::string key = clientBlobKey(getHostName());
+	const std::string key = pvpClientWorldKey(getHostName());
 	bool haveBlob = false;
 	{
 		std::lock_guard<std::mutex> lock(coopFilesMutex);
@@ -30323,7 +30239,7 @@ bool connectionTCP::coopSeparateReturn(DebriefingState* db, const char* phaseAtO
 	Base* firstOwn = nullptr;
 	for (auto* base : *own->getBases())
 	{
-		if (!base->_coopBase && !base->_coopIcon)
+		if (!base->_isForeignBase && !base->_coopIcon)
 		{
 			firstOwn = base;
 			break;
@@ -32206,76 +32122,6 @@ static void coopClientMirrorFirstTurnCounter(SavedBattleGame* battle)
 	battle->setTurn(1);
 }
 
-// ----- coop: a SEPARATE
-// guest's battle entry while its live world is a view of the host's base. CoopState 55 parked the own world as "basehost" (its funds in the
-// coopFunds mirror) and made the host's world live, every base flagged _coopBase (a mirror carries _coopIcon too); an own world always holds a
-// base with _coopBase false. Not playerInsideCoopBase: the leave clears it before its reload, the 67 while the view stays. A practice screen
-// over the view (a craft inventory, a base preview) is no battle. Without this step the entry snapshot would refuse the view, so the
-// return would load an older own world and the stale funds mirror.
-static bool coopSepEntryWorldIsPeerView(Game* game)
-{
-	SavedGame* live = game ? game->getSavedGame() : nullptr;
-	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
-	if (!live || !coop || live->coopHasRealBattle() || connectionTCP::getServerOwner() || !coop->getCoopCampaign()
-		|| coop->isSharedCampaign() || coop->coopMissionEnd || connectionTCP::no_bases || !connectionTCP::hasCoopFile("basehost"))
-		return false;
-	bool peerBase = false;
-	for (Base* base : *live->getBases())
-	{
-		if (!base->_coopBase)
-			return false;
-		if (!base->_coopIcon)
-			peerBase = true;
-	}
-	return peerBase;
-}
-
-// The view ends as the base screen's GEOSCAPE ends it (BasescapeState::btnGeoscapeClick, the "basehost" reload, GeoscapeState::init's funds
-// restore), here at once, before the snapshot: the own world comes back from "basehost", takes the coopFunds mirror (the parked funds less a
-// purchase made at the host's base) and the visit flag clears. The load writes coop statics and the RNG seed, which the battle blob loaded just
-// before owns: they are put back. The view's screens stay on the stack until coopUnwindToSafeState() pops them below, before any frame, as every
-// entry pops its pre-battle screens. True = the own world is live. A failed load leaves the view (today's path).
-static bool coopSepEntryLeavePeerView(Game* game)
-{
-	if (!coopSepEntryWorldIsPeerView(game))
-		return false;
-	connectionTCP* coop = game->getCoopMod();
-	const long long saveId = connectionTCP::saveID;
-	const int gamemode = connectionTCP::_coopGamemode;
-	const int saveOwner = connectionTCP::coop_save_owner_player_id;
-	const bool noBases = connectionTCP::no_bases;
-	const uint64_t seed = RNG::getSeed();
-	SavedGame* own = new SavedGame();
-	bool loaded = true;
-	try
-	{
-		own->loadCoopSaveFromMemory("basehost", game->getMod(), game->getLanguage(), "basehost");
-	}
-	catch (const std::exception& e)
-	{
-		Log(LOG_ERROR) << "[coop] the own world (basehost) did not load at the battle entry: " << e.what();
-		loaded = false;
-	}
-	connectionTCP::saveID = saveId;
-	connectionTCP::_coopGamemode = gamemode;
-	connectionTCP::coop_save_owner_player_id = saveOwner;
-	connectionTCP::no_bases = noBases;
-	RNG::setSeed(seed);
-	if (!loaded || own->getBases()->empty())
-	{
-		delete own;
-		return false;
-	}
-	if (coop->coopFunds != 0)
-		own->setFunds(coop->coopFunds);
-	coop->coopFunds = 0;
-	connectionTCP::playerInsideCoopBase = false;
-	game->setSavedGame(own);
-	Log(LOG_INFO) << "[coop] battle entry from a view of the host's base - the own world is back before the snapshot (funds "
-		<< own->getFunds() << ")";
-	return true;
-}
-
 void onBlobChunkAppended(Game* game)
 {
 	if (!game || !g_pendingClient.awaitingBlob)
@@ -32360,31 +32206,8 @@ void onBlobChunkAppended(Game* game)
 	if (g_pendingClient.resyncSide >= 0)
 		battle->coopSetSide((UnitFaction)g_pendingClient.resyncSide);
 
-	// a SEPARATE guest's battle entry.
-	// Snapshot the client's live OWN world (the pre-mission funds/marker are in memory, the disk blob is stale) under
-	// its own-world key, so the return at its OK can restore it. Read the own world BEFORE setSavedGame replaces it
-	// with the battle world. Recorded (sepSnapshot) after initBattleAuthority below, which resets the record.
+	// a SEPARATE client's battle entry (the battle world is marked below).
 	const bool sepGuestEntry = newSave->getCampaignType() == CoopCampaignType::Separate && !connectionTCP::getServerOwner();
-	bool sepSnapshotTaken = false;
-	if (sepGuestEntry)
-	{
-		coopSepEntryLeavePeerView(game); // coop: a view of the host's base ends first, as GEOSCAPE ends it
-		sepSnapshotTaken = game->getCoopMod()->coopSepEntrySnapshot();
-	}
-	// coop: a FIRST battle entry also refreshes
-	// the host's copy of this client's world from the snapshot just taken, as older versions refresh it at every battle start
-	// (sendMissionFile -> MAP_RESULT_HOST -> writeHostMapFile; that path is disabled here), so a rejoin adopts the client's
-	// current world instead of its base-placement push. The save-progress round trip streams the STORED own-world blob
-	// (loopData's sendProgressSaveFileToHost key), never the live world, which setSavedGame() below replaces. Not for a
-	// resumed offer (a rejoin, resume or repair adopted the host's copy already); campaign only, with an own base (the host's
-	// blob check would reject a skirmish or a PvP no_bases world with CoopState 994).
-	if (sepSnapshotTaken && !g_pendingClient.resumed && game->getCoopMod()->getCoopCampaign() && connectionTCP::saveID != 0
-		&& !connectionTCP::no_bases)
-	{
-		Json::Value refresh(Json::objectValue);
-		refresh["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
-		game->getCoopMod()->sendTCPPacketData(refresh.toStyledString());
-	}
 
 	// As in LoadGameState.cpp, a SHARED client adopts the
 	// host's streamed world as its own replica, then re-asserts its own seat
@@ -32399,13 +32222,9 @@ void onBlobChunkAppended(Game* game)
 
 	initBattleAuthority(battleId); // hostSim=false here (getServerOwner()==false on a client), localSeat
 	// Remember the battle-world pointer so the per-tick background
-	// tasks pause while the live world is this battle world (self-clearing at the return), and record the snapshot
-	// AFTER initBattleAuthority (it reset the record via battleEndRecordReset()).
+	// tasks pause while the live world is this battle world (self-clearing at the return).
 	if (sepGuestEntry)
-	{
 		g_coopSepBattleWorld = newSave;
-		CoopDelta::battleEndRecordSet("sepSnapshot", sepSnapshotTaken ? 1 : 0);
-	}
 	coopApplySeatMap(g_pendingClient.seatMap); // re-apply the REAL seatMap onOffer() already validated
 	// Same re-apply for the turn mode, same reason - the initBattleAuthority()
 	// call above reset the mirror to the parallel default.
@@ -32700,7 +32519,7 @@ void onAccept(Game* game, const Json::Value& accept)
 	}
 
 	// Trigger the KEPT sendMissionFile carrier: loopData() (already running on
-	// its own thread) watches sendFileClient/sendFileBase and streams whatever
+	// its own thread) watches sendFileClient and streams whatever
 	// is in coopFilesHost["battlehost"] (offerBattle() just populated it) as
 	// map_result_data 3KB chunks, gated on WAIT_MAP_SENDER acks.
 	// coop: loopData
@@ -32717,7 +32536,6 @@ void onAccept(Game* game, const Json::Value& accept)
 	else
 	{
 		isWaitMap = true;
-		sendFileBase = false;
 		sendFileClient = true;
 	}
 
@@ -32737,7 +32555,6 @@ void coopStartDeferredBlob()
 		return;
 	g_pendingHost.blobDeferred = false;
 	isWaitMap = true;
-	sendFileBase = false;
 	sendFileClient = true;
 	Log(LOG_INFO) << "[coop-handshake] deferred battle blob streaming (battleId=" << g_pendingHost.battleId << ")";
 }
@@ -34473,7 +34290,7 @@ bool connectionTCP::hasCoopFile(const std::string& key)
 	return coopFiles.find(key) != coopFiles.end();
 }
 
-std::string connectionTCP::hostBlobKey(const std::string& clientName)
+std::string connectionTCP::pvpHostWorldKey(const std::string& clientName)
 {
 	return "host_" + std::to_string(connectionTCP::saveID) + "_" + clientName + ".data";
 }
@@ -34506,12 +34323,12 @@ bool connectionTCP::localLoadsAllowed()
 }
 
 
-std::string connectionTCP::clientBlobKey(const std::string& hostName)
+std::string connectionTCP::pvpClientWorldKey(const std::string& hostName)
 {
 	return "client_" + std::to_string(connectionTCP::saveID) + "_" + hostName + ".data";
 }
 
-const std::string* connectionTCP::findHostClientBlob(const std::string& clientName)
+const std::string* connectionTCP::findPvpClientWorld(const std::string& clientName)
 {
 	// Keys look like host_<saveID>_<clientName>.data. Match the EXACT name field
 	// (so "Bob" never matches "Super_Bob") and, among matches, keep the newest
@@ -34565,6 +34382,12 @@ void connectionTCP::rekeyHostClientBlobs(long long oldSaveID)
 	for (auto& c : copies)
 		coopFilesHost.emplace(std::move(c.first), std::move(c.second)); // a blob already stored under the new id is kept
 	Log(LOG_INFO) << "[coop] " << copies.size() << " partner world(s) copied from saveID " << oldSaveID << " to " << saveID;
+}
+
+bool connectionTCP::hasPvpClientWorld(const std::string& clientName)
+{
+	std::lock_guard<std::mutex> lock(coopFilesMutex);
+	return findPvpClientWorld(clientName) != nullptr;
 }
 
 // One authority for the campaign_start packet (see header). Reads the player
@@ -34689,10 +34512,6 @@ void connectionTCP::loopData()
 				{
 					filepath = sendProgressLoadFileToClient;
 				}
-				else if (sendFileBase)
-				{
-					filepath = "basehost";
-				}
 				else
 				{
 					filepath = "battlehost";
@@ -34776,9 +34595,7 @@ void connectionTCP::loopData()
 
 				waitForMapAck();
 
-				std::string jsonData = sendFileBase
-										   ? "{\"state\" : \"MAP_RESULT_CLIENT_BASE\"}"
-										   : "{\"state\" : \"MAP_RESULT_CLIENT\"}";
+				std::string jsonData = "{\"state\" : \"MAP_RESULT_CLIENT\"}";
 
 				if (sendProgressLoadFileToClient != "")
 				{
@@ -34787,7 +34604,6 @@ void connectionTCP::loopData()
 				}
 
 				sendTCPPacketStaticData(jsonData);
-				sendFileBase = false;
 				sendFileClient = false;
 				sendFileSave = false;
 				sendProgressLoadFileToClient = "";
@@ -34801,19 +34617,13 @@ void connectionTCP::loopData()
 
 				if (sendProgressSaveFileToHost)
 				{
-					filepath = clientBlobKey(_game->getCoopMod()->getHostName());
+					filepath = isSeparateCampaign()
+						? "separate_initial_base_transfer"
+						: pvpClientWorldKey(_game->getCoopMod()->getHostName());
 				}
 				else if (sendFileSave)
 				{
 					filepath = "battlehost";
-				}
-				else if (sendFileBase)
-				{
-					filepath = "basehost";
-				}
-				else if (connectionTCP::_coopCampaign)
-				{
-					filepath = "basehost";
 				}
 				else
 				{
@@ -34890,9 +34700,7 @@ void connectionTCP::loopData()
 
 				waitForMapAck();
 
-				std::string jsonData = sendFileBase
-										   ? "{\"state\" : \"MAP_RESULT_HOST_BASE\"}"
-										   : "{\"state\" : \"MAP_RESULT_HOST\"}";
+				std::string jsonData = "{\"state\" : \"MAP_RESULT_HOST\"}";
 
 				if (sendProgressSaveFileToHost)
 				{
@@ -34900,7 +34708,6 @@ void connectionTCP::loopData()
 				}
 
 				sendTCPPacketStaticData(jsonData);
-				sendFileBase = false;
 				sendFileHost = false;
 				sendFileSave = false;
 				sendProgressSaveFileToHost = false;
@@ -34912,7 +34719,6 @@ void connectionTCP::loopData()
 			// and release every send flag so the streamer returns to idle instead
 			// of parking with sendFileClient still set.
 			Log(LOG_INFO) << "[coop] streamer: connection torn down mid-transfer, abandoning stream";
-			sendFileBase = false;
 			sendFileClient = false;
 			sendFileHost = false;
 			sendFileSave = false;
@@ -35372,35 +35178,6 @@ void connectionTCP::giftBattleUnit(BattleUnit* unit, int newOwnerId, bool /*broa
 	coopGiftOrder(unit, newOwnerId);
 }
 
-// coop: true while this
-// machine's live SEPARATE world is the partner's base view. CoopState 55 parks the own world as "basehost" and swaps in the partner's
-// world with every base flagged _coopBase; an own world always holds a base with _coopBase false, and a mirror carries both flags. Not
-// playerInsideCoopBase: the 67 clears it while the visitor is still inside, and only BasescapeState::init sets it again.
-static bool coopLiveWorldIsPeerView(Game* game)
-{
-	SavedGame* live = game ? game->getSavedGame() : nullptr;
-	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
-	if (!live || !coop || live->getSavedBattle() || !connectionTCP::getCoopStatic() || !coop->getCoopCampaign()
-		|| coop->isSharedCampaign() || coop->coopMissionEnd || connectionTCP::no_bases || !connectionTCP::hasCoopFile("basehost"))
-		return false;
-	bool peerBase = false;
-	for (Base* base : *live->getBases())
-	{
-		if (!base->_coopBase)
-			return false;
-		if (!base->_coopIcon)
-			peerBase = true;
-	}
-	return peerBase;
-}
-
-// coop (declared in connectionTCP.h): the base screens' OK (SoldiersState, CraftInfoState,
-// SackSoldierState) read the same rule as this file.
-bool connectionTCP::liveWorldIsPeerView(Game* game)
-{
-	return coopLiveWorldIsPeerView(game);
-}
-
 // coop: the ids of own bases
 // whose loss this machine already announced (delete_base) while their BaseDestroyedState waits for its OK (BaseDestroyedState.cpp). The three
 // own-base marker lists below (coopBase, coopBase2, the baseRequest answer) leave them out: no mirror of a lost base comes back.
@@ -35419,127 +35196,6 @@ static bool coopBaseLossAnnounced(const Base* base)
 	return false;
 }
 
-// coop: a SEPARATE client's gift sent or received while its live
-// world is the partner's base view also changes its STORED own world, so a save, a leave, a reload or a rejoin finds the soldier on
-// exactly one roster. removeId >= 0 (sent, giftSoldier): drop that soldier from "basehost" (the own world the leave restores).
-// The own-world blob is then "basehost" plus every gift still queued
-// (_pendingIncomingGifts, in order; never added to "basehost"), i.e. what the leave will produce, and the host pulls that STORED blob
-// (SEND_FILE_HOST_TRUE_SAVE_PROGRESS), never the live view. The scratch load writes coop statics and the RNG seed; they are put back.
-static void coopOwnWorldFollowGift(connectionTCP* coop, Game* game, int removeId, const std::vector<Json::Value>& queued)
-{
-	const long long saveId = connectionTCP::saveID;
-	const int gamemode = connectionTCP::_coopGamemode;
-	const int saveOwner = connectionTCP::coop_save_owner_player_id;
-	const bool noBases = connectionTCP::no_bases;
-	const Json::Value borrow = connectionTCP::coopPvpLoadedBorrow;
-	const uint64_t seed = RNG::getSeed();
-	SavedGame* own = new SavedGame();
-	own->loadCoopSaveFromMemory("basehost", game->getMod(), game->getLanguage(), "basehost");
-	connectionTCP::saveID = saveId;
-	connectionTCP::_coopGamemode = gamemode;
-	connectionTCP::coop_save_owner_player_id = saveOwner;
-	connectionTCP::no_bases = noBases;
-	connectionTCP::coopPvpLoadedBorrow = borrow;
-	RNG::setSeed(seed);
-	bool changed = false;
-	if (removeId >= 0)
-	{
-		for (Base* base : *own->getBases())
-		{
-			for (auto it = base->getSoldiers()->begin(); it != base->getSoldiers()->end();)
-			{
-				if ((*it)->getId() == removeId)
-				{
-					delete *it;
-					it = base->getSoldiers()->erase(it);
-					changed = true;
-				}
-				else
-				{
-					++it;
-				}
-			}
-		}
-		if (changed)
-			own->saveCoopToMemory("basehost", game->getMod(), "basehost");
-	}
-	for (const Json::Value& entry : queued)
-	{
-		try
-		{
-			YAML::YamlRootNodeReader reader(YAML::YamlString{entry["soldier_yaml"].asString()}, "giftSoldier");
-			auto soldierReader = reader["soldier"];
-			const std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
-			const int stationBaseId = entry["station_base_id"].asInt();
-			const int owner = entry["owner"].asInt();
-			Base* homeBase = nullptr;
-			Base* firstOwnBase = nullptr;
-			for (Base* base : *own->getBases())
-			{
-				if (base->_coopBase || base->_coopIcon)
-					continue;
-				if (!firstOwnBase)
-					firstOwnBase = base;
-				if (base->_coop_base_id == stationBaseId)
-				{
-					homeBase = base;
-					break;
-				}
-			}
-			Base* targetBase = homeBase ? homeBase : firstOwnBase;
-			if (targetBase && game->getMod()->getSoldier(type))
-			{
-				// the receive handler's rule: the incoming id unless it collides, then one above the highest (bases and dead)
-				Soldier* soldier = new Soldier(game->getMod()->getSoldier(type), 0, 0 /*nationality*/);
-				soldier->load(soldierReader, game->getMod(), own, game->getMod()->getScriptGlobal());
-				int maxId = soldier->getId();
-				bool collision = false;
-				for (Base* base : *own->getBases())
-				{
-					for (Soldier* s : *base->getSoldiers())
-					{
-						collision = collision || s->getId() == soldier->getId();
-						maxId = std::max(maxId, s->getId());
-					}
-				}
-				for (Soldier* s : *own->getDeadSoldiers())
-				{
-					collision = collision || s->getId() == soldier->getId();
-					maxId = std::max(maxId, s->getId());
-				}
-				if (collision)
-					soldier->setId(maxId + 1);
-				soldier->setCraft(0);
-				soldier->setCoopBase(homeBase ? -1 : stationBaseId);
-				soldier->setOwnerPlayerId(owner);
-				soldier->setCoop(owner);
-				targetBase->getSoldiers()->push_back(soldier);
-				changed = true;
-			}
-		}
-		catch (const std::exception& e)
-		{
-			Log(LOG_INFO) << "[coop-gift] the own-world copy of a queued gift failed: " << e.what();
-		}
-	}
-	// coop: a display copy given back stores "basehost" plus what is still queued, also when nothing is.
-	if (changed || removeId < 0)
-	{
-		const std::string key = connectionTCP::clientBlobKey(coop->getHostName());
-		own->saveCoopToMemory(key, game->getMod(), key);
-		{
-			std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
-			eraseStaleBlobEntries(connectionTCP::coopFilesClient, "client_", coop->getHostName(), key);
-		}
-		Json::Value push;
-		push["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
-		coop->sendTCPPacketData(push.toStyledString());
-		Log(LOG_INFO) << "[coop-gift] the stored own world follows a gift made during a base visit (" << key
-			<< (removeId >= 0 ? ", given away)" : ", received)");
-	}
-	delete own;
-}
-
 void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast)
 {
 	if (!soldier || !_game->getSavedGame())
@@ -35549,7 +35205,7 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 
 	// SHARED geoscape gifts are host-authoritative. Battle-time gifts use the
 	// live-control path below because both battle replicas must update at once.
-	if (broadcast && isSharedCampaign() && !_game->getSavedGame()->getSavedBattle())
+	if (broadcast && (isSharedCampaign() || isSeparateCampaign()) && !_game->getSavedGame()->getSavedBattle())
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -35607,8 +35263,8 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 		// coop: a received gift's
 		// display copy given back during the same visit (either machine) cancels the queued receive, so the soldier ends on the giver's
 		// roster only. The copy carries the giver's id, which one of our own soldiers may hold: nothing is erased or parked by that id.
-		// Only inside a view: the marks of an ended view name deleted soldiers until the next CoopState 55 clears them.
-		if ((_game->getCoopMod()->playerInsideCoopBase == true || coopLiveWorldIsPeerView(_game)) && visitDisplayCopies.erase(soldier) != 0)
+		// Only inside a view: the marks of an ended view name deleted soldiers until the next view clears them.
+		if (_game->getCoopMod()->playerInsideCoopBase == true && visitDisplayCopies.erase(soldier) != 0)
 		{
 			for (auto it = _pendingIncomingGifts.begin(); it != _pendingIncomingGifts.end(); ++it)
 			{
@@ -35620,17 +35276,10 @@ void connectionTCP::giftSoldier(Soldier* soldier, int newOwnerId, bool broadcast
 			}
 			Log(LOG_INFO) << "[coop-gift] a display copy given back during the visit; its queued receive is cancelled (id="
 				<< soldier->getId() << ", still queued " << _pendingIncomingGifts.size() << ")";
-			if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-				coopOwnWorldFollowGift(this, _game, -1, _pendingIncomingGifts);
 			return;
 		}
 		_giftedAwaySoldierIds.insert(soldier->getId());
-		// coop: a SEPARATE client gifting from the partner's base view edits its stored own
-		// world and pushes that; the push below returns inside a base and, in the 67 window, serialises the view (refused, 995).
-		if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-			coopOwnWorldFollowGift(this, _game, soldier->getId(), _pendingIncomingGifts);
-		else
-			pushProgressToHostSilently();
+		pushProgressToHostSilently();
 	}
 }
 
@@ -35680,7 +35329,7 @@ void connectionTCP::processPendingSoldierGifts()
 
 		for (auto& base : *_game->getSavedGame()->getBases())
 		{
-			if (base->_coopBase == false && base->_coopIcon == false)
+			if (base->_isForeignBase == false && base->_coopIcon == false)
 			{
 				ownWorldReady = true;
 				break;
@@ -35706,8 +35355,8 @@ void connectionTCP::processPendingSoldierGifts()
 	{
 
 		// Targeted sweep: a stale copy of a soldier we gifted away this
-		// session can resurrect when the pre-visit "basehost" snapshot is
-		// restored after a gift made while viewing the peer's base. Park
+		// session can resurrect when a legacy multi-world snapshot is restored.
+		// Park
 		// exactly those (matched by id AND still peer-owned - a soldier
 		// traded back to us has our owner id and is left alone). Deliberately
 		// NOT a blanket owner check: legacy saves carry stale ownerPlayerId
@@ -35760,7 +35409,7 @@ void connectionTCP::processPendingSoldierGifts()
 	// no longer queues it in SHARED). Drop any residual entry rather than replay
 	// it - the shared world's ownership is already carried by the host restream,
 	// and materialising a copy on the peer would duplicate the shared soldier.
-	if (isSharedCampaign())
+	if ((isSharedCampaign() || isSeparateCampaign()))
 	{
 		_pendingSoldierGifts.clear();
 		return;
@@ -35823,20 +35472,10 @@ void connectionTCP::processPendingSoldierGifts()
 // coop: while this player's
 // OWN world holds a base the memory save refuses (coopOwnBaseUnnamed: the new base while its BaseNameState is open), a
 // serialisation of that world for the partner waits until the base is named and then answers once: the silent push to
-// the host (e.g. after a host gift) and the answer to a base visit (either machine). Without the wait both would refuse: a
+// the host (e.g. after a host gift). Without the wait it would refuse: a
 // false 995, and an older world (the stored blob) would reach the partner.
 static bool coopOwnBaseUnnamed(Game* game); // defined below
 static bool g_coopPushHeld = false;         // a push held while the own base is unnamed
-static int g_coopBaseAnswerHeld = 0;        // a held base answer: 1 = to the host (client side), 2 = to the client (host side)
-
-static bool coopHoldBaseAnswer(Game* game, int role)
-{
-	if (!coopOwnBaseUnnamed(game))
-		return false;
-	g_coopBaseAnswerHeld = role;
-	Log(LOG_INFO) << "[coop-visit] base answer held: own base unnamed (role " << role << ")";
-	return true;
-}
 
 // coop: a partner's base
 // request that reaches the host while a co-op battle is being handed over (phase Handshake: from the host's YES, prepareBattleOffer(), to the
@@ -35908,7 +35547,7 @@ bool connectionTCP::pushProgressToHostSilently()
 		return false;
 	}
 
-	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
+	std::string filename = pvpClientWorldKey(_game->getCoopMod()->getHostName());
 	_game->getSavedGame()->saveCoopToMemory(filename, _game->getMod(), filename);
 	{
 		std::lock_guard<std::mutex> lock(coopFilesMutex);
@@ -35924,26 +35563,23 @@ bool connectionTCP::pushProgressToHostSilently()
 
 }
 
-// a SEPARATE guest's battle-entry snapshot.
-// Writes the client's LIVE own world (with the pre-mission marker that only exists in memory) under its own-world
-// key, so the return at its OK restores it. Only when the live world is the own geoscape world (not a peer-base view,
-// no SavedBattle); called before setSavedGame() swaps in the battle world. Returns true iff the snapshot was taken.
-bool connectionTCP::coopSepEntrySnapshot()
+void connectionTCP::sendInitialSeparateBaseToHost()
 {
-	SavedGame* live = _game->getSavedGame();
-	// coop: a practice screen (a preview, a base equipment screen) leaves the own world live - take the snapshot,
-	// written as vanilla holds the world once that screen is closed (CoopPracticeBattleHidden).
-	if (!live || live->coopHasRealBattle() || playerInsideCoopBase)
-		return false;
-	CoopPracticeBattleHidden coopPracticeHidden(live);
-	const std::string filename = clientBlobKey(getHostName());
-	live->saveCoopToMemory(filename, _game->getMod(), filename);
+	if (getServerOwner() || !getCoopStatic() || !isSeparateCampaign()
+		|| session.lobbyMode != 1 || !_game->getSavedGame()
+		|| _game->getSavedGame()->getMonthsPassed() != -1
+		|| _game->getSavedGame()->getSavedBattle())
 	{
-		std::lock_guard<std::mutex> lock(coopFilesMutex);
-		eraseStaleBlobEntries(coopFilesClient, "client_", getHostName(), filename);
+		return;
 	}
-	Log(LOG_INFO) << "[coop-debrief] client: SEPARATE battle-entry own-world snapshot taken (" << filename << ")";
-	return true;
+
+	static const std::string transferKey = "separate_initial_base_transfer";
+	_game->getSavedGame()->saveCoopToMemory(transferKey, _game->getMod(), transferKey);
+
+	Json::Value obj;
+	obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
+	sendTCPPacketData(obj.toStyledString());
+	Log(LOG_INFO) << "[coop-separate] sending initial base contribution to host";
 }
 
 void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments)
@@ -35953,7 +35589,7 @@ void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::s
 	// assignments into the client's OWN-world blob (client_<saveID>_<host>.data),
 	// which is exactly what GeoscapeState::init reloads at mission end. The real
 	// mirror-base UI (SoldiersState::btnOkClick) only writes CoopCraft into the
-	// "basehost" blob (the client's copy of the HOST world), so without this the
+	// peer-world copy, so without this the
 	// guest's CoopCraft reverts to its stale value and the soldier is unassigned
 	// from the skyranger after every battle.
 	//
@@ -35973,7 +35609,7 @@ void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::s
 		return;
 	}
 
-	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
+	std::string filename = pvpClientWorldKey(_game->getCoopMod()->getHostName());
 	if (!hasCoopFile(filename))
 	{
 		return;
@@ -36044,23 +35680,14 @@ void connectionTCP::sendGuestCensus(bool force)
 	// SHARED has one world: a transfer really moves the soldier, and
 	// getTotalSoldiers() already counts it at the destination while it is in
 	// transit. Nothing to report.
-	if (isSharedCampaign())
+	if ((isSharedCampaign() || isSeparateCampaign()))
 		return;
-	// While this machine visits a partner base, the live world is the
-	// partner's swapped-in copy and our own bases are parked, so none of our
-	// soldiers is in it: a census taken now would report no guests at all and
-	// the partner's base would stop counting them for the whole visit. Keep
-	// the last census standing; once our own world is live again the census
-	// is taken from it as usual.
-	if (coopLiveWorldIsPeerView(_game))
-		return;
-
 	std::map<int, int> guests; // peer base coop id -> headcount
 	for (auto* base : *_game->getSavedGame()->getBases())
 	{
 		// only OUR real bases hold our soldiers; a visited peer base is a
 		// swapped-in copy and would double-count them
-		if (base->_coopBase || base->_coopIcon)
+		if (base->_isForeignBase || base->_coopIcon)
 			continue;
 		for (auto* soldier : *base->getSoldiers())
 		{
@@ -36160,7 +35787,7 @@ void connectionTCP::sendGuestRosterContrib()
 
 	for (auto* base : *_game->getSavedGame()->getBases())
 	{
-		if (base->_coopBase || base->_coopIcon)
+		if (base->_isForeignBase || base->_coopIcon)
 			continue; // a visited peer base is a swapped-in copy, not ours
 		for (auto* soldier : *base->getSoldiers())
 		{
@@ -36310,47 +35937,6 @@ static void coopWriteArmedSaveOnPeerDrop(Game* game)
 	game->getCoopMod()->writePendingHostSave();
 }
 
-// ----- coop: the
-// partner dropped while this HOST views the partner's base. CoopState 55 parked the host's own world as "basehost" and made the partner's
-// world live, every base flagged _coopBase (a partner-base mirror carries _coopIcon too); an own world always holds a base with _coopBase
-// false. Not playerInsideCoopBase: the drop clears it while the view stays. The drop's wait dialog 62 over that view would let SAVE &
-// QUIT write the partner's base as this host's world, and a rejoin + RESUME would leave the host on the view under a 995.
-static bool g_coopHostDropWaitAfterReload = false;
-
-static bool coopHostLiveWorldIsPeerView(Game* game)
-{
-	SavedGame* live = game ? game->getSavedGame() : nullptr;
-	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
-	if (!live || !coop || live->getSavedBattle() || !connectionTCP::getServerOwner() || !coop->getCoopCampaign()
-		|| coop->isSharedCampaign() || !connectionTCP::hasCoopFile("basehost"))
-		return false;
-	bool peerBase = false;
-	for (Base* base : *live->getBases())
-	{
-		if (!base->_coopBase)
-			return false;
-		if (!base->_coopIcon)
-			peerBase = true;
-	}
-	return peerBase;
-}
-
-// Called where a host drop would push the 62 (disconnectTCP's host arm, updateCoopTask's -3 arm). A host viewing the partner's base goes
-// back to its own world first, exactly as the base screen's GEOSCAPE does (BasescapeState::btnGeoscapeClick). LoadGameState then replaces
-// the whole stack with a new GeoscapeState, so the 62 opens after it (updateCoopTask). True = the caller pushes no 62 now.
-static bool coopHostDropLeavesPeerView(Game* game)
-{
-	if (g_coopHostDropWaitAfterReload)
-		return true;
-	if (!game || game->getStates().empty() || !coopHostLiveWorldIsPeerView(game))
-		return false;
-	Log(LOG_INFO) << "[coop] the partner dropped while the host views its base - the host's own world returns first";
-	g_coopHostDropWaitAfterReload = true;
-	game->getCoopMod()->playerInsideCoopBase = false; // coop: as the leave does (BasescapeState::btnGeoscapeClick); the -3 arm keeps it
-	game->pushState(new LoadGameState(OPT_GEOSCAPE, "basehost", game->getStates().back()->getPalette(), "basehost"));
-	return true;
-}
-
 void connectionTCP::writePendingHostSave()
 {
 
@@ -36417,14 +36003,8 @@ void connectionTCP::sendSoldierGiftPacket(Soldier* soldier, int newOwnerId)
 		for (auto& base : *_game->getSavedGame()->getBases())
 		{
 
-			auto containsSoldier = [soldier](const std::vector<Soldier*>& list)
-			{
-				return std::find(list.begin(), list.end(), soldier) != list.end();
-			};
-
-			// The live roster may be temporarily swapped out while a soldier
-			// list screen is open - check the snapshots too.
-			if (containsSoldier(*base->getSoldiers()) || containsSoldier(base->base_oldsoldiers) || containsSoldier(base->base_oldsoldiers2))
+			if (std::find(base->getSoldiers()->begin(), base->getSoldiers()->end(), soldier)
+				!= base->getSoldiers()->end())
 			{
 				stationBaseId = base->_coop_base_id;
 				break;
@@ -36484,11 +36064,6 @@ void connectionTCP::removeSoldierFromLocalBases(Soldier* soldier)
 		};
 
 		eraseFrom(*base->getSoldiers());
-		// SoldiersState/CraftSoldiersState swap the roster while open and
-		// restore it from these snapshots afterwards - purge them too so the
-		// soldier cannot resurrect on the giver's side.
-		eraseFrom(base->base_oldsoldiers);
-		eraseFrom(base->base_oldsoldiers2);
 
 	}
 
@@ -36548,7 +36123,7 @@ static const char* coopLeavingForMainMenu(Game* game)
 // coop: a client whose OWN world holds a
 // base the memory save refuses (SavedGame::saveCoopToMemory: an empty name or 0 / 0 coordinates, i.e. the new base while its
 // BaseNameState is open) holds its answer to the host's save request (sendSaveProgressFile) and sends it as soon as the base
-// is named (updateCoopTask). Partner-base mirrors (_coopBase) are not looked at here.
+// is named (updateCoopTask). Partner-base mirrors (_isForeignBase) are not looked at here.
 static bool g_coopSaveAnswerHeld = false;
 
 static bool coopOwnBaseUnnamed(Game* game)
@@ -36557,7 +36132,7 @@ static bool coopOwnBaseUnnamed(Game* game)
 		return false;
 	for (Base* base : *game->getSavedGame()->getBases())
 	{
-		if (!base->_coopBase && (base->getName().empty() || (base->getLongitude() == 0 && base->getLatitude() == 0)))
+		if (!base->_isForeignBase && (base->getName().empty() || (base->getLongitude() == 0 && base->getLatitude() == 0)))
 			return true;
 	}
 	return false;
@@ -36726,22 +36301,7 @@ static bool coopTestHoldBaseResult()
 // key when the stream starts and its end marker when it ends, so a release while this is false can change both.
 static bool coopStreamIdle()
 {
-	return !sendFileHost && !sendFileClient && !sendFileBase && !sendFileSave && !sendProgressSaveFileToHost;
-}
-
-// coop: on the partner,
-// a request that would set up a world stream while another one is set up or running here waits until the streamer is idle. loopData keeps
-// the key a stream started with, reads its end marker when it ends and then clears every flag: a base request set up during this machine's
-// save-progress stream would end that stream as MAP_RESULT_SAVE_PROGRESS and be cleared unanswered (the host's "Synchronizing bases..." would keep
-// only Disconnect); a save-progress go-ahead during a base answer would end that answer as MAP_RESULT_SAVE_PROGRESS. A held base answer goes out
-// in updateCoopTask (the base answer first and alone), a held go-ahead once the streamer is idle.
-static bool coopHoldBaseAnswerWhileStreaming(int role)
-{
-	if (coopStreamIdle())
-		return false;
-	g_coopBaseAnswerHeld = role;
-	Log(LOG_INFO) << "[coop-visit] base answer held: a world stream is in flight (role " << role << ")";
-	return true;
+	return !sendFileHost && !sendFileClient && !sendFileSave && !sendProgressSaveFileToHost;
 }
 
 static bool g_coopProgressReplyHeld = false; // a SEND_FILE_HOST_SAVE_PROGRESS go-ahead held while another world stream ran (partner)
@@ -36832,38 +36392,21 @@ void connectionTCP::updateCoopTask()
 	if (coopStreamIdle())
 		CoopHandshake::coopStartDeferredBlob();
 
-	// coop: a base answer or a push held while the own new base was unnamed goes out
-	// once it is named, once. One held item per frame and only while no world stream is set up or
-	// running here (coopStreamIdle): the base answer first and alone, the push on a later frame, after the base stream has
-	// queued its end marker. Released in one block, the push's save-progress stream would take over the base stream's key and end
-	// marker, and the visitor would never enter the base. A held push is covered by a held save answer that is released just
-	// below (the same world, the same key), so it is dropped then instead of streaming the world twice.
-	if ((g_coopBaseAnswerHeld != 0 || g_coopPushHeld) && getCoopStatic() && !coopOwnBaseUnnamed(_game) && coopStreamIdle())
+	// coop: a push held while the own new base was unnamed goes out
+	// once it is named, once, and only while no world stream is set up or running here (coopStreamIdle). A held push is
+	// covered by a held save answer that is released just below (the same world, the same key), so it is dropped then
+	// instead of streaming the world twice.
+	if (g_coopPushHeld && getCoopStatic() && !coopOwnBaseUnnamed(_game) && coopStreamIdle())
 	{
-		if (g_coopBaseAnswerHeld != 0)
+		g_coopPushHeld = false;
+		if (g_coopSaveAnswerHeld && !getServerOwner())
 		{
-			const int heldRole = g_coopBaseAnswerHeld;
-			g_coopBaseAnswerHeld = 0;
-			Log(LOG_INFO) << "[coop-visit] held base answer released (role " << heldRole << ")";
-			sendBaseFile();
-			if (heldRole == 1)
-				sendFileHost = true;
-			else
-				sendFileClient = true;
-			sendFileBase = true;
+			Log(LOG_INFO) << "[coop-gift] held push dropped: the held save answer carries the world";
 		}
 		else
 		{
-			g_coopPushHeld = false;
-			if (g_coopSaveAnswerHeld && !getServerOwner())
-			{
-				Log(LOG_INFO) << "[coop-gift] held push dropped: the held save answer carries the world";
-			}
-			else
-			{
-				Log(LOG_INFO) << "[coop-gift] held push released";
-				pushProgressToHostSilently();
-			}
+			Log(LOG_INFO) << "[coop-gift] held push released";
+			pushProgressToHostSilently();
 		}
 	}
 
@@ -36901,11 +36444,7 @@ void connectionTCP::updateCoopTask()
 
 
 	// time
-	// coop: a SEPARATE client's clock moves only by its own steps over the host's ticks
-	// (GeoscapeState::timeAdvance); coopClientKeepsOwnClock() lets this assignment run only for a baseline, a host
-	// counter restart or a host clock that moved without stepping. Every other client keeps the per-frame assignment.
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && connectionTCP::_enable_time_sync == true && _year != 0
-		&& !coopClientKeepsOwnClock())
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::getServerOwner() == false && _year != 0)
 	{
 
 		if (_game->getSavedGame())
@@ -37082,9 +36621,7 @@ void connectionTCP::updateCoopTask()
 			{
 				coopWriteArmedSaveOnPeerDrop(_game); // coop: as at the canonical drop (disconnectTCP)
 				connectionTCP::session.freeze();
-				// coop: as at the canonical drop
-				if (!coopHostDropLeavesPeerView(_game))
-					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 			}
 			// Don't let updateCoopTask re-fire this handler each cycle.
 			// The TCP thread will set onConnect=1 when a peer reconnects.
@@ -37136,20 +36673,6 @@ void connectionTCP::updateCoopTask()
 				closeConnectingDialog();
 				_game->pushState(new CoopState(440));
 			}
-		}
-	}
-
-	// coop: the drop's wait dialog 62, held by the drop paths above while the
-	// host's own world reloads, opens once that world is back (LoadGameState left a new GeoscapeState alone on the stack; this runs before
-	// its first init / think). At the main menu (no world, issue #82) nothing is left to wait over.
-	if (g_coopHostDropWaitAfterReload && (_game->getSavedGame() == nullptr || (!_game->getStates().empty()
-		&& dynamic_cast<GeoscapeState*>(_game->getStates().back()) != nullptr && !coopHostLiveWorldIsPeerView(_game))))
-	{
-		g_coopHostDropWaitAfterReload = false;
-		if (_game->getSavedGame() != nullptr)
-		{
-			Log(LOG_INFO) << "[coop] the host's own world is back - the partner's wait dialog opens";
-			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 		}
 	}
 
@@ -37808,7 +37331,7 @@ void connectionTCP::updateCoopTask()
 		{
 			const int heldApplies = SharedEcon::applyQueueDepth();
 			g_coopPostBattleWorldReady = false;
-			if (coopAdoptWorldInPlace(clientBlobKey(getHostName())))
+			if (coopAdoptWorldInPlace(pvpClientWorldKey(getHostName())))
 			{
 				g_coopPostBattleWorldAdopted = true;
 				coopDebriefPage3Live(deb); // page 3 live at EVERY adoption
@@ -38126,12 +37649,10 @@ void resetCoopState(bool isHost)
 	onceTime = false;
 	sendFileClient = false;
 	sendProgressSaveFileToHost = false;
-	sendFileBase = false;
 	sendFileHost = false;
 	sendFileSave = false;
 	g_coopSaveAnswerHeld = false; // coop: a new connection starts with no held save answer
 	g_coopPushHeld = false;        // coop: nor a held push
-	g_coopBaseAnswerHeld = 0;      // coop: nor a held base answer
 	g_coopProgressReplyHeld = false; // coop: nor a held save-progress go-ahead
 
 	mapData.clear();
@@ -38140,7 +37661,6 @@ void resetCoopState(bool isHost)
 	connectionTCP::session.role = isHost ? CoopRole::Host : CoopRole::Client;
 	onConnect = -1;
 	connectionTCP::no_bases = false;
-	connectionTCP::isCoopBaseLoading = false;
 	connectionTCP::session.sessionLocked = false;
 	connectionTCP::isPlayerReady = false;
 	connectionTCP::isPlayersReady = false;
@@ -38861,6 +38381,7 @@ void connectionTCP::openVoteMenu()
 	const bool abortVote = VoteSession::isAbortAction(_activeVote.action);
 	_game->pushState(new VoteMenu(
 		_activeVote.id,
+		_activeVote.action,
 		abortVote ? std::string(_game->getLanguage()->getString("STR_ABORT_MISSION")) : _activeVote.title,
 		abortVote ? std::string(_game->getLanguage()->getString("STR_ABORT_MISSION_QUESTION")) : _activeVote.question,
 		_activeVote.totalPlayers,
@@ -39303,6 +38824,13 @@ void connectionTCP::finishVote(bool passed)
 	}
 
 	const std::string action = _activeVote.action;
+	const std::string factionContinuePrefix = "continue_faction_campaign|";
+	const bool factionFinaleVote = action.compare(
+		0, factionContinuePrefix.size(), factionContinuePrefix) == 0;
+	// Continuing extra faction finales is the action being voted on. Only a
+	// successful YES majority continues; a NO-blocked vote, a tie, no votes and
+	// a timeout all accept the faction victory already earned.
+	const bool endFactionCampaign = factionFinaleVote && !passed;
 	_activeVote.finish(passed);
 	updateVoteMenu();
 
@@ -39320,14 +38848,60 @@ void connectionTCP::finishVote(bool passed)
 
 	if (passed)
 	{
-		executeVoteAction(action);
+		if (factionFinaleVote)
+		{
+			_pendingFactionFinaleOwner.clear();
+			storeFactionFinaleOwner(std::string());
+			_factionFinaleReadySeats.clear();
+			_localFactionFinaleReady = false;
+			_factionFinaleReplicaSynced = false;
+		}
+		else
+			executeVoteAction(action);
 	}
 	else if (VoteSession::isAbortAction(action))
 		coopAbortVoteFailed(); // END TURN stays held until the host closes its vote screen
+	else if (endFactionCampaign)
+	{
+		executeVoteAction("end_faction_campaign|"
+			+ action.substr(factionContinuePrefix.size()));
+	}
+
+	// Another vote held the finale back (tryStartFactionFinaleVote refuses
+	// while a vote is active). Re-arm readiness so both players re-announce it
+	// from the Geoscape once this vote's window is closed.
+	if (!factionFinaleVote && !_pendingFactionFinaleOwner.empty())
+		resetFactionFinaleReadiness();
 }
 
 void connectionTCP::executeVoteAction(const std::string& action)
 {
+	if (!_game)
+	{
+		return;
+	}
+
+	const std::string factionEndPrefix = "end_faction_campaign|";
+	if (action.compare(0, factionEndPrefix.size(), factionEndPrefix) == 0)
+	{
+		prepareLocalEndingFactionDisplayName();
+		if (_game->getSavedGame())
+			_game->getSavedGame()->setEnding(END_WIN);
+
+		Json::Value root;
+		root["state"] = "faction_campaign_end";
+		root["victory"] = true;
+		_endingCutsceneId.clear();
+		sendTCPPacketData(root.toStyledString());
+		_game->setState(new StatisticsState);
+		_pendingFactionFinaleOwner.clear();
+		storeFactionFinaleOwner(std::string());
+		_factionFinaleReadySeats.clear();
+		_localFactionFinaleReady = false;
+		_factionFinaleReplicaSynced = false;
+		return;
+	}
+
 	// A pass only ARMS the apply - the pump ends the battle at quiescence, never this path.
 	if (VoteSession::isAbortAction(action))
 		coopAbortVotePassed();
@@ -39590,9 +39164,226 @@ static void coopCloseMirrorHoldersAtDrop(Game* game)
 	coopCloseMirrorHolders(game, doomed);
 }
 
+void connectionTCP::prepareLocalEndingFactionDisplayName()
+{
+	_endingFactionDisplayName.clear();
+	if (_game && _game->getSavedGame()
+		&& _game->getSavedGame()->isSeparateCoopCampaign())
+	{
+		const std::string player = seatName(localSeat());
+		if (!player.empty())
+			_endingFactionDisplayName = SeparateEcon::factionDisplayName(_game, player);
+	}
+}
+
+void connectionTCP::queueFactionFinaleVote(const std::string& ownerPlayerName)
+{
+	if (!_game || !_game->getSavedGame() || ownerPlayerName.empty()
+		|| !isSeparateCampaign()
+		|| !_game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+		return;
+
+	_pendingFactionFinaleOwner = ownerPlayerName;
+	_factionFinaleReadySeats.clear();
+	_localFactionFinaleReady = false;
+	_factionFinaleReplicaSynced = false;
+	if (getServerOwner())
+	{
+		storeFactionFinaleOwner(ownerPlayerName);
+		Json::Value root;
+		root["state"] = "faction_finale_pending";
+		root["owner"] = ownerPlayerName;
+		sendTCPPacketData(root.toStyledString());
+	}
+}
+
+void connectionTCP::factionFinaleGeoscapeReady()
+{
+	// A reloaded host save carries a finale whose vote never ran; a different
+	// world carries none. Either way the save, not this process, decides.
+	if (syncFactionFinaleFromSave() && !_pendingFactionFinaleOwner.empty()
+		&& getCoopStatic())
+	{
+		Json::Value root;
+		root["state"] = "faction_finale_pending";
+		root["owner"] = _pendingFactionFinaleOwner;
+		sendTCPPacketData(root.toStyledString());
+	}
+	if (_pendingFactionFinaleOwner.empty() || _localFactionFinaleReady
+		|| !_game || !_game->getSavedGame() || !getCoopStatic())
+		return;
+	if (!getServerOwner() && !_factionFinaleReplicaSynced)
+		return;
+
+	_localFactionFinaleReady = true;
+	const int seat = localSeat();
+	if (getServerOwner())
+	{
+		_factionFinaleReadySeats.insert(seat);
+		tryStartFactionFinaleVote();
+	}
+	else
+	{
+		Json::Value root;
+		root["state"] = "faction_finale_ready";
+		root["from"] = seat;
+		sendTCPPacketData(root.toStyledString());
+	}
+}
+
+bool connectionTCP::syncFactionFinaleFromSave()
+{
+	if (!getServerOwner() || !_game || !_game->getSavedGame())
+		return false;
+	const std::string saved = isSeparateCampaign()
+		? _game->getSavedGame()->getSeparateCampaign().getPendingFactionFinaleOwner()
+		: std::string();
+	if (saved == _pendingFactionFinaleOwner)
+		return false;
+	_pendingFactionFinaleOwner = saved;
+	resetFactionFinaleReadiness();
+	return true;
+}
+
+void connectionTCP::storeFactionFinaleOwner(const std::string& owner)
+{
+	if (getServerOwner() && _game && _game->getSavedGame() && isSeparateCampaign())
+		_game->getSavedGame()->getSeparateCampaign().setPendingFactionFinaleOwner(owner);
+}
+
+void connectionTCP::resetFactionFinaleReadiness()
+{
+	_factionFinaleReadySeats.clear();
+	_localFactionFinaleReady = false;
+}
+
+void connectionTCP::sendPendingFactionFinale()
+{
+	if (!getServerOwner())
+		return;
+	syncFactionFinaleFromSave();
+	if (_pendingFactionFinaleOwner.empty())
+		return;
+	// The rejoining client must announce readiness again from its Geoscape.
+	_factionFinaleReadySeats.erase(1);
+	Json::Value root;
+	root["state"] = "faction_finale_pending";
+	root["owner"] = _pendingFactionFinaleOwner;
+	sendTCPPacketData(root.toStyledString());
+}
+
+void connectionTCP::clearFactionFinaleState()
+{
+	_pendingFactionFinaleOwner.clear();
+	_factionFinaleReadySeats.clear();
+	_localFactionFinaleReady = false;
+	_factionFinaleReplicaSynced = false;
+	_endingFactionDisplayName.clear();
+}
+
+Json::Value connectionTCP::factionFinaleStateForTest() const
+{
+	Json::Value state;
+	state["owner"] = _pendingFactionFinaleOwner;
+	state["localReady"] = _localFactionFinaleReady;
+	state["replicaSynced"] = _factionFinaleReplicaSynced;
+	state["readySeats"] = Json::arrayValue;
+	for (int seat : _factionFinaleReadySeats)
+		state["readySeats"].append(seat);
+	state["endingFactionDisplayName"] = _endingFactionDisplayName;
+	const SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	state["savedOwner"] = save
+		? save->getSeparateCampaign().getPendingFactionFinaleOwner() : std::string();
+	return state;
+}
+
+void connectionTCP::tryStartFactionFinaleVote()
+{
+	if (!getServerOwner() || _pendingFactionFinaleOwner.empty()
+		|| static_cast<int>(_factionFinaleReadySeats.size()) < seatCount()
+		|| _activeVote.active)
+		return;
+
+	const int players = std::max(2, std::min(4, seatCount()));
+	const std::string factionName = SeparateEcon::factionDisplayName(
+		_game, _pendingFactionFinaleOwner);
+	const std::uint64_t now = static_cast<std::uint64_t>(getDateTimeCoop());
+	const std::uint64_t voteId = (now << 12) ^ (++_voteSequence & 0xFFFu);
+	const std::string action = std::string("continue_faction_campaign|")
+		+ _pendingFactionFinaleOwner;
+	const std::string question = std::string(
+		"Continue the campaign to complete the remaining faction finales? ")
+		+ "Vote NO to end with " + factionName + " victory.";
+	_activeVote.start(voteId,
+		action,
+		"FACTION FINALE COMPLETED",
+		question,
+		players, buildVotePlayerNames(players), -1);
+	openVoteMenu();
+	updateVoteMenu();
+	broadcastVoteStart();
+	broadcastVoteUpdate();
+}
+
+// PvP marker sync: a mirror base has no facilities, so the owner's
+// radar data rides its base marker. The per-facility list goes only
+// from the client and the circle range from both machines.
+static void writeMirrorRadar(Json::Value& marker, const Base* base, bool serverOwner)
+{
+	int facilitiesIndex = 0;
+	double radarRangeCoop = 0;
+	int mindShields = 0; // the last shield power carries forward
+	for (const auto* fac : *const_cast<Base*>(base)->getFacilities())
+	{
+		if (fac->getBuildTime() != 0 || !fac->getRules())
+			continue;
+		const double range = fac->getRules()->getRadarRange();
+		if (range < 10000 && range > radarRangeCoop)
+			radarRangeCoop = range;
+		if (!serverOwner)
+		{
+			Json::Value& entry = marker["facilities"][facilitiesIndex++];
+			entry["radar_chance_coop"] = fac->getRules()->getRadarChance();
+			entry["hyperwave_coop"] = fac->getRules()->isHyperwave();
+			entry["radar_range_coop"] = fac->getRules()->getRadarRange();
+			entry["completedFacilities"] = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
+			if (fac->getRules()->isMindShield() && !fac->getDisabled())
+				mindShields = fac->getRules()->getMindShieldPower();
+			entry["mindShields"] = mindShields;
+		}
+	}
+	marker["radar_range_coop"] = radarRangeCoop;
+}
+
+static void readMirrorRadar(Base* base, const Json::Value& marker)
+{
+	base->_facilitiesCoop.clear();
+	for (const Json::Value& entry : marker["facilities"])
+	{
+		Base::MirrorFacility fac;
+		fac.radarChance = entry["radar_chance_coop"].asInt();
+		fac.radarRange = entry["radar_range_coop"].asInt();
+		fac.hyperwave = entry["hyperwave_coop"].asBool();
+		fac.completedFacilities = entry["completedFacilities"].asInt();
+		fac.mindShields = entry["mindShields"].asInt();
+		base->_facilitiesCoop.push_back(fac);
+	}
+	base->_radar_range_coop = marker["radar_range_coop"].asDouble();
+}
+
 void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 {
 
+	// A host world result that arrives during a resync restream waits for the
+	// adoption of that world, so it applies once, to the world it belongs to.
+	if (SharedEcon::holdResultDuringRestream(stateString, obj))
+		return;
+	// SEPARATE owns the per-player policy layered on top of the shared command
+	// engine.  Let it prepare incoming Separate messages first (notably deriving
+	// the local foreign-base flags from persistent owner names) before the generic
+	// command engine applies them.
+	if (SeparateEcon::onMessage(_game, stateString, obj))
+		return;
 	// single early hook routing the shared_* economy protocol into the
 	// SharedEcon dispatch table (the anti-if-chain requirement). If SharedEcon
 	// consumes the message, it never falls through to the if-chain below.
@@ -39887,6 +39678,38 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (legacyBattleMessageDropped(stateString))
 		return;
 
+	// Schema-3 campaign peers share one host-authoritative strategic world. Drop
+	// every packet whose only purpose was to mirror or transfer the old per-player
+	// worlds. Keeping this gate in addition to the send-side fences makes delayed
+	// packets from an older peer harmless. Battlescape, lobby, time, alerts and
+	// authoritative snapshots are intentionally not part of this list.
+	if ((isSharedCampaign() || isSeparateCampaign()))
+	{
+		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
+		const bool initialSeparateBootstrap = liveSave
+			&& liveSave->getCampaignType() == CoopCampaignType::Separate
+			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+		const bool bootstrapProgressPacket = initialSeparateBootstrap
+			&& (stateString == "SEND_FILE_HOST_TRUE_SAVE_PROGRESS"
+				|| stateString == "SEND_FILE_HOST_SAVE_PROGRESS");
+		static const std::unordered_set<std::string> legacyWorldPackets = {
+			"coopBase", "coopBase2", "coopBase3", "baseRequest", "new_base",
+			"delete_base", "place_facility", "dismantle_facility",
+			"purchase", "purchase_completed", "purchase_failed",
+			"transfer", "transfer_completed", "transfer_failed", "guest_census",
+			"research", "graph_requests", "update_graphs",
+			"sendProgressSaveRequest", "SEND_FILE_HOST_TRUE_SAVE_PROGRESS",
+			"SEND_FILE_HOST_SAVE_PROGRESS",
+			"sendCraft", "craftSoldiers", "changeHost", "changeHost3", "changeHost4"
+		};
+		// SHARED keeps the graph refresh.
+		const bool sharedGraphPacket = isSharedCampaign()
+			&& (stateString == "graph_requests" || stateString == "update_graphs");
+		if (!bootstrapProgressPacket && !sharedGraphPacket
+			&& legacyWorldPackets.find(stateString) != legacyWorldPackets.end())
+			return;
+	}
+
 	// Multiplayer voting is host-authoritative:
 	//   vote_request: a client asks the host to create a vote; requesting it is YES.
 	//   vote_start:   the host assigns the id, majority rule and ordered names.
@@ -39896,6 +39719,50 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	//   vote_cooldown: the host rejects a requester that is still inside its 60s window.
 	// Every packet is tied to a vote id, and VoteSession::castVote rejects a
 	// second choice from the same seat. This keeps 2-4 player results deterministic.
+	if (stateString == "faction_finale_pending")
+	{
+		if (!getServerOwner())
+		{
+			_pendingFactionFinaleOwner = obj.get("owner", "").asString();
+			_factionFinaleReadySeats.clear();
+			_localFactionFinaleReady = false;
+			_factionFinaleReplicaSynced = false;
+		}
+		return;
+	}
+
+	if (stateString == "faction_finale_ready")
+	{
+		if (getServerOwner() && !_pendingFactionFinaleOwner.empty())
+		{
+			_factionFinaleReadySeats.insert(obj.get("from", -1).asInt());
+			tryStartFactionFinaleVote();
+		}
+		return;
+	}
+
+	if (stateString == "faction_campaign_end")
+	{
+		if (!getServerOwner() && _game && _game->getSavedGame())
+		{
+			prepareLocalEndingFactionDisplayName();
+			_game->getSavedGame()->setEnding(
+				obj.get("victory", true).asBool() ? END_WIN : END_LOSE);
+			const std::string cutscene = obj.get("cutscene", "").asString();
+			_endingCutsceneId = cutscene;
+			if (!cutscene.empty())
+			{
+				allow_cutscene = false;
+				_game->setState(new CutsceneState(cutscene));
+			}
+			else
+			{
+				_game->setState(new StatisticsState);
+			}
+		}
+		return;
+	}
+
 	if (stateString == "vote_request")
 	{
 		if (getServerOwner())
@@ -39995,6 +39862,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (passed && VoteSession::isAbortAction(_activeVote.action))
 				coopAbortVoteClientPassed(); // the client's pump closes this screen
 			_voteRequestPending = false;
+			if (_activeVote.action.compare(0,
+				std::string("continue_faction_campaign|").size(),
+				"continue_faction_campaign|") == 0)
+			{
+				_pendingFactionFinaleOwner.clear();
+				_factionFinaleReadySeats.clear();
+				_localFactionFinaleReady = false;
+				_factionFinaleReplicaSynced = false;
+			}
+			else if (!_pendingFactionFinaleOwner.empty())
+			{
+				// The host re-arms the finale after any other vote; announce
+				// readiness again once this vote's window is closed.
+				resetFactionFinaleReadiness();
+			}
 			updateVoteMenu();
 		}
 		return;
@@ -40171,6 +40053,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			save->setCoopPlayers(players);
 			// adopt the host's campaign economy model (default Separate).
 			save->setCampaignType(campaignType);
+			if (campaignType == CoopCampaignType::Separate)
+				save->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 			_game->setSavedGame(save);
 
 			connectionTCP::session.markLobbyClosed();
@@ -40180,7 +40064,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			gs->init();
 
 			if (!connectionTCP::no_bases)
+			{
+				if (isSeparateCampaign())
+					_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+				refreshSeparateBaseOwnership();
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+			}
 			else
 			{
 				// PvP: the alien side has no bases.  This writes the client's
@@ -40193,7 +40082,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				// The WAIT_BASES dialog always shows BEGIN regardless of blob
 				// arrival (see CoopState::waitSatisfied); this local save is
 				// not needed for the initial session start.
-				std::string blobKey = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+				std::string blobKey = pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
 				try
 				{
 					_game->getSavedGame()->saveCoopToMemory(blobKey, _game->getMod(), blobKey);
@@ -40212,12 +40101,21 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// (same wire flow as the classic Profile resume)
 	if (stateString == "campaign_resume" && getServerOwner() == false)
 	{
-
-		_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
-
-		Json::Value root;
-		root["state"] = "request_load_progress";
-		sendTCPPacketData(root.toStyledString());
+		bool reusedLoadDialog = false;
+		for (State* state : _game->getStates())
+		{
+			CoopState* coop = dynamic_cast<CoopState*>(state);
+			if (coop && coop->getStateCode() == COOP_DLG_CLIENT_LOAD_WAIT)
+			{
+				coop->requestCampaignWorld();
+				reusedLoadDialog = true;
+				break;
+			}
+		}
+		if (!reusedLoadDialog)
+		{
+			_game->pushState(new CoopState(COOP_DLG_WORLD_DOWNLOAD));
+		}
 
 	}
 
@@ -40234,11 +40132,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		connectionTCP::session.signalCampaignBegun();
 		connectionTCP::session.sessionLive();
+		if (!_pendingFactionFinaleOwner.empty())
+			_factionFinaleReplicaSynced = true;
 
 	}
 
-	// A resuming player finished loading its world. For a battle save
-	// the geoscape ack triggers phase two: the battle stream.
+	// A resuming player finished loading its authoritative world (F3). Current
+	// campaign snapshots include a live battle in the same transfer. The old
+	// campaign_resume_battle packet remains below only as a legacy fallback.
 	if (stateString == "resume_ack")
 	{
 
@@ -40250,12 +40151,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// campaign-resume ack.
 		std::string acker = _game->getCoopMod()->getCurrentClientName();
 		bool battleEligible = connectionTCP::session.resumeBattleEligible.count(acker) > 0;
+		const bool combinedBattle = obj.get("combinedBattle", false).asBool();
 
 		// coop: a waiting part 2 is no battle to stream - this world ack opens RESUME, and RESUME
 		// re-arms part 2 (coopRearmParkedStage()).
 		if (g_coopStageParked != 0)
 			connectionTCP::session.resumeBattlePending = false;
-		if (connectionTCP::session.resumeBattlePending && battleEligible)
+		if (connectionTCP::session.resumeBattlePending && battleEligible && !combinedBattle)
 		{
 			connectionTCP::session.resumeBattlePending = false;
 			connectionTCP::session.resumeBattleEligible.clear();
@@ -40273,6 +40175,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 		else
 		{
+			if (combinedBattle)
+			{
+				connectionTCP::session.resumeBattlePending = false;
+				connectionTCP::session.resumeBattleEligible.erase(acker);
+			}
 			connectionTCP::session.resumeAck = true;
 
 			// issue #91: EVERY streamed world the client adopts parks it in
@@ -40319,6 +40226,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				{
 					connectionTCP::session.sessionLive();
 
+					sendPendingFactionFinale();
 					Json::Value begun;
 					begun["state"] = "campaign_begun";
 					sendTCPPacketData(begun.toStyledString());
@@ -40392,8 +40300,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						copy->setOwnerPlayerId(owner);
 						copy->setCoop(owner);
 						visited->getSoldiers()->push_back(copy);
-						// coop: marked, so no write-back of
-						// the view puts it into "basehost" (it carries the giver's id; the replay after the leave adds the soldier once).
+						// coop: marked as a display copy (it carries the giver's id; the replay after the leave adds the soldier once).
 						visitDisplayCopies.insert(copy);
 					}
 
@@ -40411,10 +40318,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 
 				_pendingIncomingGifts.push_back(obj);
-				// coop: the queued soldier also goes into the stored own world now, with every gift still queued, so an
-				// earlier one stays in the stored own world.
-				if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-					coopOwnWorldFollowGift(this, _game, -1, _pendingIncomingGifts);
 
 			}
 			else if (obj.isMember("soldier_yaml")
@@ -40464,7 +40367,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						for (auto& base : *_game->getSavedGame()->getBases())
 						{
 
-							if (base->_coopBase == false && base->_coopIcon == false)
+							if (base->_isForeignBase == false && base->_coopIcon == false)
 							{
 
 								if (!firstOwnBase)
@@ -40492,9 +40395,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						{
 							Log(LOG_INFO) << "[coop-gift] RECV deferred (no own base in current save)";
 							_pendingIncomingGifts.push_back(obj);
-							// coop: the same while the 67 has cleared the visit flag in the view, with every gift still queued (as above).
-							if (!getServerOwner() && coopLiveWorldIsPeerView(_game))
-								coopOwnWorldFollowGift(this, _game, -1, _pendingIncomingGifts);
 						}
 						else
 						{
@@ -40560,19 +40460,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 							soldier->setCoop(owner);
 
 							targetBase->getSoldiers()->push_back(soldier);
-
-							// SoldiersState/CraftSoldiersState restore the
-							// roster from these snapshots when they close; if
-							// one is open right now (snapshot non-empty), add
-							// the soldier there too or the restore drops it.
-							if (!targetBase->base_oldsoldiers.empty())
-							{
-								targetBase->base_oldsoldiers.push_back(soldier);
-							}
-							if (!targetBase->base_oldsoldiers2.empty())
-							{
-								targetBase->base_oldsoldiers2.push_back(soldier);
-							}
 
 							Log(LOG_INFO) << "[coop-gift] RECV added soldier '" << soldier->getName()
 							              << "' id=" << soldier->getId() << " to base '" << targetBase->getName()
@@ -40805,7 +40692,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// fac_dismantle / base_destroyed shared_apply (keeps base indices in
 		// lock-step); a stray delete_base would match a REAL base's random
 		// _coop_base_id and desync every index-routed command.
-		if (isSharedCampaign())
+		if ((isSharedCampaign() || isSeparateCampaign()))
 		{
 			return;
 		}
@@ -40836,21 +40723,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 		const int stashDropped = BasescapeState::coopDropStashedMirror(base_id);
 		Log(LOG_INFO) << "[coop] removed base: id=" << base_id << " cache=" << cacheDropped << " stash=" << stashDropped;
-		// coop: this player views the removed base inside the partner's world (coopLiveWorldIsPeerView; the view world's selected base is the
-		// base its screens show). It goes back to its own world first (BasescapeState::coopLeavePeerView). The base is not deleted here:
-		// LoadGameState discards the whole view world, so no screen reads it freed.
-		if (coopLiveWorldIsPeerView(_game))
-		{
-			SavedGame* viewWorld = _game->getSavedGame();
-			Base* shownBase = viewWorld->getBases()->empty() ? nullptr : viewWorld->getSelectedBase();
-			if (shownBase && shownBase->_coop_base_id == base_id)
-			{
-				Log(LOG_INFO) << "[coop] removed base: the partner removed the base this player views - its own world returns first";
-				BasescapeState::coopLeavePeerView();
-				return;
-			}
-		}
-
 		if (_game->getSavedGame())
 		{
 
@@ -40964,7 +40836,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			else
 				streamSkirmishBattleToClient();
 		}
-		else if (_game->getSavedGame() && !sendFileClient && isSharedCampaign())
+		else if (_game->getSavedGame() && !sendFileClient && (isSharedCampaign() || isSeparateCampaign()))
 		{
 
 			// SHARED resume/bootstrap. There is exactly one authoritative
@@ -40982,15 +40854,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else
 			{
-				// P2/F3: SHARED mid-battle resume. The geoscape-phase world is now
-				// streaming; if the authoritative world carries a battle, ride the very
-				// same two-phase battle stream a SEPARATE resume uses. Arm the pending
-				// flag and mark this client eligible so its geoscape resume_ack fires
-				// campaign_resume_battle -> SEND_FILE_CLIENT_SAVE -> battlehost (the
-				// snapshot chain is mode-agnostic; the SHARED role is derived from
-				// getServerOwner() at BattlescapeState:1687). The client's phase-one
-				// loadCoopProgress load drops the battleGame, so the geoscape adopt
-				// stays battle-free and the battle arrives fresh in phase two.
+				// The authoritative snapshot includes its live SavedBattleGame. Track
+				// the pending battle until the client confirms that the combined world
+				// was adopted; no second battle-file transfer is needed.
 				connectionTCP::session.resumeBattlePending =
 					_game->getSavedGame()->coopHasRealBattle(); // coop: a practice battle is no battle to resume
 				if (connectionTCP::session.resumeBattlePending)
@@ -41028,13 +40894,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// coop: the gm2 alien player never pushes a world of its own (no_bases), so without this its rejoin in a live campaign would find none
 			// here and be answered with a NEW campaign (base placement on the alien side). Serve it the stub a resume serves
 			// (LobbyMenu::resumeCampaign, SavedGame::buildCoopStub): its alien role comes back with it.
-			if (connectionTCP::_coopGamemode == 2 && !hasCoopFile(hostBlobKey(_game->getCoopMod()->getCurrentClientName())))
+			if (connectionTCP::_coopGamemode == 2 && !hasCoopFile(pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName())))
 			{
 				try
 				{
 					std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
 					std::lock_guard<std::mutex> lk(coopFilesMutex);
-					coopFilesHost[hostBlobKey(_game->getCoopMod()->getCurrentClientName())] = std::move(stub);
+					coopFilesHost[pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName())] = std::move(stub);
 					Log(LOG_INFO) << "[coop] gm2 rejoin: stub no_bases blob for " << _game->getCoopMod()->getCurrentClientName();
 				}
 				catch (const std::exception& e)
@@ -41043,7 +40909,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				}
 			}
 
-			std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+			std::string filename = pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
 
 			bool blobFound = false;
 			{
@@ -41098,6 +40964,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "sendProgressSaveRequest")
 	{
+		// Schema-3 campaigns save the host's one authoritative world directly;
+		// there is no client world to request or embed.
+		if ((isSharedCampaign() || isSeparateCampaign()))
+		{
+			return;
+		}
 
 		long long saveID = obj["saveID"].asInt64();
 		connectionTCP::saveID = saveID;
@@ -41133,8 +41005,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	// CHANGE THE BASE NAME
 	if (stateString == "changeBaseName")
 	{
-		// SEPARATE-only (renames a _coopIcon mirror + the basehost memory
-		// blob). SHARED renames ride the base_rename shared_apply.
+		// Renames the partner base's _coopIcon mirror (PvP). SHARED and Separate renames
+		// ride the base_rename command.
 		if (isSharedCampaign())
 		{
 			return;
@@ -41155,32 +41027,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				break;
 			}
 		}
-
-		std::string filename = "basehost";
-
-		SavedGame* file_units = new SavedGame();
-
-		bool save = false;
-
-		file_units->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-		for (auto& base : *file_units->getBases())
-		{
-
-			if (base->getName() == old_name)
-			{
-
-				base->setName(new_name);
-				save = true;
-				break;
-			}
-		}
-
-		if (save)
-		{
-			file_units->saveCoopToMemory(filename, _game->getMod(), filename);
-		}
-		
 	}
 
 	// transfer
@@ -41320,7 +41166,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase || base->_coopIcon)
+				if (base->_isForeignBase || base->_coopIcon)
 					continue;
 				auto it = reported.find(base->_coop_base_id);
 				base->coop_guests = (it != reported.end()) ? it->second : 0;
@@ -41516,17 +41362,19 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "research_sync_option" && !getServerOwner())
 	{
 		_enable_research_sync = obj.get("enabled", false).asBool();
-		Options::EnableResearchSync = _enable_research_sync;
+		Options::setSessionOverride(&Options::EnableResearchSync, _enable_research_sync);
 		if (!_enable_research_sync)
 		{
 			waitedResearch.clear();
 		}
+		if (_game->getSavedGame() && isSeparateCampaign())
+			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 	}
 
 	if (stateString == "place_facility")
 	{
-		// SEPARATE-only mirror markers; SHARED builds ride fac_build.
-		if (playerInsideCoopBase == true && !isSharedCampaign())
+		// PRD-J07: SEPARATE-only mirror markers; SHARED builds ride fac_build.
+		if (playerInsideCoopBase == true && !(isSharedCampaign() || isSeparateCampaign()))
 		{
 
 			_coopFacility.append(obj);
@@ -41537,8 +41385,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "dismantle_facility")
 	{
-		// SEPARATE-only mirror markers; SHARED rides fac_dismantle.
-		if (playerInsideCoopBase == true && !isSharedCampaign())
+		// PRD-J07: SEPARATE-only mirror markers; SHARED rides fac_dismantle.
+		if (playerInsideCoopBase == true && !(isSharedCampaign() || isSeparateCampaign()))
 		{
 
 			_deleteCoopFacility.append(obj);
@@ -41941,7 +41789,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			 _coopReportOwnYear = coopOwnYear;
 		 }
 
-		 int fundingDiff = obj["fundingDiff"].asInt();
+		 int fundingDiff = obj.isMember("globalFundingDiff")
+			 ? obj["globalFundingDiff"].asInt()
+			 : obj["fundingDiff"].asInt();
 		 fundingDiffCoop = fundingDiff;
 
 		 int ratingTotal = obj["ratingTotal"].asInt();
@@ -42018,6 +41868,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sharedMonthlyResearchScoreEnded = obj.get("sharedResearchScoreEnded", 0).asInt();
 			sharedMonthlyPending = true;
 		}
+		if (obj.isMember("separatePlayerFunds") && isSeparateCampaign())
+		{
+			separateMonthlyPlayerFunds = obj["separatePlayerFunds"];
+			separateMonthlyDebt = obj.get("separateDebt", false).asBool();
+			separateMonthlyWarned = obj.get("separateWarned", false).asBool();
+			separateMonthlyPlayerCosts = obj.get("separatePlayerCosts", Json::Value(Json::objectValue));
+			separateMonthlyPending = true;
+		}
 
 		_game->getCoopMod()->show_coop_monthly_report = true;
 
@@ -42068,19 +41926,29 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						if (jc.isMember("fuel")) craft->setFuel(jc["fuel"].asInt());
 						if (jc.isMember("damage")) craft->setDamage(jc["damage"].asInt());
 						if (jc.isMember("shield")) craft->setShield(jc["shield"].asInt());
+						// Separate: show the host's status string (sent only there).
+						if (jc.isMember("geoStatus") && isSeparateCampaign())
+							craft->setHostGeoStatus(jc["geoStatus"].asString());
 						break;
 					}
 				}
 			}
 
-			// ufos: create-or-update the matching real UFO (by real id). Track the
-			// live id set so despawned UFOs can be hidden afterwards.
+			// ufos: create-or-update the matching real UFO. The host's unique id is
+			// the key: the display id is 0 until detection, so several undetected
+			// UFOs share it, and it changes when the host detects one. A packet
+			// from an older host has no unique id and keys by display id as before.
+			// Track the live key set so despawned UFOs can be hidden afterwards.
 			std::unordered_set<int> liveUfoIds;
+			bool liveByUniqueId = false;
 			for (Json::ArrayIndex i = 0; i < obj["ufos"].size(); i++)
 			{
 				const Json::Value& ju = obj["ufos"][i];
 				int ufoId = ju["id"].asInt();
-				liveUfoIds.insert(ufoId);
+				const bool byUniqueId = ju.isMember("uniqueId");
+				const int ufoKey = byUniqueId ? ju["uniqueId"].asInt() : ufoId;
+				liveByUniqueId = liveByUniqueId || byUniqueId;
+				liveUfoIds.insert(ufoKey);
 				int missionId = ju["mission_id"].asInt();
 
 				// find/create the owning AlienMission (needed for Ufo::getMission()).
@@ -42095,35 +41963,45 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					mission->setRace(ju["race"].asString());
 					mission->setId(missionId);
 					mission->setRegion(ju["region"].asString(), *_game->getMod());
+					mission->setOwnerPlayerName(ju.get("ownerPlayerName", "").asString());
 					sg->getAlienMissions().push_back(mission);
 				}
 
 				Ufo* ufo = nullptr;
 				for (auto* u : *sg->getUfos())
-					if (u->getId() == ufoId) { ufo = u; break; }
+					if ((byUniqueId ? u->getUniqueId() : u->getId()) == ufoKey) { ufo = u; break; }
 				if (!ufo)
 				{
 					RuleUfo* ufoRule = _game->getMod()->getUfo(ju["ufo_rule"].asString(), false);
 					if (!ufoRule) continue;
 					const UfoTrajectory& traj = *_game->getMod()->getUfoTrajectory(UfoTrajectory::RETALIATION_ASSAULT_RUN, true);
-					ufo = new Ufo(ufoRule, ufoId);
+					// The ctor arg is the UNIQUE id; the DISPLAY id is set below.
+					ufo = new Ufo(ufoRule, ufoKey);
 					ufo->setMissionInfo(mission, &traj);
-					// PRD-J08 fix: the ctor arg is the UNIQUE id; the DISPLAY id
-					// (Target::getId(), which every subsequent snapshot and the
-					// dogfight lane match by) must be set explicitly - without it
-					// the replica re-created an unmatchable id-0 UFO every tick.
-					ufo->setId(ufoId);
 					sg->getUfos()->push_back(ufo);
 				}
+				// The DISPLAY id (Target::getId(), which the dogfight lane
+				// and craft orders match by) follows the host: it changes from 0
+				// when the host detects the UFO.
+				ufo->setId(ufoId);
+				// The replica never mints a coop id: the Ufo ctor rolled a random one.
+				if (ju.isMember("coopId")) ufo->_coop_ufo_id = ju["coopId"].asInt();
 				ufo->setLongitude(ju["lon"].asDouble());
 				ufo->setLatitude(ju["lat"].asDouble());
-				// adopt hull damage BEFORE status - setDamage derives
-				// CRASHED/DESTROYED from thresholds, setStatus then re-asserts
-				// the authoritative value.
+				// PRD-J08: adopt hull damage BEFORE status - setDamage derives
+				// CRASHED/DESTROYED from thresholds, the host's status then
+				// re-asserts the authoritative value.
 				if (ju.isMember("damage")) ufo->setDamage(ju["damage"].asInt(), _game->getMod());
-				ufo->setStatus(intToUfostatus(ju["status"].asInt()));
 				ufo->setDetected(ju["detected"].asBool());
-				ufo->setAltitude(ju["altitude"].asString());
+				// Altitude without Ufo::setAltitude's status derivation (any
+				// altitude but STR_GROUND would turn a crashed UFO, or a destroyed
+				// one still at flight altitude, back to FLYING on the replica).
+				ufo->setAltitudeCoop(ju["altitude"].asString());
+				// Exact status: intToUfostatus maps 3 to IGNORE_ME, and the host's
+				// DESTROYED UFO is 3 on this wire.
+				const int status = ju["status"].asInt();
+				ufo->setStatusCoop(status >= (int)Ufo::FLYING && status <= (int)Ufo::IGNORE_ME
+					? (Ufo::UfoStatus)status : Ufo::IGNORE_ME);
 				ufo->setSpeed(ju["speed"].asInt());
 				// crash/land marker identity travels by value.
 				if (ju.isMember("crashId") && ju["crashId"].asInt() != 0)
@@ -42132,11 +42010,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					ufo->setLandId(ju["landId"].asInt());
 				ufo->setSecondsRemaining(100000000);
 			}
-			// despawn: hide replica UFOs no longer in the authoritative set (a frozen
-			// replica has no dogfights/followers to unwind; full cleanup is J10).
+			// despawn: mark replica UFOs no longer in the authoritative set (DESTROYED,
+			// no time left). A screen above the geoscape may still show one, so the
+			// replica's GeoscapeState deletes them once it is the top screen
+			// (replicaRemoveDespawnedUfos), as the host deletes its dead UFOs.
 			for (auto* u : *sg->getUfos())
 			{
-				if (liveUfoIds.find(u->getId()) == liveUfoIds.end())
+				if (liveUfoIds.find(liveByUniqueId ? u->getUniqueId() : u->getId()) == liveUfoIds.end())
 				{
 					u->setDetected(false);
 					u->setStatus(Ufo::DESTROYED);
@@ -42168,6 +42048,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					site->setLatitude(jm["lat"].asDouble());
 					site->setAlienRace(jm["race"].asString());
 					site->setCity(jm["city"].asString());
+					site->setOwnerPlayerName(jm.get("ownerPlayerName", "").asString());
 					// issue #78: mirror the host's detection state and fuse instead of
 					// forcing detected + pinning an immortal sentinel. The replica sim
 					// is frozen, so both are display-only - but they must match what
@@ -42201,6 +42082,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (coopPvpBorrowedLive)
 			coopPvpNotePositionsSkipped();
 		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !isSharedCampaign() && !coopPvpBorrowedLive)
+		if (_game->getSavedGame() && playerInsideCoopBase == false && openMultipleTargetsMenu == false && !(isSharedCampaign() || isSeparateCampaign()))
 		{
 
 			// funds
@@ -42363,6 +42245,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				std::string mission_rule_id = obj["ufos"][i]["mission_rule"].asString();
 				std::string race = obj["ufos"][i]["race"].asString();
 				std::string region = obj["ufos"][i]["region"].asString();
+				std::string ownerPlayerName = obj["ufos"][i].get("ownerPlayerName", "").asString();
 
 				int ufo_id = obj["ufos"][i]["ufo_id"].asInt();
 				std::string ufo_rule_id = obj["ufos"][i]["ufo_rule"].asString();
@@ -42413,6 +42296,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 						alien_mission->setId(mission_id);
 
 						alien_mission->setRegion(region, *_game->getMod());
+						alien_mission->setOwnerPlayerName(ownerPlayerName);
 
 						_game->getSavedGame()->getAlienMissions().push_back(alien_mission);
 					}
@@ -42523,6 +42407,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				double d_lon = obj["missions"][i]["lon"].asDouble();
 				double d_lat = obj["missions"][i]["lat"].asDouble();
 				int mission_id = obj["missions"][i]["mission_id"].asInt();
+				std::string ownerPlayerName = obj["missions"][i].get("ownerPlayerName", "").asString();
 
 				MissionSite* missionSite = 0;
 
@@ -42572,6 +42457,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				missionSite->setAlienRace(str_race);
 				missionSite->setDetected(true);
 				missionSite->setCity(str_city);
+				missionSite->setOwnerPlayerName(ownerPlayerName);
 
 				missionSite->setCoop(true);
 			}
@@ -42588,6 +42474,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				std::string pact = obj["alienbases"][i]["pact"].asString();
 				bool discovered = obj["alienbases"][i]["discovered"].asBool();
 				int start_month = obj["alienbases"][i]["start_month"].asInt();
+				std::string ownerPlayerName = obj["alienbases"][i].get("ownerPlayerName", "").asString();
 
 				AlienBase *alienBase = 0;
 
@@ -42637,6 +42524,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				alienBase->setDiscovered(discovered);
 				alienBase->setPactCountry(pact);
 				alienBase->setAlienRace(str_race);
+				alienBase->setOwnerPlayerName(ownerPlayerName);
 
 				alienBase->_coop = true;
 
@@ -42844,10 +42732,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// P2/F1: a battle resume parks the host behind its resume lobby/wait
 		// dialogs - resumeCampaign() closes the lobby but leaves the HostMenu
-		// beneath the COOP_DLG_WAIT_PLAYERS it pushed, and on the battle path
-		// the host never gets a resumeAck (it emits campaign_resume_battle
-		// instead), so nothing ever pops them. The client has now finished
-		// loading the streamed battle (this packet), so return the host to its
+		// beneath the COOP_DLG_WAIT_PLAYERS it pushed. The client has now finished
+		// loading the battle included in the authoritative world (this packet),
+		// so return the host to its
 		// own BattlescapeState: pop everything above it so BattlescapeState::
 		// think() runs and re-arms the coop-init block (_battleInit / role /
 		// turn) once COOP_READY sets coopSession below. Gate strictly on the
@@ -42956,6 +42843,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 				std::string map_data = obj["data"].asString();
 				mapData += map_data;
+				SharedEcon::noteWorldStreamProgress();
 
 				std::string jsonData2 = "{\"state\" : \"WAIT_MAP_SENDER\"}";
 				// TEST-ONLY hold_blob_ack - the ack is withheld only while armed AND the hook's scope applies (coopTestHoldBlobAckApplies: a
@@ -43082,11 +42970,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getCoopMod()->inventory_battle_window = false;
 			}
 
-			_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
-
-			Json::Value req;
-			req["state"] = "request_load_progress";
-			sendTCPPacketData(req.toStyledString());
+			// Ask for the world now. The join popup goes on top in
+			// the same frame, so the download dialog's init() would only send the
+			// request after the player closed that popup.
+			CoopState* download = new CoopState(COOP_DLG_WORLD_DOWNLOAD);
+			_game->pushState(download);
+			download->requestCampaignWorld();
 
 			_game->pushState(new Profile);
 		}
@@ -43366,7 +43255,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			for (auto& base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					for (auto& craft : *base->getCrafts())
@@ -43394,11 +43283,13 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// research option
 		_enable_research_sync = Options::EnableResearchSync;
+		if (_game->getSavedGame() && isSeparateCampaign())
+			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 		root["enable_research_sync"] = _enable_research_sync;
 
-		// time option
-		connectionTCP::_enable_time_sync = Options::EnableTimeSync;
-		root["enable_time_sync"] = connectionTCP::_enable_time_sync;
+		// Time synchronization is mandatory for the host-authoritative campaign.
+		// Keep the legacy wire key true for compatibility with older peers.
+		root["enable_time_sync"] = true;
 
 		// Reaction-fire suppression is a PvP-only option.  Always reset the
 		// session value for non-PvP games so a disabled value from an earlier PvP
@@ -43440,13 +43331,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		if (_game->getSavedGame()->coopHasRealBattle()) // coop: a practice battle is no battle (an equipment screen's has no BattlescapeState)
 		{
 			inBattle = true; // coop: a real battle counts with or without its BattlescapeState (none yet in its briefing): no battle-screen read
-		}
-
-		if (inBattle == false)
-		{
-			CoopState* coop = new CoopState(777);
-			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame()); // coop: the basehost snapshot without the practice battle
-			coop->loadWorld();
 		}
 
 		root["battle"] = inBattle;
@@ -43541,31 +43425,37 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// Keep the multiplayer options page in sync with the host-authoritative
 		// session value.  Previously it continued to display the client's local
 		// default (YES), even when the host had sent NO.
-		Options::EnableResearchSync = enable_research_sync;
+		Options::setSessionOverride(&Options::EnableResearchSync, enable_research_sync);
+		if (_game->getSavedGame() && isSeparateCampaign())
+			_game->getSavedGame()->setSeparateResearchSharingEnabled(enable_research_sync, _game->getMod());
 
-		// time option
-		bool enable_time_sync = obj["enable_time_sync"].asBool();
-		connectionTCP::_enable_time_sync = enable_time_sync;
+		// The legacy time-sync wire key is intentionally ignored. All current
+		// multiplayer campaigns use the host-authoritative clock.
 
 		// reaction shoot option
 		bool enable_reaction_shoot = obj["enable_reaction_shoot"].asBool();
 		connectionTCP::_enable_reaction_shoot = enable_reaction_shoot;
+		Options::setSessionOverride(&Options::EnableReactionFirePvp, enable_reaction_shoot);
 
 		// other player footsteps sounds
 		bool enable_other_player_footsteps = obj["enable_other_player_footsteps"].asBool();
 		connectionTCP::_enable_other_player_footsteps = enable_other_player_footsteps;
+		Options::setSessionOverride(&Options::EnableOtherPlayerFootsteps, enable_other_player_footsteps);
 
 		// enable host only time speed
 		bool enable_host_only_time_speed = obj["enable_host_only_time_speed"].asBool();
 		connectionTCP::_enable_host_only_time_speed = enable_host_only_time_speed;
+		Options::setSessionOverride(&Options::EnableHostOnlyTimeSpeed, enable_host_only_time_speed);
 
 		// enable XcomEquipmentAliensPVP
 		bool enable_xcom_equipment_aliens_pvp = obj["enable_xcom_equipment_aliens_pvp"].asBool();
 		connectionTCP::_enable_xcom_equipment_aliens_pvp = enable_xcom_equipment_aliens_pvp;
+		Options::setSessionOverride(&Options::EnableXcomEquipmentAliensPVP, enable_xcom_equipment_aliens_pvp);
 
 		// UnbalancedCraftSoldiersLimit
 		bool unbalanced_craft_soldiers_limit = obj["unbalanced_craft_soldiers_limit"].asBool();
 		connectionTCP::_unbalanced_craft_soldiers_limit = unbalanced_craft_soldiers_limit;
+		Options::setSessionOverride(&Options::UnbalancedCraftSoldiersLimit, unbalanced_craft_soldiers_limit);
 
 		// CHECK IF THE CLIENT IS IN BATTLE; IF SO, INCLUDE THE HOST, OTHERWISE DO NOTHING
 		// IF BOTH ARE IN BATTLE AT THE SAME TIME, CREATE A SEPARATE SESSION
@@ -43584,17 +43474,16 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		tcpPlayerName = playername;
 		tcpServerName = servername;
 
-		if (clientInBattle == false)
-		{
-			CoopState* coop = new CoopState(777);
-			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame()); // coop: the basehost snapshot without the practice battle
-			coop->loadWorld();
-		}
-
 		initProfile(clientInBattle, inBattle);
 
 		// if neither the client nor the host is in battle, then create base icons
 
+		// Legacy two-world base-marker exchange. Schema-3 SEPARATE and SHARED
+		// already hold every real base in the streamed authoritative world, so
+		// coopBase/coopBase2/coopBase3 would only waste bandwidth and risk minting
+		// obsolete _coopIcon mirrors. PvP/legacy multi-world modes retain it.
+		if (!(isSharedCampaign() || isSeparateCampaign()))
+		{
 		// BASE
 		Json::Value markers;
 
@@ -43616,7 +43505,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			for (auto &base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					for (auto &craft : *base->getCrafts())
@@ -43639,7 +43528,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			for (auto base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop: no marker for a base whose loss was announced
+				if (base->_isForeignBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
 				{
 
 					markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -43647,53 +43536,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					markers["markers"][index]["base"] = base->getName().c_str();
 					markers["markers"][index]["lon"] = base->getLongitude();
 					markers["markers"][index]["lan"] = base->getLatitude();
-
-					// new!!!
-
-					// new!!!
-					// Facilities synchronization
-					// facilities
-					int facilities_index = 0;
-					double tr_coop = 0;
-					double radar_range_coop = 0;
-					int completedFacilities = 0;
-					int mindShields = 0;
-					for (const auto* fac : *base->getFacilities())
-					{
-						if (fac->getBuildTime() != 0)
-						{
-							continue;
-						}
-
-						if (fac->getRules())
-						{
-							if (fac->getBuildTime() == 0)
-							{
-								tr_coop = fac->getRules()->getRadarRange();
-								if (tr_coop < 10000 && tr_coop > radar_range_coop)
-									radar_range_coop = tr_coop;
-
-								if (_game->getCoopMod()->getServerOwner() == false)
-								{
-									completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-									if (fac->getRules()->isMindShield() && !fac->getDisabled())
-									{
-										mindShields = fac->getRules()->getMindShieldPower();
-									}
-
-									markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-									markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-									markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-									markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
-									markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
-
-									facilities_index++;
-								}
-							}
-						}
-					}
-
-					markers["markers"][index]["radar_range_coop"] = radar_range_coop;
+					writeMirrorRadar(markers["markers"][index], base, getServerOwner());
 
 					markers["markers"][index]["getAvailableEngineers"] = base->getAvailableEngineers();
 					markers["markers"][index]["getAvailableHangars"] = base->getAvailableHangars();
@@ -43712,6 +43555,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		}
 
 		sendTCPPacketData(markers.toStyledString());
+		}
 
 		// RESET ALL SOLDIERS OUT OF THE BASES(HAPPENS ONCE IN AN ERROR SITUATION)
 		for (auto* base : *_game->getSavedGame()->getBases())
@@ -43737,7 +43581,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// SEPARATE-only mirror-base machinery (creates _coopIcon peer
 		// bases). SHARED has one shared world with real bases - never mirror.
-		if (isSharedCampaign())
+		if ((isSharedCampaign() || isSeparateCampaign()))
 		{
 			return;
 		}
@@ -43812,9 +43656,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					existingBase->setName(marker["base"].asString());
 
 					// new !!!
-					existingBase->_facilitiesCoop = marker["facilities"];
-					double radar_range_coop = marker["radar_range_coop"].asDouble();
-					existingBase->_radar_range_coop = radar_range_coop;
+					readMirrorRadar(existingBase, marker);
 
 					alreadyExists = true;
 					break;
@@ -43838,15 +43680,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			// new!!!
-			CoopBase->_facilitiesCoop = marker["facilities"];
-			double radar_range_coop = marker["radar_range_coop"].asDouble();
-			CoopBase->_radar_range_coop = radar_range_coop;
+			readMirrorRadar(CoopBase, marker);
 
 			std::string base_name = marker["base"].asString();
 			CoopBase->setName(base_name);
 
-			CoopBase->isCoopBase(true);
+			CoopBase->setForeignBase(true);
 			CoopBase->_coopIcon = true;
 
 			CoopBase->setLongitude(lon);
@@ -43865,7 +43704,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0) && !coopBaseLossAnnounced(base)) // coop: no marker for a base whose loss was announced
+			if (base->_isForeignBase == false && base->_coopIcon == false && (base->getLatitude() != 0 || base->getLongitude() != 0))
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -43883,53 +43722,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
-
-				// new!!!
-
-				// new!!!
-				// Facilities synchronization
-				// facilities
-				int facilities_index = 0;
-				double tr_coop = 0;
-				double radar_range_coop = 0;
-				int completedFacilities = 0;
-				int mindShields = 0;
-				for (const auto* fac : *base->getFacilities())
-				{
-					if (fac->getBuildTime() != 0)
-					{
-						continue;
-					}
-
-					if (fac->getRules())
-					{
-						if (fac->getBuildTime() == 0)
-						{
-							tr_coop = fac->getRules()->getRadarRange();
-							if (tr_coop < 10000 && tr_coop > radar_range_coop)
-								radar_range_coop = tr_coop;
-
-							if (_game->getCoopMod()->getServerOwner() == false)
-							{
-								completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-								if (fac->getRules()->isMindShield() && !fac->getDisabled())
-								{
-									mindShields = fac->getRules()->getMindShieldPower();
-								}
-
-								markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-								markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-								markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-								markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
-								markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
-
-								facilities_index++;
-							}
-						}
-					}
-				}
-
-				markers["markers"][index]["radar_range_coop"] = radar_range_coop;
+				writeMirrorRadar(markers["markers"][index], base, getServerOwner());
 
 				index++;
 			}
@@ -43944,7 +43737,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// PRD-J07 (extending the J02 fence list): SEPARATE-only mirror machinery -
 		// creates a _coopIcon marker base. SHARED base creation rides the base_new
 		// shared_apply, which appends the REAL base on every machine.
-		if (isSharedCampaign())
+		if ((isSharedCampaign() || isSeparateCampaign()))
 		{
 			return;
 		}
@@ -44019,7 +43812,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		std::string base_name = obj["markers"]["base"].asString();
 		CoopBase->setName(base_name);
 
-		CoopBase->isCoopBase(true);
+		CoopBase->setForeignBase(true);
 		CoopBase->_coopIcon = true;
 
 		CoopBase->_coop_base_id = coopbaseid;
@@ -44046,7 +43839,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// SEPARATE-only mirror machinery; never in SHARED. Also guard the
 		// save deref: a SHARED replica can receive stray packets before its world
 		// exists, and the loop below dereferences the SavedGame.
-		if (isSharedCampaign() || !_game->getSavedGame())
+		if ((isSharedCampaign() || isSeparateCampaign()) || !_game->getSavedGame())
 		{
 			return;
 		}
@@ -44074,7 +43867,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		for (auto base : *_game->getSavedGame()->getBases())
 		{
 
-			if (base->_coopBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0) && !coopBaseLossAnnounced(base)) // coop: no marker for a base whose loss was announced
+			if (base->_isForeignBase == false && base->_coopIcon == false && (base->getLongitude() != 0 || base->getLatitude() != 0))
 			{
 
 				markers["markers"][index]["coopbaseid"] = base->_coop_base_id;
@@ -44092,51 +43885,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				markers["markers"][index]["getAvailableStores"] = base->getAvailableStores();
 				markers["markers"][index]["getAvailableTraining"] = base->getAvailableTraining();
 				markers["markers"][index]["getAvailableWorkshops"] = base->getAvailableWorkshops();
-
-				// new!!!
-				// Facilities synchronization
-				// facilities
-				int facilities_index = 0;
-				double tr_coop = 0;
-				double radar_range_coop = 0;
-				int completedFacilities = 0;
-				int mindShields = 0;
-				for (const auto* fac : *base->getFacilities())
-				{
-					if (fac->getBuildTime() != 0)
-					{
-						continue;
-					}
-
-					if (fac->getRules())
-					{
-						if (fac->getBuildTime() == 0)
-						{
-							tr_coop = fac->getRules()->getRadarRange();
-							if (tr_coop < 10000 && tr_coop > radar_range_coop)
-								radar_range_coop = tr_coop;
-
-							if (_game->getCoopMod()->getServerOwner() == false)
-							{
-								completedFacilities = fac->getRules()->getSizeX() * fac->getRules()->getSizeY();
-								if (fac->getRules()->isMindShield() && !fac->getDisabled())
-								{
-									mindShields = fac->getRules()->getMindShieldPower();
-								}
-
-								markers["markers"][index]["facilities"][facilities_index]["radar_chance_coop"] = fac->getRules()->getRadarChance();
-								markers["markers"][index]["facilities"][facilities_index]["hyperwave_coop"] = fac->getRules()->isHyperwave();
-								markers["markers"][index]["facilities"][facilities_index]["radar_range_coop"] = fac->getRules()->getRadarRange();
-								markers["markers"][index]["facilities"][facilities_index]["completedFacilities"] = completedFacilities;
-								markers["markers"][index]["facilities"][facilities_index]["mindShields"] = mindShields;
-
-								facilities_index++;
-							}
-						}
-					}
-				}
-
-				markers["markers"][index]["radar_range_coop"] = radar_range_coop;
+				writeMirrorRadar(markers["markers"][index], base, getServerOwner());
 
 				index++;
 			}
@@ -44163,8 +43912,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "coopBase2" && onTcpHost == false)
 	{
 
-		// SEPARATE-only mirror-base machinery. Never in SHARED.
-		if (isSharedCampaign())
+		// PRD-J02: SEPARATE-only mirror-base machinery. Never in SHARED.
+		if ((isSharedCampaign() || isSeparateCampaign()))
 		{
 			return;
 		}
@@ -44229,10 +43978,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					// coop: the mirror takes the partner's current base name.
 					existingBase->setName(base_name);
 
-					// new !!!
-					existingBase->_facilitiesCoop = marker["facilities"];
-					double radar_range_coop = marker["radar_range_coop"].asDouble();
-					existingBase->_radar_range_coop = radar_range_coop;
+					readMirrorRadar(existingBase, marker);
 
 					alreadyExists = true;
 					break;
@@ -44256,14 +44002,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			// new !!!
-			CoopBase->_facilitiesCoop = marker["facilities"];
-			double radar_range_coop = marker["radar_range_coop"].asDouble();
-			CoopBase->_radar_range_coop = radar_range_coop;
+			readMirrorRadar(CoopBase, marker);
 
 			CoopBase->setName(base_name);
 
-			CoopBase->isCoopBase(true);
+			CoopBase->setForeignBase(true);
 			CoopBase->_coopIcon = true;
 
 			CoopBase->setLongitude(lon);
@@ -44277,8 +44020,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "coopBase3" && getHost() == true)
 	{
 
-		// SEPARATE-only mirror-base machinery. Never in SHARED.
-		if (isSharedCampaign())
+		// PRD-J02: SEPARATE-only mirror-base machinery. Never in SHARED.
+		if ((isSharedCampaign() || isSeparateCampaign()))
 		{
 			return;
 		}
@@ -44301,7 +44044,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				bool ownBase = false;
 				for (Base* hostBase : *_game->getSavedGame()->getBases())
 				{
-					if (hostBase->_coopIcon == false && hostBase->_coopBase == false && hostBase->_coop_base_id == markerBaseId &&
+					if (hostBase->_coopIcon == false && hostBase->_isForeignBase == false && hostBase->_coop_base_id == markerBaseId &&
 						hostBase->getLongitude() == markerLon && hostBase->getLatitude() == markerLan)
 					{
 						ownBase = true;
@@ -44368,10 +44111,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					// coop: the mirror takes the partner's current base name.
 					existingBase->setName(base_name);
 
-					// new !!!
-					existingBase->_facilitiesCoop = marker["facilities"];
-					double radar_range_coop = marker["radar_range_coop"].asDouble();
-					existingBase->_radar_range_coop = radar_range_coop;
+					readMirrorRadar(existingBase, marker);
 
 					alreadyExists = true;
 					break;
@@ -44395,14 +44135,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 			CoopBase->_coop_base_id = coopbaseid;
 
-			// new !!!
-			CoopBase->_facilitiesCoop = marker["facilities"];
-			double radar_range_coop = marker["radar_range_coop"].asDouble();
-			CoopBase->_radar_range_coop = radar_range_coop;
+			readMirrorRadar(CoopBase, marker);
 
 			CoopBase->setName(base_name);
 
-			CoopBase->isCoopBase(true);
+			CoopBase->setForeignBase(true);
 			CoopBase->_coopIcon = true;
 
 			CoopBase->setLongitude(lon);
@@ -44420,6 +44157,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "SEND_FILE_HOST_TRUE_SAVE_PROGRESS")
 	{
+		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
+		const bool initialSeparateBootstrap = liveSave
+			&& liveSave->getCampaignType() == CoopCampaignType::Separate
+			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+		if ((isSharedCampaign() || isSeparateCampaign()) && !initialSeparateBootstrap)
+		{
+			return;
+		}
 
 		Json::Value root;
 
@@ -44431,73 +44176,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "SEND_FILE_HOST_SAVE_PROGRESS" && !coopHoldProgressReplyWhileStreaming()) // coop: held while another world stream runs here
 	{
+		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
+		const bool initialSeparateBootstrap = liveSave
+			&& liveSave->getCampaignType() == CoopCampaignType::Separate
+			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+		if ((isSharedCampaign() || isSeparateCampaign()) && !initialSeparateBootstrap)
+		{
+			return;
+		}
 
 		_game->getCoopMod()->load_state = "Saving";
 
 		sendFileHost = true;
 		sendProgressSaveFileToHost = true;
 	}
-
-	// BASES
-	if (stateString == "SEND_FILE_HOST_BASE" && onTcpHost == false && !coopHoldBaseAnswer(_game, 1) && !coopHoldBaseAnswerWhileStreaming(1)) // coop: held while the own new base is unnamed or a world stream runs here
-	{
-
-		sendBaseFile();
-
-		sendFileHost = true;
-		sendFileBase = true;
-	}
-
-	if (stateString == "SEND_FILE_CLIENT_BASE" && onTcpHost == true && !coopDropBaseRequestInHandOff(2) && !coopHoldBaseAnswer(_game, 2)) // coop: dropped during a battle hand-off, held while the own new base is unnamed
-	{
-
-		sendBaseFile();
-
-		sendFileClient = true;
-		sendFileBase = true;
-	}
-
-	if (stateString == "MAP_RESULT_CLIENT_BASE" && onTcpHost == false && !coopDropBaseResultInHandOff()) // coop: dropped while this machine is being handed a battle
-	{
-
-		writeHostMapFile2();
-
-		if (!coopTestHoldBaseResult()) // coop (TEST-ONLY hold_base_result; inert unless armed)
-		{
-			CoopState* coopWindow = new CoopState(55);
-			coopWindow->loadWorld();
-		}
-
-	}
-
-	if (stateString == "MAP_RESULT_HOST_BASE" && onTcpHost == true)
-	{
-
-		writeHostMapFile2();
-
-		if (!coopTestHoldBaseResult()) // coop (TEST-ONLY hold_base_result; inert unless armed)
-		{
-			CoopState* coopWindow = new CoopState(55);
-			coopWindow->loadWorld();
-		}
-
-	}
-}
-
-void connectionTCP::sendBaseFile()
-{
-
-	// saving is not allowed if in battle and inside another player's base!
-	// coop: nor while the live world is the partner's base view after a 67
-	// (the save of the view is refused: a false 995); the stream then sends the parked own world "basehost", as during the visit.
-	if (!_game->getSavedGame()->getSavedBattle() && _game->getCoopMod()->playerInsideCoopBase == false && !coopLiveWorldIsPeerView(_game))
-	{
-		if (_game->getCoopMod()->coopMissionEnd == false)
-		{
-			_game->getSavedGame()->saveCoopToMemory("basehost", _game->getMod(), "basehost");
-		}
-	}
-
 }
 
 std::string connectionTCP::getPing()
@@ -44518,6 +44210,82 @@ void connectionTCP::setCoopSession(bool session)
 void connectionTCP::setServerOwner(bool owner)
 {
 	session.setRole(owner ? CoopRole::Host : CoopRole::None);
+	refreshSeparateBaseOwnership();
+}
+
+void connectionTCP::leaveSessionToMainMenu()
+{
+	// Role is cleared AFTER the teardown, never before: disconnectTCP branches
+	// on it, and clearing it early makes the host tear down as a client.
+	disconnectTCP(true);
+	setServerOwner(false);
+	session.resetSession();
+	// GoToMainMenuState::init drops the world once the popped states are freed.
+	_game->setState(new GoToMainMenuState(false));
+}
+
+void connectionTCP::refreshSeparateBaseOwnership()
+{
+	// A campaign save is loaded before HostMenu/Join has established this
+	// process's network role. Base::load therefore cannot be the final authority
+	// for Separate's local presentation flag. Re-derive it once the role is known;
+	// ownerPlayerName remains the persistent truth in the one shared world.
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	if (save && isSeparateCampaign())
+	{
+		// Schema-3 is one world, so player-local soldier ids must be upgraded
+		// before a BattleUnit inherits them. This is deterministic on replicas and
+		// also upgrades old Separate geoscape saves on first load.
+		if (!save->getSavedBattle())
+		{
+			SeparateEcon::normalizeSoldierIds(_game);
+			// Each player's starting base came from its own new-game world, so
+			// craft ids repeat per base until the host renumbers them.
+			SeparateEcon::normalizeCraftIds(_game);
+		}
+		// Vehicle ownership is persisted by player name. Resolve that stable name
+		// to this connection's current seats after the lobby roster is available.
+		SeparateEcon::synchronizeVehicleOwners(_game);
+		const std::string localName = seatName(localSeat());
+		if (!localName.empty())
+		{
+			for (Base* base : *save->getBases())
+			{
+				if (base && !base->getOwnerPlayerName().empty())
+				{
+					base->_isForeignBase = !base->isOwnedByPlayer(localName);
+					base->_coopIcon = false;
+
+					// Schema-3 keeps every base and soldier in one authoritative save.
+					// Legacy/fresh Separate starting soldiers may still carry 999
+					// (unowned); bind those once to the seat named by their base. A later
+					// physical base transfer preserves this owner, so the destination
+					// base owner cannot see or control the guest soldier.
+					int ownerSeat = -1;
+					for (int seat = 0; seat < seatCount(); ++seat)
+					{
+						if (seatName(seat) == base->getOwnerPlayerName())
+						{
+							ownerSeat = seat;
+							break;
+						}
+					}
+					if (ownerSeat >= 0)
+					{
+						for (Soldier* soldier : *base->getSoldiers())
+						{
+							if (soldier && soldier->getOwnerPlayerId() == 999)
+							{
+								soldier->setOwnerPlayerId(ownerSeat);
+								soldier->setCoop(ownerSeat);
+							}
+						}
+					}
+				}
+			}
+		}
+		SeparateEcon::trimInitialCraftCrews(_game);
+	}
 }
 
 void connectionTCP::setCoopCampaign(bool coop)
@@ -44538,6 +44306,17 @@ bool connectionTCP::isSharedCampaign()
 		&& save->getCampaignType() == CoopCampaignType::Shared;
 }
 
+// A negative SHARED test is not enough here: solo games, PvP/custom battles and
+// the pre-save lobby also are "not shared". Keep SEPARATE explicit so none of
+// those modes can accidentally enter the campaign save/economy protocol.
+bool connectionTCP::isSeparateCampaign()
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	return save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Separate
+		&& (_coopGamemode == 0 || _coopGamemode == 1);
+}
+
 // Static mirror of isSharedCampaign() for engine-level callers that hold no CoopMod
 // instance (e.g. Craft capacity accounting). Reads the same authoritative save via the
 // static Game pointer.
@@ -44548,18 +44327,54 @@ bool connectionTCP::isSharedCampaignStatic()
 		&& save->getCampaignType() == CoopCampaignType::Shared;
 }
 
-// a SHARED client holds a replica of the host's single authoritative
-// world. Host = seat 0 owns the world; every other seat is a replica.
+// Both campaign types replicate the host's authoritative world. This helper is
+// about the network role, not the campaign's economy or base permissions.
 bool connectionTCP::isSharedReplica()
 {
-	return isSharedCampaign() && !getHost();
+	return (isSharedCampaign() || isSeparateCampaign()) && !getServerOwner();
+}
+
+bool connectionTCP::isCampaignReplica()
+{
+	// The server owner owns the authoritative world and is never a replica,
+	// whatever seat value a previous session or a loaded blob left behind.
+	if (getServerOwner())
+		return false;
+	// Only the single-world campaigns have replicas. PvP (game mode 2/3) keeps
+	// one independent world per player, which each machine simulates.
+	if (!isSharedCampaign() && !isSeparateCampaign())
+		return false;
+
+	// The streamed save records this machine's local seat. Keep treating a
+	// non-host seat as a replica even after the socket disappears and
+	// resetSession clears the transient Client role. The replica remains frozen
+	// until its host-derived SavedGame is discarded on the way to the main menu.
+	return session.role == CoopRole::Client
+		|| connectionTCP::coop_save_owner_player_id > 0;
+}
+
+int connectionTCP::loadedSaveOwnerId(int storedOwnerId, bool singleWorldCampaign)
+{
+	if (!singleWorldCampaign)
+		return storedOwnerId;
+	// One authoritative world: the host (and a solo or pre-host load) is seat 0,
+	// a connected client is seat 1 (LoadGameState re-asserts it after adoption).
+	return session.role == CoopRole::Client ? 1 : 0;
+}
+
+bool connectionTCP::isSeparateCampaignStatic()
+{
+	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
+	return save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Separate
+		&& (_coopGamemode == 0 || _coopGamemode == 1);
 }
 
 // coop: see connectionTCP.h. The predicate mirrors GeoscapeState's time5Seconds..time1Day
 // returns (isSharedReplica(); no_bases on a non-host machine).
 bool connectionTCP::coopClientOwnClock()
 {
-	return getCoopStatic() && !getServerOwner() && _enable_time_sync && !isSharedReplica() && !(no_bases && !getHost());
+	return getCoopStatic() && !getServerOwner() && !isSharedReplica() && !(no_bases && !getHost());
 }
 
 int connectionTCP::coopClientPendingGeoTicks()
@@ -44572,7 +44387,7 @@ int connectionTCP::coopClientPendingGeoTicks()
 
 void connectionTCP::coopGeoTickDone()
 {
-	if (!getCoopStatic() || !_enable_time_sync)
+	if (!getCoopStatic())
 		return;
 	if (getServerOwner())
 		++_geoTicksStepped;
@@ -44628,12 +44443,9 @@ void connectionTCP::streamSharedWorldToClient()
 		return;
 	}
 
-	const std::string key = "shared_world";
-	if (!coopPvpTakeStoredWorld()) // coop: a borrowed battle's post-battle world was stored at the debriefing
-	{
-		connectionTCP::saveError = false;
-		_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
-	}
+	const std::string key = "authoritative_campaign_world";
+	connectionTCP::saveError = false;
+	_game->getSavedGame()->saveCoopToMemory(key, _game->getMod(), key);
 
 	std::string blob;
 	{
@@ -44669,7 +44481,8 @@ void connectionTCP::streamSharedWorldToClient()
 // restream and every other, so there is nothing to arm here.
 void connectionTCP::sharedResyncStream()
 {
-	if (!getServerOwner() || !isSharedCampaign() || !_game->getSavedGame())
+	if (!getServerOwner() || (!isSharedCampaign() && !isSeparateCampaign())
+		|| !_game->getSavedGame())
 	{
 		return;
 	}
@@ -44686,7 +44499,12 @@ void connectionTCP::sharedResyncStream()
 	if (!sendFileClient)
 	{
 		Log(LOG_ERROR) << "[coop-shared] resync restream failed to serialize the world";
+		return;
 	}
+	// The snapshot is taken and nothing has run since: mark this spot in the
+	// message order, so the replica holds the results sent after it until it has
+	// adopted this world (SharedEcon::holdResultDuringRestream).
+	SharedEcon::sendRestreamMark(_game);
 }
 
 // this machine's seat. Host is always 0; a client's seat is its
@@ -44768,29 +44586,6 @@ void connectionTCP::createCoopMenu()
 void connectionTCP::sendTCPPacketStaticData2(std::string data)
 {
 	enqueueTx(std::move(data));
-}
-
-void connectionTCP::writeHostMapFile2()
-{
-	
-	if (mapData.empty())
-		return;
-
-	{
-		std::lock_guard<std::mutex> lock(coopFilesMutex);
-		if (connectionTCP::getServerOwner() == true)
-		{
-			connectionTCP::coopFilesHost["baseclient"] = std::move(mapData);
-		}
-		else
-		{
-			connectionTCP::coopFilesClient["baseclient"] = std::move(mapData);
-		}
-	}
-
-	// the map data must be reset for the next use (fix)
-	mapData = "";
-
 }
 
 void connectionTCP::setHost(bool host)
@@ -44907,13 +44702,25 @@ void connectionTCP::sendMissionFile()
 		Json::Value obj;
 		obj["state"] = "SEND_FILE_CLIENT_TRUE";
 		obj["target"] = false;
+		if (nextStageBriefing)
+		{
+			obj["nextStageBriefing"] = true;
+			if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
+				obj["nextStageType"] =
+					_game->getSavedGame()->getSavedBattle()->getMissionType();
+		}
 
-		// Delete coop UFOs or missions
-		if (getSelectedCraft() && getCoopCampaign() == true)
+		// The target metadata is needed only when the initial battle leaves the
+		// Geoscape. During a multi-stage transition the battle snapshot already
+		// contains the next map and selectedCraft may still point at an object from
+		// the replaced stage/world. Dereferencing it here caused client-owned
+		// ROSIGMA finales to crash between stages.
+		Craft* selectedCraft = nextStageBriefing ? nullptr : getSelectedCraft();
+		if (selectedCraft && getCoopCampaign() == true)
 		{
 
-			Ufo* u = dynamic_cast<Ufo*>(getSelectedCraft()->getDestination());
-			MissionSite* m = dynamic_cast<MissionSite*>(getSelectedCraft()->getDestination());
+			Ufo* u = dynamic_cast<Ufo*>(selectedCraft->getDestination());
+			MissionSite* m = dynamic_cast<MissionSite*>(selectedCraft->getDestination());
 
 			if (u)
 			{
@@ -44982,10 +44789,7 @@ void connectionTCP::streamSkirmishBattleToClient()
 void connectionTCP::sendSaveProgressFile()
 {
 
-	// coop: also while the live world is still the partner's base view after an earlier 67 cleared the visit flag (the player stayed on
-	// a base screen): the 67 again and the answer at the geoscape, never the branch below, whose save of the view is refused and whose
-	// cleanup erases the stored own world.
-	if ((_game->getCoopMod()->playerInsideCoopBase == true || coopLiveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
+	if (_game->getCoopMod()->playerInsideCoopBase == true && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
 		// Go to the Geoscape to begin saving progress.
@@ -45012,7 +44816,7 @@ void connectionTCP::sendSaveProgressFile()
 		_game->pushState(coopWindow);
 
 		// saving files
-		std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
+		std::string filename = pvpClientWorldKey(_game->getCoopMod()->getHostName());
 
 		// skip ONLY the live-world serialize while the live world is still the
 		// SEPARATE battle world - it would overwrite the own-world blob with the host's world. The host's deferred save
@@ -45432,7 +45236,7 @@ void connectionTCP::setClientSoldiers()
 	// the client had already loaded the first one. Result: host and client standing on
 	// two entirely different maps (soldiers on open ground, no craft). The host already
 	// generated and shipped the authoritative battle in btnYesClick; never regenerate.
-	if (isSharedCampaign())
+	if ((isSharedCampaign() || isSeparateCampaign()))
 	{
 		return;
 	}
@@ -45605,7 +45409,7 @@ void connectionTCP::updateAllCoopBases()
 
 		CoopBase->setName(base_name);
 
-		CoopBase->isCoopBase(true);
+		CoopBase->setForeignBase(true);
 		CoopBase->_coopIcon = true;
 
 		CoopBase->setLongitude(lon);
@@ -45984,7 +45788,15 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// keys on the gm3 alien host only).
 		const bool coopPvpXcomHost = !isMain && onConnect == -2 && session.role == CoopRole::Host && connectionTCP::_coopCampaign
 			&& connectionTCP::_coopGamemode == 2;
-		if (!coopBattleLive(_game) && !coopPvpAlienHost && !coopPvpXcomHost) // coop: a PvP campaign host keeps its mode
+		// A campaign host keeps its world through a peer drop too, and the game
+		// mode is part of that world: PvP is stored as a Separate campaign, so a
+		// zero here made the host apply single-world Separate rules (and save
+		// mode 0) while it waited. The main menu and every save load reset it.
+		SavedGame* keptWorld = _game ? _game->getSavedGame() : nullptr;
+		const bool hostKeepsCampaign = session.role == CoopRole::Host
+			&& keptWorld && keptWorld->isCoopSave()
+			&& keptWorld->getMonthsPassed() != -1;
+		if (!coopBattleLive(_game) && !coopPvpAlienHost && !coopPvpXcomHost && !hostKeepsCampaign) // coop: a PvP campaign host keeps its mode
 		{
 			connectionTCP::_coopGamemode = 0;
 		}
@@ -46004,6 +45816,25 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_voteRequestPending = false;
 		_voteStarterCooldownUntil.clear();
 		coopAbortVoteCancel(); // coop
+		// A pending faction finale outlives a peer drop only on the host, which
+		// re-sends it on rejoin; both players must announce readiness again.
+		// A client's copy came from the host and is re-sent when it rejoins.
+		if (session.role == CoopRole::Host)
+		{
+			resetFactionFinaleReadiness();
+			_factionFinaleReplicaSynced = false;
+		}
+		else
+			clearFactionFinaleState();
+
+	    OpenXcom::disconnectRendezvousUdp();
+
+		// Clear all shared TCP/UDP packet queues after the transport is stopped.
+		// This prevents stale packets from the previous session from affecting
+		// a newly hosted or joined session.
+		OpenXcom::clearNetworkSessionQueues();
+
+		deleteAllCoopBases();
 
 		// Capture the machine role ONCE for this teardown - handlers used to
 		// mutate server_owner mid-flight and make the cleanup misclassify the
@@ -46261,9 +46092,7 @@ void connectionTCP::disconnectTCP(bool isMain)
 				{
 					coopWriteArmedSaveOnPeerDrop(_game); // coop: write the deferred save this drop disarms, close the 54
 					connectionTCP::session.freeze();
-					// coop: a host viewing the partner's base returns to its own world first; the 62 then opens after the reload (updateCoopTask)
-					if (!coopHostDropLeavesPeerView(_game))
-						_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+					_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 				}
 				else
 				{
@@ -46308,6 +46137,9 @@ void connectionTCP::disconnectTCP(bool isMain)
 			}
 
 		}
+
+		// Results held for a restream die with the connection.
+		SharedEcon::resetRestreamHold();
 
 		// Session-state resets: exactly two paths (see CoopSession). The host
 		// keeps its campaign/lobby context across a peer drop (D5); a client's
@@ -46354,7 +46186,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 		}
 
 		connectionTCP::no_bases = coopPvpAlienHost && coopPvpParkedWorld() == nullptr; // coop: the gm3 alien host keeps its alien role across its partner's drop (false while it borrows the X-COM world)
-		connectionTCP::isCoopBaseLoading = false;
 
 		gamePaused = 0;
 		// Unpaired certain-event spawns belong to this session only: a new campaign
@@ -46373,7 +46204,6 @@ void connectionTCP::disconnectTCP(bool isMain)
 		_clientPanicHandle = false;
 
 		sendFileClient = false;
-		sendFileBase = false;
 		sendFileHost = false;
 		sendFileSave = false;
 		onceTime = false;
@@ -46454,7 +46284,7 @@ void connectionTCP::writeHostMapFile()
 		if (client_save && _game->getCoopMod()->getCoopCampaign() == true && _game->getCoopMod()->getServerOwner() == true)
 		{
 
-			std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+			std::string filename = pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
 
 			// served copy lives in memory only; the host .sav embed persists it
 			client_save->saveCoopToMemory(filename, _game->getMod(), filename);
@@ -46480,8 +46310,11 @@ void connectionTCP::writeHostMapFile()
 
 bool connectionTCP::writeHostMapSaveProgressFile()
 {
-
-	std::string filename = hostBlobKey(_game->getCoopMod()->getCurrentClientName());
+	const bool campaignBootstrap = _game->getCoopMod()->isSeparateCampaign()
+		&& connectionTCP::session.lobbyMode == 1;
+	std::string filename = campaignBootstrap
+		? "separate_initial_base_transfer"
+		: pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
 
 	if (mapData.empty())
 		return false;
@@ -46522,7 +46355,11 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		for (auto& base : *coopFile->getBases())
 		{
 
-			if (base->_coopBase == false)
+			// Ownership is viewer-relative: the client's real base is necessarily
+			// foreign when this validation runs on the host. It must therefore never
+			// decide whether an uploaded PvP world contains a real base. Marker icons
+			// are the only non-real base objects in either bootstrap format.
+			if (!base->_coopIcon)
 			{
 				found = true;
 			}
@@ -46543,12 +46380,92 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 
 	bool stored = (error == false && coopFile && found == true);
 
+	// Schema-3 SEPARATE bootstrap: the client's freshly placed first base is a
+	// one-shot contribution to the host world, never a persistent player world.
+	// Move its complete base subtrees into the authoritative save, stamp ownership
+	// by the locked player name, then discard the transfer blob.
+	if (stored && _game->getSavedGame()
+		&& _game->getSavedGame()->getCampaignType() == CoopCampaignType::Separate
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+		&& connectionTCP::session.lobbyMode == 1)
+	{
+		const std::string owner = _game->getCoopMod()->getCurrentClientName();
+		SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
+		const int hostDifficulty = static_cast<int>(_game->getSavedGame()->getDifficulty());
+		const int clientDifficulty = static_cast<int>(coopFile->getDifficulty());
+		separate.setFaction(connectionTCP::seatName(connectionTCP::localSeat()),
+			"difficulty:" + std::to_string(hostDifficulty));
+		separate.setFaction(owner,
+			"difficulty:" + std::to_string(clientDifficulty));
+		auto researchNames = [](const SavedGame* save)
+		{
+			std::vector<std::string> names;
+			if (save)
+				for (const RuleResearch* rule : save->getDiscoveredResearch())
+					if (rule) names.push_back(rule->getName());
+			return names;
+		};
+		const std::vector<std::string> hostFactionResearch = researchNames(_game->getSavedGame());
+		std::vector<std::string> clientFactionResearch = researchNames(coopFile);
+		separate.setFactionResearch(connectionTCP::seatName(connectionTCP::localSeat()),
+			hostFactionResearch);
+		separate.setFactionResearch(owner, clientFactionResearch);
+		// The temporary client save already contains the discoveries granted by
+		// its selected faction at new-save creation. Import that private profile;
+		// factionResearch is mission-script metadata and does not drive the actual
+		// New Research list.
+		if (const SeparateEcon::CampaignData::PlayerState* clientProfile =
+			coopFile->getSeparateCampaign().getPlayer(owner))
+		{
+			separate.replaceCompletedResearch(owner, clientProfile->completedResearch);
+		}
+		bool alreadyMerged = false;
+		for (Base* base : *_game->getSavedGame()->getBases())
+			if (base && base->isOwnedByPlayer(owner)) { alreadyMerged = true; break; }
+
+		if (!alreadyMerged)
+		{
+			// The joining player's saved templates start as a new world's do:
+			// the starting base's templates for that player's difficulty. The
+			// bootstrap world's own template slots are not read.
+			SeparateEcon::setStartingTemplates(_game, owner, clientDifficulty);
+			auto* source = coopFile->getBases();
+			for (auto it = source->begin(); it != source->end(); )
+			{
+				Base* base = *it;
+				if (base && !base->_coopIcon)
+				{
+					base->setOwnerPlayerName(owner);
+					base->_isForeignBase = !base->isOwnedByPlayer(
+						connectionTCP::seatName(connectionTCP::localSeat()));
+					base->_coopIcon = false;
+					_game->getSavedGame()->getBases()->push_back(base);
+					it = source->erase(it); // ownership transferred to host SavedGame
+				}
+				else ++it;
+			}
+		}
+		refreshSeparateBaseOwnership();
+
+		delete coopFile;
+		coopFile = nullptr;
+		{
+			std::lock_guard<std::mutex> lock(coopFilesMutex);
+			coopFilesHost.erase(scratchKey);
+			coopFilesHost.erase(filename);
+		}
+		mapData.clear();
+		Log(LOG_INFO) << "[coop-separate] merged bootstrap base(s) for '" << owner
+			<< "' into the authoritative host world; no client blob retained";
+		return true;
+	}
+
 	std::string failReason;
 	if (!stored)
 	{
 		failReason = (coopFile == nullptr) ? "parse failed"
 			: error ? "base with empty name or null coords"
-			: "no non-coop (own) base present";
+			: "no real base present";
 	}
 
 	delete coopFile;
@@ -46589,8 +46506,9 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 
 void connectionTCP::writeHostMapLoadProgressFile()
 {
-
-	std::string filename = clientBlobKey(_game->getCoopMod()->getHostName());
+	std::string filename = (isSharedCampaign() || isSeparateCampaign())
+		? "authoritative_campaign_world"
+		: pvpClientWorldKey(_game->getCoopMod()->getHostName());
 
 	if (mapData.empty())
 		return;
@@ -46822,7 +46740,7 @@ void connectionTCP::coopPvpBorrowPump()
 		if (SavedGame* own = _game->getSavedGame())
 			for (auto* base : *own->getBases())
 				for (auto* craft : *base->getCrafts())
-					if (!base->_coopBase && !base->_coopIcon && !craft->coop && craft->getRules()->getType() == g_coopPvpClientCraftType
+					if (!base->_isForeignBase && !base->_coopIcon && !craft->coop && craft->getRules()->getType() == g_coopPvpClientCraftType
 						&& craft->getId() == g_coopPvpClientCraftId)
 						craft->returnToBase();
 		g_coopPvpRec["released"] = g_coopPvpRec["released"].asInt() + 1;
@@ -46833,7 +46751,7 @@ void connectionTCP::coopPvpBorrowPump()
 		&& coopBattleAuthority().phase.load() == CoopBattlePhase::Idle && seatCount() >= 2 && !_game->getStates().empty()
 		&& dynamic_cast<GeoscapeState*>(_game->getStates().back())))
 		return; // only on the host's geoscape, no battle in flight, the client connected
-	const std::string key = hostBlobKey(getCurrentClientName()); // (1) the X-COM world, from the host's copy of the client's world
+	const std::string key = pvpHostWorldKey(getCurrentClientName()); // (1) the X-COM world, from the host's copy of the client's world
 	SavedGame* borrowed = new SavedGame();
 	try { borrowed->loadCoopSaveFromMemory(key, _game->getMod(), _game->getLanguage(), key); }
 	catch (const std::exception&) { delete borrowed; return coopPvpRefuse(this, "load"); }
@@ -46842,7 +46760,7 @@ void connectionTCP::coopPvpBorrowPump()
 	Craft* craft = nullptr; // (2) the borrowed craft (the client's own, in one of its real bases) and its target
 	for (auto* base : *borrowed->getBases())
 		for (auto* c : *base->getCrafts())
-			if (!base->_coopBase && !base->_coopIcon && !c->coop && c->getRules()->getType() == g_coopPvpLand.craftType
+			if (!base->_isForeignBase && !base->_coopIcon && !c->coop && c->getRules()->getType() == g_coopPvpLand.craftType
 				&& c->getId() == g_coopPvpLand.craftId)
 				craft = c;
 	coopPvpRebuildTarget(borrowed, craft, g_coopPvpLand.alienBaseCoopId); // coop: the target's mirror, a member the RESUME shares
@@ -46859,7 +46777,7 @@ void connectionTCP::coopPvpBorrowPump()
 	SavedGame* alien = _game->getSavedGame(); // (3) the parked (alien) world's view BEFORE the swap (getFunds() with no_bases true)
 	Json::Value parked, realBases(Json::arrayValue), ids(Json::objectValue), jb;
 	for (auto* base : *alien->getBases())
-		if (!base->_coopBase && !base->_coopIcon)
+		if (!base->_isForeignBase && !base->_coopIcon)
 		{
 			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
 			realBases.append(jb);
@@ -46953,7 +46871,7 @@ static Json::Value coopPvpResumeView(SavedGame* w)
 {
 	Json::Value view, realBases(Json::arrayValue), ids(Json::objectValue), jb;
 	for (auto* base : *w->getBases())
-		if (!base->_coopBase && !base->_coopIcon)
+		if (!base->_isForeignBase && !base->_coopIcon)
 		{
 			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
 			realBases.append(jb);
@@ -46980,7 +46898,7 @@ void connectionTCP::coopPvpSaveWorld(const std::string& filename)
 		live->save(filename, _game->getMod());
 		return;
 	}
-	const std::string key = hostBlobKey(getCurrentClientName());
+	const std::string key = pvpHostWorldKey(getCurrentClientName());
 	std::string previous;
 	bool hadPrevious = false;
 	{
@@ -47057,7 +46975,7 @@ bool connectionTCP::coopPvpResumeBorrow()
 		Log(LOG_WARNING) << "[coop-pvp] host: a borrowed-battle save resumed outside a gm3 campaign host - the battle is not resumed";
 		return false;
 	}
-	const std::string key = hostBlobKey(getCurrentClientName());
+	const std::string key = pvpHostWorldKey(getCurrentClientName());
 	SavedGame* borrowed = new SavedGame();
 	try
 	{
@@ -47078,7 +46996,7 @@ bool connectionTCP::coopPvpResumeBorrow()
 	Craft* craft = nullptr; // the battle's craft: the X-COM player's own, in one of its real bases
 	for (auto* base : *borrowed->getBases())
 		for (auto* c : *base->getCrafts())
-			if (!base->_coopBase && !base->_coopIcon && !c->coop && c->getRules()->getType() == rec.get("craftType", "").asString()
+			if (!base->_isForeignBase && !base->_coopIcon && !c->coop && c->getRules()->getType() == rec.get("craftType", "").asString()
 				&& c->getId() == rec.get("craftId", -1).asInt())
 				craft = c;
 	if (craft)
@@ -47220,7 +47138,7 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 		if (it != coopFilesHost.end())
 		{
 			const std::string& world = it->second;
-			coopFilesHost[hostBlobKey(getCurrentClientName())] = world;
+			coopFilesHost[pvpHostWorldKey(getCurrentClientName())] = world;
 		}
 	}
 	SDL_Color* palette = db->_palette; // (3) captured before the swap back; the ironman flag is the restored world's
@@ -47231,7 +47149,7 @@ bool connectionTCP::coopPvpHostReturn(DebriefingState* db, const char* phaseAtOk
 	// the restored world's view, built as the `parked` record is (getFunds() with no_bases true again)
 	Json::Value homeRec, realBases(Json::arrayValue), ids(Json::objectValue), jb;
 	for (auto* base : *home->getBases())
-		if (!base->_coopBase && !base->_coopIcon)
+		if (!base->_isForeignBase && !base->_coopIcon)
 		{
 			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
 			realBases.append(jb);
@@ -47396,7 +47314,7 @@ static Json::Value coopPvpWorldView(SavedGame* w)
 {
 	Json::Value view, realBases(Json::arrayValue), ids(Json::objectValue), jb;
 	for (auto* base : *w->getBases())
-		if (!base->_coopBase && !base->_coopIcon)
+		if (!base->_isForeignBase && !base->_coopIcon)
 		{
 			jb["name"] = base->getName(); jb["lon"] = base->getLongitude(); jb["lat"] = base->getLatitude();
 			realBases.append(jb);
@@ -47416,7 +47334,7 @@ void connectionTCP::coopPvpBorrowBaseDefense(SavedGame* borrowed)
 {
 	const int index = g_coopPvpLandMsg.get("baseIndex", -1).asInt();
 	Base* base = (index >= 0 && index < (int)borrowed->getBases()->size()) ? borrowed->getBases()->at(index) : nullptr;
-	if (!base || base->_coopBase || base->_coopIcon || base->getName() != g_coopPvpLandMsg.get("baseName", "").asString())
+	if (!base || base->_isForeignBase || base->_coopIcon || base->getName() != g_coopPvpLandMsg.get("baseName", "").asString())
 	{
 		delete borrowed;
 		return coopPvpRefuse(this, "base");
@@ -47651,7 +47569,8 @@ namespace OpenXcom
  * research sync on: a completed project (ResearchCompleteState) or research an event
  * granted (GeoscapeEventState). The receiver applies it like a local discovery in
  * GeoscapeState::think. PRD-J04: never in SHARED, where the host broadcasts
- * research_done over the SharedEcon channel instead.
+ * research_done over the SharedEcon channel instead, and never in SEPARATE, which
+ * keeps every player's research in the one host-owned world.
  * @param newResearch The topic whose article the sender offers (nullptr if none).
  * @param bonus The getOneFree bonus topic (nullptr if none).
  * @param research The discovered topic.
@@ -47659,7 +47578,7 @@ namespace OpenXcom
  */
 void connectionTCP::sendResearchSync(const RuleResearch* newResearch, const RuleResearch* bonus, const RuleResearch* research, const Base* base, bool senderSideEffects)
 {
-	if (!getCoopStatic() || isSharedCampaign() || !_enable_research_sync || !research || !base)
+	if (!getCoopStatic() || isSharedCampaign() || isSeparateCampaign() || !_enable_research_sync || !research || !base)
 		return;
 
 	Json::Value root;
@@ -47720,7 +47639,7 @@ void coopPruneCertainSpawns(std::vector<connectionTCP::CoopCertainSpawn>& spawns
 void connectionTCP::coopCertainEventSpawned(GeoscapeEvent* ev)
 {
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
-	if (!ev || !save || !getCoopStatic() || isSharedCampaign())
+	if (!ev || !save || !getCoopStatic() || isSharedCampaign() || isSeparateCampaign())
 		return;
 
 	CoopCertainSpawn own;
@@ -47756,7 +47675,7 @@ void connectionTCP::coopCertainEventSpawned(GeoscapeEvent* ev)
 void connectionTCP::coopPeerCertainEvent(const CoopCertainSpawn& peer)
 {
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
-	if (!save || !getCoopStatic() || isSharedCampaign() || peer.name.empty())
+	if (!save || !getCoopStatic() || isSharedCampaign() || isSeparateCampaign() || peer.name.empty())
 		return;
 
 	for (auto it = _ownCertainSpawns.begin(); it != _ownCertainSpawns.end(); ++it)
@@ -47795,7 +47714,7 @@ void connectionTCP::sendCertainEventTimer(GeoscapeEvent* paired, int month)
  */
 void connectionTCP::sendCertainEventFire(GeoscapeEvent* ge, bool researchPick, const std::pair<std::string, std::string>& pick)
 {
-	if (!ge || !getCoopStatic() || !getServerOwner() || isSharedCampaign())
+	if (!ge || !getCoopStatic() || !getServerOwner() || isSharedCampaign() || isSeparateCampaign())
 		return;
 	Json::Value root;
 	root["state"] = "certain_event_fire";

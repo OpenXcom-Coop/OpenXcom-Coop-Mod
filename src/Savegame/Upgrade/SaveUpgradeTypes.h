@@ -181,12 +181,14 @@ public:
 
 /// The concrete step accessor (defined in SchemaStep1to2.cpp).
 const SchemaStep* step_1_to_2();
+/// Schema 2 separate-world blobs -> schema 3 unified host world.
+const SchemaStep* step_2_to_3();
 
 /// All registered steps, ordered so a chain can be built by (from == schema).
 const std::vector<const SchemaStep*>& getSchemaSteps();
 
-/// The blob-store key a client world is embedded under (matches connectionTCP::hostBlobKey).
-std::string hostBlobKey(long long saveID, const std::string& clientName);
+/// Schema-2 key used only while reading or emitting an old upgrade intermediate.
+std::string legacyHostBlobKey(long long saveID, const std::string& clientName);
 
 } // namespace SaveUpgrade
 

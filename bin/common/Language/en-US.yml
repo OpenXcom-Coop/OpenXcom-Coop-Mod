@@ -29,8 +29,8 @@ en-US:
   STR_SAVE_UPGRADE_REJOIN_FRESH: "No other-player world was included. That player will start fresh when they rejoin."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "The other player's save file you selected is no longer needed and can be archived."
   STR_SAVE_UPGRADE_LOAD_BTN: "Load upgraded save"
-  # coop: client-side ORDER FEEDBACK. There is no separate "player busy", "not your
-  # soldier" or generic "action refused" key: the first two would duplicate the
+  # coop: client-side battle ORDER FEEDBACK. Battle orders have no separate "player busy",
+  # "not your soldier" or generic "action refused" key: the first two would duplicate the
   # deny rows STR_COOP_DENY_BUSY / STR_COOP_DENY_NOT_YOUR_UNIT, and distinct
   # refusals are never collapsed into one generic message. Accounting:
   # tools/coop_test/COOP_STRING_DISPOSITIONS.md.
@@ -38,6 +38,12 @@ en-US:
   # from the wire deny reason STR_COOP_DENY_TURN_OVER, which keeps its own text.
   STR_COOP_TURN_OVER: "Only the host can end the turn"
   STR_COOP_ORDER_SENT: "Order sent - waiting for the host"
+  # coop: mission owner labels and Separate campaign command refusals.
+  STR_COOP_MISSION_BELONGS_TO_PLAYER: "This mission belongs to {0}."
+  STR_COOP_MISSION_OWNER: "Owner: {0}"
+  STR_COOP_SHARED: "Shared"
+  STR_COOP_NOT_YOUR_SOLDIER: "Not one of your soldiers"
+  STR_COOP_ACTION_REFUSED: "Action refused"
   STR_COOP_ACTION_TIMEOUT: "No answer from the host - action dropped"
   # coop (parallel turns): persistent map banner shown while another player's action blocks your input.
   STR_COOP_WAIT_FOR_PLAYER_ACTION: "Please wait for {0}'s action to finish"

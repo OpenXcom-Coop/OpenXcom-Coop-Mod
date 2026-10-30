@@ -52,15 +52,16 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 {
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true
+		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
-		if (base->_coopBase == true || base->_coopIcon == true)
+		if (base->_isForeignBase == true || base->_coopIcon == true)
 		{
 			_game->popState();
 			return;
 		}
-		else if (!_game->getCoopMod()->isSharedCampaign())
+		else
 		{
 			// SEPARATE mirror: broadcast the peer's base removal. SHARED instead
 			// broadcasts base_destroyed from btnOkClick (when the host actually
@@ -205,6 +206,14 @@ void BaseDestroyedState::btnOkClick(Action *)
 		return;
 	}
 
+	removeBase();
+}
+
+/**
+ * Removes the destroyed base and mirrors the removal to replicas.
+ */
+void BaseDestroyedState::removeBase()
+{
 	auto* bases = _game->getSavedGame()->getBases();
 	for (size_t i = 0; i < bases->size(); ++i)
 	{

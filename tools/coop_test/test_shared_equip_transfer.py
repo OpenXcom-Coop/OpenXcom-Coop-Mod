@@ -34,6 +34,9 @@ import test_coop_transferred_equipment as T
 import test_coop_peer_equip_screens as P
 
 GEAR = [("STR_RIFLE", "right", 1), ("STR_PISTOL", "left", 1), ("STR_SMALL_ROCKET", "backpack", 2)]
+OPT = "oxceAlternateCraftEquipmentManagement"
+# what the host equips on its own crew, by hand
+DRAGS = (("STR_RIFLE", "right"), ("STR_PISTOL", "left"), ("STR_SMALL_ROCKET", "backpack"))
 # A SHARED campaign starts with ONE shared base, so the second base a
 # base->base transfer needs has to be built first (PRD-J07).
 DEST_NAME = "Shared Dest"
@@ -96,12 +99,74 @@ def find_soldier_anywhere(gc, who):
     return None, None
 
 
+# ---- the two equip screens (the SEPARATE tests' helpers, by soldier name) ----
+
+def expected_layout():
+    out = {}
+    for item, slot, qty in GEAR:
+        out.setdefault(T.SLOT_ID[slot], []).extend([item] * qty)
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def loadout_named(ground, name):
+    """{slot -> sorted [(item, x, y, ammo...)]} for the first soldier whose name
+    contains @name in an inventory_ground dump; {} if none is on the screen."""
+    for u in ground["soldiers"]:
+        if name in u["name"]:
+            return {slot: sorted((e["item"], e["x"], e["y"], tuple(e["ammo"]))
+                                 for e in entries)
+                    for slot, entries in u["slots"].items()}
+    return {}
+
+
+def read_both_screens(gc, base_name, craft_id, seat):
+    """The soldier equip screen, then the craft equip screen, at @base_name;
+    @seat re-seats the soldier between the two."""
+    base_g = T.base_equip_screen(gc, base_name)
+    seat()
+    craft_g = T.craft_equip_screen(gc, base_name, craft_id)
+    return base_g, craft_g
+
+
+def assert_screens_agree(base_g, craft_g, who, label):
+    want = expected_layout()
+    base_lo, craft_lo = loadout_named(base_g, who), loadout_named(craft_g, who)
+    assert T.items_only(base_lo) == want, (
+        f"{label}: the soldier equip screen STRIPPED equipment - expected {want}, "
+        f"got {T.items_only(base_lo)} (the rest is on the ground pane: {base_g['items']})")
+    assert T.items_only(craft_lo) == want, (
+        f"{label}: the craft equip screen STRIPPED equipment - expected {want}, "
+        f"got {T.items_only(craft_lo)}")
+    assert base_lo == craft_lo, (
+        f"{label}: the two equip screens disagree on the soldier's loadout:\n"
+        f"  soldier screen: {base_lo}\n  craft   screen: {craft_lo}")
+    assert base_g["all"] == craft_g["all"], (
+        f"{label}: the two equip screens hold different item instances:\n"
+        f"  soldier screen: {base_g['all']}\n  craft   screen: {craft_g['all']}")
+    print(f"PASS {label}: full loadout {T.items_only(base_lo)}, both screens agree")
+
+
+def equip_by_hand(gc, base_name, crew_limit=3):
+    """Really drag items onto the first soldiers of the base inventory, the way
+    a player does."""
+    P.open_base_inventory(gc, base_name)
+    g = gc.ok({"cmd": "inventory_ground"})
+    moved = 0
+    for unit in g["soldiers"][:crew_limit]:
+        for item, slot in DRAGS:
+            r = gc.cmd({"cmd": "inventory_move", "name": unit["name"], "item": item, "slot": slot})
+            if r.get("moved"):
+                moved += 1
+    P.close_base_inventory(gc)
+    return moved
+
+
 def main():
     js = shared_fixture.bring_up("jxfer", (48690, 48691, 47990))
     host, client = js.host, js.client
     try:
         for gc in (host, client):
-            gc.ok({"cmd": "set_option", "name": P.OPT, "value": True})
+            gc.ok({"cmd": "set_option", "name": OPT, "value": True})
 
         hb, cb = "HostBase", DEST_NAME
 
@@ -137,8 +202,8 @@ def main():
             host.ok({"cmd": "give_layout", "item": item, "slot": slot,
                      "name": "Zzz", "count": 1, "qty": qty})
 
-        # 1. really drag gear onto the local crew
-        moved = P.equip_by_hand(host, hb)
+        # 1. really drag gear onto the local crew (populates the coopItems manifest)
+        moved = equip_by_hand(host, hb)
         print(f"host equipped {moved} items by hand at {hb}")
         assert moved > 0, f"the host equipped nothing by hand at {hb} (inventory_move)"
 
@@ -150,8 +215,8 @@ def main():
                           lambda: (soldier_row(host, hb, "Zzz")["craft"] == craft_h) or None,
                           timeout=30)
         seat_home()
-        b, c = P.read_both_screens(host, hb, craft_h, seat_home)
-        P.assert_screens_agree(b, c, "Zzz", "SHARED home base")
+        b, c = read_both_screens(host, hb, craft_h, seat_home)
+        assert_screens_agree(b, c, "Zzz", "SHARED home base")
 
         # 2. the seat must stick when taken off
         host.ok({"cmd": "craft_assign", "soldier_id": target["id"],
@@ -269,10 +334,10 @@ def main():
         print(f"PASS the gear rode the soldier's own transfer to {cb}")
 
         g = T.base_equip_screen(host, cb)
-        lo = T.items_only(T.loadout_of(g, "Zzz"))
-        assert lo == P.expected_layout(), (
+        lo = T.items_only(loadout_named(g, "Zzz"))
+        assert lo == expected_layout(), (
             f"SHARED: the arrival is not wearing its loadout at {cb} - expected "
-            f"{P.expected_layout()}, got {lo} (ground pane: {g['items']})")
+            f"{expected_layout()}, got {lo} (ground pane: {g['items']})")
         after = sorted(soldier_row(host, cb, "Zzz")["layout"])
         assert after == before, (
             f"SHARED: opening the equip screen at {cb} changed the soldier's "

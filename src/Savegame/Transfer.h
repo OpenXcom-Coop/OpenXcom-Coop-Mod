@@ -69,6 +69,7 @@ private:
 	const RuleItem* _itemId;
 	int _itemQty, _scientists, _engineers;
 	bool _delivered;
+	std::string _ownerPlayerName;
 public:
 	/// Creates a new transfer.
 	Transfer(int hours);
@@ -108,6 +109,8 @@ public:
 	/// Get a pointer to the soldier being transferred.
 	Soldier *getSoldier();
 	std::string coopSoldierID();
+	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
+	void setOwnerPlayerName(const std::string& owner) { _ownerPlayerName = owner; }
 };
 
 }

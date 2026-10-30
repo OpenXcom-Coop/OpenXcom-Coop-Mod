@@ -94,6 +94,11 @@ allowed as long as its row says so.
 | STR_COOP_ALSO_ON_SCREEN | WIRED | - | The presence label on a SHARED Sell / Transfer / Alien Containment screen while another player has the same screen (same selection key) open: {0} = the other players' roster names. Drawn by SharedEcon::SelectionBinder; never sent on the wire. |
 | STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER | WIRED | - | The text of the small dialog a NEW co-op campaign lobby opens when a team pick would put both players on the Alien team (no PvE2 campaigns): LobbyMenu::setPlayerTeam refuses the pick and pushes CampaignTeamRefusedState (file-local, LobbyMenu.cpp), one OK button that closes it; the row keeps its team and nothing is sent. Never shown in a Custom Battle lobby (PvE2 stays a Custom Battle mode), in a resume lobby or in single player. |
 | STR_COOP_EQUIP_OWNER | WIRED | - | The pre-battle equip screen's owner line over a partner's soldier (`coopEquipApplyViewLook()`), the same "Owner: <name>" line the released game shows in `InventoryState`. |
+| STR_COOP_MISSION_BELONGS_TO_PLAYER | WIRED | - | Separate campaign: the refusal shown when a player sends a craft to the partner's mission (`MissionDetectedState`, `MultipleTargetsState`, `UfoDetectedState`). |
+| STR_COOP_MISSION_OWNER | WIRED | - | Separate campaign: the "Owner: <name>" line on the UFO, mission and alien base detection windows (`UfoDetectedState`, `MissionDetectedState`, `AlienBaseState`). |
+| STR_COOP_SHARED | WIRED | - | Separate campaign: the owner name shown by STR_COOP_MISSION_OWNER for a target both players share. |
+| STR_COOP_NOT_YOUR_SOLDIER | WIRED | - | Separate campaign command refusal (`SharedEcon` soldier commands): the soldier belongs to the partner. Distinct from the battle deny STR_COOP_DENY_NOT_YOUR_UNIT, which answers a battle order. |
+| STR_COOP_ACTION_REFUSED | WIRED | - | Separate campaign command refusal (`SharedEcon`) for a command aimed at the partner's base that the base owner rules do not allow. Battle orders never use it (distinct deny rows). |
 
 ## Rules for new keys
 

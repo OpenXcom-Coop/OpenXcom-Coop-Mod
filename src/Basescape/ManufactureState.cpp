@@ -290,7 +290,7 @@ void ManufactureState::lstManufactureMousePress(Action *action)
 	// PRD-J06 (SHARED): the mouse-wheel shortcut re-allocates engineers by directly
 	// mutating the shared world - disabled in SHARED, where allocation is host-
 	// authoritative (open the production and use OK -> man_alloc). SEPARATE untouched.
-	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		return;
 	}

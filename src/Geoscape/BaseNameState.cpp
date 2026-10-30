@@ -182,7 +182,10 @@ void BaseNameState::btnOkClick(Action *)
 			// the host resumes the campaign (D5).
 			if (connectionTCP::session.lobbyMode != 0)
 			{
-				_game->getCoopMod()->pushProgressToHostSilently();
+				if (_game->getCoopMod()->isSeparateCampaign())
+					_game->getCoopMod()->sendInitialSeparateBaseToHost();
+				else
+					_game->getCoopMod()->pushProgressToHostSilently();
 
 				Json::Value ack;
 				ack["state"] = "resume_ack";

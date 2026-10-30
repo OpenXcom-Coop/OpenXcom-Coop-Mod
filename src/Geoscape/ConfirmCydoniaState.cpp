@@ -34,6 +34,7 @@
 #include "../Mod/AlienDeployment.h"
 #include "../Engine/Options.h"
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/CoopBattleSetup.h"
@@ -95,6 +96,15 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 	if (coopRefuseSeparateClientCydonia(_game, _craft)) return;
 	if (connectionTCP::getCoopStatic())
 	{
+		// A one-world campaign client (Shared or Separate) asks the host to start
+		// Cydonia: the host runs every battle.
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			&& !_game->getCoopMod()->getServerOwner())
+		{
+			SeparateEcon::requestCydonia(_game, _craft);
+			_game->popState();
+			return;
+		}
 		// Cydonia rides the SAME battle-start handshake as the skirmish and
 		// mission-confirm entry points (NewBattleState::btnOkClick,
 		// ConfirmLandingState::btnYesClick) - vanilla generates the battle exactly
@@ -134,7 +144,22 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 
 void ConfirmCydoniaState::startCoopMission()
 {
+	// The shared path can be re-entered by delayed network callbacks. Never
+	// replace an already-streamed Mars map with a second random generation.
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getSavedGame()
+		&& _game->getSavedGame()->getSavedBattle())
+	{
+		return;
+	}
+
+	if (connectionTCP::getCoopStatic())
+	{
+		_game->getCoopMod()->coopInventory = true;
+	}
+
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+	if (_craft && _craft->getBase())
+		bgame->setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName());
 	_game->getSavedGame()->setBattleGame(bgame);
 	BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 	for (auto& ad : _game->getMod()->getDeploymentsList())

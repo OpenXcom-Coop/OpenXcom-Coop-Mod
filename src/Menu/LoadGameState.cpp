@@ -21,6 +21,7 @@
 #include "../Engine/Logger.h"
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../Savegame/Base.h"
 #include "../Engine/Game.h"
 #include "../Engine/Exception.h"
 #include "../Engine/Options.h"
@@ -38,6 +39,7 @@
 #include "StatisticsState.h"
 #include "../CoopMod/HostMenu.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/CoopBattleUi.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
@@ -150,6 +152,11 @@ void LoadGameState::buildUi(SDL_Color *palette)
 void LoadGameState::init()
 {
 	State::init();
+	// During a multi-stage transfer the modal CoopState underneath already says
+	// "Downloading map...".  Keep this transparent loader silent so that one
+	// continuous dialog remains visible until the new briefing replaces it.
+	if (!_coopKey.empty() && connectionTCP::nextStageBriefing)
+		_txtStatus->setVisible(false);
 
 	// Chokepoint gate: a machine that may not touch local saves (coop client)
 	// can only reach a plain local load through the pause menu / list / confirm
@@ -219,7 +226,13 @@ void LoadGameState::think()
 	}
 	else
 	{
-		_game->popState();
+		const bool keepNextStageLoader = !_coopKey.empty()
+			&& connectionTCP::nextStageBriefing;
+		// Ordinary loads remove this state before doing the synchronous work, as
+		// before. A next-stage load must remain modal: popping it here exposes the
+		// previous Battlescape between file receipt and the new briefing.
+		if (!keepNextStageLoader)
+			_game->popState();
 
 		// Remember for later (palette reset)
 		BattlescapeState *origBattleState = 0;
@@ -259,17 +272,46 @@ void LoadGameState::think()
 				throw Exception("This is a SHARED co-op campaign save and cannot be opened as a single-player game.");
 			}
 
+			// Separate: a client's saved templates are its own. When the host
+			// replaces the client's campaign world (a restream, a battle, the
+			// world after a battle, a rejoin while the world is still held),
+			// keep the set the client already has. A client without a campaign
+			// world took its set from its player profile in the stream.
+			if (!_coopKey.empty() && !_game->getCoopMod()->getServerOwner()
+				&& s->isSeparateCoopCampaign()
+				&& _game->getSavedGame() && _game->getSavedGame()->isSeparateCoopCampaign())
+			{
+				s->copyTemplatesFrom(*_game->getSavedGame());
+			}
+
 			_game->setSavedGame(s);
+
+			// Separate Research sharing is a negotiated session policy, not save
+			// data.  Loading an authoritative campaign world replaces SavedGame and
+			// therefore resets its transient policy flag.  Restore it immediately;
+			// otherwise the connection still says Shared Research while research
+			// availability silently uses the per-player tree until the next reload.
+			if (!_coopKey.empty()
+				&& s->getCampaignType() == CoopCampaignType::Separate
+				&& _game->getCoopMod())
+			{
+				s->setSeparateResearchSharingEnabled(
+					_game->getCoopMod()->_enable_research_sync, _game->getMod());
+			}
 
 			// PRD-J02: a SHARED client just adopted the host's world as its replica.
 			// The streamed save carries the HOST's coop_save_owner_player_id (0);
 			// re-assert this machine's own seat so localSeat() reflects the client,
 			// not the host. (2-player transport: client seat = 1.)
 			if (!_coopKey.empty()
-				&& s->getCampaignType() == CoopCampaignType::Shared
+				&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 				&& _game->getCoopMod()->getServerOwner() == false)
 			{
 				connectionTCP::coop_save_owner_player_id = 1;
+				// Base::load ran before the streamed save's complete roster and this
+				// client's seat were installed. Rebuild the view flags now so only
+				// bases owned by another player's name are purple/foreign.
+				_game->getCoopMod()->refreshSeparateBaseOwnership();
 
 				// PRD-J10: a fresh authoritative world landed - this is also how a
 				// desync repair completes. Clear the resync in-flight guard so a
@@ -286,6 +328,20 @@ void LoadGameState::think()
 			}
 			else
 			{
+				// An authoritative campaign snapshot already contains its live
+				// SavedBattleGame. Resume it directly instead of discarding it and
+				// requesting the same battle in a second transfer.
+				const bool coopBattleResumeWorld = _loadCoopProgress
+					&& _game->getSavedGame()->getSavedBattle() != nullptr;
+				if (coopBattleResumeWorld
+					&& connectionTCP::session.lobbyMode != 0
+					&& _game->getCoopMod()->getServerOwner() == false)
+				{
+					// This is an already-running saved battle, not a newly dispatched
+					// mission. The removed phase-two transfer used to clear this flag;
+					// keep the combined path from reopening Briefing and Inventory.
+					_game->getCoopMod()->inventory_battle_window = false;
+				}
 				Options::baseXResolution = Options::baseXGeoscape;
 				Options::baseYResolution = Options::baseYGeoscape;
 				_game->getScreen()->resetDisplay(false);
@@ -299,11 +355,16 @@ void LoadGameState::think()
 				// coop fix
 				if (_loadCoopProgress == true)
 				{
-					_game->getSavedGame()->setBattleGame(0);
+					// A geoscape-only resume must not retain a stale tactical save.
+					// A combined battle resume deliberately keeps the battle embedded
+					// in this same authoritative snapshot.
+					if (!coopBattleResumeWorld)
+						_game->getSavedGame()->setBattleGame(0);
 
 					// resume/rejoin: report the loaded world to the host and
 					// hold with frozen time until it resumes (F3/F4/D5)
-					if (connectionTCP::session.lobbyMode != 0 && _game->getCoopMod()->getServerOwner() == false)
+					if (connectionTCP::session.lobbyMode != 0
+						&& _game->getCoopMod()->getServerOwner() == false)
 					{
 						Json::Value root;
 						root["state"] = "resume_ack";
@@ -314,11 +375,13 @@ void LoadGameState::think()
 						// (base naming, battle phase two), which hold nothing and must not
 						// be answered with a campaign_begun.
 						root["adoptedWorld"] = true;
+						root["combinedBattle"] = coopBattleResumeWorld;
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
-						// (in a battle resume the follow-up battle stream
-						// replaces the whole state stack, dialog included)
-						_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+						// A normal world resume waits for the host's release. A combined
+						// battle resume enters its Battlescape below without a second hold.
+						if (!coopBattleResumeWorld)
+							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 					}
 				}
 
@@ -374,10 +437,14 @@ void LoadGameState::think()
 		}
 		catch (Exception &e)
 		{
+			if (keepNextStageLoader && _game->isState(this))
+				_game->popState();
 			error(e.what(), s);
 		}
 		catch (YAML::Exception &e)
 		{
+			if (keepNextStageLoader && _game->isState(this))
+				_game->popState();
 			error(e.what(), s);
 		}
 		CrossPlatform::flashWindow();

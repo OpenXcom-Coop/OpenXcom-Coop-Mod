@@ -216,10 +216,13 @@ def assert_world_equal(host, client, tag="", timeout=45, interval=1.0):
 class SharedSession:
     """A live SHARED campaign: host + client, world streamed, both on geoscape."""
 
-    def __init__(self, tag, ports, mods=(), transport="tcp", host_options=None, client_options=None):
+    def __init__(self, tag, ports, mods=(), transport="tcp",
+                 host_options=None, client_options=None, campaign_mode="shared"):
         self.tag = tag
         self.host_port, self.client_port, self.coop_port = ports
         self.transport = transport
+        self.campaign_mode = campaign_mode
+        self.has_extra_mods = bool(mods)
         # Both machines get the SAME mods, or their rulesets diverge.
         # `host_options`: boot-time options.cfg overrides
         # for the HOST instance only (e.g. {"battleXcomSpeed": 200}, which
@@ -230,15 +233,26 @@ class SharedSession:
         self.host = GameClient("host", self.host_port, self.host_dir)
         self.client = GameClient("client", self.client_port, self.client_dir)
 
-    def _start(self, wait_ready, host_base, client_base):
+    def _start(self, wait_ready, host_base, client_base,
+               host_difficulty=None, client_difficulty=None):
         self.host.spawn()
         self.client.spawn()
-        self.host.connect()
-        self.client.connect()
+        self.host.connect(timeout=300 if self.has_extra_mods else 60)
+        self.client.connect(timeout=300 if self.has_extra_mods else 60)
+        # A mod-heavy instance exposes the TestServer socket while rulesets and
+        # resources are still loading. Do not send UI commands until both main
+        # menus exist (stock campaigns satisfy this immediately).
+        for gc in (self.host, self.client):
+            gc.wait_for("mod load reached main menu",
+                        lambda gc=gc: session.has_state(gc, "MainMenuState"),
+                        timeout=300, interval=1.0)
         session.new_campaign(self.host, self.client, port=str(self.coop_port),
-                             campaign_mode="shared",
+                             campaign_mode=self.campaign_mode,
                              host_base=host_base, client_base=client_base,
-                             transport=self.transport)
+                             transport=self.transport,
+                             host_difficulty=host_difficulty,
+                             client_difficulty=client_difficulty,
+                             host_settle_seconds=2)
         if wait_ready:
             geo.wait_both_ready(self.host, self.client)
 
@@ -266,7 +280,9 @@ class SharedSession:
 
 def bring_up(tag, ports, wait_ready=True,
              host_base="HostBase", client_base="ClientBase", mods=(),
-             transport="tcp", host_options=None, client_options=None):
+             transport="tcp", host_options=None, client_options=None,
+             campaign_mode="shared", host_difficulty=None,
+             client_difficulty=None):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -282,10 +298,12 @@ def bring_up(tag, ports, wait_ready=True,
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.
     """
-    js = SharedSession(tag, ports, mods=mods, transport=transport, host_options=host_options,
-                       client_options=client_options)
+    js = SharedSession(tag, ports, mods=mods, transport=transport,
+                       host_options=host_options, client_options=client_options,
+                       campaign_mode=campaign_mode)
     try:
-        js._start(wait_ready, host_base, client_base)
+        js._start(wait_ready, host_base, client_base,
+                  host_difficulty, client_difficulty)
     except BaseException:
         js.shutdown()
         raise

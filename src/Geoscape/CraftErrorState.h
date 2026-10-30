@@ -50,6 +50,10 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for clicking the OK 5 Secs button.
 	void btnOk5SecsClick(Action *action);
+	/// Test automation: the message this window shows.
+	const std::string &getMessage() const { return _msg; }
+private:
+	std::string _msg;
 };
 
 }

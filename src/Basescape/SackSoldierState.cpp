@@ -34,6 +34,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -80,12 +81,6 @@ SackSoldierState::SackSoldierState(Base *base, size_t soldierId) : _base(base), 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setText(tr("STR_SACK"));
 
-	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true)
-	{
-		_txtTitle->setText("MOVE");
-	}
-
 	std::ostringstream ss;
 	ss << _base->getSoldiers()->at(_soldierId)->getName(true) << "?";
 
@@ -113,9 +108,10 @@ void SackSoldierState::btnOkClick(Action *)
 
 	// PRD-J07 SHARED: any player may sack any soldier (shared roster). Emit a sack
 	// shared_cmd keyed by the soldier's stable id; mutate NOTHING locally. The host
-	// validates + removes + broadcasts shared_apply (replaces all the SEPARATE
-	// peer-base save juggling below).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+	// validates + removes + broadcasts shared_apply. Separate routes the same way
+	// at every base: a visitor sacking their own soldier stationed at another
+	// player's base goes through the host too, which checks the owner.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
 		int baseId = 0;
 		auto* bases = _game->getSavedGame()->getBases();
@@ -123,96 +119,18 @@ void SackSoldierState::btnOkClick(Action *)
 			if (bases->at(i) == _base) { baseId = (int)i; break; }
 		Json::Value payload;
 		payload["soldierId"] = soldier->getId();
-		SharedEcon::submitLocalCmd(_game, "sack", baseId, payload);
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "sack", baseId, payload);
+		else SeparateEcon::submitLocalCmd(_game, "sack", baseId, payload);
 		_game->popState();
 		return;
 	}
 
-	// coop campaign
-	// coop: also while the live world is the partner's
-	// base view after a 67 cleared the visit flag (a soldier moved home then stays home).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == true && (_game->getCoopMod()->playerInsideCoopBase == true || connectionTCP::liveWorldIsPeerView(_game)) && _game->getCoopMod()->getCoopCampaign() == true)
-	{
-
-		// save the other player's base (CLIENT only), e.g. soldiers etc.
-		std::string filename = "basehost";
-
-		SavedGame* basehost_save = new SavedGame();
-
-		basehost_save->loadCoopSaveFromMemory(filename, _game->getMod(), _game->getLanguage(), filename);
-
-		// if save found
-		if (basehost_save)
-		{
-
-			for (auto& saved_base : *basehost_save->getBases())
-			{
-				auto& soldiers = *saved_base->getSoldiers(); // Reference to the vector of soldiers
-
-				for (auto it = soldiers.begin(); it != soldiers.end(); /* no ++it here */)
-				{
-					// Check if the soldier belongs to this coop base and has the matching ID
-					if ((*it)->getCoopBase() == _base->getId() && (*it)->getId() == soldier->getId())
-					{
-						delete *it;              // Free memory
-						it = soldiers.erase(it); // Remove pointer from vector and update iterator
-					}
-					else
-					{
-						++it; // Only move to next if not erased
-					}
-				}
-			}
-
-
-			// Lis�t��n uudet sotilaat ensimm�isen tukikohdan sotilaslistaan
-			auto& target_soldiers = *basehost_save->getBases()->front()->getSoldiers();
-
-			soldier->setCoopCraft(-1);
-			soldier->setCoopCraftType("");
-
-			soldier->setCoopBase(-1);
-
-			soldier->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
-
-			// coop: a received gift's display copy is
-			// never written to "basehost"; it leaves the mark set here because it is deleted below.
-			if (connectionTCP::visitDisplayCopies.erase(soldier) == 0)
-				target_soldiers.push_back(soldier);
-
-			// save changes
-			basehost_save->saveCoopToMemory(filename, _game->getMod(), filename);
-
-		}
-		
-	}
 
 	if (soldier->getArmor()->getStoreItem())
 	{
 		_base->getStorageItems()->addItem(soldier->getArmor()->getStoreItem());
 	}
 	_base->getSoldiers()->erase(_base->getSoldiers()->begin() + _soldierId);
-
-	// coop fix
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true)
-	{
-
-		if (!_base->base_oldsoldiers.empty())
-		{
-
-			_base->base_oldsoldiers.erase(_base->base_oldsoldiers.begin() + _soldierId);
-
-		}
-
-		if (!_base->base_oldsoldiers2.empty())
-		{
-
-			_base->base_oldsoldiers2.erase(_base->base_oldsoldiers2.begin() + _soldierId);
-
-		}
-
-
-	}
 
 	delete soldier;
 

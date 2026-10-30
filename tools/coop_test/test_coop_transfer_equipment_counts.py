@@ -1,119 +1,90 @@
-"""Validates that a soldier's equipped items move with it when it is vanilla-
-transferred to a co-op base, driven by the "Alternate craft equipment
-management" option:
+"""Validates that a soldier's equipped items move with it when it is transferred
+to the other player's base, driven by the "Alternate craft equipment
+management" option, in the single host-owned SEPARATE world:
 
-  ON  - the gear's item counts move AND arrive IMMEDIATELY (a 0-hour transfer,
-        matching the instant soldier move): the sending base's stored count
-        drops, the receiving base's stored count rises by the same amount, with
-        no pending timed transfer and at most five in-game minutes elapsing.
-  OFF - nothing moves.
-
-The geoscape clocks run after new_campaign, so up to five in-game minutes may
-pass across the transfer and storage observations; the storage,
-pending-transfer and conservation checks show the items arrived without a timed transfer.
+  ON  (the host sends its soldier to ClientBase): the gear leaves HostBase's
+     stores when the soldier is sent, travels on the same transfer as the
+     soldier, and lands in ClientBase's stores when the soldier arrives; the
+     world total of each item is unchanged. Checked on both machines.
+  OFF (the client sends its soldier to HostBase): no item moves - neither
+     base's stores change and nothing but the soldier is en route.
 
 Several distinct items are equipped (a rocket in one hand, a pistol in the
 other) so multi-item transfer is covered too.
-
-Only a base-resident (non-craft) soldier is individually transferable and a
-fresh base has one, so each mode runs in its own fresh session.
 
 Run:  python tools/coop_test/test_coop_transfer_equipment_counts.py
 """
 
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
-import session
-import geo
+import test_coop_transferred_equipment as T
 
 # item -> inventory slot; both are present in a fresh starting base.
 GEAR = {"STR_SMALL_ROCKET": "left", "STR_PISTOL": "right"}
-OPT = "oxceAlternateCraftEquipmentManagement"
-MAX_ARRIVAL_GAME_MINUTES = 5
 
 
-def own_base(gc):
-    s = gc.ok({"cmd": "get_soldiers"})
-    return next(b for b in s["bases"]
-               if not b["coopBaseFlag"] and not b["coopIcon"] and b["soldiers"])
+def snapshot(gc):
+    return {b: {i: T.stored(gc, b, i) for i in GEAR} for b in (T.HB, T.CB)}
 
 
-def stored(gc, base_name, item):
-    return gc.ok({"cmd": "base_report", "base": base_name})["storage"].get(item, 0)
+def gear_en_route(gc, base):
+    return {i: T.incoming(gc, base)["items"].get(i, 0) for i in GEAR}
 
 
-def incoming(gc, base_name, item):
-    return gc.ok({"cmd": "incoming_transfers", "base": base_name})["items"].get(item, 0)
+def run(sender, host, client, seat, src, dst, alt_on, name):
+    label = "ON" if alt_on else "OFF"
+    T.set_alt(host, client, alt_on)
+    sid = T.free_soldier(sender, host, client, src, seat)
+    T.rename(sender, host, client, src, sid, name)
+    for item, slot in GEAR.items():
+        T.give_layout(host, client, src, name, item, slot)
+    s0 = {gc.name: snapshot(gc) for gc in (host, client)}
+    for gc in (host, client):
+        for i in GEAR:
+            assert s0[gc.name][src][i] >= 1, f"{src} needs a {i} (has {s0[gc.name][src][i]})"
 
-
-def run(alt_on):
-    host = GameClient("host", 47811, make_user_dir("host-user"))
-    client = GameClient("client", 47812, make_user_dir("client-user"))
-    try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client)
-
-        hb = own_base(host); cb = own_base(client)
-        host.ok({"cmd": "set_option", "name": OPT, "value": alt_on})
-        client.ok({"cmd": "set_option", "name": OPT, "value": alt_on})
-
-        # the lone base-resident soldier, uniquely named + several equipped items
-        soldier = next(s for s in hb["soldiers"] if not s.get("craft"))["name"]
-        host.ok({"cmd": "rename_soldier", "name": soldier, "newName": "Zzz Xfer"})
-        for item, slot in GEAR.items():
-            host.ok({"cmd": "give_layout", "item": item, "slot": slot, "name": "Zzz", "count": 1})
-
-        send0 = {i: stored(host, hb["name"], i) for i in GEAR}
-        recv0 = {i: stored(client, cb["name"], i) for i in GEAR}
-        for i, q in send0.items():
-            assert q >= 1, f"sending base needs a {i} to reason about (has {q})"
-        clock0 = geo.game_minutes(client)
-
-        host.ok({"cmd": "transfer_to_coop_base", "name": "Zzz", "toBase": cb["name"]})
-
-        if alt_on:
-            # every reserved item leaves the sender immediately...
-            for i in GEAR:
-                assert stored(host, hb["name"], i) == send0[i] - 1, \
-                    f"ON: sender {i} {send0[i]} -> {stored(host, hb['name'], i)}, expected -1"
-            # ...and lands in the receiver's STORAGE within the allowed clock drift.
-            client.wait_for(
-                "all gear stored at receiving base immediately",
-                lambda: all(stored(client, cb["name"], i) == recv0[i] + 1 for i in GEAR) or None,
-                timeout=20)
-            clock1 = geo.game_minutes(client)
-            for i in GEAR:
-                assert incoming(client, cb["name"], i) == 0, f"ON: {i} should land in storage, not queue"
-                assert (stored(host, hb["name"], i) + stored(client, cb["name"], i)) \
-                    == (send0[i] + recv0[i]), f"ON: world {i} total changed"
-            elapsed_minutes = clock1 - clock0
-            assert 0 <= elapsed_minutes <= MAX_ARRIVAL_GAME_MINUTES, \
-                f"ON: gear arrival took {elapsed_minutes} in-game minutes " \
-                f"({clock0} -> {clock1}); expected 0..{MAX_ARRIVAL_GAME_MINUTES}"
-            print(f"PASS ON: {list(GEAR)} each moved sender -1 / receiver +1, "
-                  f"within {elapsed_minutes} in-game minutes "
-                  f"(limit {MAX_ARRIVAL_GAME_MINUTES}), world conserved")
-        else:
-            for _ in range(4):
-                host.cmd({"cmd": "ping"}); client.cmd({"cmd": "ping"}); time.sleep(1)
-            for i in GEAR:
-                assert stored(host, hb["name"], i) == send0[i], f"OFF: sender {i} changed"
-                assert stored(client, cb["name"], i) == recv0[i], f"OFF: receiver {i} changed"
-                assert incoming(client, cb["name"], i) == 0, f"OFF: receiver got {i} incoming"
-            print(f"PASS OFF: nothing moved (sender & receiver unchanged for {list(GEAR)})")
-    finally:
-        host.shutdown(); client.shutdown()
+    T.send_soldier(sender, host, client, sid, src, dst)
+    for gc in (host, client):
+        s = snapshot(gc)
+        moving = gear_en_route(gc, dst)
+        for i in GEAR:
+            want = 1 if alt_on else 0
+            assert s[src][i] == s0[gc.name][src][i] - want, (
+                f"{label}: {gc.name}: {src} {i} {s0[gc.name][src][i]} -> {s[src][i]}, expected -{want}")
+            assert moving[i] == want, (
+                f"{label}: {gc.name}: {i} en route to {dst} = {moving[i]}, expected {want} "
+                f"(on the soldier's own transfer)")
+            assert s[dst][i] == s0[gc.name][dst][i], (
+                f"{label}: {gc.name}: {dst} {i} changed before the soldier arrived")
+    T.arrive(host, client, dst, sid)
+    for gc in (host, client):
+        s = snapshot(gc)
+        assert gear_en_route(gc, dst) == {i: 0 for i in GEAR}, f"{label}: {gc.name}: gear still en route"
+        for i in GEAR:
+            want = 1 if alt_on else 0
+            assert s[dst][i] == s0[gc.name][dst][i] + want, (
+                f"{label}: {gc.name}: {dst} {i} {s0[gc.name][dst][i]} -> {s[dst][i]}, expected +{want}")
+            assert s[src][i] + s[dst][i] == s0[gc.name][src][i] + s0[gc.name][dst][i], (
+                f"{label}: {gc.name}: world {i} total changed")
+    if alt_on:
+        print(f"PASS option ON: {list(GEAR)} each left {src} with the soldier, travelled on its "
+              f"transfer and reached {dst} with it; world conserved on both machines")
+    else:
+        print(f"PASS option OFF: nothing moved ({src} and {dst} stores unchanged for "
+              f"{list(GEAR)}, only the soldier en route) on both machines")
 
 
 def main():
-    run(alt_on=True)
-    run(alt_on=False)
-    print("TEST PASSED")
+    js = T.bring_up("xeqcount")
+    host, client = js.host, js.client
+    try:
+        run(host, host, client, 0, T.HB, T.CB, True, "Zzz On")
+        run(client, host, client, 1, T.CB, T.HB, False, "Zzz Off")
+        print("TEST PASSED")
+    finally:
+        js.shutdown()
 
 
 if __name__ == "__main__":

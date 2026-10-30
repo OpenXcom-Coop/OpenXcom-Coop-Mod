@@ -146,6 +146,7 @@
 #include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/CoopBattleSetup.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -613,6 +614,7 @@ void GeoscapeState::startCoopMission()
 		SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 		_game->getSavedGame()->setBattleGame(bgame);
 		bgame->setMissionType("STR_BASE_DEFENSE");
+		bgame->setBattleOwnerPlayerName(_game->getSavedGame()->getSelectedBase()->getOwnerPlayerName());
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		bgen.setBase(_game->getSavedGame()->getSelectedBase());
 		bgen.setAlienCustomDeploy(_game->getMod()->getDeployment(g_coopBaseDefense.missionCustomDeploy));
@@ -785,7 +787,8 @@ void GeoscapeState::blit()
 	State::blit();
 	for (auto* dfs : _dogfights)
 	{
-		dfs->blit();
+		if (dfs->isLocallyVisible())
+			dfs->blit();
 	}
 }
 
@@ -795,14 +798,20 @@ void GeoscapeState::blit()
  */
 void GeoscapeState::handle(Action *action)
 {
-	if (_dogfights.size() == _minimizedDogfights)
+	size_t visibleOpen = 0;
+	for (auto* dfs : _dogfights)
+		if (dfs->isLocallyVisible())
+		{
+			if (!dfs->isMinimized()) ++visibleOpen;
+		}
+	if (visibleOpen == 0)
 	{
 		State::handle(action);
 	}
 
 	if (action->getDetails()->type == SDL_KEYDOWN)
 	{
-		if (!_dogfights.empty() && _dogfights.size() > _minimizedDogfights)
+		if (visibleOpen > 0)
 		{
 			if (action->getDetails()->key.keysym.sym == SDLK_1)
 			{
@@ -973,7 +982,8 @@ void GeoscapeState::handle(Action *action)
 	{
 		for (auto* dfs : _dogfights)
 		{
-			dfs->handle(action);
+			if (dfs->isLocallyVisible())
+				dfs->handle(action);
 		}
 		_minimizedDogfights = minimizedDogfightsCount();
 	}
@@ -1060,8 +1070,10 @@ void GeoscapeState::init()
 
 	}
 
-	// Graph requests (co-op)
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->_enable_time_sync == true)
+	// Graph requests (co-op). SHARED keeps the refresh of the country and
+	// region graph series; only the one-world Separate campaign skips it.
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == false
+		&& !_game->getCoopMod()->isSeparateCampaign())
 	{
 
 		Json::Value root;
@@ -1110,7 +1122,7 @@ void GeoscapeState::init()
 		// (client-owned soldiers carry _coop=1 but are legitimate members of the
 		// single world), so this "delete the other player's battle copies" loop
 		// must NOT run - it would erase them. The bare if guards the whole for.
-		if (!_game->getCoopMod()->isSharedCampaign())
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		for (auto &base : *_game->getSavedGame()->getBases())
 		{
 
@@ -1149,7 +1161,7 @@ void GeoscapeState::init()
 		if (!_game->getCoopMod()->isSharedCampaign()) _game->getCoopMod()->coopRemoveGuestMemorialCopies(); // coop
 		_game->getCoopMod()->coopMissionEnd = false;
 
-		if (_game->getCoopMod()->getCoopStatic() == true && !_game->getCoopMod()->isSharedCampaign())
+		if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 
 			_game->getCoopMod()->updateAllCoopBases();
@@ -1163,7 +1175,7 @@ void GeoscapeState::init()
 		// replica is byte-identical and the frozen-replica relationship resumes -
 		// same bootstrap channel as J02 (streamSharedWorldToClient -> resume-blob
 		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
-		if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner() == true && !_game->getCoopMod()->coopTakePostBattleWorldSent()) // coop: skipped once the post-battle world went out at the debriefing
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getServerOwner() == true)
 		{
 			// The client's automatic resume-hold (pushed by LoadGameState whenever a
 			// streamed world is adopted) is released by the resume_ack handler: after
@@ -1184,7 +1196,7 @@ void GeoscapeState::init()
 	// blob dance (reload its own geoscape snapshot + merge soldier deltas); it
 	// keeps its lockstep post-battle world and waits for the host's authoritative
 	// world restream (dispatched from the host block above) to reload it whole.
-	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		_game->getCoopMod()->coopMissionEnd = false;
 		_game->getCoopMod()->_coopEnd = 1;
@@ -1192,7 +1204,7 @@ void GeoscapeState::init()
 
 	// coop
 	// The client should be able to retrieve the save.
-	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && !_game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod()->getHost() == false && _game->getCoopMod()->coopMissionEnd == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 
 		_game->getCoopMod()->coopMissionEnd = false;
@@ -1209,29 +1221,14 @@ void GeoscapeState::init()
 		std::string coopKey;
 		if (connectionTCP::getServerOwner() == false)
 		{
-			coopKey = connectionTCP::clientBlobKey(_game->getCoopMod()->getHostName());
+			coopKey = connectionTCP::pvpClientWorldKey(_game->getCoopMod()->getHostName());
 
-			// If the player's own-world blob isn't found, try the basehost blob.
-			if (!_game->getCoopMod()->hasCoopFile(coopKey))
-			{
-				coopKey = "basehost";
-			}
 		}
 		else
 		{
 			// Server owner returning from a mission it didn't battle-host:
-			// reload the geoscape snapshot stashed at mission sync, falling
-			// back to the last basehost snapshot.
+			// reload the geoscape snapshot stashed at mission sync.
 			coopKey = "coop_geoscape_return";
-			if (!_game->getCoopMod()->hasCoopFile(coopKey))
-			{
-				// PRD-09: this snapshot should exist for every mission the server
-				// owner enters (mission start stashes it; F3 resume re-stashes it).
-				// Falling back to 'basehost' rolls the campaign back to session
-				// start - log it so any future gap is visible in harness logs.
-				Log(LOG_WARNING) << "[coop] mission-end restore: no 'coop_geoscape_return' snapshot - falling back to 'basehost' (rolls the campaign back to session start)";
-				coopKey = "basehost";
-			}
 		}
 
 		if (!_game->getCoopMod()->hasCoopFile(coopKey))
@@ -1407,7 +1404,7 @@ void GeoscapeState::init()
 		// player runs the one authoritative world (each replica applies the same
 		// deterministic start-of-game maintenance below), so this override would
 		// clobber the replica's funds back to a pre-deduction mirror value. Fence.
-		if (_game->getCoopMod()->coopFunds != 0 && !_game->getCoopMod()->isSharedCampaign())
+		if (_game->getCoopMod()->coopFunds != 0 && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 
 			_game->getSavedGame()->setFunds(_game->getCoopMod()->coopFunds);
@@ -1421,7 +1418,7 @@ void GeoscapeState::init()
 		// has one shared world - suppress it. It is also unsafe to send here at
 		// SHARED campaign start: the replica has no SavedGame yet and the handler
 		// dereferences it.
-		if (!_game->getCoopMod()->isSharedCampaign())
+		if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		{
 			Json::Value markers;
 			markers["state"] = "baseRequest";
@@ -1483,23 +1480,87 @@ void GeoscapeState::init()
 		_game->getSavedGame()->addMonth();
 		_game->getSavedGame()->increaseDaysPassed();
 		determineAlienMissions();
-		_game->getSavedGame()->setFunds(_game->getSavedGame()->getFunds() - (_game->getSavedGame()->getBaseMaintenance() - _game->getSavedGame()->getBases()->front()->getPersonnelMaintenance()));
+		SavedGame* save = _game->getSavedGame();
+		Base* initialBase = save->getBases()->front();
+		int initialMaintenance = save->getBaseMaintenance();
+		if (_game->getCoopMod()->isSeparateCampaign())
+		{
+			// Each Separate player starts with an equal player-count share of their
+			// own vanilla opening balance: (full starting funds - that player's
+			// month-zero non-personnel base charge) / player count. Every later base
+			// owned by that player shares the same player wallet.
+			const int64_t playerCount = static_cast<int64_t>(save->getCoopPlayers().size());
+			for (const std::string& playerName : save->getCoopPlayers())
+			{
+				Base* playerBase = nullptr;
+				for (Base* base : *save->getBases())
+					if (base && base->isOwnedByPlayer(playerName))
+					{
+						playerBase = base;
+						break;
+					}
+				if (!playerBase) continue;
+				save->setSeparateFundsContext(playerName);
+				const int64_t ownInitialCosts = playerBase->getMonthlyMaintenace()
+					- playerBase->getPersonnelMaintenance();
+				save->setFunds((save->getFunds() - ownInitialCosts) / playerCount);
+			}
+			save->clearSeparateFundsContext();
+		}
+		else
+		{
+			save->setFunds(save->getFunds()
+				- (initialMaintenance - initialBase->getPersonnelMaintenance()));
+		}
 
-		// PRD-J02: SHARED campaign start. The host's authoritative world is now
+		// Private Separate research must still start identically for players who
+		// selected the same faction. Month-zero arc scripts have only now settled
+		// the host's real starting profile. Copy that baseline once, before the
+		// authoritative world is streamed; subsequent research remains private.
+		if (_game->getCoopMod()->isSeparateCampaign()
+			&& !_game->getSavedGame()->getSeparateCampaign().isResearchSharingEnabled())
+		{
+			SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
+			const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
+			if (!players.empty())
+			{
+				const SeparateEcon::CampaignData::PlayerState* hostProfile = separate.getPlayer(players.front());
+				if (hostProfile)
+					for (size_t i = 1; i < players.size(); ++i)
+					{
+						SeparateEcon::CampaignData::PlayerState* peerProfile = separate.getPlayer(players[i]);
+						if (peerProfile && peerProfile->faction == hostProfile->faction)
+						{
+							separate.replaceCompletedResearch(players[i], hostProfile->completedResearch);
+							// Private research keeps the topics a discovery disables per
+							// player. The partner takes the host's disabled topics too, or
+							// its research menu would offer topics the shared starting
+							// research already closed.
+							peerProfile->disabledResearch = hostProfile->disabledResearch;
+						}
+					}
+			}
+		}
+
+		// PRD-J02: host-authoritative campaign start. The host's world is now
 		// fully initialized (month advanced, start-of-game maintenance charged),
 		// so serialize it and stream it to the waiting client as its replica.
 		// Streaming HERE (not at base naming) means the replica adopts the SETTLED
 		// funds: the client's own init sees monthsPassed==0 and never re-charges,
-		// and the host's time-sync then agrees. Hold in COOP_DLG_WAIT_PLAYERS
-		// until the client acks loaded, then BEGIN releases both. The dialog also
-		// keeps the host's geoscape from broadcasting before the client is ready.
-		if (_game->getCoopMod()->isSharedCampaign()
+		// and the host's time-sync then agrees. Shared holds in
+		// COOP_DLG_WAIT_PLAYERS until the client acks. Separate already showed its
+		// one WAIT_BASES/BEGIN gate, so its adopted-world ack releases the client
+		// automatically instead of showing a second wait/ready dialog to the host.
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 			&& _game->getCoopMod()->getServerOwner()
 			&& connectionTCP::session.lobbyMode == 1)
 		{
 			connectionTCP::session.resumeAck = false;
 			_game->getCoopMod()->streamSharedWorldToClient();
-			_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			if (_game->getCoopMod()->isSharedCampaign())
+			{
+				_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
+			}
 		}
 	}
 }
@@ -1510,6 +1571,11 @@ void GeoscapeState::init()
 void GeoscapeState::think()
 {
 	State::think();
+	// Covered Geoscape states continue receiving think calls. Finale readiness
+	// must only be announced after debriefing, storage checks and network holds
+	// have closed, otherwise a later dialog can replace an already-open vote.
+	if (!_game->getStates().empty() && _game->getStates().back() == this)
+		_game->getCoopMod()->factionFinaleGeoscapeReady();
 
 	_zoomInEffectTimer->think(this, 0);
 	_zoomOutEffectTimer->think(this, 0);
@@ -1531,16 +1597,16 @@ void GeoscapeState::think()
 	{
 
 		// coop:
-		// the base a partner's finished research is learned at. The selected base, unless it is a partner's base (_coopBase true: losing the
+		// the base a partner's finished research is learned at. The selected base, unless it is a partner's base (_isForeignBase true: losing the
 		// first base leaves the selected index on the partner's mirror after it, and no removal re-points it); then the first own base
-		// (_coopBase false). With none (the partner's view world: every base _coopBase) the queue holds as before. The index is not moved.
+		// (_isForeignBase false). With none (the partner's view world: every base _isForeignBase) the queue holds as before. The index is not moved.
 		Base* coopResearchBase = _game->getSavedGame()->getBases()->empty() ? nullptr : _game->getSavedGame()->getSelectedBase();
-		if (coopResearchBase != nullptr && coopResearchBase->_coopBase == true)
+		if (coopResearchBase != nullptr && coopResearchBase->_isForeignBase == true)
 		{
 			coopResearchBase = nullptr;
 			for (Base* coopOwnCandidate : *_game->getSavedGame()->getBases())
 			{
-				if (coopOwnCandidate->_coopBase == false)
+				if (coopOwnCandidate->_isForeignBase == false)
 				{
 					coopResearchBase = coopOwnCandidate;
 					break;
@@ -1550,7 +1616,7 @@ void GeoscapeState::think()
 		if (coopResearchBase != nullptr) // coop
 		{
 
-			if (coopResearchBase->_coopBase == false) // coop: the pick above is an own base
+			if (_game->getSavedGame()->getSelectedBase()->_isForeignBase == false)
 			{
 
 				for (Json::Value::ArrayIndex i = 0; i < _game->getCoopMod()->waitedResearch.size(); ++i)
@@ -1571,7 +1637,7 @@ void GeoscapeState::think()
 					for (auto &base : *_game->getSavedGame()->getBases())
 					{
 
-						if ((base->getLatitude() == base_lat && base->getLongitude() == base_lon) && base->_coopBase == true)
+						if ((base->getLatitude() == base_lat && base->getLongitude() == base_lon) && base->_isForeignBase == true)
 						{
 							selected_base = base;
 							break;
@@ -1738,7 +1804,7 @@ void GeoscapeState::think()
 					popup(new MissionDetectedState(match, this, true));
 					_game->getCoopMod()->show_coop_mission_popup = -1;
 				}
-				else if (!_game->getCoopMod()->isSharedCampaign())
+				else if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 				{
 					// SEPARATE: the sender's real id does not exist in this world;
 					// legacy behavior - pop the first detected site.
@@ -1772,14 +1838,14 @@ void GeoscapeState::think()
 						// byte-faithful replica of the host's own (getCoop()==false), NOT a
 						// SEPARATE mirror (getCoop()==true). Requiring getCoop()==true
 						// swallowed the alert on every non-host player.
-						bool coopMatch = _game->getCoopMod()->isSharedCampaign()
+						bool coopMatch = (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 							? true : (ufo->getCoop() == true);
 						if (!coopMatch || !ufo->getDetected())
 							continue;
 						// Exact match on the peer's ufo id when it travelled (SHARED shares
 						// one world, so ids are identical); otherwise fall back to the
 						// legacy type+race match.
-						if (it->ufoId >= 0 && _game->getCoopMod()->isSharedCampaign())
+						if (it->ufoId >= 0 && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 						{
 							if (ufo->getId() == it->ufoId) { match = ufo; break; }
 						}
@@ -1826,7 +1892,7 @@ void GeoscapeState::think()
 			{
 				for (auto& base : *_game->getSavedGame()->getBases())
 				{
-					if (base->_coopBase == false)
+					if (base->_isForeignBase == false)
 					{
 
 						for (auto& craft : *base->getCrafts())
@@ -1849,7 +1915,7 @@ void GeoscapeState::think()
 			for (auto* base : *_game->getSavedGame()->getBases())
 			{
 
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					root["bases"][base_index]["coopbase_id"] = base->_coop_base_id;
@@ -1946,6 +2012,7 @@ void GeoscapeState::think()
 					root["ufos"][ufo_index]["ufo_id"] = ufo->_coop_ufo_id;
 					root["ufos"][ufo_index]["mission_id"] = ufo->getMission()->getId();
 					root["ufos"][ufo_index]["mission_rule"] = ufo->getMission()->getRules().getType();
+					root["ufos"][ufo_index]["ownerPlayerName"] = ufo->getMission()->getOwnerPlayerName();
 					root["ufos"][ufo_index]["ufo_rule"] = ufo->getRules()->getType();
 					root["ufos"][ufo_index]["race"] = ufo->getMission()->getRace();
 					root["ufos"][ufo_index]["lon"] = ufo->getLongitude();
@@ -2038,6 +2105,7 @@ void GeoscapeState::think()
 					root["missions"][mission_index]["time"] = Json::UInt64(mission->getSecondsRemaining());
 					root["missions"][mission_index]["lon"] = mission->getLongitude();
 					root["missions"][mission_index]["lat"] = mission->getLatitude();
+					root["missions"][mission_index]["ownerPlayerName"] = mission->getOwnerPlayerName();
 
 					mission_index++;
 
@@ -2062,6 +2130,7 @@ void GeoscapeState::think()
 					root["alienbases"][alienbase_index]["lon"] = alien_base->getLongitude();
 					root["alienbases"][alienbase_index]["lat"] = alien_base->getLatitude();
 					root["alienbases"][alienbase_index]["start_month"] = alien_base->getStartMonth();
+					root["alienbases"][alienbase_index]["ownerPlayerName"] = alien_base->getOwnerPlayerName();
 
 					alienbase_index++;
 
@@ -2074,7 +2143,7 @@ void GeoscapeState::think()
 			// PRD-J02: this is the SEPARATE-only peer economy/craft mirror. In
 			// SHARED every player already holds the authoritative world, so the
 			// mirror snapshot is suppressed (the receiver fences it too).
-			if (!_game->getCoopMod()->isSharedCampaign())
+			if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
 				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, root.toStyledString());
 
@@ -2105,6 +2174,7 @@ void GeoscapeState::think()
 
 				Json::Value jcrafts(Json::arrayValue);
 				auto& jbases = *_game->getSavedGame()->getBases();
+				const bool separateWorld = _game->getCoopMod()->isSeparateCampaign();
 				for (size_t bi = 0; bi < jbases.size(); ++bi)
 				{
 					for (auto* craft : *jbases[bi]->getCrafts())
@@ -2122,6 +2192,11 @@ void GeoscapeState::think()
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
 						jc["shield"] = craft->getShield();
+						// Separate: the airborne status string, as the two-world
+						// snapshot sends it for a peer's craft. The replica holds no
+						// destination, dogfight or fuel simulation to derive it from.
+						if (separateWorld)
+							jc["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
 						jcrafts.append(jc);
 					}
 				}
@@ -2133,9 +2208,15 @@ void GeoscapeState::think()
 					if (!ufo->getMission()) continue;
 					Json::Value ju;
 					ju["id"] = ufo->getId();
+					// Identity: the display id is 0 until detection and repeats
+					// across undetected UFOs, so the replica matches by the unique
+					// id and adopts the host's coop id instead of minting one.
+					ju["uniqueId"] = ufo->getUniqueId();
+					ju["coopId"] = ufo->getCoopUfoId();
 					ju["ufo_rule"] = ufo->getRules()->getType();
 					ju["mission_id"] = ufo->getMission()->getId();
 					ju["mission_rule"] = ufo->getMission()->getRules().getType();
+					ju["ownerPlayerName"] = ufo->getMission()->getOwnerPlayerName();
 					ju["race"] = ufo->getMission()->getRace();
 					ju["region"] = ufo->getMission()->getRegion();
 					ju["lon"] = ufo->getLongitude();
@@ -2163,6 +2244,7 @@ void GeoscapeState::think()
 					jm["rules"] = site->getRules()->getType();
 					jm["race"] = site->getAlienRace();
 					jm["city"] = site->getCity();
+					jm["ownerPlayerName"] = site->getOwnerPlayerName();
 					jm["lon"] = site->getLongitude();
 					jm["lat"] = site->getLatitude();
 					// issue #78: the replica mirrors the host's detection state and
@@ -2187,7 +2269,7 @@ void GeoscapeState::think()
 
 	// coop
 	// TIME SYNCHRONIZATION SO THAT PLAYERS CAN PROGRESS IN THE GAME
-	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true && _game->getSavedGame() && _game->getSavedGame()->getTime())
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame() && _game->getSavedGame()->getTime())
 	{
 
 		GameTime* current_time = _game->getSavedGame()->getTime();
@@ -2215,9 +2297,15 @@ void GeoscapeState::think()
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
 			// time heartbeat. The replica logs a warning on mismatch; full desync
-			// repair is PRD-J10.
-			if (_game->getCoopMod()->isSharedCampaign())
+			// repair is a world resync. Separate stamps every player's wallet and
+			// private research count instead of the host's own wallet.
+			if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			{
 				SharedEcon::attachWorldChecksum(_game, root);
+				// The replica never runs the event countdowns or a counter writer;
+				// it adopts the host's pending events and custom counters.
+				SharedEcon::hostWorldExtras(_game);
+			}
 
 		}
 
@@ -2252,7 +2340,10 @@ void GeoscapeState::think()
 		// (marker on the speed button); 0 = an open dogfight window (marker -> Intercept).
 		// Dogfights deliberately keep time running, so we report focus here rather than
 		// freezing. Sub-screens stop these packets, so their dedicated geo_focus sticks.
-		bool inDogfight = _minimizedDogfights < _dogfights.size();
+		bool inDogfight = false;
+		for (auto* dfs : _dogfights)
+			if (dfs->isLocallyVisible() && !dfs->isMinimized())
+			{ inDogfight = true; break; }
 		root["geo_focus"] = inDogfight ? 0 : -1;
 		// coop: a client with a popup queued or shown asks the host to hold the shared clock at once; the
 		// host's 1000 ms grace stays the fallback for a lost heartbeat. A client whose own world walks the host's ticks (SEPARATE)
@@ -2283,8 +2374,7 @@ void GeoscapeState::think()
 			// df_state), NOT this machine's local minimize - so a replica un-minimizing to
 			// watch never desyncs its clock from the host. Host + solo keep the vanilla
 			// "all local windows minimized" rule.
-			bool sharedReplica = _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign()
-				&& !_game->getCoopMod()->getServerOwner();
+			bool sharedReplica = _game->getCoopMod() && _game->getCoopMod()->isSharedReplica();
 			bool clockRuns = sharedReplica ? !_dfHostAnyOpen
 			                              : (_dogfights.size() == _minimizedDogfights);
 			if (clockRuns)
@@ -2314,14 +2404,40 @@ void GeoscapeState::think()
 	// set (df_open) + one per-tick render frame (df_state). REPLICA: reconcile
 	// its render-only windows toward the latest df_open set (runs every think so
 	// a window opens the moment its craft + UFO are replicated).
-	if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+	if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
 		if (_game->getCoopMod()->getServerOwner())
 			sharedBroadcastDogfights();
 		else
+		{
 			sharedReconcileReplicaDogfights();
 		SharedEcon::flushLostCrafts(_game, this); // coop: a replica removes a lost craft only from its own geoscape
+			replicaRemoveDespawnedUfos();
+		}
 	}
+}
+
+/**
+ * REPLICA: deletes the UFOs the host no longer lists. The position snapshot only
+ * marks them (DESTROYED, no time left), because a screen above the geoscape may
+ * still show one. Here the geoscape is the top screen and no popup waits to be
+ * shown, as on the host when its time5Seconds deletes a dead UFO; a dogfight
+ * window on that UFO closes first, as the host's does.
+ */
+void GeoscapeState::replicaRemoveDespawnedUfos()
+{
+	if (!_popups.empty() || !_game->getSavedGame()) return;
+	auto onUfo = [](Ufo* ufo) { return [ufo](DogfightState* dogfight) { return dogfight->getUfo() == ufo; }; };
+	Collections::deleteIf(*_game->getSavedGame()->getUfos(), _game->getSavedGame()->getUfos()->size(),
+		[&](Ufo* ufo)
+		{
+			if (ufo->getStatus() != Ufo::DESTROYED || ufo->getSecondsRemaining() != 0)
+				return false;
+			Collections::deleteIf(_dogfights, _dogfights.size(), onUfo(ufo));
+			Collections::deleteIf(_dogfightsToBeStarted, _dogfightsToBeStarted.size(), onUfo(ufo));
+			return true;
+		}
+	);
 }
 
 /**
@@ -2380,7 +2496,7 @@ void GeoscapeState::updatePeerSpeedIndicators()
 	int screenCounts[6] = { 0, 0, 0, 0, 0, 0 };
 	bool speedBusy[6] = { false, false, false, false, false, false };
 
-	if (_game->getCoopMod()->getCoopStatic() && connectionTCP::_enable_time_sync)
+	if (_game->getCoopMod()->getCoopStatic())
 	{
 		// peerFocusScreen: -1 = on the geoscape (use the selected speed), else the
 		// 0..5 toolbar-button index the peer has navigated into.
@@ -2443,7 +2559,7 @@ void GeoscapeState::updatePeerSpeedIndicators()
  */
 void GeoscapeState::sendCoopFocus(int screen)
 {
-	if (!(_game->getCoopMod()->getCoopStatic() && connectionTCP::_enable_time_sync))
+	if (!_game->getCoopMod()->getCoopStatic())
 		return;
 
 	Json::Value root;
@@ -2541,7 +2657,7 @@ void GeoscapeState::timeAdvance()
 	}
 
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && connectionTCP::_enable_time_sync == true)
+	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
 
 		timeSpan = 1;
@@ -2616,19 +2732,28 @@ void GeoscapeState::timeAdvance()
 
 		_game->getCoopMod()->other_time_speed_coop = "";
 
-		// coop: freeze the authoritative host clock while the client is away from the
-		// geoscape (base, options, ufopaedia, intercept, popups, etc.). The client
-		// emits a "time" heartbeat every think() it spends on the geoscape; if the
-		// host hasn't seen one within the grace window, treat the client as paused.
+		// Freeze either local simulation while the peer is away from the geoscape
+		// (base, options, ufopaedia, intercept, popups, post-debrief screens, etc.).
+		// Both peers emit a "time" heartbeat from GeoscapeState::think; if that
+		// heartbeat goes stale, neither side may keep running private 5-second steps.
 		// Combined with the host's own implicit pause (its GeoscapeState stops
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
-		if (_game->getCoopMod()->getServerOwner())
+		// Separate only: in SHARED and PvP the host freezes on
+		// a stale client heartbeat alone. A SHARED client's open dogfight window
+		// reports focus 0 while it stays on the geoscape, and time keeps
+		// running through it.
+		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
+		const bool peerStale =
+			SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace;
+		if (_game->getCoopMod()->isSeparateCampaign())
 		{
-			const Uint32 grace = 1000; // ms; comfortably above the client's per-frame heartbeat gap
-			if (SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace
-				|| _game->getCoopMod()->peerGeoHold.load()) // coop: the client's heartbeat says it has a popup
+			if (_game->getCoopMod()->peerFocusScreen >= 0 || peerStale)
 				timeSpan = 0;
+		}
+		else if (_game->getCoopMod()->getServerOwner() && peerStale)
+		{
+			timeSpan = 0;
 		}
 
 		// coop: a SEPARATE client's own loops run on the ticks the HOST stepped - each once, in
@@ -2638,6 +2763,14 @@ void GeoscapeState::timeAdvance()
 			timeSpan = coopPendingTicks;
 
 	}
+
+	// Shared and the rewritten Separate campaign both use one
+	// host-authoritative world. A client only displays host snapshots and must
+	// never advance craft movement, events, research or economy on its own. This
+	// is deliberately outside getCoopStatic(): losing the host must keep the
+	// remaining host-derived world frozen until it is discarded or reconnected.
+	if (_game->getCoopMod()->isCampaignReplica())
+		timeSpan = 0;
 
 	const bool coopPausedIn = _pause; // coop
 	for (int i = 0; i < timeSpan && !_pause; ++i)
@@ -2725,7 +2858,7 @@ void GeoscapeState::time5Seconds()
 	//   time1Month/   -> monthly funding settle -> replica adopts host funds/tails
 	//   time1MonthCoop   from the extended monthly_report (NOT frozen: it IS the
 	//                    replica's monthly apply path).
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -2747,11 +2880,14 @@ void GeoscapeState::time5Seconds()
 	const bool noNonCoopBases = std::none_of(bases->begin(), bases->end(),
 											 [](const Base* b)
 											 {
-												 return b && !b->_coopBase;
+												 return b && !b->_isForeignBase;
 											 });
 
-	// Game over if there are no more bases.
-	if (_game->getSavedGame()->getBases()->empty() || (noNonCoopBases && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))
+	// Game over if there are no more bases. Separate is one world holding every
+	// player's bases: the campaign is lost only when no player has a base left.
+	// The host judges it; the lose cutscene carries the ending to the client.
+	const bool separateWorld = _game->getCoopMod()->isSeparateCampaign();
+	if (_game->getSavedGame()->getBases()->empty() || (!separateWorld && noNonCoopBases && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3))
 	{
 		_game->getSavedGame()->setEnding(END_LOSE);
 	}
@@ -2830,11 +2966,13 @@ void GeoscapeState::time5Seconds()
 						{
 							_pause = true;
 							timerReset();
-							_globe->center(c->getLongitude(), c->getLatitude());
+							if (SeparateEcon::ownsCraft(_game, c))
+								_globe->center(c->getLongitude(), c->getLatitude());
 							startDogfight();
 							_dogfightStartTimer->start();
 						}
-						_game->getMod()->playMusic("GMINTER");
+						if (SeparateEcon::ownsCraft(_game, c))
+							_game->getMod()->playMusic("GMINTER");
 
 						// Don't process certain craft logic (moving and reaching destination)
 						ufoIsAttacking = true;
@@ -2968,7 +3106,7 @@ void GeoscapeState::time5Seconds()
 			{
 
 				// coop
-				if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+				if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 				{
 					for (auto* country : *_game->getSavedGame()->getCountries())
 					{
@@ -3170,14 +3308,16 @@ void GeoscapeState::time5Seconds()
 							{
 								if (xcraft->getRules()->isWaterOnly() && u->getAltitudeInt() > xcraft->getRules()->getMaxAltitude())
 								{
-									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
+									if (dogfight->isLocallyVisible())
+										popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
 									SharedEcon::hostAlertText(_game, "DogfightErrorState", SharedEcon::textKey("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId()); // coop
 									dogfight->setMinimized(true);
 									dogfight->setWaitForAltitude(true);
 								}
 								else if (xcraft->getRules()->isWaterOnly() && !_globe->insideLand(xcraft->getLongitude(), xcraft->getLatitude()))
 								{
-									popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
+									if (dogfight->isLocallyVisible())
+										popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
 									SharedEcon::hostAlertText(_game, "DogfightErrorState", SharedEcon::textKey("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId()); // coop
 									dogfight->setMinimized(true);
 									dogfight->setWaitForPoly(true);
@@ -3188,11 +3328,13 @@ void GeoscapeState::time5Seconds()
 							{
 								_pause = true;
 								timerReset();
-								_globe->center(xcraft->getLongitude(), xcraft->getLatitude());
+								if (dogfight->isLocallyVisible())
+									_globe->center(xcraft->getLongitude(), xcraft->getLatitude());
 								startDogfight();
 								_dogfightStartTimer->start();
 							}
-							_game->getMod()->playMusic("GMINTER");
+							if (dogfight->isLocallyVisible())
+								_game->getMod()->playMusic("GMINTER");
 						}
 						break;
 					case Ufo::LANDED:
@@ -3225,7 +3367,9 @@ void GeoscapeState::time5Seconds()
 				}
 				else if (w != 0)
 				{
-					if (!xcraft->getIsAutoPatrolling())
+					// Separate: the craft owner gets the prompt (a client craft's
+					// owner receives it through patrol_prompt below).
+					if (!xcraft->getIsAutoPatrolling() && SeparateEcon::ownsCraft(_game, xcraft))
 					{
 						popup(new CraftPatrolState(xcraft, _globe));
 					}
@@ -3234,7 +3378,7 @@ void GeoscapeState::time5Seconds()
 					// pop the same popup and clear the stale destination line + waypoint
 					// marker (Bug: the "reached destination" alert and marker cleanup never
 					// reached the clients). Redirect rides the existing craft_order lane.
-					if (_game->getCoopMod()->isSharedCampaign() && _game->getCoopMod()->getServerOwner())
+					if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getServerOwner())
 						SharedEcon::hostPatrolPrompt(_game, xcraft);
 					xcraft->setDestination(0);
 				}
@@ -3391,7 +3535,7 @@ void GeoscapeState::time10Minutes()
 
 	// PRD-J04: replica simulation freeze (see time5Seconds). Fuel burn, base/HK
 	// detection and alien-base hunt-mission generation are host-only.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -3705,11 +3849,15 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
 		const RuleResearch* bonus = nullptr;
-		if (_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment(), &bonus))
+		if (_game->getSavedGame()->handleResearchUnlockedByMissions(research, _game->getMod(), site->getDeployment(), &bonus,
+			site->getOwnerPlayerName()))
 		{
 			// coop SEPARATE, shared research: the site lived in this world only; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getCoopHqBase()); // coop: the sender's first own base
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, _game->getSavedGame()->getBases()->front());
+			// Separate's one world: the replica applies the host's exact result.
+			SeparateEcon::hostMissionResearch(_game, site->getDeployment(), research, bonus,
+				site->getOwnerPlayerName());
 		}
 
 		// Increase counters
@@ -3724,20 +3872,33 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 
 		// Generate a despawn event
 		auto* eventRules = _game->getMod()->getEvent(site->getDeployment()->chooseDespawnEvent());
-		bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(eventRules);
+		bool canSpawn = _game->getSavedGame()->canSpawnInstantEvent(eventRules, site->getOwnerPlayerName());
 		if (canSpawn)
 		{
 			timerReset();
-			const Json::Value h15Mark = SharedEcon::eventMark(_game);
-			popup(new GeoscapeEventState(*eventRules));
-			SharedEcon::hostGeoEvent(_game, *eventRules, h15Mark, _popups.back()); // the reward's result rides geo_event
+			const Json::Value eventFxMark = SharedEcon::eventMark(_game); // coop: the world before the event's reward
+			const std::string eventOwner = site->getOwnerPlayerName();
+			GeoscapeEventState* eventState = new GeoscapeEventState(*eventRules, eventOwner);
+			const std::string eventResearch = eventState->getResearchName();
+			const std::string eventBonus = eventState->getBonusResearchName();
+			const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
+			const bool eventShown = eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat());
+			if (eventShown)
+				popup(eventState);
+			if (_game->getCoopMod()->isSeparateCampaign())
+				SeparateEcon::hostGeoscapeEvent(_game, eventRules->getName(),
+					eventResearch, eventBonus, eventOwner, &eventDisplay);
+			else
+				SharedEcon::hostGeoEvent(_game, *eventRules, eventFxMark, eventState); // the reward's result rides geo_event
+			if (!eventShown)
+				delete eventState;
 		}
 	}
 
 	int score = removeSite ? site->getDeployment()->getDespawnPenalty() : site->getDeployment()->getPoints();
 
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && site->getCoop() == false) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if ((_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner() && !site->getCoop()) || !_game->getCoopMod()->getCoopStatic())
 	{
 
 		Region* region = _game->getSavedGame()->locateRegion(*site);
@@ -3777,7 +3938,7 @@ void GeoscapeState::time30Minutes()
 	// PRD-J04: replica simulation freeze (see time5Seconds). Alien-mission
 	// countdowns, UFO detection, mission-site processing and geoscape events are
 	// host-only; the replica sees them via snapshots / mirrored popups.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -3798,10 +3959,14 @@ void GeoscapeState::time30Minutes()
 		if (abCount < _game->getSavedGame()->getAlienBases()->size())
 		{
 			AlienBase* newAlienBase = _game->getSavedGame()->getAlienBases()->back();
-			if (!newAlienBase->isDiscovered() && am->getRules().showAlienBase())
+			const bool ownedSeparateTarget = _game->getCoopMod()->isSeparateCampaign()
+				&& !newAlienBase->getOwnerPlayerName().empty();
+			if (!newAlienBase->isDiscovered()
+				&& (am->getRules().showAlienBase() || ownedSeparateTarget))
 			{
 				newAlienBase->setDiscovered(true);
 				popup(new AlienBaseState(newAlienBase, this));
+				SharedEcon::hostAlienBaseFound(_game, newAlienBase);
 			}
 		}
 
@@ -3912,7 +4077,7 @@ void GeoscapeState::time30Minutes()
 		case Ufo::FLYING:
 
 			// coop
-			if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true && ufo->getCoop() == false) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+			if ((_game->getCoopMod()->getCoopStatic() && _game->getCoopMod()->getServerOwner() && !ufo->getCoop()) || !_game->getCoopMod()->getCoopStatic())
 			{
 				// Get area
 				for (auto* region : *_game->getSavedGame()->getRegions())
@@ -3959,7 +4124,7 @@ void GeoscapeState::time30Minutes()
 	// copy does (connectionTCP::coopCertainEventFire), not on its own countdown - the
 	// client clock can jump past 30-minute steps when the host time overwrites it.
 	const bool holdSharedEvents = _game->getCoopMod()->getCoopStatic() && !_game->getCoopMod()->getServerOwner()
-		&& !_game->getCoopMod()->isSharedCampaign();
+		&& !_game->getCoopMod()->isSharedCampaign() && !_game->getCoopMod()->isSeparateCampaign();
 	for (auto* ge : _game->getSavedGame()->getGeoscapeEvents())
 	{
 		if (ge->isOver())
@@ -3986,6 +4151,66 @@ void GeoscapeState::time30Minutes()
 }
 
 /**
+ * Plays a research-completion cutscene.
+ * Separate: a win/lose ending is that player's faction finale result. A win
+ * completes the faction and, while other factions remain, queues the continuation
+ * vote; a loss (or the last faction's win) ends the campaign for every player.
+ * A non-ending cutscene plays only for the research owner; the owner's replica
+ * plays it from the research_done mirror (SharedEcon::researchDoneApply).
+ */
+static void playResearchCutscene(Game* game, GeoscapeState* gs, const RuleResearch* topic, Base* base)
+{
+	if (!topic || topic->getCutscene().empty())
+		return;
+	SavedGame* saveGame = game->getSavedGame();
+	const std::string& cutscene = topic->getCutscene();
+	const RuleVideo* videoRule = game->getMod()->getVideo(cutscene, true);
+	const bool ending = videoRule->getWinGame() || videoRule->getLoseGame();
+	if (!game->getCoopMod()->isSeparateCampaign())
+	{
+		gs->popup(new CutsceneState(cutscene));
+		if (saveGame->getEnding() == END_NONE)
+		{
+			if (videoRule->getWinGame()) saveGame->setEnding(END_WIN);
+			if (videoRule->getLoseGame()) saveGame->setEnding(END_LOSE);
+		}
+		return;
+	}
+	if (!ending)
+	{
+		if (SeparateEcon::showBaseNotification(game, base))
+		{
+			game->getCoopMod()->allow_cutscene = false; // never mirrored to the other player
+			gs->popup(new CutsceneState(cutscene));
+		}
+		return;
+	}
+	if (saveGame->getEnding() != END_NONE)
+		return;
+	const std::string owner = base ? base->getOwnerPlayerName() : std::string();
+	if (!SeparateEcon::resolveFactionFinalOutcome(game, owner, videoRule->getWinGame()))
+	{
+		// This faction won, other factions still play: no ending, offer the vote.
+		game->getCoopMod()->queueFactionFinaleVote(owner);
+		return;
+	}
+	// Campaign-wide ending: the same verdict packet a faction finale battle sends.
+	game->getCoopMod()->allow_cutscene = false;
+	gs->popup(new CutsceneState(cutscene));
+	saveGame->setEnding(videoRule->getWinGame() ? END_WIN : END_LOSE);
+	if (game->getCoopMod()->getServerOwner())
+	{
+		game->getCoopMod()->prepareLocalEndingFactionDisplayName();
+		game->getCoopMod()->setEndingCutsceneId(cutscene);
+		Json::Value endingMsg;
+		endingMsg["state"] = "faction_campaign_end";
+		endingMsg["cutscene"] = cutscene;
+		endingMsg["victory"] = saveGame->getEnding() == END_WIN;
+		game->getCoopMod()->sendTCPPacketData(endingMsg.toStyledString());
+	}
+}
+
+/**
  * Pops up a geoscape event whose time has come, unless its interrupt research is
  * known (or, in PvP, this player is the alien side).
  * @param ge The event, already marked over.
@@ -3995,7 +4220,13 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	bool interrupted = false;
 	if (!ge->getRules().getInterruptResearch().empty())
 	{
-		if (_game->getSavedGame()->isResearched(ge->getRules().getInterruptResearch(), false))
+		// Private Separate research: the event owner's research (any player's
+		// for an event without an owner).
+		SavedGame* save = _game->getSavedGame();
+		SeparateResearchScope researchScope(save, ge->getOwnerPlayerName());
+		if (ge->getOwnerPlayerName().empty() && save->usesSeparatePrivateResearch()
+			? save->isResearchedByAnyPlayer(ge->getRules().getInterruptResearch())
+			: save->isResearched(ge->getRules().getInterruptResearch(), false))
 		{
 			interrupted = true;
 		}
@@ -4020,9 +4251,22 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	if (!interrupted)
 	{
 		timerReset();
-		const Json::Value h15Mark = SharedEcon::eventMark(_game);
-		popup(new GeoscapeEventState(ge->getRules(), ge->isCoopShared(), ge->isCoopBothWorlds())); // coop: the both-worlds mark
-		SharedEcon::hostGeoEvent(_game, ge->getRules(), h15Mark, _popups.back()); // the reward's result rides geo_event
+		const Json::Value eventFxMark = SharedEcon::eventMark(_game); // coop: the world before the event's reward
+		const std::string eventOwner = ge->getOwnerPlayerName();
+		GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner, ge->isCoopShared());
+		const std::string eventResearch = eventState->getResearchName();
+		const std::string eventBonus = eventState->getBonusResearchName();
+		const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
+		const bool eventShown = eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat());
+		if (eventShown)
+			popup(eventState);
+		if (_game->getCoopMod()->isSeparateCampaign())
+			SeparateEcon::hostGeoscapeEvent(_game, ge->getRules().getName(),
+				eventResearch, eventBonus, eventOwner, &eventDisplay);
+		else
+			SharedEcon::hostGeoEvent(_game, ge->getRules(), eventFxMark, eventState); // the reward's result rides geo_event
+		if (!eventShown)
+			delete eventState;
 	}
 
 	// coop SEPARATE: the client's copy of a shared event fires with this one
@@ -4111,7 +4355,7 @@ void GeoscapeState::time1Hour()
 	// repair/rearm/refuel, transfer arrival and production steps are host-only;
 	// the host mirrors transfer arrivals (transfer_arrived) and production
 	// completions (prod_done) to replicas below.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -4148,8 +4392,10 @@ void GeoscapeState::time1Hour()
 									   .arg(tr(ammo->getType()))
 									   .arg(xcraft->getName(_game->getLanguage()))
 									   .arg(xbase->getName());
-					popup(new CraftErrorState(this, msg));
-					SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_CRAFT_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())})); // coop
+					if (SeparateEcon::showBaseNotification(_game, xbase))
+						popup(new CraftErrorState(this, msg));
+					SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true, Json::Value(),
+						SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_CRAFT_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())}));
 				}
 			}
 			if (xcraft->getShieldCapacity() > 0 && xcraft->getStatus() != "STR_OUT")
@@ -4172,8 +4418,10 @@ void GeoscapeState::time1Hour()
 					.arg(tr(ammo->getType()))
 					.arg(tr(facility->getRules()->getType()))
 					.arg(xbase->getName());
-				popup(new CraftErrorState(this, msg));
-				SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_FACILITY_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textKey(facility->getRules()->getType()), SharedEcon::textLiteral(xbase->getName())})); // coop
+				if (SeparateEcon::showBaseNotification(_game, xbase))
+					popup(new CraftErrorState(this, msg));
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true, Json::Value(),
+					SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_FACILITY_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textKey(facility->getRules()->getType()), SharedEcon::textLiteral(xbase->getName())}));
 			}
 		}
 	}
@@ -4215,59 +4463,94 @@ void GeoscapeState::time1Hour()
 	if (window)
 	{
 		ItemsArrivingState* ia = new ItemsArrivingState(this);
-		if (ia->getRows().empty())
+		Json::Value rowsJson(Json::arrayValue);
+		for (const auto& r : ia->getAllRows())
 		{
-			delete ia;
+			Json::Value j;
+			j["type"] = r.type;
+			j["name"] = r.name;
+			j["text"] = r.nameKey.empty() ? SharedEcon::textLiteral(r.name) : r.nameId < 0 ? SharedEcon::textKey(r.nameKey) // coop
+				: SharedEcon::textKey("STR_CRAFTNAME", {SharedEcon::textKey(r.nameKey), Json::Value(r.nameId)}); // coop
+			j["qty"] = r.qty;
+			j["base"] = r.base;
+			j["baseIdx"] = r.baseIdx;
+			j["ownerSeat"] = r.ownerSeat;
+			j["ownerPlayerName"] = r.ownerPlayerName;
+			rowsJson.append(j);
 		}
-		else
-		{
-			popup(ia);
-			Json::Value rowsJson(Json::arrayValue);
-			for (const auto& r : ia->getRows())
-			{
-				Json::Value j;
-				j["type"] = r.type;
-				j["name"] = r.name;
-				j["text"] = r.nameKey.empty() ? SharedEcon::textLiteral(r.name) : r.nameId < 0 ? SharedEcon::textKey(r.nameKey) // coop
-					: SharedEcon::textKey("STR_CRAFTNAME", {SharedEcon::textKey(r.nameKey), Json::Value(r.nameId)}); // coop
-				j["qty"] = r.qty;
-				j["base"] = r.base;
-				j["baseIdx"] = r.baseIdx;
-				j["ownerSeat"] = r.ownerSeat;
-				rowsJson.append(j);
-			}
+		if (!rowsJson.empty())
 			SharedEcon::hostAlert(_game, "ItemsArrivingState", "", nullptr, -1, {}, {}, false, rowsJson);
-		}
+		if (ia->getRows().empty()) delete ia;
+		else popup(ia);
 	}
 	// Handle Production
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		std::map<Production*, productionProgress_e> toRemove;
-		for (auto* prod : xbase->getProductions())
+		// The count the host ACTUALLY materialized, NOT the raw time-based
+		// getAmountProduced(), which overshoots getAmountTotal() when a single
+		// hourly step advances _timeSpent past _amount*manufactureTime (big
+		// engineer pool, or a multi-day time jump). Production::step() caps
+		// materialization at getAmountTotal() via std::min; mirror that cap so the
+		// replica delivers the same count, never over-materializes.
+		auto materialized = [](const Production* prod)
 		{
-			const Json::Value h16gMark = SharedEcon::productionFxMark(_game, xbase); // coop: the base before this production's hour
-			toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
-			SharedEcon::hostProductionFx(_game, xbase, prod->getRules()->getName(), h16gMark); // coop: each unit reaches the replica in the hour it is made
+			int units = prod->getAmountProduced();
+			if (!prod->getInfiniteAmount())
+				units = std::min(units, prod->getAmountTotal());
+			return units;
+		};
+		// Each production's units and built crafts before this hour's step, so
+		// every unit it finishes reaches the replicas in the hour it is made.
+		std::map<Production*, std::pair<int, size_t> > before;
+		// And the soldiers it spawned (spawnedPersonType) before this step.
+		std::map<Production*, size_t> spawnedBefore;
+		// coop: a SHARED replica takes each unit by prod_fx in the hour it is made (prod_done then only ends the batch);
+		// a Separate replica takes the units by prod_done below.
+		const bool prodFx = _game->getCoopMod()->isSharedCampaign();
+		{
+			// Separate: unit costs, the money check and sale proceeds belong to
+			// the base owner's wallet, not to the host seat's.
+			SeparateFundsScope wallet(_game->getSavedGame(),
+				SeparateEcon::baseWalletOwner(_game, xbase));
+			for (auto* prod : xbase->getProductions())
+			{
+				before[prod] = std::make_pair(materialized(prod), prod->getCoopBuiltCraftIds().size());
+				spawnedBefore[prod] = prod->getCoopSpawnedSoldierIds().size();
+				const Json::Value fxMark = prodFx ? SharedEcon::productionFxMark(_game, xbase) : Json::Value(Json::nullValue); // coop: the base before this production's hour
+				toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
+				if (prodFx)
+					SharedEcon::hostProductionFx(_game, xbase, prod->getRules()->getName(), fxMark); // coop: each unit reaches the replica in the hour it is made
+			}
 		}
 		for (const auto& pair : toRemove)
 		{
+			// Mirror the units this step made to SHARED and Separate
+			// replicas (and the finished batch, before the Production object is
+			// destroyed): a craft or item unit appears there in the same hour as
+			// on the host, docked, stored or shipped as the host put it.
+			const int units = materialized(pair.first) - before[pair.first].first;
+			const std::vector<int>& built = pair.first->getCoopBuiltCraftIds();
+			const std::vector<int> newCrafts(built.begin() + std::min(before[pair.first].second, built.size()), built.end());
+			// The soldiers this step spawned: in Separate they belong to the
+			// base owner, and the replicas get the host's soldiers.
+			const std::vector<int>& spawnedIds = pair.first->getCoopSpawnedSoldierIds();
+			const std::vector<Soldier*> spawned = SeparateEcon::spawnedSoldiers(_game, xbase,
+				std::vector<int>(spawnedIds.begin() + std::min(spawnedBefore[pair.first], spawnedIds.size()), spawnedIds.end()));
 			if (pair.second > PROGRESS_NOT_COMPLETE)
 			{
-				popup(new ProductionCompleteState(xbase,  tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
-				// PRD-J04: mirror the finished manufacture to SHARED replicas before the
-				// Production object is destroyed. GAP-6: broadcast the count the host
-				// ACTUALLY materialized, NOT the raw time-based getAmountProduced(), which
-				// overshoots getAmountTotal() when a single hourly step advances _timeSpent
-				// past _amount*manufactureTime (big engineer pool, or a multi-day time jump).
-				// Production::step() caps materialization at getAmountTotal() via std::min;
-				// mirror that cap so the replica delivers the same count, never over-materializes.
-				int prodUnits = pair.first->getAmountProduced();
-				if (!pair.first->getInfiniteAmount())
-					prodUnits = std::min(prodUnits, pair.first->getAmountTotal());
+				if (SeparateEcon::showBaseNotification(_game, xbase))
+					popup(new ProductionCompleteState(xbase, tr(pair.first->getRules()->getName()), this, pair.second, pair.first));
 				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
-					pair.first->getRules()->getName(), prodUnits, pair.second,
-					pair.first->getSellItems());
+					pair.first->getRules()->getName(), units, pair.second,
+					pair.first->getSellItems(), newCrafts, true, spawned);
 				xbase->removeProduction(pair.first);
+			}
+			else if (units > 0 && !prodFx)
+			{
+				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
+					pair.first->getRules()->getName(), units, pair.second,
+					pair.first->getSellItems(), newCrafts, false, spawned);
 			}
 		}
 
@@ -4276,9 +4559,32 @@ void GeoscapeState::time1Hour()
 		{
 			if (xbase->storesOverfull())
 			{
-				timerReset();
-				popup(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(xbase->getName()), _palette, _game->getMod()->getInterface("geoscape")->getElement("errorMessage")->color, "BACK13.SCR", _game->getMod()->getInterface("geoscape")->getElement("errorPalette")->color));
-				popup(new SellState(xbase, 0));
+				if (_game->getCoopMod()->isSeparateCampaign())
+				{
+					// The host keeps simulating while a remote owner is in SellState.
+					// Send/open this overflow only once until the base becomes valid again;
+					// otherwise hourly ticks queue duplicate dialogs behind the first one.
+					if (_separateStorageAlerts.insert(xbase).second)
+					{
+						SharedEcon::hostAlert(_game, "SeparateStorageExceeded", "", xbase);
+						if (SeparateEcon::showBaseNotification(_game, xbase))
+						{
+							timerReset();
+							popup(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(xbase->getName()), _palette, _game->getMod()->getInterface("geoscape")->getElement("errorMessage")->color, "BACK13.SCR", _game->getMod()->getInterface("geoscape")->getElement("errorPalette")->color));
+							popup(new SellState(xbase, 0));
+						}
+					}
+				}
+				else if (SeparateEcon::showBaseNotification(_game, xbase))
+				{
+					timerReset();
+					popup(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(xbase->getName()), _palette, _game->getMod()->getInterface("geoscape")->getElement("errorMessage")->color, "BACK13.SCR", _game->getMod()->getInterface("geoscape")->getElement("errorPalette")->color));
+					popup(new SellState(xbase, 0));
+				}
+			}
+			else
+			{
+				_separateStorageAlerts.erase(xbase);
 			}
 			if (!_game->getSavedGame()->getAlienContainmentChecked())
 			{
@@ -4441,7 +4747,7 @@ void GeoscapeState::time1Day()
 	// soldier daily progress and the autosave are host-only; the host mirrors
 	// research completions, facility completions (fac_done) and soldier recovery
 	// (day_tick) to replicas below. A replica NEVER autosaves (it holds no disk save).
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -4452,12 +4758,15 @@ void GeoscapeState::time1Day()
 		return;
 	}
 
+	// coop host: snapshot the soldiers before the day step changes them, so
+	// hostDayTick carries every change (kept when time1Month armed it).
+	SharedEcon::hostSoldierStepBegin(_game, true);
+
 	_game->getSavedGame()->increaseDaysPassed();
 
 	SavedGame *saveGame = _game->getSavedGame();
 	Mod *mod = _game->getMod();
 	bool psiStrengthEval = (Options::psiStrengthEval && saveGame->isResearched(mod->getPsiRequirements()));
-	const Json::Value h18DayMark = SharedEcon::soldierFxMark(_game); // coop: soldier training/recovery before the day's loops
 
 	// PRD-J04: index of a base in the shared list = the SHARED baseId; used by the
 	// host sim-result broadcasts (research/facility/day_tick).
@@ -4489,6 +4798,8 @@ void GeoscapeState::time1Day()
 
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+		// Private Separate research: every research check for this base is its owner's.
+		SeparateResearchScope researchScope(saveGame, xbase->getOwnerPlayerName());
 		// Handle facility construction
 		std::map<const RuleBaseFacility*, int> finishedFacilities;
 		for (auto* facility : *xbase->getFacilities())
@@ -4506,8 +4817,12 @@ void GeoscapeState::time1Day()
 				}
 			}
 		}
+		// Separate: only the base owner gets the completion popup (the owner's
+		// replica raises its own from fac_done).
 		for (const auto& pair : finishedFacilities)
 		{
+			if (!SeparateEcon::showBaseNotification(_game, xbase))
+				break;
 			if (pair.second > 1)
 			{
 				std::ostringstream ssf;
@@ -4557,6 +4872,7 @@ void GeoscapeState::time1Day()
 			project = nullptr;
 
 			// 3b. handle interrogation
+			std::string keptCorpse; // coop: mirrored to the replica in research_done
 			if (Options::retainCorpses && research->needItem() && research->destroyItem())
 			{
 				auto* ruleUnit = mod->getUnit(research->getName(), false); // don't use getNeededItem()
@@ -4566,6 +4882,7 @@ void GeoscapeState::time1Day()
 					if (ruleCorpse && ruleCorpse->isRecoverable() && ruleCorpse->isCorpseRecoverable())
 					{
 						xbase->getStorageItems()->addItem(ruleCorpse);
+						keptCorpse = ruleCorpse->getType();
 					}
 				}
 			}
@@ -4575,7 +4892,7 @@ void GeoscapeState::time1Day()
 			if (lookupResearch)
 				addResearchDiaryEntryForBase(lookupResearch, DiscoverySourceType::BASE, xbase, nullptr);
 			// 3c. handle getonefrees (topic+lookup)
-			if ((bonus = saveGame->selectGetOneFree(research)))
+			if ((bonus = saveGame->selectGetOneFree(research, xbase)))
 			{
 				addResearchDiaryEntryForBase(bonus, DiscoverySourceType::FREE_FROM, nullptr, research);
 				saveGame->addFinishedResearch(bonus, mod, xbase);
@@ -4590,7 +4907,7 @@ void GeoscapeState::time1Day()
 			// Note: because different topics may lead to the same lookup
 			const RuleResearch *newResearch = research;
 			std::string name = research->getLookup().empty() ? research->getName() : research->getLookup();
-			if (saveGame->isResearched(name, false))
+			if (saveGame->isResearchedForBase(name, xbase, false))
 			{
 				newResearch = 0;
 			}
@@ -4601,28 +4918,14 @@ void GeoscapeState::time1Day()
 				saveGame->addFinishedResearch(mod->getResearch(research->getLookup(), true), mod, xbase);
 			}
 			// 3e. handle cutscene
-			if (!research->getCutscene().empty())
-			{
-				popup(new CutsceneState(research->getCutscene()));
-				if (saveGame->getEnding() == END_NONE)
-				{
-					const RuleVideo* videoRule = _game->getMod()->getVideo(research->getCutscene(), true);
-					if (videoRule->getWinGame()) saveGame->setEnding(END_WIN);
-					if (videoRule->getLoseGame()) saveGame->setEnding(END_LOSE);
-				}
-			}
-			if (bonus && !bonus->getCutscene().empty())
-			{
-				popup(new CutsceneState(bonus->getCutscene()));
-				if (saveGame->getEnding() == END_NONE)
-				{
-					const RuleVideo* videoRule = _game->getMod()->getVideo(bonus->getCutscene(), true);
-					if (videoRule->getWinGame()) saveGame->setEnding(END_WIN);
-					if (videoRule->getLoseGame()) saveGame->setEnding(END_LOSE);
-				}
-			}
+			playResearchCutscene(_game, this, research, xbase);
+			playResearchCutscene(_game, this, bonus, xbase);
 			// 3e. handle research complete popup + ufopedia article popups (topic+bonus)
-			popup(new ResearchCompleteState(newResearch, bonus, research, xbase));
+			// In Separate the host simulates every base, but only the owner should
+			// receive that base's completion dialog. The authoritative completion is
+			// still mirrored below to the owner's replica.
+			if (SeparateEcon::showResearchCompletion(_game, xbase))
+				popup(new ResearchCompleteState(newResearch, bonus, research, xbase));
 			// PRD-J04: mirror this completion to SHARED replicas. Carry the exact
 			// discovered topic + the host-selected getOneFree + the popup topic, so
 			// the replica removes the project (freeing scientists) and adds the SAME
@@ -4630,9 +4933,10 @@ void GeoscapeState::time1Day()
 			// that ResearchCompleteState would emit is fenced off in SHARED.
 			SharedEcon::hostResearchDone(_game, sharedBaseId(xbase), research->getName(),
 				bonus ? bonus->getName() : std::string(),
-				newResearch ? newResearch->getName() : std::string());
+				newResearch ? newResearch->getName() : std::string(), keptCorpse);
 			// 3f. reset timer
 			timerReset();
+			const bool showLocalResearchAlerts = SeparateEcon::showResearchCompletion(_game, xbase);
 			// 3g. warning if weapon is researched before its clip
 			if (newResearch)
 			{
@@ -4646,7 +4950,8 @@ void GeoscapeState::time1Day()
 						const RuleItem *ammo = item->getPrimaryCompatibleAmmo()->front();
 						if (std::find_if(req.begin(), req.end(), [&](const RuleResearch* r){ return r->getName() == ammo->getType(); }) != req.end() && !saveGame->isResearched(req, true))
 						{
-							popup(new ResearchRequiredState(item));
+							if (showLocalResearchAlerts)
+								popup(new ResearchRequiredState(item));
 							SharedEcon::hostAlert(_game, "ResearchRequiredState", item->getType());
 						}
 					}
@@ -4657,8 +4962,12 @@ void GeoscapeState::time1Day()
 			saveGame->getAvailableResearchProjects(after, mod, xbase);
 			std::vector<RuleResearch *> newPossibleResearch;
 			saveGame->getNewlyAvailableResearchProjects(before, after, newPossibleResearch);
-			popup(new NewPossibleResearchState(xbase, newPossibleResearch));
-			SharedEcon::hostAlert(_game, "NewPossibleResearchState", "", xbase, -1, sharedAlertNames(newPossibleResearch));
+			if (!newPossibleResearch.empty())
+			{
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleResearchState(xbase, newPossibleResearch));
+				SharedEcon::hostAlert(_game, "NewPossibleResearchState", "", xbase, -1, sharedAlertNames(newPossibleResearch));
+			}
 			// 3i. inform about new possible manufacture, purchase, craft and facilities
 			std::vector<RuleManufacture *> newPossibleManufacture;
 			saveGame->getDependableManufacture(newPossibleManufacture, research, mod, xbase);
@@ -4670,7 +4979,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossibleManufacture);
 				Collections::sortVectorMakeUnique(newPossibleManufacture);
-				popup(new NewPossibleManufactureState(xbase, newPossibleManufacture));
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleManufactureState(xbase, newPossibleManufacture));
 				SharedEcon::hostAlert(_game, "NewPossibleManufactureState", "", xbase, -1, sharedAlertNames(newPossibleManufacture));
 			}
 			std::vector<RuleItem *> newPossiblePurchase;
@@ -4683,7 +4993,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossiblePurchase);
 				Collections::sortVectorMakeUnique(newPossiblePurchase);
-				popup(new NewPossiblePurchaseState(xbase, newPossiblePurchase));
+				if (showLocalResearchAlerts)
+					popup(new NewPossiblePurchaseState(xbase, newPossiblePurchase));
 				SharedEcon::hostAlert(_game, "NewPossiblePurchaseState", "", xbase, -1, sharedAlertNames(newPossiblePurchase));
 			}
 			std::vector<RuleCraft *> newPossibleCraft;
@@ -4696,7 +5007,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossibleCraft);
 				Collections::sortVectorMakeUnique(newPossibleCraft);
-				popup(new NewPossibleCraftState(xbase, newPossibleCraft));
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleCraftState(xbase, newPossibleCraft));
 				SharedEcon::hostAlert(_game, "NewPossibleCraftState", "", xbase, -1, sharedAlertNames(newPossibleCraft));
 			}
 			std::vector<RuleBaseFacility *> newPossibleFacilities;
@@ -4709,7 +5021,8 @@ void GeoscapeState::time1Day()
 			{
 				Collections::sortVector(newPossibleFacilities);
 				Collections::sortVectorMakeUnique(newPossibleFacilities);
-				popup(new NewPossibleFacilityState(xbase, _globe, newPossibleFacilities));
+				if (showLocalResearchAlerts)
+					popup(new NewPossibleFacilityState(xbase, _globe, newPossibleFacilities));
 				SharedEcon::hostAlert(_game, "NewPossibleFacilityState", "", xbase, -1, sharedAlertNames(newPossibleFacilities));
 			}
 
@@ -4728,9 +5041,18 @@ void GeoscapeState::time1Day()
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
 			const size_t coopEventsBefore = saveGame->getGeoscapeEvents().size(); // coop
-			saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+			if (_game->getCoopMod()->isSeparateCampaign())
+			{
+				// coop Separate: the host mirrors the removed projects and the
+				// spawned items to the replica (research_effects).
+				SharedEcon::hostResearchSideEffects(_game, topicsToCheck, xbase);
+			}
+			else
+			{
+				saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+				SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop: corpse, refunds, obsolete projects, spawned items and counters reach the replica
+			}
 			GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore); // coop: ResearchCompleteState synced these topics, so the other world spawns the same events
-			SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop: corpse, refunds, obsolete projects, spawned items and counters reach the replica
 		}
 
 		// Handle soldier wounds and martial training
@@ -4765,7 +5087,8 @@ void GeoscapeState::time1Day()
 		}
 		if (!trainingFinishedList.empty())
 		{
-			popup(new TrainingFinishedState(xbase, trainingFinishedList, false));
+			if (SeparateEcon::showBaseNotification(_game, xbase))
+				popup(new TrainingFinishedState(xbase, trainingFinishedList, false));
 			SharedEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, sharedAlertSoldierIds(trainingFinishedList), false);
 		}
 		// Handle psionic training
@@ -4784,7 +5107,8 @@ void GeoscapeState::time1Day()
 			}
 			if (!psiTrainingFinishedList.empty())
 			{
-				popup(new TrainingFinishedState(xbase, psiTrainingFinishedList, true));
+				if (SeparateEcon::showBaseNotification(_game, xbase))
+					popup(new TrainingFinishedState(xbase, psiTrainingFinishedList, true));
 				SharedEcon::hostAlert(_game, "TrainingFinishedState", "", xbase, -1, {}, sharedAlertSoldierIds(psiTrainingFinishedList), true);
 			}
 		}
@@ -4793,6 +5117,7 @@ void GeoscapeState::time1Day()
 	// check and remove disabled projects from ongoing research
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
+		SeparateResearchScope researchScope(saveGame, xbase->getOwnerPlayerName());
 		std::vector<ResearchProject*> obsolete;
 		for (auto* proj : xbase->getResearch())
 		{
@@ -4814,7 +5139,12 @@ void GeoscapeState::time1Day()
 		if (!researchName.empty())
 		{
 			auto* research = mod->getResearch(researchName, true);
-			if (saveGame->isResearched(research, false)) // ignore debug mode
+			// Private Separate research: the mission owner's research (any
+			// player's for a mission without an owner).
+			SeparateResearchScope researchScope(saveGame, am->getOwnerPlayerName());
+			if (am->getOwnerPlayerName().empty() && saveGame->usesSeparatePrivateResearch()
+				? saveGame->isResearchedByAnyPlayer(researchName)
+				: saveGame->isResearched(research, false)) // ignore debug mode
 			{
 				am->setInterrupted(true);
 			}
@@ -4830,7 +5160,12 @@ void GeoscapeState::time1Day()
 		if (!selfDestructCode.empty())
 		{
 			auto* research = mod->getResearch(selfDestructCode, true);
-			if (saveGame->isResearched(research, false)) // ignore debug mode
+			// Private Separate research: the alien base owner's research, or any
+			// player's when the base has no owner.
+			SeparateResearchScope researchScope(saveGame, ab->getOwnerPlayerName());
+			if (ab->getOwnerPlayerName().empty() && saveGame->usesSeparatePrivateResearch()
+				? saveGame->isResearchedByAnyPlayer(selfDestructCode)
+				: saveGame->isResearched(research, false)) // ignore debug mode
 			{
 				saveGame->clearLinksForAlienBase(ab, _game->getMod());
 				delete ab;
@@ -4849,7 +5184,7 @@ void GeoscapeState::time1Day()
 
 	// handle regional and country points for alien bases
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 	{
 		for (auto* ab : *saveGame->getAlienBases())
 		{
@@ -4954,27 +5289,66 @@ void GeoscapeState::time1Day()
 			performanceBonus = 0; // bonus only, no malus
 		}
 
-		int64_t funds = _game->getSavedGame()->getFunds();
 		int64_t income = _game->getSavedGame()->getCountryFunding() + performanceBonus;
-		int64_t maintenance = _game->getSavedGame()->getBaseMaintenance();
-		int64_t projection = funds + income - maintenance;
-		if (projection < 0)
+		auto economyWarning = [&](int64_t funds, int64_t maintenance, int64_t projection) -> std::string
 		{
 			projection = std::abs(projection);
 			projection = ((projection / 100000) + 1) * 100000; // round up to 100k
-			std::string msg = tr("STR_ECONOMY_WARNING")
+			return tr("STR_ECONOMY_WARNING")
 				.arg(Unicode::formatFunding(funds))
 				.arg(Unicode::formatFunding(income))
 				.arg(Unicode::formatFunding(maintenance))
 				.arg(Unicode::formatFunding(projection));
-			popup(new CraftErrorState(this, msg, false));
-			SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_ECONOMY_WARNING", {SharedEcon::textLiteral(Unicode::formatFunding(funds)), SharedEcon::textLiteral(Unicode::formatFunding(income)), SharedEcon::textLiteral(Unicode::formatFunding(maintenance)), SharedEcon::textLiteral(Unicode::formatFunding(projection))})); // coop
+		};
+		// the same warning as a text node a peer renders in its own language
+		auto economyWarningText = [&](int64_t funds, int64_t maintenance, int64_t projection) -> Json::Value
+		{
+			projection = std::abs(projection);
+			projection = ((projection / 100000) + 1) * 100000; // round up to 100k
+			return SharedEcon::textKey("STR_ECONOMY_WARNING", {SharedEcon::textLiteral(Unicode::formatFunding(funds)),
+				SharedEcon::textLiteral(Unicode::formatFunding(income)), SharedEcon::textLiteral(Unicode::formatFunding(maintenance)),
+				SharedEcon::textLiteral(Unicode::formatFunding(projection))});
+		};
+		const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
+		if (_game->getCoopMod()->isSeparateCampaign() && !players.empty())
+		{
+			// Separate: each player's own wallet and maintenance, shown only to
+			// that player. The month end credits every wallet with an equal share
+			// of the income less that player's own maintenance (monthlyFunding,
+			// settleSeparateMonth), so the projection uses the same share.
+			const std::string localPlayer = connectionTCP::seatName(connectionTCP::localSeat());
+			for (const std::string& player : players)
+			{
+				const int64_t funds = _game->getSavedGame()->getSeparatePlayerFunds(player);
+				const int64_t maintenance = SeparateEcon::playerMaintenance(_game, player);
+				const int64_t projection = funds
+					+ (income - maintenance) / static_cast<int64_t>(players.size());
+				if (projection >= 0) continue;
+				const std::string msg = economyWarning(funds, maintenance, projection);
+				if (player == localPlayer)
+					popup(new CraftErrorState(this, msg, false));
+				else
+					SharedEcon::hostPlayerNotice(_game, player, msg);
+			}
+		}
+		else
+		{
+			int64_t funds = _game->getSavedGame()->getFunds();
+			int64_t maintenance = _game->getSavedGame()->getBaseMaintenance();
+			int64_t projection = funds + income - maintenance;
+			if (projection < 0)
+			{
+				std::string msg = economyWarning(funds, maintenance, projection);
+				popup(new CraftErrorState(this, msg, false));
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg, nullptr, -1, {}, {}, false, Json::Value(),
+					economyWarningText(funds, maintenance, projection));
+			}
 		}
 	}
 
-	// PRD-J04: mirror end-of-day soldier changes (wound recovery) to SHARED
-	// replicas, for CHANGED soldiers only.
-	SharedEcon::hostSoldierFx(_game, h18DayMark); // coop: daily psi, martial training, return-to-training, health/mana recovery reach the replica
+	// Mirror the step's soldier changes (wounds, martial and psi
+	// training, monthly psi training) to SHARED and Separate replicas, for
+	// CHANGED soldiers only.
 	SharedEcon::hostDayTick(_game);
 }
 
@@ -4989,7 +5363,7 @@ void GeoscapeState::time1Month()
 	// settles funding locally; it adopts the host's monthly result via the extended
 	// monthly_report packet (applied in time1MonthCoop). Redundant with the coop
 	// serverOwner gate below, but kept explicit.
-	if (_game->getCoopMod()->isSharedReplica())
+	if (_game->getCoopMod()->isCampaignReplica())
 		return;
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -5001,7 +5375,7 @@ void GeoscapeState::time1Month()
 	}
 
 	// coop
-	if ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getServerOwner() == true) || _game->getCoopMod()->getCoopStatic() == false || _game->getCoopMod()->_enable_time_sync == false)
+	if (!_game->getCoopMod()->getCoopStatic() || _game->getCoopMod()->getServerOwner())
 	{
 		// do nothing
 	}
@@ -5009,6 +5383,10 @@ void GeoscapeState::time1Month()
 	{
 		return;
 	}
+
+	// coop host: snapshot the soldiers before the month's psi training; the
+	// day step that follows (time1Day) carries the changes in its day_tick.
+	SharedEcon::hostSoldierStepBegin(_game, false);
 
 	_game->getSavedGame()->addMonth();
 
@@ -5084,9 +5462,10 @@ void GeoscapeState::time1MonthCoop()
 		determineAlienMissions();
 	}
 
-	// Handle Psi-Training and initiate a new retaliation mission, if applicable
-	if (!_game->getCoopMod()->isSharedReplica()) // coop: a SHARED replica adopts the host's soldier_fx instead of rolling its own
-	if (!Options::anytimePsiTraining)
+	// Handle Psi-Training and initiate a new retaliation mission, if applicable.
+	// A campaign replica never trains: the host's month step rolled it, and the
+	// results ride the host's day_tick.
+	if (!Options::anytimePsiTraining && !_game->getCoopMod()->isCampaignReplica())
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
 		for (auto* xbase : *_game->getSavedGame()->getBases())
@@ -5116,7 +5495,9 @@ void GeoscapeState::time1MonthCoop()
 	// ONLY _funds.back() (no net-inference nudge of the graph series); the income/
 	// expenditure/maintenance tails are then set from the host's values directly, so
 	// the replica's Graphs->Finance series match the host across the month boundary.
-	if (_game->getCoopMod()->isSharedReplica() && _game->getCoopMod()->sharedMonthlyPending)
+	if (_game->getCoopMod()->isSharedCampaign()
+		&& _game->getCoopMod()->isSharedReplica()
+		&& _game->getCoopMod()->sharedMonthlyPending)
 	{
 		SavedGame* sg = _game->getSavedGame();
 		sg->setFundsRaw(_game->getCoopMod()->sharedMonthlyFunds);
@@ -5136,6 +5517,41 @@ void GeoscapeState::time1MonthCoop()
 			sg->getResearchScores()[sg->getResearchScores().size() - 2] = _game->getCoopMod()->sharedMonthlyResearchScoreEnded; // coop
 		_game->getCoopMod()->sharedMonthlyPending = false;
 	}
+	else if (_game->getCoopMod()->isSeparateCampaign()
+		&& !_game->getCoopMod()->getServerOwner()
+		&& _game->getCoopMod()->separateMonthlyPending)
+	{
+		// The client may reach the month boundary before adopting the host's final
+		// country funding changes. Replace every private wallet history with the
+		// authoritative host result after the client's local roll.
+		SavedGame* sg = _game->getSavedGame();
+		const Json::Value& wallets = _game->getCoopMod()->separateMonthlyPlayerFunds;
+		for (const std::string& playerName : sg->getCoopPlayers())
+		{
+			if (!wallets.isMember(playerName) || !wallets[playerName].isArray()) continue;
+			SeparateEcon::CampaignData::PlayerState* player = sg->getSeparateCampaign().getPlayer(playerName);
+			if (!player) continue;
+			player->funds.clear();
+			for (const Json::Value& value : wallets[playerName])
+				player->funds.push_back(value.asInt64());
+			const Json::Value& costs = _game->getCoopMod()->separateMonthlyPlayerCosts;
+			if (costs.isMember(playerName))
+				sg->setSeparatePlayerCosts(playerName, costs[playerName].asInt64());
+		}
+		auto& maint = sg->getMaintenances();
+		if (maint.size() >= 2) maint[maint.size() - 2] = _game->getCoopMod()->sharedMonthlyMaintenance;
+		else if (!maint.empty()) maint.back() = _game->getCoopMod()->sharedMonthlyMaintenance;
+		if (!sg->getIncomes().empty())
+			sg->getIncomes().back() = _game->getCoopMod()->sharedMonthlyIncome;
+		if (!sg->getExpenditures().empty())
+			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
+		if (!sg->getResearchScores().empty())
+			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
+		_game->getCoopMod()->separateMonthlyPlayerFunds = Json::Value();
+		_game->getCoopMod()->separateMonthlyPlayerCosts = Json::Value();
+		_game->getCoopMod()->separateMonthlyPending = false;
+		_game->getCoopMod()->sharedMonthlyPending = false;
+	}
 
 	popup(new MonthlyReportState(_globe));
 
@@ -5146,7 +5562,7 @@ void GeoscapeState::time1MonthCoop()
 	// disagree about which base was found) and the host would roll a SECOND time on top of
 	// its authoritative roll in time1Month. The host rolls once in time1Month and names
 	// the winner via alien_base_found; every SHARED machine applies that instead.
-	if (!_game->getCoopMod()->isSharedCampaign()
+	if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 		&& !_game->getSavedGame()->getAlienBases()->empty()
 		&& RNG::percent(_game->getMod()->getChanceToDetectAlienBaseEachMonth()))
 	{
@@ -5363,26 +5779,7 @@ void GeoscapeState::globeClick(Action *action)
 	{
 		std::vector<Target*> v = _globe->getTargets(mouseX, mouseY, false, 0);
 		if (!v.empty())
-		{
-			// coop: report what the ally clicked. Only the OTHER player's base
-			// (_coopBase) -> Bases; your own base opens the intercept window, so it
-			// (like UFOs / craft / mission sites) -> Intercept.
-			int focus = 0; // INTERCEPT
-			for (Target* t : v)
-			{
-				Base* b = dynamic_cast<Base*>(t);
-				if (b && b->_coopBase)
-				{
-					focus = 1; // BASES
-					break;
-				}
-			}
-			sendCoopFocus(focus);
-
-			// Pass empty vector
-			std::vector<Craft*> crafts;
-			_game->pushState(new MultipleTargetsState(v, crafts, this, true));
-		}
+			openGlobeTargets(v);
 	}
 
 	if (_game->getSavedGame()->getDebugMode())
@@ -5399,6 +5796,35 @@ void GeoscapeState::globeClick(Action *action)
 
 		_txtDebug->setText(ss.str());
 	}
+}
+
+void GeoscapeState::openGlobeTargets(const std::vector<Target*>& targets)
+{
+	// A Separate foreign base is an explicit Basescape shortcut. Craft returning
+	// to that base can temporarily occupy the same globe point; it must not turn
+	// the click into a base/craft target chooser or expose the foreign craft menu.
+	if (_game->getCoopMod()->isSeparateCampaign())
+	{
+		for (Target* target : targets)
+		{
+			Base* base = dynamic_cast<Base*>(target);
+			if (!base || !base->_isForeignBase) continue;
+			auto* bases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < bases->size(); ++i)
+				if (bases->at(i) == base)
+				{
+					_game->getSavedGame()->setSelectedBase(i);
+					break;
+				}
+			sendCoopFocus(1); // BASES
+			_game->pushState(new BasescapeState(base, _globe));
+			return;
+		}
+	}
+
+	sendCoopFocus(0); // INTERCEPT
+	std::vector<Craft*> crafts;
+	_game->pushState(new MultipleTargetsState(targets, crafts, this, true));
 }
 
 /**
@@ -5551,15 +5977,38 @@ void GeoscapeState::btnBasesClick(Action *)
 	timerReset();
 	if (!_game->getSavedGame()->getBases()->empty())
 	{
-		if (Options::oxceGeoGoToNearestBase)
+		auto *bases = _game->getSavedGame()->getBases();
+		std::vector<size_t> selectableBases;
+		if (_game->getCoopMod()->isSeparateCampaign())
+		{
+			const std::string localName = connectionTCP::seatName(connectionTCP::localSeat());
+			for (size_t i = 0; i < bases->size(); ++i)
+				if (bases->at(i)->isOwnedByPlayer(localName))
+					selectableBases.push_back(i);
+
+			// A globe visit may have left the selected index on a foreign base.
+			// BASES always returns to one of this player's own bases.
+			if (!selectableBases.empty())
+			{
+				Base *selected = _game->getSavedGame()->getSelectedBase();
+				if (!selected || !selected->isOwnedByPlayer(localName))
+					_game->getSavedGame()->setSelectedBase(selectableBases.front());
+			}
+		}
+		else
+		{
+			for (size_t i = 0; i < bases->size(); ++i)
+				selectableBases.push_back(i);
+		}
+
+		if (Options::oxceGeoGoToNearestBase && !selectableBases.empty())
 		{
 			std::vector< std::pair<size_t, double> > xbaseSorting;
-			size_t baseIdx = 0;
-			for (auto* xbase : *_game->getSavedGame()->getBases())
+			for (size_t baseIdx : selectableBases)
 			{
+				auto *xbase = bases->at(baseIdx);
 				double xdistance = xbase->getDistance(_game->getSavedGame()->getGlobeLongitude(), _game->getSavedGame()->getGlobeLatitude());
 				xbaseSorting.push_back(std::make_pair(baseIdx, xdistance));
-				baseIdx++;
 			}
 			std::stable_sort(xbaseSorting.begin(), xbaseSorting.end(),
 				[](const std::pair<size_t, double> &a, const std::pair<size_t, double> &b)
@@ -5570,7 +6019,7 @@ void GeoscapeState::btnBasesClick(Action *)
 			_game->getSavedGame()->setSelectedBase(xbaseSorting.front().first);
 		}
 		// coop: BASES never opens
-		// a partner's _coopIcon mirror (BasescapeState shows it as a visit and its GEOSCAPE reloads "basehost"). A lost base leaves the selected index
+		// a partner's _coopIcon mirror (BasescapeState shows it as a visit). A lost base leaves the selected index
 		// on the mirror after it (BaseDestroyedState erases without re-pointing) and the nearest-base sort above can pick one: the first own base
 		// opens instead. With no own base left nothing changes.
 		if (_game->getSavedGame()->getSelectedBase()->_coopIcon == true)
@@ -5578,7 +6027,7 @@ void GeoscapeState::btnBasesClick(Action *)
 			std::vector<Base*>* coopBases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < coopBases->size(); ++i)
 			{
-				if (coopBases->at(i)->_coopIcon == false && coopBases->at(i)->_coopBase == false)
+				if (coopBases->at(i)->_coopIcon == false && coopBases->at(i)->_isForeignBase == false)
 				{
 					_game->getSavedGame()->setSelectedBase(i);
 					break;
@@ -6025,7 +6474,14 @@ int GeoscapeState::minimizedDogfightsCount()
  */
 void GeoscapeState::startDogfight()
 {
-	if (_globe->getZoom() < 3)
+	bool hasVisibleFight = false;
+	for (auto* dfs : _dogfights)
+		if (dfs->isLocallyVisible()) { hasVisibleFight = true; break; }
+	if (!hasVisibleFight)
+		for (auto* dfs : _dogfightsToBeStarted)
+			if (dfs->isLocallyVisible()) { hasVisibleFight = true; break; }
+
+	if (hasVisibleFight && _globe->getZoom() < 3)
 	{
 		if (!_zoomInEffectTimer->isRunning())
 		{
@@ -6078,20 +6534,42 @@ void GeoscapeState::startDogfight()
  */
 bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, Texture* globeTexture, int shade)
 {
-	if (!_game->getCoopMod()->isSharedCampaign() || !_game->getCoopMod()->getServerOwner())
+	if (!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) || !_game->getCoopMod()->getServerOwner())
 		return false;
-	if (_sharedLandingPending.find(craft) != _sharedLandingPending.end())
-		return true; // already asked; still waiting for the answer
+	auto pending = _sharedLandingPending.find(craft);
+	if (pending != _sharedLandingPending.end())
+	{
+		// Already asked; still waiting for the answer. Separate: the host holds no
+		// copy of another player's prompt, and that player's replica drops it while
+		// it is off the Geoscape or has not replicated the target yet. Ask again
+		// every few seconds until the owner answers, so the craft cannot strand.
+		const Uint32 resendMs = 5000;
+		if (_game->getCoopMod()->isSeparateCampaign() && !SeparateEcon::ownsCraft(_game, craft)
+			&& SDL_GetTicks() - pending->second.sentTicks >= resendMs)
+		{
+			pending->second.sentTicks = SDL_GetTicks();
+			SeparateEcon::hostLandingPrompt(_game, craft,
+				SharedEcon::lastCraftOrderSeat(craft), pending->second.shade);
+		}
+		return true;
+	}
 
-	// Playtest: EVERY player is alerted a craft reached its target - not only the seat
-	// that commanded it. Record the pending decision, broadcast the prompt to all
-	// client seats, and pop the host's OWN copy too (as a broker copy, so its answer
-	// runs through the single host-side resolver sharedLandingReply, exactly like a
-	// client's land_reply). First answer from any seat wins; the rest close on the
-	// land_close the resolver broadcasts. Battle authority stays on the host.
-	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade };
+	_sharedLandingPending[craft] = SharedLandingPrompt{ missionTexture, globeTexture, shade, SDL_GetTicks() };
 	_game->getCoopMod()->clearLandingResolved(craft->getId()); // fresh prompt
-	SharedEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
+	if (_game->getCoopMod()->isSeparateCampaign())
+	{
+		// Separate Campaign decisions belong to the craft owner. The host still
+		// generates the battle, but only the owning player sees/answers the prompt.
+		if (SeparateEcon::ownsCraft(_game, craft))
+			popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade,
+				true /*sharedBroker*/));
+		else
+			SeparateEcon::hostLandingPrompt(_game, craft,
+				SharedEcon::lastCraftOrderSeat(craft), shade);
+		return true;
+	}
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::hostLandingPrompt(_game, craft, SharedEcon::lastCraftOrderSeat(craft), shade);
 	popup(new ConfirmLandingState(craft, missionTexture, globeTexture, shade, true /*sharedBroker*/));
 	return true;
 }
@@ -6099,7 +6577,8 @@ bool GeoscapeState::brokerSharedLanding(Craft* craft, Texture* missionTexture, T
 /**
  * PRD-J10 landing broker (HOST only). The commanding seat answered.
  */
-void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
+void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol,
+	bool hostDialogAnswered)
 {
 	auto it = _sharedLandingPending.find(craft);
 	if (it == _sharedLandingPending.end())
@@ -6122,15 +6601,23 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol)
 	// Playtest: the landing was answered by ONE seat. Close every OTHER seat's still-
 	// open broker prompt - mark it resolved locally (the host's own copy) and broadcast
 	// land_close so the clients close theirs (ConfirmLandingState::think consumes it).
-	_game->getCoopMod()->markLandingResolved(craft->getId());
-	SharedEcon::broadcastLandClose(_game, craft);
+	// Separate: the host holds a copy only of its own crafts' prompts; marking
+	// another player's craft id would close a later host dialog that shares it.
+	if (!_game->getCoopMod()->isSeparateCampaign() || SeparateEcon::ownsCraft(_game, craft))
+		_game->getCoopMod()->markLandingResolved(craft->getId());
+	if (_game->getCoopMod()->isSharedCampaign())
+		SharedEcon::broadcastLandClose(_game, craft);
+	else
+		SeparateEcon::broadcastLandClose(_game, craft);
 	// Close the host's OWN broker copy synchronously if it is on top (a client just
 	// answered). If the host answered its own dialog, that copy already popped itself.
 	// Do it before generating the battle so the stale dialog is not left underneath.
-	if (!_game->getStates().empty()
-		&& dynamic_cast<ConfirmLandingState*>(_game->getStates().back()))
+	// Only this craft's dialog: the host may be asking about a different craft.
+	if (!hostDialogAnswered && !_game->getStates().empty())
 	{
-		_game->popState();
+		ConfirmLandingState* top = dynamic_cast<ConfirmLandingState*>(_game->getStates().back());
+		if (top && top->getCraft() == craft)
+			_game->popState();
 	}
 
 	if (!yes)
@@ -6199,7 +6686,8 @@ void GeoscapeState::clientCraftReachedWaypoint(Craft* craft)
 	Waypoint* wp = dynamic_cast<Waypoint*>(dest);
 	// Pop the same alert the host shows. Its ctor reads the destination name, so pop
 	// BEFORE clearing _dest; skip while auto-patrolling, matching the host's gate.
-	if (dest && !craft->getIsAutoPatrolling())
+	// Separate: only the craft owner is prompted.
+	if (dest && !craft->getIsAutoPatrolling() && SeparateEcon::ownsCraft(_game, craft))
 		popup(new CraftPatrolState(craft, _globe));
 	craft->setDestination(0);
 	// Prune the now-orphan waypoint (its last follower just left), mirroring the host's
@@ -6214,7 +6702,8 @@ void GeoscapeState::clientCraftReachedWaypoint(Craft* craft)
 	}
 }
 
-void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking, bool startMinimized)
+void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttacking,
+	bool startMinimized, bool harnessHold)
 {
 	if (!craft || !ufo || craft->isInDogfight())
 		return;
@@ -6223,6 +6712,7 @@ void GeoscapeState::startSharedDogfight(Craft* craft, Ufo* ufo, bool ufoIsAttack
 	// and never sims. ufoIsAttacking (from df_open) lets the ctor derive the same
 	// static-per-fight fields (disable flags, initial mode) the host derived.
 	DogfightState* df = new DogfightState(this, craft, ufo, ufoIsAttacking);
+	df->harnessSetHold(harnessHold);
 	// PRD-DF02 presentation policy (3b): a non-commanding seat opens minimized (an
 	// icon it can click to spectate/command); the commanding seat opens full. INITIAL
 	// minimize only - a per-machine VIEW choice (4); the world clock is gated by the
@@ -6257,7 +6747,8 @@ static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
 	{
 		if (!df->getCraft() || !df->getUfo()) continue;
 		std::ostringstream k;
-		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		k << df->getCraft()->getBase()->getName() << '@'
+		  << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
 		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
 		keys.push_back(k.str());
 	}
@@ -6265,7 +6756,8 @@ static std::string dfMembershipSignature(const std::list<DogfightState*>& a,
 	{
 		if (!df->getCraft() || !df->getUfo()) continue;
 		std::ostringstream k;
-		k << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
+		k << df->getCraft()->getBase()->getName() << '@'
+		  << df->getCraft()->getRules()->getType() << '#' << df->getCraft()->getId()
 		  << ':' << df->getUfo()->getId() << ':' << (df->isUfoAttacking() ? 1 : 0);
 		keys.push_back(k.str());
 	}
@@ -6300,7 +6792,7 @@ int GeoscapeState::harnessDogfightEpoch() const
 void GeoscapeState::sharedBroadcastDogfights()
 {
 	connectionTCP* coop = _game->getCoopMod();
-	if (!coop || !coop->isSharedCampaign() || !coop->getServerOwner())
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()) || !coop->getServerOwner())
 		return;
 
 	// 1) df_open on a membership change (epoch++).
@@ -6318,6 +6810,7 @@ void GeoscapeState::sharedBroadcastDogfights()
 			Json::Value d;
 			d["craftId"] = df->getCraft()->getId();
 			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["baseId"] = SeparateEcon::baseIndex(_game, df->getCraft()->getBase());
 			d["ufoId"] = df->getUfo()->getId();
 			d["ufoIsAttacking"] = df->isUfoAttacking();
 			d["commandingSeat"] = SharedEcon::lastCraftOrderSeat(df->getCraft());
@@ -6329,6 +6822,7 @@ void GeoscapeState::sharedBroadcastDogfights()
 			Json::Value d;
 			d["craftId"] = df->getCraft()->getId();
 			d["craftType"] = df->getCraft()->getRules()->getType();
+			d["baseId"] = SeparateEcon::baseIndex(_game, df->getCraft()->getBase());
 			d["ufoId"] = df->getUfo()->getId();
 			d["ufoIsAttacking"] = df->isUfoAttacking();
 			d["commandingSeat"] = SharedEcon::lastCraftOrderSeat(df->getCraft());
@@ -6372,6 +6866,7 @@ void GeoscapeState::sharedApplyDogfightMembership(const Json::Value& dogfights, 
 		{
 			const Json::Value& d = dogfights[i];
 			DfMember m;
+			m.baseId = d.get("baseId", -1).asInt();
 			m.craftId = d.get("craftId", -1).asInt();
 			m.craftType = d.get("craftType", "").asString();
 			m.ufoId = d.get("ufoId", -1).asInt();
@@ -6393,7 +6888,7 @@ void GeoscapeState::sharedApplyDogfightMembership(const Json::Value& dogfights, 
 void GeoscapeState::sharedReconcileReplicaDogfights()
 {
 	connectionTCP* coop = _game->getCoopMod();
-	if (!coop || !coop->isSharedCampaign() || coop->getServerOwner())
+	if (!coop || !(coop->isSharedCampaign() || coop->isSeparateCampaign()) || coop->getServerOwner())
 		return;
 	SavedGame* save = _game->getSavedGame();
 	if (!save) return;
@@ -6401,8 +6896,12 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 	auto inDesired = [&](Craft* c, Ufo* u) -> bool
 	{
 		if (!c || !u) return false;
+		if (coop->isSeparateCampaign() && !SeparateEcon::ownsCraft(_game, c))
+			return false;
+		int baseId = SeparateEcon::baseIndex(_game, c->getBase());
 		for (auto& m : _dfDesired)
 			if (m.craftId == c->getId() && m.ufoId == u->getId()
+				&& (m.baseId < 0 || m.baseId == baseId)
 				&& m.craftType == c->getRules()->getType())
 				return true;
 		return false;
@@ -6431,6 +6930,7 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 		bool open = false;
 		for (auto* df : _dogfights)
 			if (df->getCraft() && df->getUfo()
+				&& (m.baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == m.baseId)
 				&& df->getCraft()->getId() == m.craftId
 				&& df->getUfo()->getId() == m.ufoId
 				&& df->getCraft()->getRules()->getType() == m.craftType)
@@ -6438,6 +6938,7 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 		if (!open)
 			for (auto* df : _dogfightsToBeStarted)
 				if (df->getCraft() && df->getUfo()
+					&& (m.baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == m.baseId)
 					&& df->getCraft()->getId() == m.craftId
 					&& df->getUfo()->getId() == m.ufoId
 					&& df->getCraft()->getRules()->getType() == m.craftType)
@@ -6445,13 +6946,18 @@ void GeoscapeState::sharedReconcileReplicaDogfights()
 		if (open) continue;
 
 		Craft* craft = nullptr;
-		for (auto* b : *save->getBases())
+		for (size_t bi = 0; bi < save->getBases()->size(); ++bi)
 		{
+			auto* b = save->getBases()->at(bi);
+			if (m.baseId >= 0 && static_cast<int>(bi) != m.baseId) continue;
 			for (auto* c : *b->getCrafts())
 				if (c->getId() == m.craftId && c->getRules()->getType() == m.craftType)
 				{ craft = c; break; }
 			if (craft) break;
 		}
+		if (craft && coop->isSeparateCampaign()
+			&& !SeparateEcon::ownsCraft(_game, craft))
+			continue;
 		Ufo* ufo = nullptr;
 		for (auto* u : *save->getUfos())
 			if (u->getId() == m.ufoId) { ufo = u; break; }
@@ -6491,10 +6997,12 @@ void GeoscapeState::sharedApplyDogfightState(const Json::Value& root)
 	{
 		const Json::Value& f = frames[i];
 		int craftId = f.get("craftId", -1).asInt();
+		int baseId = f.get("baseId", -1).asInt();
 		int ufoId = f.get("ufoId", -1).asInt();
 		std::string craftType = f.get("craftType", "").asString();
 		for (auto* df : _dogfights)
 			if (df->isReplicaView() && df->getCraft() && df->getUfo()
+				&& (baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == baseId)
 				&& df->getCraft()->getId() == craftId
 				&& df->getUfo()->getId() == ufoId
 				&& df->getCraft()->getRules()->getType() == craftType)
@@ -6514,12 +7022,13 @@ void GeoscapeState::sharedApplyDogfightState(const Json::Value& root)
  * (4) and is intentionally a no-op here. Returns false if the pair is no longer a live
  * fight (a stale pre-reshuffle command -> the caller drops it + logs once, epoch guard).
  */
-bool GeoscapeState::sharedApplyDogfightCmd(int craftId, int ufoId, const std::string& craftType,
+bool GeoscapeState::sharedApplyDogfightCmd(int baseId, int craftId, int ufoId, const std::string& craftType,
                                           const std::string& action, int arg)
 {
 	DogfightState* target = nullptr;
 	for (auto* df : _dogfights)
 		if (df->getCraft() && df->getUfo()
+			&& (baseId < 0 || SeparateEcon::baseIndex(_game, df->getCraft()->getBase()) == baseId)
 			&& df->getCraft()->getId() == craftId
 			&& df->getUfo()->getId() == ufoId
 			&& df->getCraft()->getRules()->getType() == craftType)
@@ -6534,7 +7043,18 @@ bool GeoscapeState::sharedApplyDogfightCmd(int craftId, int ufoId, const std::st
 	else if (action == "disengage")    target->hostApplyStance(4);
 	else if (action == "weaponToggle") target->hostToggleWeapon(arg);
 	else if (action == "selfDestruct") target->hostSelfDestruct();
-	else if (action == "minimize")     { /* per-machine VIEW state (4): no host effect */ }
+	else if (action == "minimize" || action == "restore")
+	{
+		// SHARED: per-machine VIEW state (4), no host effect. Separate: the owner's
+		// window is the only visible one, so the owner's minimize/restore drives the
+		// host copy that the world clock counts.
+		if (_game->getCoopMod()->isSeparateCampaign() && !target->isLocallyVisible())
+		{
+			if (action == "minimize") target->hostMinimize();
+			else target->setMinimized(false);
+			_minimizedDogfights = minimizedDogfightsCount();
+		}
+	}
 	return true;
 }
 
@@ -6584,7 +7104,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 		if (ufo->getRules()->getMissilePower() < 0)
 		{
 			// It's a nuclear warhead... Skynet knows no mercy
-			popup(new BaseDestroyedState(base, ufo, true, false));
+			showBaseDestroyed(base, ufo, true);
 		}
 		else
 		{
@@ -6598,11 +7118,17 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 			base->cleanupDefenses(true);
 
 			// let the player know that some facilities were destroyed, but the base survived
-			popup(new BaseDestroyedState(base, ufo, true, true));
-			// SHARED: this is the ONE shared base and the damage roll is host-only RNG, so
-			// hand the replicas the resulting layout - otherwise their copy of the base
-			// keeps the facilities the host just lost (silent, permanent divergence).
-			SharedEcon::hostBaseDamaged(_game, base, ufo);
+			// (Separate: the base owner; a client owner's replica shows it from base_damaged)
+			if (SeparateEcon::showBaseNotification(_game, base))
+				popup(new BaseDestroyedState(base, ufo, true, true));
+			// The damage roll is host-only RNG. Send the absolute resulting layout so
+			// Shared and Separate replicas cannot retain facilities the host just lost.
+			// One broadcast per mode: SharedEcon's also fires in Separate, which made
+			// the replica apply the layout and show the dialog twice.
+			if (_game->getCoopMod()->isSeparateCampaign())
+				SeparateEcon::hostBaseDamaged(_game, base, ufo);
+			else
+				SharedEcon::hostBaseDamaged(_game, base, ufo);
 		}
 	}
 	else if (base->getAvailableSoldiers(true, true) > 0 || !base->getVehicles()->empty())
@@ -6645,7 +7171,7 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 				// SHARED would force every shared soldier to host control (its coopBase
 				// match never fires) and could duplicate the roster. Mirrors the SHARED
 				// branch of ConfirmLandingState::btnYesClick for normal craft landings.
-				if (_game->getCoopMod()->isSharedCampaign())
+				if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 				{
 					_game->getCoopMod()->setHost(true);
 					for (auto* s : *base->getSoldiers())
@@ -6656,7 +7182,8 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					}
 					for (auto* v : *base->getVehicles())
 					{
-						v->setCoop(0);
+						if (_game->getCoopMod()->isSharedCampaign())
+							v->setCoop(0);
 						v->setCoopBase(-1);
 					}
 					startCoopMission();
@@ -6728,14 +7255,40 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 	else
 	{
 		// Please garrison your bases in future
-		popup(new BaseDestroyedState(base, ufo, false, false));
+		showBaseDestroyed(base, ufo, false);
 	}
+}
+
+/**
+ * A base was lost. Separate host: a base the host seat does not own is removed at
+ * once (its owner's replica gets base_destroyed and shows the loss), so the loss
+ * never waits for the host to click OK; the host gets the same notice a replica
+ * shows. Everyone else gets the vanilla dialog, which removes the base on OK.
+ */
+void GeoscapeState::showBaseDestroyed(Base* base, Ufo* ufo, bool missiles)
+{
+	if (_game->getCoopMod()->getServerOwner() && !SeparateEcon::showBaseNotification(_game, base))
+	{
+		const std::string baseName = base->getName();
+		BaseDestroyedState* destroyed = new BaseDestroyedState(base, ufo, missiles, false);
+		destroyed->removeBase();
+		delete destroyed;
+		const RuleInterface* itf = _game->getMod()->getInterface("geoscape");
+		popup(new ErrorMessageState(
+			tr(missiles ? "STR_ALIEN_MISSILES_HAVE_DESTROYED_OUR_BASE"
+				: "STR_THE_ALIENS_HAVE_DESTROYED_THE_UNDEFENDED_BASE").arg(baseName),
+			_palette, itf->getElement("genericWindow")->color, "BACK01.SCR",
+			itf->getElement("palette")->color));
+		return;
+	}
+	popup(new BaseDestroyedState(base, ufo, missiles, false));
 }
 
 /**
  * Determine the alien missions to start this month.
  */
-void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules)
+void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eventRules,
+	const std::string& eventOwnerPlayerName)
 {
 
 	// coop PvP: the alien-side machine has no world of its own to simulate —
@@ -6749,18 +7302,132 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	SavedGame *save = _game->getSavedGame();
 	AlienStrategy &strategy = save->getAlienStrategy();
 	Mod *mod = _game->getMod();
+	// Arc scripts run before mission scripts and may grant research during this
+	// same monthly pass. Preserve the profiles as they were when mission
+	// selection began, otherwise a reward granted to multiple profiles can make
+	// a faction finale look common and strip its owner.
+	const auto initialSeparatePlayers = save->getSeparateCampaign().getPlayers();
+	std::string missionOwner;
+	bool forcedFactionRecheck = false;
+	GameDifficulty missionDifficulty = save->getDifficulty();
+	if (_game->getCoopMod()->isSeparateCampaign())
+	{
+		// Owners are roster names: every consumer (event popups, mission access,
+		// arrivals) compares them with seatName(). Profiles are reconciled to the
+		// roster at load (CampaignData::reconcilePlayerNames), so a pending
+		// faction owner keeps its profile under the roster name.
+		std::vector<std::string> profileNames;
+		for (const std::string& name : save->getCoopPlayers())
+			if (!name.empty() && initialSeparatePlayers.count(name) != 0)
+				profileNames.push_back(name);
+		// Same rotation order as the profile map the cursor was saved against.
+		std::sort(profileNames.begin(), profileNames.end());
+		const auto& pendingRechecks = save->getSeparateCampaign().getPendingFactionRechecks();
+		const std::string pendingOwner = pendingRechecks.empty()
+			? std::string() : pendingRechecks.front();
+		// An event's mission scripts belong to the event's owner. They take no turn
+		// in the monthly owner rotation and never consume a pending faction recheck.
+		missionOwner = eventRules ? eventOwnerPlayerName
+			: save->getSeparateCampaign().nextMissionOwner(profileNames);
+		forcedFactionRecheck = !eventRules && !pendingOwner.empty() && pendingOwner == missionOwner;
+		missionDifficulty = static_cast<GameDifficulty>(
+			save->getSeparateCampaign().getFactionDifficulty(
+				missionOwner, static_cast<int>(missionDifficulty)));
+	}
+	auto missionResearched = [&](const std::string& topic)
+	{
+		return missionOwner.empty() ? save->isResearched(topic)
+			: save->isResearchedForPlayer(topic, missionOwner, false);
+	};
 	int month = _game->getSavedGame()->getMonthsPassed();
 	int currentScore = save->getCurrentScore(month); // _monthsPassed was already increased by 1
+	if (!missionOwner.empty() && save->getSeparateCampaign().haveDifferentFactions())
+	{
+		save->getSeparateCampaign().ensureFactionScores(
+			save->getCoopPlayers(), save->getResearchScores().size());
+		const size_t scoreIndex = save->getResearchScores().empty()
+			? 0 : save->getResearchScores().size() - 1;
+		currentScore += save->getSeparateCampaign().getFactionScore(
+			missionOwner, scoreIndex);
+	}
 	int performanceBonus = mod->getPerformanceBonus(currentScore);
 	if (performanceBonus < 0)
 	{
 		performanceBonus = 0; // bonus only, no malus
 	}
 	int64_t currentFunds = save->getFunds();
+	const bool playerFactionScripts = !missionOwner.empty()
+		&& save->getSeparateCampaign().haveDifferentFactions();
+	if (playerFactionScripts)
+	{
+		if (const auto* funds = save->getSeparateCampaign().getPlayerFunds(missionOwner))
+			if (!funds->empty()) currentFunds = funds->back();
+	}
 	if (isNewMonth)
 	{
-		currentFunds += save->getCountryFunding() + performanceBonus - save->getBaseMaintenance(); // peek into the next month
+		if (playerFactionScripts)
+		{
+			const int64_t normalNet = save->getCountryFunding()
+				- SeparateEcon::playerMaintenance(_game, missionOwner);
+			currentFunds += normalNet / static_cast<int64_t>(save->getCoopPlayers().size());
+		}
+		else
+		{
+			currentFunds += save->getCountryFunding() + performanceBonus
+				- save->getBaseMaintenance(); // peek into the next month
+		}
 	}
+	auto missionRuns = [&](const std::string& name)
+	{
+		return playerFactionScripts
+			? save->getSeparateCampaign().getMissionRuns(missionOwner, name)
+			: strategy.getMissionsRun(name);
+	};
+	auto missionMarkers = [&](const std::string& name)
+	{
+		return playerFactionScripts
+			? save->getSeparateCampaign().getMissionMarkerCount(missionOwner, name)
+			: save->getLastId(name);
+	};
+	auto itemObtained = [&](const std::string& type)
+	{
+		if (!playerFactionScripts) return save->isItemObtained(type, mod);
+		const RuleItem* item = mod->getItem(type);
+		if (!item) return false;
+		for (Base* base : *save->getBases())
+			if (base && base->isOwnedByPlayer(missionOwner))
+			{
+				if (base->getStorageItems()->getItem(item) > 0) return true;
+				for (Craft* craft : *base->getCrafts())
+					if (craft->getItems()->getItem(item) > 0) return true;
+			}
+		return false;
+	};
+	auto facilityBuilt = [&](const std::string& type)
+	{
+		if (!playerFactionScripts) return save->isFacilityBuilt(type);
+		for (Base* base : *save->getBases())
+			if (base && base->isOwnedByPlayer(missionOwner))
+				for (BaseFacility* facility : *base->getFacilities())
+					if (facility->getBuildTime() == 0
+						&& facility->getRules()->getType() == type) return true;
+		return false;
+	};
+	auto soldierHired = [&](const std::string& type)
+	{
+		if (!playerFactionScripts) return save->isSoldierTypeHired(type);
+		for (Base* base : *save->getBases())
+			if (base && base->isOwnedByPlayer(missionOwner))
+				for (Soldier* soldier : *base->getSoldiers())
+					if (soldier->getRules()->getType() == type) return true;
+		return false;
+	};
+	auto eventGenerated = [&](const std::string& name)
+	{
+		return playerFactionScripts
+			? save->getSeparateCampaign().wasEventGenerated(missionOwner, name)
+			: save->wasEventGenerated(name);
+	};
 	std::vector<RuleMissionScript*> availableMissions;
 	std::unordered_map<int, bool> conditions;
 
@@ -6769,6 +7436,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	std::unordered_set<std::string> pactCountries;
 	for (auto* xcomBase : *save->getBases())
 	{
+		if (playerFactionScripts && !xcomBase->isOwnedByPlayer(missionOwner)) continue;
 		auto* region = save->locateRegion(*xcomBase);
 		if (region)
 		{
@@ -6806,14 +7474,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				(month < 1 || arcScript->getMaxScore() >= currentScore) &&
 				(month < 1 || arcScript->getMinFunds() <= currentFunds) &&
 				(month < 1 || arcScript->getMaxFunds() >= currentFunds) &&
-				arcScript->getMinDifficulty() <= save->getDifficulty() &&
-				arcScript->getMaxDifficulty() >= save->getDifficulty())
+				arcScript->getMinDifficulty() <= missionDifficulty &&
+				arcScript->getMaxDifficulty() >= missionDifficulty)
 			{
 				// level two condition check: make sure we meet any research requirements, if any.
 				bool triggerHappy = true;
 				for (auto& trigger : arcScript->getResearchTriggers())
 				{
-					triggerHappy = (save->isResearched(trigger.first) == trigger.second);
+					triggerHappy = (missionResearched(trigger.first) == trigger.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -6822,22 +7490,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// check counters
 					if (arcScript->getCounterMin() > 0)
 					{
-						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMin() > strategy.getMissionsRun(arcScript->getMissionVarName()))
+						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMin() > missionRuns(arcScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMin() > save->getLastId(arcScript->getMissionMarkerName()))
+						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMin() > missionMarkers(arcScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
 					}
 					if (triggerHappy && arcScript->getCounterMax() != -1)
 					{
-						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMax() < strategy.getMissionsRun(arcScript->getMissionVarName()))
+						if (!arcScript->getMissionVarName().empty() && arcScript->getCounterMax() < missionRuns(arcScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMax() < save->getLastId(arcScript->getMissionMarkerName()))
+						if (!arcScript->getMissionMarkerName().empty() && arcScript->getCounterMax() < missionMarkers(arcScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
@@ -6848,7 +7516,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// item requirements
 					for (auto& triggerItem : arcScript->getItemTriggers())
 					{
-						triggerHappy = (save->isItemObtained(triggerItem.first, mod) == triggerItem.second);
+						triggerHappy = (itemObtained(triggerItem.first) == triggerItem.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6858,7 +7526,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// facility requirements
 					for (auto& triggerFacility : arcScript->getFacilityTriggers())
 					{
-						triggerHappy = (save->isFacilityBuilt(triggerFacility.first) == triggerFacility.second);
+						triggerHappy = (facilityBuilt(triggerFacility.first) == triggerFacility.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6868,7 +7536,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// soldier type requirements
 					for (auto& triggerSoldierType : arcScript->getSoldierTypeTriggers())
 					{
-						triggerHappy = (save->isSoldierTypeHired(triggerSoldierType.first) == triggerSoldierType.second);
+						triggerHappy = (soldierHired(triggerSoldierType.first) == triggerSoldierType.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -6915,6 +7583,17 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 		}
 
 		const Json::Value h17cArcMark = save->getMonthsPassed() > 0 ? SharedEcon::eventMark(_game) : Json::Value(); // coop: month 0 rides the first world stream
+		// With private Separate research each monthly pass belongs to its mission
+		// owner, like an owned geoscape event. The host runs every player's pass
+		// but opens an arc's Ufopaedia article only during its own player's pass.
+		// Another player's pass opens none, even when its topics land in the
+		// host's profile: with the same faction, the month-zero pass files them
+		// there to seed both players' starting research. Shared research, PvP,
+		// SHARED and single-player campaigns open every arc article as before.
+		const bool showArcArticles = missionOwner.empty()
+			|| !save->usesSeparatePrivateResearch()
+			|| missionOwner == connectionTCP::seatName(connectionTCP::localSeat());
+
 		// start processing command array
 		for (auto* arcCommand : relevantArcScripts)
 		{
@@ -6927,7 +7606,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				for (auto& seqArc : arcCommand->getSequentialArcs())
 				{
-					if (save->isResearched(seqArc))
+					if (missionResearched(seqArc))
 						++arcsEnabled;
 					else
 						disabledSeqArcs.push_back(seqArc);
@@ -6936,14 +7615,21 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				disabledRngArcs = tmp; // copy for us to modify
 				for (auto& rngArc : tmp.getNames())
 				{
-					if (save->isResearched(rngArc))
+					if (missionResearched(rngArc))
 					{
 						++arcsEnabled;
 						disabledRngArcs.set(rngArc, 0); // delete
 					}
 				}
 			}
-			Base* hq = save->getCoopHqBase(); // coop: an arc topic's cascade runs at the first own base
+			Base* hq = save->getBases()->front();
+			if (playerFactionScripts)
+				for (Base* base : *save->getBases())
+					if (base && base->isOwnedByPlayer(missionOwner))
+					{
+						hq = base;
+						break;
+					}
 			bool canAddOneMore = arcCommand->getMaxArcs() == -1 || arcCommand->getMaxArcs() > arcsEnabled;
 			if (canAddOneMore && !disabledSeqArcs.empty())
 			{
@@ -6955,12 +7641,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				{
 					if (ruleResearchSeq->getLookup().empty())
 					{
-						Ufopaedia::openArticle(_game, ruleResearchSeq->getName());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchSeq->getName());
 					}
 					else
 					{
 						save->addFinishedResearch(mod->getResearch(ruleResearchSeq->getLookup(), true), mod, hq, true);
-						Ufopaedia::openArticle(_game, ruleResearchSeq->getLookup());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchSeq->getLookup());
 					}
 				}
 			}
@@ -6975,12 +7663,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				{
 					if (ruleResearchRng->getLookup().empty())
 					{
-						Ufopaedia::openArticle(_game, ruleResearchRng->getName());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchRng->getName());
 					}
 					else
 					{
 						save->addFinishedResearch(mod->getResearch(ruleResearchRng->getLookup(), true), mod, hq, true);
-						Ufopaedia::openArticle(_game, ruleResearchRng->getLookup());
+						if (showArcArticles)
+							Ufopaedia::openArticle(_game, ruleResearchRng->getLookup());
 					}
 				}
 			}
@@ -6995,6 +7685,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	for (auto& missionScriptName : *scriptList)
 	{
 		RuleMissionScript *command = isNewMonth ? mod->getMissionScript(missionScriptName) : mod->getAdhocScript(missionScriptName);
+		bool completedFactionAlreadyRan = false;
+		if (playerFactionScripts && command->getMaxRuns() > 0
+			&& !command->getVarName().empty())
+		{
+			for (const auto& player : initialSeparatePlayers)
+				if (save->getSeparateCampaign().isPlayerFactionCompleted(player.first)
+					&& player.second.missionRuns.count(command->getVarName()) != 0
+					&& player.second.missionRuns.at(command->getVarName()) >= command->getMaxRuns())
+				{
+					completedFactionAlreadyRan = true;
+					break;
+				}
+		}
+		// A completed faction's one-shot finale must not be generated again for
+		// the next faction merely because both profiles now expose its research.
+		if (completedFactionAlreadyRan) continue;
 
 		// level zero condition check: filter adhoc mission scripts by tags
 		if (!isNewMonth && eventRules)
@@ -7016,20 +7722,20 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 		if (command->getFirstMonth() <= month &&
 			(command->getLastMonth() >= month || command->getLastMonth() == -1) &&
 			// make sure we haven't hit our run limit, if we have one
-			(command->getMaxRuns() == -1 ||	command->getMaxRuns() > strategy.getMissionsRun(command->getVarName())) &&
+			(command->getMaxRuns() == -1 ||	command->getMaxRuns() > missionRuns(command->getVarName())) &&
 			// and make sure we satisfy the difficulty restrictions
 			(month < 1 || command->getMinScore() <= currentScore) &&
 			(month < 1 || command->getMaxScore() >= currentScore) &&
 			(month < 1 || command->getMinFunds() <= currentFunds) &&
 			(month < 1 || command->getMaxFunds() >= currentFunds) &&
-			command->getMinDifficulty() <= save->getDifficulty() &&
-			command->getMaxDifficulty() >= save->getDifficulty())
+			command->getMinDifficulty() <= missionDifficulty &&
+			command->getMaxDifficulty() >= missionDifficulty)
 		{
 			// level two condition check: make sure we meet any research requirements, if any.
 			bool triggerHappy = true;
 			for (auto& triggerResearch : command->getResearchTriggers())
 			{
-				triggerHappy = (save->isResearched(triggerResearch.first) == triggerResearch.second);
+				triggerHappy = (missionResearched(triggerResearch.first) == triggerResearch.second);
 				if (!triggerHappy)
 					break;
 			}
@@ -7038,22 +7744,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// check counters
 				if (command->getCounterMin() > 0)
 				{
-					if (!command->getMissionVarName().empty() && command->getCounterMin() > strategy.getMissionsRun(command->getMissionVarName()))
+					if (!command->getMissionVarName().empty() && command->getCounterMin() > missionRuns(command->getMissionVarName()))
 					{
 						triggerHappy = false;
 					}
-					if (!command->getMissionMarkerName().empty() && command->getCounterMin() > save->getLastId(command->getMissionMarkerName()))
+					if (!command->getMissionMarkerName().empty() && command->getCounterMin() > missionMarkers(command->getMissionMarkerName()))
 					{
 						triggerHappy = false;
 					}
 				}
 				if (triggerHappy && command->getCounterMax() != -1)
 				{
-					if (!command->getMissionVarName().empty() && command->getCounterMax() < strategy.getMissionsRun(command->getMissionVarName()))
+					if (!command->getMissionVarName().empty() && command->getCounterMax() < missionRuns(command->getMissionVarName()))
 					{
 						triggerHappy = false;
 					}
-					if (!command->getMissionMarkerName().empty() && command->getCounterMax() < save->getLastId(command->getMissionMarkerName()))
+					if (!command->getMissionMarkerName().empty() && command->getCounterMax() < missionMarkers(command->getMissionMarkerName()))
 					{
 						triggerHappy = false;
 					}
@@ -7064,7 +7770,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// item requirements
 				for (auto& triggerItem : command->getItemTriggers())
 				{
-					triggerHappy = (save->isItemObtained(triggerItem.first, mod) == triggerItem.second);
+					triggerHappy = (itemObtained(triggerItem.first) == triggerItem.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -7074,7 +7780,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// facility requirements
 				for (auto& triggerFacility : command->getFacilityTriggers())
 				{
-					triggerHappy = (save->isFacilityBuilt(triggerFacility.first) == triggerFacility.second);
+					triggerHappy = (facilityBuilt(triggerFacility.first) == triggerFacility.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -7084,7 +7790,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				// soldier type requirements
 				for (auto& triggerSoldierType : command->getSoldierTypeTriggers())
 				{
-					triggerHappy = (save->isSoldierTypeHired(triggerSoldierType.first) == triggerSoldierType.second);
+					triggerHappy = (soldierHired(triggerSoldierType.first) == triggerSoldierType.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -7176,7 +7882,64 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			if (rngret)
 			{
 				// good news, little command pointer! you're FDA approved! off to the main processing facility with you!
-				success = processCommand(command);
+				std::string commandOwner;
+				if (!missionOwner.empty()
+					&& save->getSeparateCampaign().haveDifferentFactions())
+				{
+					// A normal mission remains common to both players. Ownership is
+					// attached only when this script's difficulty range excludes at
+					// least one configured faction (mods such as Rosigma/XCOM Files use
+					// difficulty as their faction selector).
+					bool factionRestricted = false;
+					for (const auto& playerEntry : initialSeparatePlayers)
+					{
+						const std::string& playerName = playerEntry.first;
+						GameDifficulty playerDifficulty = static_cast<GameDifficulty>(
+							save->getSeparateCampaign().getFactionDifficulty(
+								playerName, static_cast<int>(save->getDifficulty())));
+						if (command->getMinDifficulty() > playerDifficulty
+							|| command->getMaxDifficulty() < playerDifficulty)
+						{
+							factionRestricted = true;
+							break;
+						}
+						for (const auto& trigger : command->getResearchTriggers())
+						{
+							const bool initiallyResearched =
+								playerEntry.second.completedResearch.count(trigger.first) != 0;
+							if (initiallyResearched != trigger.second)
+							{
+								factionRestricted = true;
+								break;
+							}
+						}
+						if (factionRestricted) break;
+					}
+					if (!factionRestricted)
+						for (const auto& trigger : command->getResearchTriggers())
+						{
+							bool first = true;
+							bool expected = false;
+							for (const auto& playerEntry : initialSeparatePlayers)
+							{
+								bool present = save->getSeparateCampaign().hasFactionResearch(
+									playerEntry.first, trigger.first);
+								if (first) { expected = present; first = false; }
+								else if (present != expected) { factionRestricted = true; break; }
+							}
+							if (factionRestricted) break;
+						}
+					// Winning one faction queues an immediate recheck for every unfinished
+					// faction.  Its one-shot research-gated finale remains owned by that
+					// queued player even if a mod arc has copied the trigger topics into
+					// another profile.  Ordinary repeatable/shared missions are unaffected.
+					const bool queuedFactionFinale = forcedFactionRecheck
+						&& command->getMaxRuns() > 0
+						&& !command->getVarName().empty()
+						&& !command->getResearchTriggers().empty();
+					if (factionRestricted || queuedFactionFinale) commandOwner = missionOwner;
+				}
+				success = processCommand(command, commandOwner);
 			}
 
 		}
@@ -7210,14 +7973,14 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				(month < 1 || eventScript->getMaxScore() >= currentScore) &&
 				(month < 1 || eventScript->getMinFunds() <= currentFunds) &&
 				(month < 1 || eventScript->getMaxFunds() >= currentFunds) &&
-				eventScript->getMinDifficulty() <= save->getDifficulty() &&
-				eventScript->getMaxDifficulty() >= save->getDifficulty())
+				eventScript->getMinDifficulty() <= missionDifficulty &&
+				eventScript->getMaxDifficulty() >= missionDifficulty)
 			{
 				// level two condition check: make sure we meet any research requirements, if any.
 				bool triggerHappy = true;
 				for (auto& trigger : eventScript->getResearchTriggers())
 				{
-					triggerHappy = (save->isResearched(trigger.first) == trigger.second);
+					triggerHappy = (missionResearched(trigger.first) == trigger.second);
 					if (!triggerHappy)
 						break;
 				}
@@ -7226,22 +7989,22 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// check counters
 					if (eventScript->getCounterMin() > 0)
 					{
-						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMin() > strategy.getMissionsRun(eventScript->getMissionVarName()))
+						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMin() > missionRuns(eventScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMin() > save->getLastId(eventScript->getMissionMarkerName()))
+						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMin() > missionMarkers(eventScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
 					}
 					if (triggerHappy && eventScript->getCounterMax() != -1)
 					{
-						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMax() < strategy.getMissionsRun(eventScript->getMissionVarName()))
+						if (!eventScript->getMissionVarName().empty() && eventScript->getCounterMax() < missionRuns(eventScript->getMissionVarName()))
 						{
 							triggerHappy = false;
 						}
-						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMax() < save->getLastId(eventScript->getMissionMarkerName()))
+						if (!eventScript->getMissionMarkerName().empty() && eventScript->getCounterMax() < missionMarkers(eventScript->getMissionMarkerName()))
 						{
 							triggerHappy = false;
 						}
@@ -7252,7 +8015,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// item requirements
 					for (auto& triggerItem : eventScript->getItemTriggers())
 					{
-						triggerHappy = (save->isItemObtained(triggerItem.first, mod) == triggerItem.second);
+						triggerHappy = (itemObtained(triggerItem.first) == triggerItem.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -7262,7 +8025,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// facility requirements
 					for (auto& triggerFacility : eventScript->getFacilityTriggers())
 					{
-						triggerHappy = (save->isFacilityBuilt(triggerFacility.first) == triggerFacility.second);
+						triggerHappy = (facilityBuilt(triggerFacility.first) == triggerFacility.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -7272,7 +8035,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 					// soldier type requirements
 					for (auto& triggerSoldierType : eventScript->getSoldierTypeTriggers())
 					{
-						triggerHappy = (save->isSoldierTypeHired(triggerSoldierType.first) == triggerSoldierType.second);
+						triggerHappy = (soldierHired(triggerSoldierType.first) == triggerSoldierType.second);
 						if (!triggerHappy)
 							break;
 					}
@@ -7332,7 +8095,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				std::vector<std::string> possibleSeqEvents;
 				for (auto& seqEvent : eventCommand->getOneTimeSequentialEvents())
 				{
-					if (!save->wasEventGenerated(seqEvent))
+					if (!eventGenerated(seqEvent))
 						possibleSeqEvents.push_back(seqEvent); // insert
 				}
 				if (!possibleSeqEvents.empty())
@@ -7350,7 +8113,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				possibleRngEvents = tmp; // copy for us to modify
 				for (const auto& rngEvent : tmp.getNames())
 				{
-					if (save->wasEventGenerated(rngEvent))
+					if (eventGenerated(rngEvent))
 						possibleRngEvents.set(rngEvent, 0); // delete
 				}
 				if (!possibleRngEvents.empty())
@@ -7375,7 +8138,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			// 4. generate
 			for (size_t i = 0; i < toBeGenerated.size(); ++i)
 			{
-				if (save->spawnEvent(toBeGenerated[i]) && certain[i])
+				if (save->spawnEvent(toBeGenerated[i], missionOwner) && certain[i])
 				{
 					_game->getCoopMod()->coopCertainEventSpawned(save->getGeoscapeEvents().back());
 				}
@@ -7479,9 +8242,10 @@ bool GeoscapeState::attemptAlienRaceEvolution(int month, AlienBase* ab) const
  * @param command the directive from which to read information.
  * @return whether the command successfully produced a new mission.
  */
-bool GeoscapeState::processCommand(RuleMissionScript *command)
+bool GeoscapeState::processCommand(RuleMissionScript *command, const std::string& ownerPlayerName)
 {
 	SavedGame *save = _game->getSavedGame();
+	if (!SeparateEcon::allowsFactionScript(_game, ownerPlayerName)) return false;
 	AlienStrategy &strategy = save->getAlienStrategy();
 	Mod *mod = _game->getMod();
 	int month = _game->getSavedGame()->getMonthsPassed();
@@ -7526,6 +8290,7 @@ bool GeoscapeState::processCommand(RuleMissionScript *command)
 				//if we're targetting a base, we ignore regions that don't contain bases, simple.
 				for (auto* xbase : *save->getBases())
 				{
+					if (!ownerPlayerName.empty() && !xbase->isOwnedByPlayer(ownerPlayerName)) continue;
 					regionsToKeep.push_back(save->locateRegion(xbase->getLongitude(), xbase->getLatitude())->getRules()->getType());
 				}
 				for (auto regionNameIt = regions.begin(); regionNameIt != regions.end();)
@@ -7706,6 +8471,7 @@ bool GeoscapeState::processCommand(RuleMissionScript *command)
 		std::vector<std::string> regionsMaster;
 		for (auto* xbase : *save->getBases())
 		{
+			if (!ownerPlayerName.empty() && !xbase->isOwnedByPlayer(ownerPlayerName)) continue;
 			regionsMaster.push_back(save->locateRegion(*xbase)->getRules()->getType());
 		}
 		// no defined mission types? then we'll prune the region list to ensure we only have a region that can generate a mission.
@@ -7851,11 +8617,21 @@ bool GeoscapeState::processCommand(RuleMissionScript *command)
 
 	// ok, we've derived all the variables we need to start up our mission, let's do magic to turn those values into a mission
 	AlienMission *mission = new AlienMission(*missionRules);
+	mission->setOwnerPlayerName(ownerPlayerName);
 	mission->setRace(missionRace);
 	mission->setId(_game->getSavedGame()->getId("ALIEN_MISSIONS"));
 	mission->setRegion(targetRegion, *_game->getMod());
 	mission->setMissionSiteZoneArea(targetAreaNumber);
-	strategy.addMissionRun(command->getVarName());
+	if (!ownerPlayerName.empty() && save->getSeparateCampaign().haveDifferentFactions())
+	{
+		save->getSeparateCampaign().addMissionRun(ownerPlayerName, command->getVarName());
+		save->getSeparateCampaign().addMissionMarker(
+			ownerPlayerName, command->getMissionMarkerName());
+	}
+	else
+	{
+		strategy.addMissionRun(command->getVarName());
+	}
 	mission->start(*_game, *_globe, command->getDelay());
 	_game->getSavedGame()->getAlienMissions().push_back(mission);
 	// if this flag is set, we want to delete it from the table so it won't show up again until the schedule resets.

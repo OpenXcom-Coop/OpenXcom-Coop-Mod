@@ -47,6 +47,7 @@ class AlienBase;
 class BattleUnit;
 class Texture;
 class Position;
+class ItemContainer;
 
 /**
  * A utility class that generates the initial battlescape data. Taking into account mission type, craft and ufo involved, terrain type,...
@@ -75,6 +76,7 @@ private:
 	int _alienItemLevel;
 	int _ufoDamagePercentage;
 	bool _allowAutoLoadout, _baseInventory, _generateFuel, _craftDeployed, _ufoDeployed;
+	const ItemContainer *_inventoryStoreItems = nullptr;
 	int _craftZ;
 	SDL_Rect _craftPos;
 	std::vector<SDL_Rect> _ufoPos;
@@ -204,6 +206,9 @@ public:
 	void nextStage();
 	/// Generates an inventory battlescape.
 	void runInventory(Craft *craft);
+	/// coop (Separate): also put these base-store items on a craft inventory screen,
+	/// in place of moving the stores onto the craft for the screen.
+	void setInventoryStoreItems(const ItemContainer *items) { _inventoryStoreItems = items; }
 	/// Sets up the objectives for the map.
 	void setupObjectives(const AlienDeployment *ruleDeploy);
 	// Auto-equip a set of units

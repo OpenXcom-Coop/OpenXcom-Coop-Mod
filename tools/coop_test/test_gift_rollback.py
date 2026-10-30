@@ -7,7 +7,11 @@ Exact user repro:
   4. host gifts unit B to client
   5. host abandons (in-session: statics survive, like returning to main menu)
   6. host loads the save, client re-fetches its world from the host
-  7. EXPECTED: host has B (not A), client has A (not B), no bogus notices
+  7. EXPECTED: host owns B (not A), client owns A (not B), no bogus notices
+
+Separate is one host-owned world, so both soldiers stay in that world and a
+gift changes the owner. The test follows each soldier by id and checks its
+owner on both machines.
 
 Also runs the reverse direction (client gives, host's save still authority)
 and the stacked-notice color check.
@@ -17,21 +21,23 @@ Run:  python tools/coop_test/test_gift_rollback.py
 
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
-from test_bug_fixes import bootstrap_fresh_session, own_base
+from test_bug_fixes import bootstrap_fresh_session
 
 
-def soldier_count(gc, name, owner=None):
-    n = 0
-    r = gc.ok({"cmd": "get_soldiers"})
-    for b in r["bases"]:
-        for s in b["soldiers"]:
-            if s["name"] == name and (owner is None or s["owner"] == owner):
-                n += 1
-    return n
+def soldier_by_id(gc, sid):
+    """(base name, soldier) for soldier id <sid> in this machine's world."""
+    found = [(b["name"], s) for b in gc.ok({"cmd": "get_soldiers"})["bases"]
+             for s in b["soldiers"] if s["id"] == sid]
+    assert len(found) <= 1, f"soldier id {sid} appears twice in one world: {found}"
+    return found[0] if found else (None, None)
+
+
+def owner_of(gc, sid):
+    s = soldier_by_id(gc, sid)[1]
+    return s["owner"] if s else None
 
 
 def dismiss_all_notices(gc):
@@ -43,60 +49,58 @@ def no_notices(gc):
     return not any("GiftNoticeState" in s for s in gc.cmd({"cmd": "get_state"})["states"])
 
 
-def wait_blob_fresh(host, client):
-    """Wait until the host holds the client's pushed world blob."""
-    save_id = client.cmd({"cmd": "get_coop"})["saveID"]
-    key = f"host_{save_id}_ClientPlayer.data"
-    host.wait_for(f"client blob {key} on host",
-                  lambda: host.cmd({"cmd": "has_coop_file", "key": key}).get("present") or None,
-                  timeout=30)
-    time.sleep(3)  # existence check can't tell a fresh push from an old one
-
-
-def gift_and_wait(giver, receiver, name, receiver_owner_id):
+def gift_and_wait(host, giver, receiver, sid, name, receiver_owner_id):
     giver.ok({"cmd": "gift", "name": name, "owner": receiver_owner_id})
     receiver.wait_for(f"{name} arrives",
-                      lambda: (soldier_count(receiver, name, owner=receiver_owner_id) == 1) or None, timeout=30)
+                      lambda: (owner_of(receiver, sid) == receiver_owner_id) or None, timeout=30)
+    # Separate is one host-owned world: the host's world, and so its next save,
+    # holds the gift once the host shows the new owner.
+    host.wait_for(f"{name} owned by seat {receiver_owner_id} in the host world",
+                  lambda: (owner_of(host, sid) == receiver_owner_id) or None, timeout=30)
     dismiss_all_notices(receiver)
 
 
 def run_repro(host, client, giver, receiver, receiver_owner_id, tag):
-    # unique names (fresh saves can roll identical rosters)
-    roster = own_base(giver)["soldiers"]
+    giver_owner_id = 1 - receiver_owner_id
+    # unique names (fresh saves can roll identical rosters), set through the
+    # real rename path so both machines of the one world agree on them
+    # One world holds both bases; the giver's soldiers live at its own base.
+    base_name = "HostBase" if giver is host else "ClientBase"
+    base = next(b for b in giver.ok({"cmd": "get_soldiers"})["bases"] if b["name"] == base_name)
+    roster = [s for s in base["soldiers"] if s["owner"] == giver_owner_id]
+    (id_a, id_b) = (roster[0]["id"], roster[1]["id"])
     unit_a, unit_b = f"Unit A {tag}", f"Unit B {tag}"
-    giver.ok({"cmd": "rename_soldier", "name": roster[0]["name"], "newName": unit_a})
-    giver.ok({"cmd": "rename_soldier", "name": roster[1]["name"], "newName": unit_b})
+    for sid, name in ((id_a, unit_a), (id_b, unit_b)):
+        giver.ok({"cmd": "soldier_rename", "soldierId": sid, "name": name, "base": base["name"]})
+        for gc in (host, client):
+            gc.wait_for(f"{name} renamed on {gc.name}",
+                        lambda gc=gc, sid=sid, name=name: (soldier_by_id(gc, sid)[1] or {}).get("name") == name or None,
+                        timeout=30)
 
     # 2. gift A
-    gift_and_wait(giver, receiver, unit_a, receiver_owner_id)
-    wait_blob_fresh(host, client)
+    gift_and_wait(host, giver, receiver, id_a, unit_a, receiver_owner_id)
 
     # 3. HOST saves (the authority snapshot: A traded, B not)
     host.ok({"cmd": "save_game", "file": f"authority_{tag}.sav"})
 
     # 4. gift B
-    gift_and_wait(giver, receiver, unit_b, receiver_owner_id)
-    wait_blob_fresh(host, client)
+    gift_and_wait(host, giver, receiver, id_b, unit_b, receiver_owner_id)
 
     # 5+6. host "abandons" and loads the save; client re-fetches its world
     host.ok({"cmd": "load_save", "file": f"authority_{tag}.sav"})
     client.ok({"cmd": "client_reload_progress"})
 
-    if receiver is client:
-        # client should end with A (traded pre-save) and without B
-        expected = lambda: (soldier_count(client, unit_a, owner=receiver_owner_id) == 1
-                            and soldier_count(client, unit_b, owner=receiver_owner_id) == 0) or None
-    else:
-        # client was the giver: A gone (given pre-save), B back (post-save trade rolled back)
-        expected = lambda: (soldier_count(client, unit_a) == 0
-                            and soldier_count(client, unit_b) == 1) or None
+    # A stays traded (pre-save), B goes back to the giver (post-save trade rolled back)
+    expected = lambda: (owner_of(client, id_a) == receiver_owner_id
+                        and owner_of(client, id_b) == giver_owner_id) or None
     client.wait_for("client world reloaded from host save", expected, timeout=90)
 
-    # 7. assertions: the save is the authority
-    assert soldier_count(giver, unit_a) == 0, f"{tag}: giver must NOT have {unit_a} (traded before save)"
-    assert soldier_count(giver, unit_b) == 1, f"{tag}: giver must have {unit_b} (trade B was after the save)"
-    assert soldier_count(receiver, unit_a, owner=receiver_owner_id) == 1, f"{tag}: receiver must have {unit_a}"
-    assert soldier_count(receiver, unit_b, owner=receiver_owner_id) == 0, f"{tag}: receiver must NOT have {unit_b}"
+    # 7. assertions: the save is the authority, on both machines
+    for gc in (giver, receiver):
+        assert owner_of(gc, id_a) == receiver_owner_id, \
+            f"{tag}: {gc.name} must show {unit_a} owned by seat {receiver_owner_id} (traded before save)"
+        assert owner_of(gc, id_b) == giver_owner_id, \
+            f"{tag}: {gc.name} must show {unit_b} back with seat {giver_owner_id} (trade B was after the save)"
     assert no_notices(host) and no_notices(client), f"{tag}: no bogus 'returned' notices allowed"
     print(f"PASS {tag}: save is authority - A stays traded, B rolled back, no notices")
 

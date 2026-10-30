@@ -37,6 +37,7 @@
 #include "../Interface/ArrowButton.h"
 
 #include "HostMenu.h"
+#include "SeparateEcon.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Geoscape/Globe.h"
@@ -140,11 +141,11 @@ LobbyMenu::LobbyMenu() : _sortable(true)
 	// that as "return to the running game" makes RESUME pop the host straight into
 	// its battle and never serve the client - the client is stranded on the lobby.
 	// Such a lobby must always go through resumeCampaign(); it is never a
-	// resume-to-running-game. The mid-game coop menu (B7) and a mid-battle
-	// reconnect are never mode 2, so they are unaffected.
-	_resumeToGame = (battleRunning
-		|| (geoRunning && connectionTCP::session.sessionLocked))
-		&& connectionTCP::session.lobbyMode != 2
+	// resume-to-running-game. lobbyMode stays 2 after a resumed campaign, though,
+	// so once that campaign is live again (sessionLocked) its in-battle coop menu
+	// still offers RESUME GAME.
+	_resumeToGame = (battleRunning || (geoRunning && connectionTCP::session.sessionLocked))
+		&& (connectionTCP::session.lobbyMode != 2 || connectionTCP::session.sessionLocked)
 		&& !connectionTCP::session.customBattleResumePending;
 
 	connectionTCP::session.markLobbyOpen();
@@ -657,6 +658,39 @@ std::string LobbyMenu::rowNameById(int id) const
 	return "";
 }
 
+std::string LobbyMenu::campaignSeatName(int seat) const
+{
+	if (_game->getSavedGame() && _game->getSavedGame()->isCoopSave())
+	{
+		const std::vector<std::string>& roster = _game->getSavedGame()->getCoopPlayers();
+		if (seat >= 0 && static_cast<size_t>(seat) < roster.size() && !roster[seat].empty())
+			return roster[seat];
+	}
+
+	// Before a new campaign locks its roster, these fields are intentionally
+	// machine-relative: getHostName() is local and getCurrentClientName() peer.
+	if (seat == 0)
+		return _game->getCoopMod()->getServerOwner()
+			? _game->getCoopMod()->getHostName()
+			: _game->getCoopMod()->getCurrentClientName();
+	return _game->getCoopMod()->getServerOwner()
+		? _game->getCoopMod()->getCurrentClientName()
+		: _game->getCoopMod()->getHostName();
+}
+
+std::string LobbyMenu::campaignSeatDisplayName(int seat) const
+{
+	const std::string playerName = campaignSeatName(seat);
+	SavedGame* save = _game->getSavedGame();
+	if (!save || !save->isSeparateCoopCampaign()
+		|| !save->getSeparateCampaign().haveDifferentFactions())
+		return playerName;
+
+	const std::string factionName = SeparateEcon::factionDisplayName(_game, playerName);
+	return factionName.empty() ? playerName
+		: playerName + " (" + factionName + ")";
+}
+
 std::vector<std::string> LobbyMenu::missingPlayers() const
 {
 	// registered players (minus the host) not currently connected
@@ -665,9 +699,9 @@ std::vector<std::string> LobbyMenu::missingPlayers() const
 	{
 		return missing;
 	}
-	std::string hostName = _game->getCoopMod()->getHostName();
+	std::string hostName = campaignSeatName(0);
 	std::string connectedClient = connectionTCP::session.clientInLobby
-									  ? _game->getCoopMod()->getCurrentClientName()
+									  ? campaignSeatName(1)
 									  : "";
 	for (const auto &p : _game->getSavedGame()->getCoopPlayers())
 	{
@@ -707,10 +741,9 @@ void LobbyMenu::resumeCampaign()
 	// battle save: after the geoscape world ack, stream the battle (2c)
 	connectionTCP::session.armResumeHandshake(_game->getSavedGame()->getSavedBattle() != nullptr);
 
-	// Serve the connected client its world: stored blob if we have one,
-	// otherwise a fresh world + base building (registered-no-blob, D6).
-	// PRD-J02: SHARED has no per-client stored blob - there is a single
-	// authoritative world. Always take the campaign_resume path: the client's
+	// Campaign modes always serve the host's one authoritative world. PvP keeps
+	// its distinct player-world resume path below. Always take campaign_resume
+	// for Shared/Separate: the client's
 	// request_load_progress makes the host serialize the CURRENT world fresh and
 	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
@@ -722,19 +755,19 @@ void LobbyMenu::resumeCampaign()
 	// fresh world that another campaign_start in request_load_progress
 	// would overwrite, never arming sendFileClient).
 	if (connectionTCP::_coopGamemode == 2
-		&& !connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+		&& !connectionTCP::hasPvpClientWorld(clientName))
 	{
 		try
 		{
 			// PvP P4: the gm2 alien client never sends a world blob to the host
 			// (its own coopFilesClient world is process-local). Build a MINIMAL
 			// no_bases stub - one unplaced/unnamed EMPTY base, empty roster - and
-			// store it under the client's hostBlobKey so the campaign_resume branch
+			// store it under the client's pvpHostWorldKey so the campaign_resume branch
 			// below fires. Replaces the former full-world synthesis (host bases +
 			// host roster stamped no_bases via a temporary global flip), which
 			// leaked the host's placed bases and named roster into the client's
 			// rejoin world. buildCoopStub reads no global flag, so there is no flip.
-			std::string key = connectionTCP::hostBlobKey(clientName);
+			std::string key = connectionTCP::pvpHostWorldKey(clientName);
 			std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
 			{
 				std::lock_guard<std::mutex> lk(connectionTCP::coopFilesMutex);
@@ -748,8 +781,8 @@ void LobbyMenu::resumeCampaign()
 		}
 	}
 
-	if (_game->getCoopMod()->isSharedCampaign()
-		|| connectionTCP::hasCoopFile(connectionTCP::hostBlobKey(clientName)))
+	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+		|| connectionTCP::hasPvpClientWorld(clientName))
 	{
 		Json::Value root;
 		root["state"] = "campaign_resume";
@@ -836,7 +869,7 @@ void LobbyMenu::startCampaign()
 	if (_game->getCoopMod()->getCoopGamemode() == 3)
 		connectionTCP::no_bases = true;
 
-	// A NEW campaign always mints a fresh saveID and starts with no world blobs
+	// A NEW campaign always mints a fresh saveID and starts with no stale transfers
 	// (fixes C2: a second campaign in the same process must not reuse the first
 	// campaign's ID or serve its stale client world). resumeCampaign keeps the
 	// loaded ID. The campaign_start packet built below carries this fresh ID and
@@ -886,7 +919,13 @@ void LobbyMenu::startCampaign()
 	}
 
 	if (!connectionTCP::no_bases)
+	{
+		const int gamemode = _game->getCoopMod()->getCoopGamemode();
+		if (gamemode != 2 && gamemode != 3)
+			_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(_game->getCoopMod()->getHostName());
+		_game->getCoopMod()->refreshSeparateBaseOwnership();
 		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
+	}
 	else
 	{
 		// PvP: the host is the alien side and has no bases.  Push the
@@ -1478,9 +1517,7 @@ void LobbyMenu::think()
 			// getHostName() is machine-relative (the LOCAL player's name), so read it
 			// role-relative like the server-name title does - on a client machine the
 			// host's name is the peer, getCurrentClientName().
-			std::string hostRowName = _game->getCoopMod()->getServerOwner()
-			? _game->getCoopMod()->getHostName()
-			: _game->getCoopMod()->getCurrentClientName();
+			std::string hostRowName = campaignSeatDisplayName(0);
 			_connectedPlayers.push_back(playerInfo({hostId, hostRowName, "0", false, "XCOM", "Funds: 0 Bases: 0, Crafts: 0"}));
 			itHost = std::prev(_connectedPlayers.end());
 
@@ -1498,7 +1535,7 @@ void LobbyMenu::think()
 		{
 			for (auto& base : *_game->getSavedGame()->getBases())
 			{
-				if (base->_coopBase == false)
+				if (base->_isForeignBase == false)
 				{
 
 					for (auto& craft : *base->getCrafts())
@@ -1592,9 +1629,7 @@ void LobbyMenu::think()
 		std::string txtDetails = "Funds: " + std::to_string(funds) + " Bases: " + std::to_string(base_count) + " Crafts: " + std::to_string(craft_count);
 
 		// role-relative host name (see the host-row insert above): correct on both machines.
-		std::string hostRowName = _game->getCoopMod()->getServerOwner()
-			? _game->getCoopMod()->getHostName()
-			: _game->getCoopMod()->getCurrentClientName();
+		std::string hostRowName = campaignSeatDisplayName(0);
 		itHost->name = hostRowName + txtStatus;
 		itHost->team = txtTeam;
 		itHost->details = txtDetails;
@@ -1614,9 +1649,7 @@ void LobbyMenu::think()
 
 			// role-relative client name: the CLIENT player's name on both machines.
 			// On a client machine the local player IS the client, so read getHostName().
-			std::string clientName = _game->getCoopMod()->getServerOwner()
-				? _game->getCoopMod()->getCurrentClientName()
-				: _game->getCoopMod()->getHostName();
+			std::string clientName = campaignSeatDisplayName(1);
 			std::string ping = _game->getCoopMod()->getPing();
 
 			auto itClient = std::find_if(_connectedPlayers.begin(), _connectedPlayers.end(),

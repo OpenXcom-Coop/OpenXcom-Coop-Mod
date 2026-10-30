@@ -41,6 +41,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/SeparateEcon.h"
 #include <climits>
 
 namespace OpenXcom
@@ -78,7 +79,7 @@ void ManufactureInfoState::buildUi()
 	// PRD-J06: SHARED campaign = host-authoritative shared world. This screen edits
 	// it live (so vanilla engineer/workshop capping works), then btnOkClick/
 	// btnStopClick reverse those edits and submit a shared_cmd instead.
-	_shared = _game->getCoopMod() && _game->getCoopMod()->isSharedCampaign();
+	_shared = _game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign());
 	_sharedOrigEngineers = 0; _sharedOrigAmount = 1;
 	_sharedOrigInfinite = false; _sharedOrigSell = false; _sharedOrigFallback = false;
 
@@ -359,7 +360,8 @@ void ManufactureInfoState::btnStopClick(Action *)
 		_production->setSellItems(_sharedOrigSell);
 		_production->setFallback(_sharedOrigFallback);
 		Json::Value p; p["item"] = item; p["refund"] = refund;
-		SharedEcon::submitLocalCmd(_game, "man_cancel", baseId, p);
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "man_cancel", baseId, p);
+		else SeparateEcon::submitLocalCmd(_game, "man_cancel", baseId, p);
 		exitState();
 		return;
 	}
@@ -401,7 +403,8 @@ void ManufactureInfoState::btnOkClick(Action *)
 			// NEW: removeProduction reverses the scratch (frees engineers, deletes
 			// it); startItem was never called so no funds/materials were touched.
 			_base->removeProduction(_production);
-			SharedEcon::submitLocalCmd(_game, "man_start", baseId, p);
+			if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "man_start", baseId, p);
+			else SeparateEcon::submitLocalCmd(_game, "man_start", baseId, p);
 		}
 		else
 		{
@@ -413,7 +416,8 @@ void ManufactureInfoState::btnOkClick(Action *)
 			_production->setInfiniteAmount(_sharedOrigInfinite);
 			_production->setSellItems(_sharedOrigSell);
 			_production->setFallback(_sharedOrigFallback);
-			SharedEcon::submitLocalCmd(_game, "man_alloc", baseId, p);
+			if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "man_alloc", baseId, p);
+			else SeparateEcon::submitLocalCmd(_game, "man_alloc", baseId, p);
 		}
 		exitState();
 		return;

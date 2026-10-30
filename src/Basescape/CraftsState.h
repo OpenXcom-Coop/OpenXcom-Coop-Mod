@@ -19,6 +19,7 @@
  */
 #include "../Engine/State.h"
 #include "../CoopMod/SharedEcon.h"
+#include <vector>
 
 namespace OpenXcom
 {
@@ -28,6 +29,7 @@ class Window;
 class Text;
 class TextList;
 class Base;
+class Craft;
 
 /**
  * Equip Craft screen that lets the player
@@ -42,12 +44,14 @@ private:
 	TextList *_lstCrafts;
 	Base *_base;
 	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
+	std::vector<int> _displayedCrew;
 
 	/// PRD-J10: live refresh. A list view holds no pending user input, so it
 	/// rebuilds SILENTLY in place (no pop-and-push, no banner) and takes day_tick
 	/// too - the progress columns it draws are exactly what day_tick carries.
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	void initList(size_t scrl);
+	int getDisplayedCrew(const Craft *craft) const;
 public:
 	/// Creates the Crafts state.
 	CraftsState(Base *base);
@@ -61,6 +65,8 @@ public:
 	void btnOkClick(Action *action);
 	/// Handler for clicking the Crafts list.
 	void lstCraftsClick(Action *action);
+	/// Harness: returns the Crew-column value rendered for a craft ID.
+	int harnessDisplayedCrew(int craftId) const;
 };
 
 }

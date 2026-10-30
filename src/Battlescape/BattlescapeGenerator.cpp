@@ -64,6 +64,7 @@
 #include "Pathfinding.h"
 #include "../CoopMod/CoopBattleSetup.h" // coop: coopTagGuestVehicleUnit
 #include "../CoopMod/SharedEcon.h" // coop: SharedEcon::ownsSoldier (a SHARED base screen's Ctrl+Alt open)
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -769,6 +770,11 @@ void BattlescapeGenerator::nextStage()
  */
 void BattlescapeGenerator::run()
 {
+	// Last safety gate before Soldier ids become BattleUnit ids. Lobby/load paths
+	// normally normalize earlier, but scripted mission starts can bypass them.
+	SeparateEcon::normalizeSoldierIds(_game);
+	SeparateEcon::synchronizeVehicleOwners(_game);
+
 	bool isPreview = _save->isPreview();
 
 	_save->setAlienCustom(_alienCustomDeploy ? _alienCustomDeploy->getType() : "", _alienCustomMission ? _alienCustomMission->getType() : "");
@@ -981,6 +987,79 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		_craft->resetTemporaryCustomVehicleDeploymentFlags();
 	}
 
+	// Shared's single roster naturally reaches the craft deployment in alternating
+	// seat order. Separate stores the same owners in different base rosters, so
+	// reproduce that ordering explicitly before the normal craft placement code.
+	// The craft/ruleset remains the sole authority for actual tile positions.
+	std::vector<Soldier*> deploymentSoldiers;
+	if (_base)
+	{
+		deploymentSoldiers.assign(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+		if (_craft && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+		{
+			// Alternate over this craft's crew only. Garrison soldiers are filtered
+			// out of the deployment later, so counting them here would break the
+			// host/client alternation of the soldiers who actually board.
+			std::vector<Soldier*> hostSoldiers;
+			std::vector<Soldier*> clientSoldiers;
+			std::vector<Soldier*> otherSoldiers;
+			std::vector<Soldier*> notOnCraft;
+			for (Soldier* soldier : deploymentSoldiers)
+			{
+				if (soldier->getCraft() != _craft) notOnCraft.push_back(soldier);
+				else if (soldier->getCoop() == 0) hostSoldiers.push_back(soldier);
+				else if (soldier->getCoop() == 1) clientSoldiers.push_back(soldier);
+				else otherSoldiers.push_back(soldier);
+			}
+			deploymentSoldiers.clear();
+			const size_t rounds = std::max(hostSoldiers.size(), clientSoldiers.size());
+			for (size_t i = 0; i < rounds; ++i)
+			{
+				if (i < hostSoldiers.size()) deploymentSoldiers.push_back(hostSoldiers[i]);
+				if (i < clientSoldiers.size()) deploymentSoldiers.push_back(clientSoldiers[i]);
+			}
+			deploymentSoldiers.insert(deploymentSoldiers.end(), otherSoldiers.begin(), otherSoldiers.end());
+			deploymentSoldiers.insert(deploymentSoldiers.end(), notOnCraft.begin(), notOnCraft.end());
+		}
+	}
+
+	// Separate single world: a player's inventory screen at a base, their
+	// own or the other player's, shows only that player's soldiers, and the other
+	// player's reserved items (their soldiers' layouts whose gear lies in this
+	// screen's item pool) stay off the ground pane: those items are still made for
+	// the screen, but on no tile, so the viewer can neither see nor take them. The
+	// battle itself (not _baseInventory) deploys everyone.
+	const bool ownSoldiersOnly = _baseInventory && _base && _game->getCoopMod()
+		&& _game->getCoopMod()->isSeparateCampaign();
+	std::map<const RuleItem*, int> hiddenItems;
+	if (ownSoldiersOnly)
+	{
+		for (Soldier* soldier : *_base->getSoldiers())
+		{
+			if (SharedEcon::ownsSoldier(_game, soldier)) continue;
+			const Craft* soldierCraft = soldier->getCraft();
+			if (soldierCraft && soldierCraft->getStatus() == "STR_OUT") continue;
+			// the pool: base screen = the stores + every craft at home; craft screen =
+			// that craft's items (+ the stores, when setInventoryStoreItems shows them)
+			const bool inPool = _craft == 0 || soldierCraft == _craft
+				|| (!soldierCraft && _inventoryStoreItems);
+			if (!inPool) continue;
+			for (const auto* layoutItem : *soldier->getEquipmentLayout())
+			{
+				if (!layoutItem->isFixed()) ++hiddenItems[layoutItem->getItemType()];
+				for (int slot = 0; slot < RuleItem::AmmoSlotMax; ++slot)
+					if (const RuleItem* ammo = layoutItem->getAmmoItemForSlot(slot)) ++hiddenItems[ammo];
+			}
+		}
+	}
+	auto poolTile = [&](const RuleItem* rule) -> Tile*
+	{
+		auto hidden = hiddenItems.find(rule);
+		if (hidden == hiddenItems.end() || hidden->second <= 0) return _craftInventoryTile;
+		--hidden->second;
+		return nullptr;
+	};
+
 	// we will need this during debriefing to show a list of recovered items
 	// Note: saved info is required only because of base defense missions, other missions could work without a save too
 	// IMPORTANT: the number of vehicles and their ammo has been messed up by Base::setupDefenses() already :( and will need to be handled separately later
@@ -1067,7 +1146,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	// enviro effects and starting conditions - armor transformation and replacement
 	if (startingCondition != 0 || enviro != 0)
 	{
-		for (auto* soldier : *_base->getSoldiers())
+		for (auto* soldier : deploymentSoldiers)
 		{
 			if ((_craft != 0 && soldier->getCraft() == _craft) ||
 				(_craft == 0 && (soldier->hasFullHealth() || soldier->canDefendBase()) && (soldier->getCraft() == 0 || soldier->getCraft()->getStatus() != "STR_OUT")))
@@ -1105,8 +1184,12 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 	// add soldiers that are in the craft or base (2x2 only)
 	{
-		for (auto* soldier : *_base->getSoldiers())
+		for (auto* soldier : deploymentSoldiers)
 		{
+			if (ownSoldiersOnly && !SharedEcon::ownsSoldier(_game, soldier))
+			{
+				continue;
+			}
 			if (soldier->getArmor()->getSize() == 1)
 			{
 				continue;
@@ -1166,8 +1249,12 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 
 	// add soldiers that are in the craft or base (1x1 only)
 	{
-		for (auto* soldier : *_base->getSoldiers())
+		for (auto* soldier : deploymentSoldiers)
 		{
+			if (ownSoldiersOnly && !SharedEcon::ownsSoldier(_game, soldier))
+			{
+				continue;
+			}
 			if (soldier->getArmor()->getSize() > 1)
 			{
 				continue;
@@ -1245,6 +1332,18 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				for (int count = 0; count < pair.second; count++)
 				{
 					_save->createItemForTile(pair.first, _craftInventoryTile);
+				}
+			}
+		}
+		// coop (Separate): the base stores shown beside the craft's items
+		// (setInventoryStoreItems).
+		if (_baseInventory && _inventoryStoreItems)
+		{
+			for (const auto& pair : *_inventoryStoreItems->getContents())
+			{
+				for (int count = 0; count < pair.second; count++)
+				{
+					_save->createItemForTile(pair.first, poolTile(pair.first));
 				}
 			}
 		}

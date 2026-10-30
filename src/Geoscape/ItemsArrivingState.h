@@ -40,6 +40,7 @@ struct ArrivalRow
 	int baseIdx;
 	int ownerSeat;
 	std::string nameKey; int nameId = -1; // coop: the replica renders name from these ("" = language-neutral; nameId >= 0 = a craft's default name)
+	std::string ownerPlayerName;
 };
 
 /**
@@ -57,6 +58,7 @@ private:
 	Text *_txtTitle, *_txtItem, *_txtQuantity, *_txtDestination;
 	TextList *_lstTransfers;
 	std::vector<ArrivalRow> _rows;
+	std::vector<ArrivalRow> _allRows;
 	/// Builds the shared window widgets.
 	void buildUI();
 public:
@@ -75,6 +77,8 @@ public:
 	void harnessGotoBase();
 	/// Gets the arrival rows backing this popup.
 	const std::vector<ArrivalRow>& getRows() const { return _rows; }
+	/// All arrivals consumed by the authority, including rows hidden locally.
+	const std::vector<ArrivalRow>& getAllRows() const { return _allRows; }
 	/// Test automation: the formatted first-column labels.
 	std::vector<std::string> harnessRows() const;
 };

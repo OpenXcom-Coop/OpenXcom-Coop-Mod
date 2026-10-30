@@ -82,17 +82,21 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	_txtResearch->setAlign(ALIGN_CENTER);
 	_txtResearch->setBig();
 	_txtResearch->setWordWrap(true);
+	// Always display the project that completed. _research intentionally stores
+	// newResearch instead, because that value controls whether View Reports may
+	// open an already-seen Ufopaedia article.
 	if (research)
 	{
 		_txtResearch->setText(tr(research->getName()));
 	}
 
 	// COOP
-	// SEPARATE research sync: mirror this completion to the other player (a popup
+	// Peer-world research sync: mirror this completion to the other player (a popup
 	// that is itself a mirrored completion, coop=true, does not echo it back).
 	// newResearch is null when the finished topic (or its lookup) was already
 	// researched, e.g. a repeatable getOneFree topic or one research sync delivered
-	// first; sendResearchSync is a no-op in SHARED (PRD-J04) and with sync off.
+	// first; sendResearchSync is a no-op in SHARED and SEPARATE (one host-owned
+	// world) and with sync off.
 	if (_coop == false)
 	{
 		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base, true); // coop: GeoscapeState::time1Day spawns the topics' events here too

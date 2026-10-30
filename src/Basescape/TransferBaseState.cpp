@@ -52,7 +52,7 @@ TransferBaseState::TransferBaseState(Base *base, DebriefingState *debriefingStat
 	// Cancel below). the one process-wide stash, never _base's, so a
 	// debriefing or a geoscape popup - nothing hidden - leaves the list untouched.
 	// In SHARED every base is already a real shared base in getBases().
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_coopBase == false && _game->getCoopMod()->getCoopCampaign() == true
+	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == false && _game->getCoopMod()->getCoopCampaign() == true
 		&& !_game->getCoopMod()->isSharedCampaign())
 	{
 		_coopShown = BasescapeState::coopShowMirrors();

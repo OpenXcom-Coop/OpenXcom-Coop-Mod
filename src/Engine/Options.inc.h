@@ -92,7 +92,6 @@ OPT bool oxceShowBaseNameInPopups;
 
 OPT bool EnableResearchSync;
 OPT bool UnbalancedCraftSoldiersLimit;
-OPT bool EnableTimeSync;
 OPT bool EnableReactionFirePvp;
 OPT bool EnableOtherPlayerFootsteps;
 OPT bool EnableHostOnlyTimeSpeed;

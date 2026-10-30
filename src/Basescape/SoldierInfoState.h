@@ -46,8 +46,8 @@ private:
 	bool _noTransformations;
 	Soldier *_soldier;
 	std::vector<Soldier*> *_list;
-	int _coopShownId = -1; // coop: the soldier id init() showed
-	/// coop: see SoldierInfoState.cpp.
+	int _coopShownId = -1; // coop: the id of the soldier init() showed
+	/// coop: re-reads a soldier a host command replaced or removed.
 	bool coopRecheckSoldier();
 
 	Surface *_bg;
@@ -69,7 +69,7 @@ public:
 	~SoldierInfoState();
 	/// Updates the soldier info.
 	void init() override;
-	/// coop: re-reads a soldier a shared change replaced or removed.
+	/// coop: re-reads a soldier a host command replaced or removed.
 	void think() override;
 	/// Handles keypresses.
 	void handle(Action* action) override;

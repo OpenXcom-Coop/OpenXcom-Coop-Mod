@@ -258,7 +258,7 @@ void SoldierTransformationListState::initList()
 		}
 		for (const auto* deadMan : *_game->getSavedGame()->getDeadSoldiers())
 		{
-			if (!SharedEcon::ownsSoldier(_game, deadMan)) continue; // coop: own dead only, as the live loop (:253)
+			if (!SharedEcon::ownsSoldier(_game, deadMan)) continue; // own dead only
 			if (deadMan->isEligibleForTransformation(transformationRule))
 			{
 				++eligibleSoldiers;

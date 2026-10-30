@@ -65,6 +65,12 @@ public:
 	void btnSummaryClick(Action *action);
 	/// Handler for clicking the Summary list.
 	void lstSummaryClick(Action *action);
+	/// Test automation: list <count> of <item> in the random production summary
+	/// and sell that row through the real handler logic.
+	void harnessSellSummaryRow(const std::string &item, int count);
+private:
+	/// Sells the summary row <sel> (lstSummaryClick's body).
+	void sellSummaryRow(unsigned int sel);
 };
 
 }

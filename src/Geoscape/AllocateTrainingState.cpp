@@ -40,6 +40,7 @@
 #include <algorithm>
 #include "../Engine/Unicode.h"
 #include "../CoopMod/SharedEcon.h" // coop
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -49,7 +50,9 @@ namespace OpenXcom
  * @param game Pointer to the core game.
  * @param base Pointer to the base to handle.
  */
-AllocateTrainingState::AllocateTrainingState(Base *base) : _sel(0), _base(base), _origSoldierOrder(*_base->getSoldiers()), _doNotReset(false)
+AllocateTrainingState::AllocateTrainingState(Base *base) : _sel(0), _base(base), _origSoldierOrder(*_base->getSoldiers()), _doNotReset(false),
+	_coopView(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()),
+	_shown(*_base->getSoldiers())
 {
 	// Create objects
 	_window = new Window(this, 320, 200, 0, 0);
@@ -201,10 +204,49 @@ AllocateTrainingState::AllocateTrainingState(Base *base) : _sel(0), _base(base),
  */
 AllocateTrainingState::~AllocateTrainingState()
 {
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
 	}
+}
+
+/**
+ * The soldiers the list shows, in its order. In the one-world co-op campaigns
+ * (SHARED and Separate) the base roster is the host's, in an order both
+ * machines share: the screen sorts and moves its own copy of it, so a sort or
+ * a move here never reorders the roster on this machine only. Elsewhere the
+ * screen reorders the roster itself, as in vanilla.
+ */
+std::vector<Soldier*>* AllocateTrainingState::shown()
+{
+	return _coopView ? &_shown : _base->getSoldiers();
+}
+
+/**
+ * Keeps the shown copy in step with the roster: a soldier who left the base is
+ * dropped, one who arrived is appended in roster order.
+ */
+void AllocateTrainingState::syncShown()
+{
+	if (!_coopView) return;
+	const std::vector<Soldier*>& roster = *_base->getSoldiers();
+	_shown.erase(std::remove_if(_shown.begin(), _shown.end(),
+		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end(); }),
+		_shown.end());
+	for (Soldier* s : roster)
+		if (std::find(_shown.begin(), _shown.end(), s) == _shown.end())
+			_shown.push_back(s);
+}
+
+/**
+ * The base roster index of a shown row (SoldierInfoState pages the roster).
+ */
+size_t AllocateTrainingState::rosterIndex(size_t row)
+{
+	const std::vector<Soldier*>& roster = *_base->getSoldiers();
+	auto it = std::find(roster.begin(), roster.end(), shown()->at(row));
+	return it == roster.end() ? row : (size_t)(it - roster.begin());
 }
 
 /**
@@ -213,6 +255,7 @@ AllocateTrainingState::~AllocateTrainingState()
  */
 void AllocateTrainingState::cbxSortByChange(Action *action)
 {
+	syncShown();
 	size_t selIdx = _cbxSortBy->getSelected();
 	if (selIdx == (size_t)-1)
 	{
@@ -220,7 +263,7 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 	}
 
 	// coop (#65 playtest rule): SHARED must not reorder the shared roster (no sort, no restore).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
 	{
 		initList(_lstSoldiers->getScroll());
 		return;
@@ -230,7 +273,7 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 	{
 		if (selIdx == 2)
 		{
-			std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+			std::stable_sort(shown()->begin(), shown()->end(),
 				[](const Soldier* a, const Soldier* b)
 				{
 					return Unicode::naturalCompare(a->getName(), b->getName());
@@ -239,11 +282,11 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 		}
 		else
 		{
-			std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), *compFunc);
+			std::stable_sort(shown()->begin(), shown()->end(), *compFunc);
 		}
 		if (_game->isShiftPressed())
 		{
-			std::reverse(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+			std::reverse(shown()->begin(), shown()->end());
 		}
 	}
 	else
@@ -252,12 +295,12 @@ void AllocateTrainingState::cbxSortByChange(Action *action)
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
 		{
-			auto soldierIt = std::find(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), origSoldier);
-			if (soldierIt != _base->getSoldiers()->end())
+			auto soldierIt = std::find(shown()->begin(), shown()->end(), origSoldier);
+			if (soldierIt != shown()->end())
 			{
 				Soldier *s = *soldierIt;
-				_base->getSoldiers()->erase(soldierIt);
-				_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+				shown()->erase(soldierIt);
+				shown()->insert(shown()->end(), s);
 			}
 		}
 	}
@@ -301,6 +344,7 @@ void AllocateTrainingState::btnPlusClick(Action *action)
 void AllocateTrainingState::init()
 {
 	State::init();
+	_sharedRefresh.bind(_game, this, _base);
 
 	// coming back from SoldierInfoState
 	if (_doNotReset)
@@ -309,8 +353,68 @@ void AllocateTrainingState::init()
 		return;
 	}
 
+	if (_coopView) refreshSpace();
 	_base->prepareSoldierStatsWithBonuses(); // refresh stats for sorting
 	initList(0);
+}
+
+/**
+ * Redraws the list (and the free space) when a host result for this base
+ * lands, e.g. this screen's own training change.
+ */
+void AllocateTrainingState::think()
+{
+	State::think();
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // this base is gone
+			return;
+		}
+		refreshSpace();
+		initList(_lstSoldiers->getScroll());
+	}
+}
+
+/**
+ * Sets a soldier's training flags. In the one-world co-op campaigns the host
+ * runs the training, so the change goes to the host instead (sendTraining) and
+ * the list redraws when it lands.
+ * @return True when the flags changed here.
+ */
+bool AllocateTrainingState::changeTraining(Soldier* soldier, bool training, bool queued)
+{
+	if (!_coopView)
+	{
+		soldier->setTraining(training);
+		soldier->setReturnToTrainingWhenHealed(queued);
+		return true;
+	}
+	if (training != soldier->isInTraining() || queued != soldier->getReturnToTrainingWhenHealed())
+		_pending.push_back({ soldier, training, queued });
+	return false;
+}
+
+void AllocateTrainingState::sendTraining()
+{
+	SharedEcon::submitSoldierTraining(_game, _base, false, _pending);
+	_pending.clear();
+}
+
+/**
+ * Assign-all and de-assign-all change only the soldiers the player may train:
+ * in Separate their own (the partner's soldiers at the same base are theirs).
+ */
+bool AllocateTrainingState::mayChange(const Soldier* soldier) const
+{
+	return !_game->getCoopMod()->isSeparateCampaign() || SharedEcon::ownsSoldier(_game, soldier);
+}
+
+void AllocateTrainingState::refreshSpace()
+{
+	_space = _base->getAvailableTraining() - _base->getUsedTraining();
+	_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
 }
 
 /**
@@ -318,9 +422,10 @@ void AllocateTrainingState::init()
  */
 void AllocateTrainingState::initList(size_t scrl)
 {
+	syncShown();
 	int row = 0;
 	_lstSoldiers->clearList();
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : *shown())
 	{
 		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists only the local player's own soldiers
 		const UnitStats* stats = _btnPlus->getPressed() ? soldier->getStatsWithSoldierBonusesOnly() : soldier->getCurrentStats();
@@ -381,6 +486,7 @@ void AllocateTrainingState::initList(size_t scrl)
  */
 void AllocateTrainingState::lstItemsLeftArrowClick(Action *action)
 {
+	syncShown();
 	unsigned int row = _lstSoldiers->getSelectedRow();
 	if (row > 0)
 	{
@@ -405,18 +511,17 @@ void AllocateTrainingState::lstItemsLeftArrowClick(Action *action)
  */
 void AllocateTrainingState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	// coop (#65 playtest rule): SHARED must not reorder the shared roster (arrows and wheel).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
-	Soldier *s = _base->getSoldiers()->at(row);
+	syncShown();
+	Soldier *s = shown()->at(row);
 	if (max)
 	{
-		_base->getSoldiers()->erase(_base->getSoldiers()->begin() + row);
-		_base->getSoldiers()->insert(_base->getSoldiers()->begin(), s);
+		shown()->erase(shown()->begin() + row);
+		shown()->insert(shown()->begin(), s);
 	}
 	else
 	{
-		_base->getSoldiers()->at(row) = _base->getSoldiers()->at(row - 1);
-		_base->getSoldiers()->at(row - 1) = s;
+		shown()->at(row) = shown()->at(row - 1);
+		shown()->at(row - 1) = s;
 		if (row != _lstSoldiers->getScroll())
 		{
 			SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
@@ -435,8 +540,9 @@ void AllocateTrainingState::moveSoldierUp(Action *action, unsigned int row, bool
  */
 void AllocateTrainingState::lstItemsRightArrowClick(Action *action)
 {
+	syncShown();
 	unsigned int row = _lstSoldiers->getSelectedRow();
-	size_t numSoldiers = _base->getSoldiers()->size();
+	size_t numSoldiers = shown()->size();
 	if (0 < numSoldiers && INT_MAX >= numSoldiers && row < numSoldiers - 1)
 	{
 		if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
@@ -460,18 +566,17 @@ void AllocateTrainingState::lstItemsRightArrowClick(Action *action)
  */
 void AllocateTrainingState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	// coop (#65 playtest rule): SHARED must not reorder the shared roster (arrows and wheel).
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
-	Soldier *s = _base->getSoldiers()->at(row);
+	syncShown();
+	Soldier *s = shown()->at(row);
 	if (max)
 	{
-		_base->getSoldiers()->erase(_base->getSoldiers()->begin() + row);
-		_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+		shown()->erase(shown()->begin() + row);
+		shown()->insert(shown()->end(), s);
 	}
 	else
 	{
-		_base->getSoldiers()->at(row) = _base->getSoldiers()->at(row + 1);
-		_base->getSoldiers()->at(row + 1) = s;
+		shown()->at(row) = shown()->at(row + 1);
+		shown()->at(row + 1) = s;
 		if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
 		{
 			SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
@@ -490,6 +595,7 @@ void AllocateTrainingState::moveSoldierDown(Action *action, unsigned int row, bo
  */
 void AllocateTrainingState::lstSoldiersClick(Action *action)
 {
+	syncShown();
 	double mx = action->getAbsoluteXMouse();
 	if (mx >= _lstSoldiers->getArrowsLeftEdge() && mx < _lstSoldiers->getArrowsRightEdge())
 	{
@@ -499,60 +605,65 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
 	_sel = _lstSoldiers->getSelectedRow();
 	if (action->getDetails()->button.button == SDL_BUTTON_LEFT)
 	{
-		auto* soldier = _base->getSoldiers()->at(_sel);
-		soldier = _base->getSoldiers()->at(SharedEcon::visibleRowToRosterIndex(_game, _base, _sel)); // coop: the own-only row's soldier
-
-		// can't put fully trained soldiers back into training
-		if (soldier->isFullyTrained()) return;
-
-		// wounded soldiers can be queued/dequeued
-		if (soldier->isWounded())
-		{
-			if (soldier->getReturnToTrainingWhenHealed())
-			{
-				_lstSoldiers->setCellText(_sel, 8, tr("STR_NO_WOUNDED").c_str());
-				soldier->setReturnToTrainingWhenHealed(false);
-			}
-			else
-			{
-				_lstSoldiers->setCellText(_sel, 8, tr("STR_NO_QUEUED").c_str());
-				soldier->setReturnToTrainingWhenHealed(true);
-			}
-			SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop
-			return;
-		}
-
-		// healthy soldiers can be assigned/deassigned
-		if (!soldier->isInTraining())
-		{
-			if (_base->getUsedTraining() < _base->getAvailableTraining())
-			{
-				_lstSoldiers->setCellText(_sel, 8, tr("STR_YES").c_str());
-				_lstSoldiers->setRowColor(_sel, _lstSoldiers->getSecondaryColor());
-				_space--;
-				_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
-				soldier->setTraining(true);
-				soldier->setReturnToTrainingWhenHealed(false);
-				SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop
-			}
-		}
-		else
-		{
-			_lstSoldiers->setCellText(_sel, 8, tr("STR_NO").c_str());
-			_lstSoldiers->setRowColor(_sel, _lstSoldiers->getColor());
-			_space++;
-			_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
-			soldier->setTraining(false);
-			soldier->setReturnToTrainingWhenHealed(false);
-			SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop
-		}
+		toggleRow(_sel);
 	}
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
 	{
 		_doNotReset = true;
-		_sel = SharedEcon::visibleRowToRosterIndex(_game, _base, _sel); // coop: SoldierInfoState takes the roster index
-		_game->pushState(new SoldierInfoState(_base, _sel, true, true));
+		_game->pushState(new SoldierInfoState(_base, rosterIndex(_sel), true, true));
 	}
+}
+
+/**
+ * Assigns / removes the soldier of a shown row from Martial Training, or
+ * queues / dequeues a wounded one.
+ * @param row Shown row.
+ */
+void AllocateTrainingState::toggleRow(size_t row)
+{
+	_sel = row;
+	auto* soldier = shown()->at(_sel);
+
+	// can't put fully trained soldiers back into training
+	if (soldier->isFullyTrained()) return;
+
+	// wounded soldiers can be queued/dequeued
+	if (soldier->isWounded())
+	{
+		if (soldier->getReturnToTrainingWhenHealed())
+		{
+			if (changeTraining(soldier, soldier->isInTraining(), false))
+				_lstSoldiers->setCellText(_sel, 8, tr("STR_NO_WOUNDED").c_str());
+		}
+		else
+		{
+			if (changeTraining(soldier, soldier->isInTraining(), true))
+				_lstSoldiers->setCellText(_sel, 8, tr("STR_NO_QUEUED").c_str());
+		}
+		sendTraining();
+		return;
+	}
+
+	// healthy soldiers can be assigned/deassigned
+	if (!soldier->isInTraining())
+	{
+		if (_base->getUsedTraining() < _base->getAvailableTraining()
+			&& changeTraining(soldier, true, false))
+		{
+			_lstSoldiers->setCellText(_sel, 8, tr("STR_YES").c_str());
+			_lstSoldiers->setRowColor(_sel, _lstSoldiers->getSecondaryColor());
+			_space--;
+			_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
+		}
+	}
+	else if (changeTraining(soldier, false, false))
+	{
+		_lstSoldiers->setCellText(_sel, 8, tr("STR_NO").c_str());
+		_lstSoldiers->setRowColor(_sel, _lstSoldiers->getColor());
+		_space++;
+		_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
+	}
+	sendTraining();
 }
 
 /**
@@ -561,10 +672,11 @@ void AllocateTrainingState::lstSoldiersClick(Action *action)
  */
 void AllocateTrainingState::lstSoldiersMousePress(Action *action)
 {
+	syncShown();
 	if (Options::changeValueByMouseWheel == 0)
 		return;
 	unsigned int row = _lstSoldiers->getSelectedRow();
-	size_t numSoldiers = _base->getSoldiers()->size();
+	size_t numSoldiers = shown()->size();
 	if (action->getDetails()->button.button == SDL_BUTTON_WHEELUP &&
 		row > 0)
 	{
@@ -591,28 +703,27 @@ void AllocateTrainingState::lstSoldiersMousePress(Action *action)
  */
 void AllocateTrainingState::btnDeassignAllSoldiersClick(Action* action)
 {
+	syncShown();
 	int row = 0;
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : *shown())
 	{
-		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: own soldiers only
-		soldier->setTraining(false);
-		soldier->setReturnToTrainingWhenHealed(false);
-		SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop
+		if (mayChange(soldier) && changeTraining(soldier, false, false))
+		{
+			std::string status;
+			if (soldier->isFullyTrained())
+				status = tr("STR_NO_DONE");
+			else if (soldier->isWounded())
+				status = tr("STR_NO_WOUNDED");
+			else
+				status = tr("STR_NO");
 
-		std::string status;
-		if (soldier->isFullyTrained())
-			status = tr("STR_NO_DONE");
-		else if (soldier->isWounded())
-			status = tr("STR_NO_WOUNDED");
-		else
-			status = tr("STR_NO");
-
-		_lstSoldiers->setCellText(row, 8, tr(status).c_str());
-		_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
+			_lstSoldiers->setCellText(row, 8, tr(status).c_str());
+			_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
+		}
 		row++;
 	}
-	_space = _base->getAvailableTraining() - _base->getUsedTraining();
-	_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
+	sendTraining();
+	refreshSpace();
 }
 
 /**
@@ -621,37 +732,71 @@ void AllocateTrainingState::btnDeassignAllSoldiersClick(Action* action)
  */
 void AllocateTrainingState::btnAssignAllSoldiersClick(Action* action)
 {
+	syncShown();
 	int row = 0;
-	for (auto* soldier : *_base->getSoldiers())
+	for (auto* soldier : *shown())
 	{
-		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: own soldiers only
-		if (soldier->isFullyTrained())
+		if (!mayChange(soldier))
+		{
+			// Separate: the partner's soldier at this base is theirs to train
+		}
+		else if (soldier->isFullyTrained())
 		{
 			// can't put fully trained soldiers back into training
 		}
 		else if (soldier->isWounded())
 		{
 			// wounded soldiers can be queued
-			if (!soldier->getReturnToTrainingWhenHealed())
+			if (!soldier->getReturnToTrainingWhenHealed()
+				&& changeTraining(soldier, soldier->isInTraining(), true))
 			{
 				_lstSoldiers->setCellText(row, 8, tr("STR_NO_QUEUED").c_str());
-				soldier->setReturnToTrainingWhenHealed(true);
-				SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop
 			}
 		}
 		else if (_space > 0 && !soldier->isInTraining())
 		{
 			// healthy soldiers can be assigned
-			_lstSoldiers->setCellText(row, 8, tr("STR_YES").c_str());
-			_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
 			_space--;
-			soldier->setTraining(true);
-			soldier->setReturnToTrainingWhenHealed(false);
-			SharedEcon::submitSoldierTraining(_game, _base, soldier); // coop
+			if (changeTraining(soldier, true, false))
+			{
+				_lstSoldiers->setCellText(row, 8, tr("STR_YES").c_str());
+				_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
+			}
 		}
 		row++;
 	}
+	sendTraining();
 	_txtRemaining->setText(tr("STR_REMAINING_TRAINING_FACILITY_CAPACITY").arg(_space));
+}
+
+void AllocateTrainingState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
+}
+
+std::vector<int> AllocateTrainingState::harnessDisplayedSoldierIds() const
+{
+	std::vector<int> ids;
+	for (const auto* s : _coopView ? _shown : *_base->getSoldiers())
+		ids.push_back(s->getId());
+	return ids;
+}
+
+bool AllocateTrainingState::harnessTraining(const std::string& action, int soldierId)
+{
+	syncShown();
+	if (action == "assign_all") btnAssignAllSoldiersClick(nullptr);
+	else if (action == "deassign_all") btnDeassignAllSoldiersClick(nullptr);
+	else if (action != "toggle") return false;
+	else
+	{
+		auto it = std::find_if(shown()->begin(), shown()->end(),
+			[&](const Soldier* s) { return s->getId() == soldierId; });
+		if (it == shown()->end()) return false;
+		toggleRow((size_t)(it - shown()->begin()));
+	}
+	return true;
 }
 
 }

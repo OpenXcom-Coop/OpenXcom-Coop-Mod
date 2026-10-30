@@ -15,16 +15,25 @@ Covers (PRD save-upgrader.md 9):
   / unknown-future / malformed
 - disk-less self-test (runSelfTest)
 - runner e2e on the DUAL pair: original left untouched, upgraded written to a new file
-  (header coop/coopPlayers/saveSchema:2; body saveID/owner 0/coopClientSaves[1]
-  whose blob decodes to owner 1 + client base; soldiers stamped both sides)
+  (header coop/coopPlayers/saveSchema:3; one host body containing owner-tagged
+  host and client bases, with no coopClientSaves blobs)
 - embed + sidecar recovery (ports test_legacy_migration.py's intent to the new flow)
 - negatives: mid-battle refused, gamemode mismatch refused, skip-client warns + 0 saves
+- saved equipment templates: the client world's template slots become the
+  client's profile set, the host world's slots stay the host's own
+- save version per game mode: real campaigns of every mode saved on this build.
+  Only the cooperative Separate campaign (one host-owned world) is written at
+  schema 3; solo, SHARED and PvP saves, PvP's embedded player worlds included,
+  stay at schema 2 so the previous release can still open them. Every one of
+  those saves loads back on this build with no upgrade dialog.
 
 Run:  python tools/coop_test/test_save_upgrade.py
 """
 
 import base64
 import os
+import base64
+import copy
 import shutil
 import sys
 
@@ -33,10 +42,171 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fix
 
 import yaml
 
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+import pvp_fixture
+import session
 import synth
 
 PORT = 48710
+
+# Template slots in the classic keys each schema-2 world keeps them in.
+HOST_TEMPLATES = {
+    "globalEquipmentLayout1": [{"itemType": "STR_PISTOL", "slot": "STR_LEFT_HAND"}],
+    "globalEquipmentLayoutName1": "Host layout",
+    "globalCraftLoadout0": {"STR_PISTOL": 1},
+    "globalCraftLoadoutName0": "Host loadout",
+}
+CLIENT_TEMPLATES = {
+    "globalEquipmentLayout1": [{"itemType": "STR_RIFLE", "slot": "STR_RIGHT_HAND",
+                                "ammoItem": "STR_RIFLE_CLIP"}],
+    "globalEquipmentLayoutName1": "Bob layout",
+    "globalEquipmentLayoutArmor1": "STR_PERSONAL_ARMOR_UC",
+    "globalCraftLoadout0": {"STR_RIFLE": 2},
+    "globalCraftLoadoutName0": "Bob loadout",
+}
+TEMPLATE_KEYS = ("globalEquipmentLayout", "globalCraftLoadout")
+
+# The schema each game mode's save is written at.
+MODE_SCHEMA = {"separate": 3, "shared": 2, "solo": 2, "pvp": 2}
+
+
+def read_docs(path):
+    with open(path, "r", encoding="utf-8") as f:
+        docs = list(yaml.safe_load_all(f.read()))
+    assert len(docs) == 2, f"{path}: expected 2 YAML docs, got {len(docs)}"
+    return docs[0], docs[1]
+
+
+def embedded_world_schemas(body):
+    """The header saveSchema of every player world embedded in a host save."""
+    schemas = []
+    for entry in body.get("coopClientSaves") or []:
+        stream = base64.b64decode(entry["blob"]).decode("utf-8")
+        header = next(iter(yaml.safe_load_all(stream)))
+        schemas.append(header.get("saveSchema"))
+    return schemas
+
+
+def save_coop_mode(mode, port):
+    """Start a fresh two-player campaign of `mode` and save it on the host."""
+    name = f"mode_{mode}.sav"
+    host_dir = make_user_dir(f"mode_{mode}_host")
+    host = GameClient("host", 48720, host_dir)
+    client = GameClient("client", 48721, make_user_dir(f"mode_{mode}_client"))
+    try:
+        host.spawn(); client.spawn(); host.connect(); client.connect()
+        if mode == "pvp":
+            # Host plays X-COM, the client the aliens: the host save embeds the
+            # client's world in coopClientSaves.
+            gamemode = pvp_fixture.start_pvp_campaign(host, client, port, alien_player="client")
+            assert gamemode == 2, f"pvp: expected game mode 2, got {gamemode}"
+        else:
+            session.new_campaign(host, client, port=port,
+                                 campaign_mode="shared" if mode == "shared" else "coop")
+        coop = host.ok({"cmd": "get_coop"})
+        print(f"[{mode}] host gamemode={coop.get('gamemode')} shared={coop.get('shared')} "
+              f"separateWorld={coop.get('separateWorld')}")
+        host.ok({"cmd": "save_game", "file": name})
+    finally:
+        for gc in (host, client):
+            try: gc.shutdown()
+            except Exception: pass
+    return os.path.join(host_dir, "xcom1", name)
+
+
+def save_solo():
+    """Start a fresh single-player game and save it."""
+    name = "mode_solo.sav"
+    d = make_user_dir("mode_solo")
+    gc = GameClient("solo", 48722, d)
+    try:
+        gc.spawn(); gc.connect()
+        gc.ok({"cmd": "open_new_game", "mode": "solo"})
+        gc.wait_for("difficulty", lambda: session.has_state(gc, "NewGameState"))
+        gc.ok({"cmd": "newgame_ok"})
+        gc.wait_for("base placement", lambda: session.has_state(gc, "BuildNewBaseState"))
+        gc.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": "SoloBase"})
+        gc.wait_for("solo geoscape", lambda: (session.has_state(gc, "GeoscapeState")
+                                              and not session.has_state(gc, "BuildNewBaseState")))
+        markers = gc.ok({"cmd": "save_markers"})
+        assert markers["coop"] is False, f"solo: the game is not a solo game: {markers}"
+        gc.ok({"cmd": "save_game", "file": name})
+    finally:
+        gc.shutdown()
+    return os.path.join(d, "xcom1", name)
+
+
+def check_mode_stamp(mode, path, fails):
+    header, body = read_docs(path)
+    want = MODE_SCHEMA[mode]
+    got = header.get("saveSchema")
+    if got != want:
+        fails.append(f"stamp {mode}: saveSchema {got}, expected {want}")
+        print("FAIL " + fails[-1])
+    else:
+        print(f"PASS stamp {mode}: saveSchema {got}")
+    if mode == "pvp":
+        worlds = embedded_world_schemas(body)
+        if not worlds:
+            fails.append("stamp pvp: the PvP save embeds no player world")
+            print("FAIL " + fails[-1])
+        elif any(s != want for s in worlds):
+            fails.append(f"stamp pvp: embedded player world saveSchema {worlds}, expected {want}")
+            print("FAIL " + fails[-1])
+        else:
+            print(f"PASS stamp pvp embedded worlds: saveSchema {worlds}")
+
+
+def check_mode_loads(mode, path, fails):
+    """The save loads on this build through the real load menu with no upgrade
+    dialog: a co-op save reaches the host window, a solo save the Geoscape."""
+    name = os.path.basename(path)
+    gc = GameClient("loader", 48723, make_user_dir(f"mode_load_{mode}", saves=(path,)))
+    try:
+        gc.spawn(); gc.connect()
+        det = gc.ok({"cmd": "upgrade_detect", "file": name})
+        want_kind = "solo" if mode == "solo" else "current"
+        if det["kind"] != want_kind or det["needsUpgrade"]:
+            fails.append(f"load {mode}: detector says {det['kind']} needsUpgrade={det['needsUpgrade']}, "
+                         f"expected {want_kind} with no upgrade")
+            print("FAIL " + fails[-1])
+            return
+        gc.ok({"cmd": "load_save_menu", "file": name})
+        target = "GeoscapeState" if mode == "solo" else "HostMenu"
+
+        def outcome():
+            st = session.states(gc)
+            if any("SaveUpgrade" in s for s in st):
+                return "upgrade dialog"
+            if any("ErrorMessage" in s for s in st):
+                return "error message"
+            return target if any(target in s for s in st) else None
+
+        reached = gc.wait_for(f"{mode} save loaded", outcome, timeout=60, interval=0.25)
+        if reached != target:
+            fails.append(f"load {mode}: reached {reached} ({session.states(gc)}), expected {target}")
+            print("FAIL " + fails[-1])
+        else:
+            print(f"PASS load {mode}: detector {det['kind']}, loaded to {target} with no upgrade dialog")
+    finally:
+        gc.shutdown()
+
+
+def mode_rows():
+    """Save one game of every mode on this build, check each save's schema and
+    load each one back. Returns the failed row lines."""
+    fails = []
+    saves = {
+        "separate": save_coop_mode("separate", "47911"),
+        "shared": save_coop_mode("shared", "47912"),
+        "pvp": save_coop_mode("pvp", "47913"),
+        "solo": save_solo(),
+    }
+    for mode, path in saves.items():
+        check_mode_stamp(mode, path, fails)
+    for mode, path in saves.items():
+        check_mode_loads(mode, path, fails)
+    return fails
 
 
 def two_docs(path):
@@ -47,6 +217,9 @@ def two_docs(path):
 
 
 def main():
+    # ---- 0. save version per game mode (real campaigns, run first) ----------
+    mode_fails = mode_rows()
+
     d = make_user_dir("save_upgrade")
     xcom1 = os.path.join(d, "xcom1")
 
@@ -86,7 +259,15 @@ def main():
             "solo_with_ufo.sav":    ("solo", "none", False),    # random coopUfoId/coopMissionId noise -> Solo
             "vanilla_solo.sav":     ("solo", "none", False),    # pure OXCE shape, zero coop keys
             "embed_host.sav":       ("legacy", "embed", True),
+            # Real intermediate saves are explicitly schema 2 and may also
+            # contain strong legacy links. The embedded sequence must win over
+            # the dual-save detector so no client-file picker is shown.
+            "embed_sequence_host.sav": ("legacy", "embed", True),
             "embed_no_blob.sav":    ("solo", "none", False),    # F2: key but no blob -> not a recoverable embed -> Solo
+            # A PvP save keeps two worlds. Its
+            # coopClientSaves sequence is the PvP format, not a Separate
+            # schema-2 intermediate, so it must load as current.
+            "pvp_embed_host.sav":   ("current", "none", False),
             "sidecar_host.sav":     ("legacy", "sidecar", True),
             "solo.sav":             ("solo", "none", False),
             "current.sav":          ("current", "none", False),
@@ -120,7 +301,7 @@ def main():
         uh, ub = two_docs(upgraded)
         assert uh["coop"] is True, "upgraded header coop != true"
         assert uh["coopPlayers"] == ["HostGuy", "Carol"], uh.get("coopPlayers")
-        assert uh["saveSchema"] == 2, uh.get("saveSchema")
+        assert uh["saveSchema"] == 3, uh.get("saveSchema")
         # header name gets a version-stamped suffix; assert the prefix, not the
         # literal build version, so a version bump does not break the test.
         assert uh["name"].startswith("Dual Coop (upgraded to "), f"upgraded name not suffixed: {uh['name']}"
@@ -128,47 +309,115 @@ def main():
         assert uh["coopCampaignType"] == 0, uh.get("coopCampaignType")
         assert ub["coop_save_owner_player_id"] == 0, ub.get("coop_save_owner_player_id")
         assert ub["saveID"] != 0 and "saveID" in ub, "upgraded body missing saveID"
-        assert len(ub["coopClientSaves"]) == 1, ub.get("coopClientSaves")
+        assert "coopClientSaves" not in ub, "schema-3 SEPARATE must not retain client blobs"
         # host soldiers stamped owner 0; empty/missing coopname filled from name
         hs = ub["bases"][0]["soldiers"]
         assert all(s["ownerplayerid"] == 0 for s in hs), [s.get("ownerplayerid") for s in hs]
         assert {s["coopname"] for s in hs} == {"Alice", "Bravo"}, [s.get("coopname") for s in hs]
-        # embedded client blob decodes to a 2-doc stream: owner 1 + the client base
-        entry = ub["coopClientSaves"][0]
-        assert entry["key"] == f"host_{ub['saveID']}_Carol.data", entry["key"]
-        cdocs = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))
-        assert len(cdocs) == 2, "client blob is not a 2-doc stream"
-        ch, cb = cdocs
-        assert ch["coop"] is True and ch["saveSchema"] == 2, "client header not stamped"
-        assert ch["coopCampaignType"] == 0, ch.get("coopCampaignType")
-        assert cb["coop_save_owner_player_id"] == 1, cb.get("coop_save_owner_player_id")
-        assert cb["saveID"] == ub["saveID"], "client saveID must match host"
-        assert cb["bases"][0]["name"] == "ClientBase", "client world/base not embedded"
-        assert all(s["ownerplayerid"] == 1 for s in cb["bases"][0]["soldiers"]), "client soldiers not stamped owner 1"
+        assert len(ub["bases"]) == 2, ub["bases"]
+        by_name = {b["name"]: b for b in ub["bases"]}
+        assert by_name["HostBase"]["ownerplayername"] == "HostGuy"
+        assert by_name["ClientBase"]["ownerplayername"] == "Carol"
+        assert all(s["ownerplayerid"] == 1 for s in by_name["ClientBase"]["soldiers"])
+        funds_by_player = {
+            p["name"]: p["funds"] for p in ub["separateCampaign"]["players"]
+        }
+        assert funds_by_player == {"HostGuy": [1000000], "Carol": [500000]}, funds_by_player
         # re-detecting the upgraded file now reports current
         assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host.sav")})["kind"] == "current"
-        print("PASS dual e2e: original untouched, upgraded shape + embedded client world correct")
+        print("PASS dual e2e: bases merged and independent player funds preserved")
+
+        # Schema-3 compatibility rule: an old campaign may already exceed the new
+        # global cap. Preserve every base, warn, and let runtime construction stay
+        # locked while the count is >= 8.
+        reset_fixtures()
+        hp = os.path.join(xcom1, "dual_host.sav")
+        cp = os.path.join(xcom1, "dual_client.sav")
+        hh, hb = two_docs(hp)
+        ch, cb = two_docs(cp)
+        template = cb["bases"][0]
+        for i in range(7):
+            extra = copy.deepcopy(template)
+            extra["name"] = f"ClientExtra{i + 1}"
+            cb["bases"].append(extra)
+        with open(cp, "w", encoding="utf-8") as f:
+            yaml.safe_dump_all([ch, cb], f, sort_keys=False)
+        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host.sav", "client": "dual_client.sav",
+                   "clientName": "Carol", "hostName": "HostGuy"})
+        assert r["success"] is True, r
+        assert any("preserved" in w and "below 8" in w for w in r["warnings"]), r["warnings"]
+        _, over = two_docs(outp("dual_host.sav"))
+        assert len(over["bases"]) == 9, "over-cap migration lost a base"
+        assert "coopClientSaves" not in over
+        print("PASS over-cap migration: all 9 bases preserved, warning emitted")
 
         # ---- 4. embed + sidecar recovery (test_legacy_migration.py intent) ---
         reset_fixtures()
-        r = gc.ok({"cmd": "upgrade_run", "host": "embed_host.sav"})
+        r = gc.ok({"cmd": "upgrade_run", "host": "embed_host.sav", "hostName": "HostGuy"})
         assert r["success"] is True, f"embed upgrade failed: {r}"
         eh, eb = two_docs(outp("embed_host.sav"))
-        assert eb["coop_save_owner_player_id"] == 0 and len(eb["coopClientSaves"]) == 1
+        assert eb["coop_save_owner_player_id"] == 0 and "coopClientSaves" not in eb
         assert "coopClientSaveKey" not in eb and "coopClientSaveBlob" not in eb, "embed leftovers not removed"
-        ec = list(yaml.safe_load_all(base64.b64decode(eb["coopClientSaves"][0]["blob"]).decode()))[1]
-        assert ec["coop_save_owner_player_id"] == 1, "embed client not tagged owner 1"
-        assert eb["coopClientSaves"][0]["key"].endswith("_Bob.data"), eb["coopClientSaves"][0]["key"]
-        print("PASS embed recovery: client world de-embedded + re-embedded as coopClientSaves")
+        assert {b["ownerplayername"] for b in eb["bases"]} == {"HostGuy", "Bob"}
+        assert any(b["name"] == "ClientBase" for b in eb["bases"])
+        print("PASS embed recovery: client world merged and blob removed")
 
         reset_fixtures()
-        r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav"})
+        r = gc.ok({"cmd": "upgrade_run", "host": "embed_sequence_host.sav",
+                   "hostName": "HostGuy"})
+        assert r["success"] is True, f"sequence embed upgrade failed: {r}"
+        qh, qb = two_docs(outp("embed_sequence_host.sav"))
+        assert qh["saveSchema"] == 3 and qh["coopCampaignType"] == 0
+        assert "coopClientSaves" not in qb
+        assert {b["ownerplayername"] for b in qb["bases"]} == {"HostGuy", "Bob"}
+        assert any(b["name"] == "ClientBase" for b in qb["bases"])
+        profiles = {p["name"]: p for p in qb["separateCampaign"]["players"]}
+        assert profiles["HostGuy"]["funds"] == [1000000], profiles
+        assert profiles["Bob"]["funds"] == [500000], profiles
+        assert profiles["HostGuy"]["funds"] != profiles["Bob"]["funds"], \
+            "migration must not initialize every player from the host funds"
+        assert profiles["HostGuy"]["faction"] == "difficulty:0", profiles
+        assert profiles["Bob"]["faction"] == "difficulty:3", profiles
+        assert profiles["HostGuy"]["ufopediaRuleStatus"] == {"STR_LASER_WEAPONS": 1}, profiles
+        assert profiles["Bob"]["ufopediaRuleStatus"] == {"STR_MEDI_KIT": 1}, profiles
+        assert profiles["Bob"]["completedResearch"] == ["STR_MEDI_KIT"], profiles
+        assert profiles["Bob"]["factionResearch"] == ["STR_MEDI_KIT"], profiles
+        print("PASS sequence embed recovery: independent player funds and factions preserved")
+
+        # Saved equipment templates are per player. Stage templates in a copy
+        # of the sequence fixture: the host world's own slots and, inside the
+        # client world blob, the client's.
+        reset_fixtures()
+        seq = os.path.join(xcom1, "embed_sequence_host.sav")
+        th, tb = two_docs(seq)
+        tb.update(HOST_TEMPLATES)
+        entry = tb["coopClientSaves"][0]
+        ch, cb = yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8"))
+        cb.update(CLIENT_TEMPLATES)
+        entry["blob"] = base64.b64encode(
+            yaml.safe_dump_all([ch, cb], sort_keys=False).encode("utf-8")).decode("ascii")
+        with open(seq, "w", encoding="utf-8") as f:
+            yaml.safe_dump_all([th, tb], f, sort_keys=False)
+        r = gc.ok({"cmd": "upgrade_run", "host": "embed_sequence_host.sav",
+                   "hostName": "HostGuy"})
+        assert r["success"] is True, f"template upgrade failed: {r}"
+        _, ub = two_docs(outp("embed_sequence_host.sav"))
+        profiles = {p["name"]: p for p in ub["separateCampaign"]["players"]}
+        assert profiles["Bob"].get("equipmentTemplates") == CLIENT_TEMPLATES, \
+            f"the client's templates are not its profile set: {profiles['Bob']}"
+        assert "equipmentTemplates" not in profiles["HostGuy"], \
+            f"the host's templates went into its profile: {profiles['HostGuy']}"
+        host_slots = {k: v for k, v in ub.items() if k.startswith(TEMPLATE_KEYS)}
+        assert host_slots == HOST_TEMPLATES, \
+            f"the host world's template slots changed: {host_slots}"
+        print("PASS templates: the client's slots became its profile set, the host's stayed its own")
+
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "sidecar_host.sav", "hostName": "HostGuy"})
         assert r["success"] is True, f"sidecar upgrade failed: {r}"
         sh, sb = two_docs(outp("sidecar_host.sav"))
-        assert len(sb["coopClientSaves"]) == 1, "sidecar client not imported"
-        assert sb["coopClientSaves"][0]["key"].endswith("_Carol.data"), sb["coopClientSaves"][0]["key"]
-        sc = list(yaml.safe_load_all(base64.b64decode(sb["coopClientSaves"][0]["blob"]).decode()))[1]
-        assert sc["bases"][0]["name"] == "ClientBase", "sidecar client world not embedded"
+        assert "coopClientSaves" not in sb, "sidecar migration must emit no blob"
+        assert any(b["name"] == "ClientBase" and b["ownerplayername"] == "Carol" for b in sb["bases"])
         # the read-only sidecar .data is never modified/deleted (PRD 5)
         assert os.path.exists(os.path.join(xcom1, synth.sidecar_data_name())), "sidecar .data must be left intact"
         print("PASS sidecar recovery: host_<id>_<name>.data imported, source file left intact")
@@ -184,9 +433,8 @@ def main():
         assert os.path.exists(outp("dual_host_battle.sav")), "dual_host_battle_upgraded.sav must be written"
         uh, ub = two_docs(outp("dual_host_battle.sav"))
         assert "battleGame" in ub, "host battleGame (the single battle authority) must be kept"
-        entry = ub["coopClientSaves"][0]
-        cb2 = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
-        assert "battleGame" not in cb2, "client battleGame must be stripped (rehydrated from host)"
+        assert sum(1 for b in ub["bases"] if b["name"] == "ClientBase") == 1
+        assert "coopClientSaves" not in ub
         assert any("host battle kept" in l for l in r["report"]), r["report"]
         assert any("client battle snapshot" in l for l in r["report"]), r["report"]
         assert gc.ok({"cmd": "upgrade_detect", "file": upgname("dual_host_battle.sav")})["kind"] == "current"
@@ -201,12 +449,38 @@ def main():
         print("PASS negative: gamemode mismatch refused")
 
         reset_fixtures()
-        r = gc.ok({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True})
-        assert r["success"] is True, f"skip-client upgrade failed: {r}"
-        assert any("restart fresh" in w for w in r["warnings"]), r["warnings"]
-        _, kb = two_docs(outp("dual_host.sav"))
-        assert "coopClientSaves" not in kb or kb["coopClientSaves"] in (None, []), kb.get("coopClientSaves")
-        print("PASS skip-client: warns + upgraded host carries 0 client worlds")
+        r = gc.cmd({"cmd": "upgrade_run", "host": "dual_host.sav", "skip": True,
+                    "hostName": "HostGuy"})
+        assert r["success"] is False, "unified migration must refuse a lossy missing-client merge"
+        assert any("missing" in e.lower() for e in r.get("errors", [])), r
+        # The refusal names the missing input and never offers a
+        # client-less continue for a Separate campaign.
+        assert any("save file" in e.lower() for e in r.get("errors", [])), r
+        assert not any("restart fresh" in w for w in r.get("warnings", [])), r
+        print("PASS skip-client: schema-3 unified migration refuses lossy merge")
+
+        # ---- 5c. PvP saves never take the Separate merge --------------------
+        reset_fixtures()
+        r = gc.ok({"cmd": "upgrade_run", "host": "pvp_dual_host.sav",
+                   "client": "pvp_dual_client.sav", "clientName": "Carol",
+                   "hostName": "HostGuy"})
+        assert r["success"] is True, f"PvP schema-1 upgrade failed: {r}"
+        ph, pb = two_docs(outp("pvp_dual_host.sav"))
+        # PvP's save layout did not change in schema 3: the upgrade ends at the
+        # PvP save version, 2, for the host world and the embedded player world.
+        assert ph["saveSchema"] == MODE_SCHEMA["pvp"], \
+            f"upgraded PvP save: saveSchema {ph.get('saveSchema')}, expected {MODE_SCHEMA['pvp']}"
+        assert embedded_world_schemas(pb) == [MODE_SCHEMA["pvp"]], \
+            f"upgraded PvP player world: saveSchema {embedded_world_schemas(pb)}"
+        assert pb["coop_gamemode"] == 2, pb.get("coop_gamemode")
+        assert [b["name"] for b in pb["bases"]] == ["HostBase"], \
+            f"PvP client bases must stay in the client world: {[b['name'] for b in pb['bases']]}"
+        assert "separateCampaign" not in pb, "PvP must not gain Separate player profiles"
+        assert len(pb.get("coopClientSaves", [])) == 1, \
+            "PvP must keep the client world in coopClientSaves"
+        assert not any(b.get("ownerplayername") for b in pb["bases"]), pb["bases"]
+        assert gc.ok({"cmd": "upgrade_detect", "file": upgname("pvp_dual_host.sav")})["kind"] == "current"
+        print("PASS PvP upgrade: schema-1 PvP keeps two worlds and ends at schema 2")
 
         # ---- 6. detector v2 STRONG-marker save + transform hardening ---------
         # The strong pair is shaped like the real-world 1.7.0 save: no saveID,
@@ -235,14 +509,13 @@ def main():
         # ufo cross-instance id zeroed
         assert ub["ufos"][0].get("coopUfoId", 0) == 0, ub["ufos"][0].get("coopUfoId")
         # embedded client world: soldier links reset (owner 1), craft coopItems gone
-        entry = ub["coopClientSaves"][0]
-        cb = list(yaml.safe_load_all(base64.b64decode(entry["blob"]).decode("utf-8")))[1]
-        cs = cb["bases"][0]["soldiers"][0]
+        client_base = next(b for b in ub["bases"] if b["ownerplayername"] == "Carol")
+        cs = client_base["soldiers"][0]
         assert cs["ownerplayerid"] == 1, cs.get("ownerplayerid")
         assert cs["coop"] == 0 and cs["coopbase"] == -1 and cs["coopcraft"] == -1, cs
         assert cs["coopcrafttype"] in ("", None), cs.get("coopcrafttype")
         assert cs["coopname"] == "Carol", "client coopname must be preserved"
-        assert "coopItems" not in cb["bases"][0]["crafts"][0], "client craft coopItems must be removed"
+        assert "coopItems" not in client_base["crafts"][0], "client craft coopItems must be removed"
         # the report calls out the resets with counts
         assert any("Reset stale co-op links" in l for l in r["report"]), r["report"]
         # and the upgraded strong save now reads as current
@@ -265,8 +538,8 @@ def main():
         hnames = {s.get("coopname") or s.get("name") for s in ub["bases"][0]["soldiers"]}
         assert hnames == {"Alice", "Bravo"}, f"peer mirror must be dropped from host: {hnames}"
         # the client's real Carol is preserved in the embedded world
-        cb = list(yaml.safe_load_all(base64.b64decode(ub["coopClientSaves"][0]["blob"]).decode("utf-8")))[1]
-        cnames = {s.get("coopname") or s.get("name") for base in cb["bases"] for s in base.get("soldiers", [])}
+        cnames = {s.get("coopname") or s.get("name") for base in ub["bases"]
+                  if base.get("ownerplayername") == "Carol" for s in base.get("soldiers", [])}
         assert "Carol" in cnames, f"client's real Carol must be preserved: {cnames}"
         print("PASS mirror-drop: peer mirror removed from host, real copy kept in client, no dup warning")
 
@@ -298,10 +571,13 @@ def main():
         assert r["threw"] is True, "legacy save must throw in SavedGame::load"
         assert "older version" in r.get("message", ""), r.get("message")
         print("PASS defensive throw: legacy save refused by SavedGame::load")
-
-        print("ALL PASS test_save_upgrade")
     finally:
         gc.shutdown()
+
+    if mode_fails:
+        print("FAIL save version per game mode: " + "; ".join(mode_fails))
+        sys.exit(1)
+    print("ALL PASS test_save_upgrade")
 
 
 if __name__ == "__main__":

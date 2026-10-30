@@ -18,6 +18,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "../Engine/TouchState.h"
+#include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include "SoldierSortUtil.h"
 #include "../CoopMod/SharedEcon.h" // coop: SHARED soldier lists and live refresh
@@ -55,22 +56,26 @@ private:
 	std::vector<Soldier *> _viewSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;
 	getStatFn_t _dynGetter;
-	/// coop: live refresh - a shared apply for this base redraws the list.
+	/// The host's applies (soldier_order, soldier_armor) refresh the list.
 	SharedEcon::ScreenRefresh _sharedRefresh;
 	///initializes the display list based on the craft soldier's list and the position to display
 	void initList(size_t scrl);
+	/// Seats a soldier on this screen's craft or takes them off it (ctrl-click).
+	void toggleCraftSeat(Soldier *s, unsigned int row);
 public:
 	/// Creates the Craft Armor state.
 	CraftArmorState(Base *base, size_t craft);
 	/// Test automation: soldier ids the crew-armor screen displays (own-only in SHARED).
 	std::vector<int> harnessDisplayedSoldierIds() const;
+	/// Test automation: picks sort option @a index through the real handler.
+	void harnessSort(size_t index);
 	/// Cleans up the Craft Armor state.
 	~CraftArmorState();
 	/// Handler for changing the sort by combobox.
 	void cbxSortByChange(Action *action);
 	/// Updates the soldier armors.
 	void init() override;
-	/// coop: applies a pending live refresh.
+	/// Applies a pending live refresh from the host.
 	void think() override;
 	/// Handler for clicking the Soldiers reordering button.
 	void lstItemsLeftArrowClick(Action *action);
@@ -94,6 +99,8 @@ public:
 	/// the soldier list first (normally deferred to init()), as the action writes
 	/// back into it (setCellText) on the local-mutation path.
 	void harnessDeequipAll() { initList(0); btnDeequipAllArmorClick(0); }
+	/// Harness: the list's ctrl-click (seat / unseat) on a soldier, by id.
+	bool harnessCtrlClick(int soldierId);
 };
 
 }

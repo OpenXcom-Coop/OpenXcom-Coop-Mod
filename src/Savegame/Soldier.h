@@ -288,14 +288,18 @@ private:
 	int getImprovement() const;
 	/// returns this soldier's psionic strength improvement score for this month.
 	int getPsiStrImprovement() const;
-	/// coop: sets this month's psi improvement scores (the SHARED replica adopts the host's).
-	void setPsiImprovements(int improvement, int psiStrImprovement);
+	/// coop: sets both psi improvement scores the host's training step left.
+	void setImprovements(int improvement, int psiStrImprovement) { _improvement = improvement; _psiStrImprovement = psiStrImprovement; }
 	/// Gets the soldier death info.
 	SoldierDeath *getDeath() const;
 	/// Kills the soldier.
 	void die(SoldierDeath *death);
 	/// Clears the equipment layout.
 	void clearEquipmentLayout();
+	/// coop: Replaces the equipment layout with @a layout (taken over; @a layout is left empty).
+	/// With @a base, the old layout's gear goes from the soldier's craft back to @a base and
+	/// the new layout's gear goes onto the craft (alternate craft equipment management).
+	void replaceEquipmentLayout(std::vector<EquipmentLayoutItem*>& layout, Base* base);
 	/// Gets the soldier's diary.
 	SoldierDiary *getDiary();
 	const SoldierDiary* getDiary() const;

@@ -122,6 +122,12 @@ namespace Options
 	bool load(const std::string &filename = "options");
 	/// Saves options to YAML.
 	bool save(bool reset = false, const std::string &filename = "options");
+	/// Shows a multiplayer host's value in a local option for this session only.
+	/// The player's own value is remembered, written by save() and restored by
+	/// clearSessionOverrides(), so it never becomes the client's saved option.
+	void setSessionOverride(bool *option, bool sessionValue);
+	/// Puts back every value replaced by setSessionOverride (session end).
+	void clearSessionOverrides();
 	/// Gets the game's data folder.
 	std::string getDataFolder();
 	/// Sets the game's data folder.

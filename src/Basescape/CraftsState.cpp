@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Copyright 2010-2016 OpenXcom Developers.
  *
  * This file is part of OpenXcom.
@@ -28,6 +28,7 @@
 #include "../Interface/Text.h"
 #include "../Interface/TextList.h"
 #include "../Savegame/Craft.h"
+#include "../Savegame/Soldier.h"
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/Base.h"
 #include "../Menu/ErrorMessageState.h"
@@ -36,6 +37,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Mod/RuleInterface.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
 {
@@ -154,17 +156,41 @@ void CraftsState::think()
 void CraftsState::initList(size_t scrl)
 {
 	_lstCrafts->clearList();
+	_displayedCrew.clear();
 	for (const auto* craft : *_base->getCrafts())
 	{
 		std::ostringstream ss, ss2, ss3;
 		ss << craft->getNumWeapons() << "/" << craft->getRules()->getWeapons();
-		ss2 << craft->getNumTotalSoldiers();
+		int crew = getDisplayedCrew(craft);
+		_displayedCrew.push_back(crew);
+		ss2 << crew;
 		ss3 << craft->getNumTotalVehicles();
 		_lstCrafts->addRow(5, craft->getName(_game->getLanguage()).c_str(), tr(craft->getStatus()).c_str(), ss.str().c_str(), ss2.str().c_str(), ss3.str().c_str());
 	}
 
 	if (scrl)
 		_lstCrafts->scrollTo(scrl);
+}
+
+int CraftsState::getDisplayedCrew(const Craft *craft) const
+{
+	if (!connectionTCP::isSeparateCampaignStatic())
+		return craft->getNumTotalSoldiers();
+
+	int count = 0;
+	for (Soldier *soldier : *_base->getSoldiers())
+		if (soldier->getCraft() == craft && SharedEcon::ownsSoldier(_game, soldier))
+			++count;
+	return count;
+}
+
+int CraftsState::harnessDisplayedCrew(int craftId) const
+{
+	const auto& crafts = *_base->getCrafts();
+	for (size_t i = 0; i < crafts.size() && i < _displayedCrew.size(); ++i)
+		if (crafts[i]->getId() == craftId)
+			return _displayedCrew[i];
+	return -1;
 }
 
 /**
@@ -177,7 +203,7 @@ void CraftsState::btnOkClick(Action *)
 	_game->popState();
 
 	// coop
-	if (_game->getSavedGame()->getMonthsPassed() > -1 && Options::storageLimitsEnforced && _base->storesOverfull() && _base->_coopBase == false)
+	if (_game->getSavedGame()->getMonthsPassed() > -1 && Options::storageLimitsEnforced && _base->storesOverfull() && _base->_isForeignBase == false)
 	{
 		_game->pushState(new SellState(_base, 0));
 		_game->pushState(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(_base->getName()), _palette, _game->getMod()->getInterface("craftSelect")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("craftSelect")->getElement("errorPalette")->color));
@@ -203,7 +229,7 @@ void CraftsState::lstCraftsClick(Action *action)
 	else if (_game->isRightClick(action))
 	{
 		// coop (issue #65): SHARED must not reorder the shared craft list.
-		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false) return;
 		bool shift = _game->isShiftPressed();
 		if (shift && row < (crafts.size() - 1))
 		{

@@ -1,0 +1,33 @@
+{
+  "_README": [
+    "Tests that need something CI does not have: a local 40K/ROSIGMA mod install,",
+    "a private save file, or a command-line argument. Read by every runner's",
+    "discovery: tools/ci/plan_shards.ps1, tools/ci/run_coop_suite.ps1 and",
+    "tools/coop_test/run_parallel.py (when it discovers the suite itself; a test",
+    "named on its command line still runs). Unlike the quarantine list in",
+    "run_coop_suite.ps1, which still runs its tests, these are never discovered.",
+    "",
+    "Run them by hand on a machine that has what they need. Without it they exit",
+    "non-zero with a 'needs ... at <path>' message, never a SKIP pass. The mod",
+    "folders default to ~/Documents/OpenXcom/mods/{40k,rosigma} and can be set",
+    "with OXC_40K_MOD / OXC_ROSIGMA_MOD."
+  ],
+  "tests": {
+    "test_legacy_embedded_save_migration": "a legacy save path argument",
+    "test_separate_campaign_all_factions": "40K + ROSIGMA mods",
+    "test_separate_campaign_faction_finales": "40K + ROSIGMA mods",
+    "test_separate_campaign_faction_score": "40K + ROSIGMA mods",
+    "test_separate_campaign_faction_script_state": "40K + ROSIGMA mods",
+    "test_separate_campaign_lobby_factions": "40K + ROSIGMA mods",
+    "test_separate_campaign_parallel_resume_selection": "a SAVE path argument",
+    "test_separate_campaign_research_reward_ownership": "40K + ROSIGMA mods",
+    "test_separate_campaign_research_tree_progression": "40K + ROSIGMA mods",
+    "test_separate_campaign_rosigma_client_finale_transition": "40K + ROSIGMA mods",
+    "test_separate_campaign_rosigma_faction_finales": "40K + ROSIGMA mods",
+    "test_separate_campaign_rosigma_saved_finale_transition": "40K + ROSIGMA mods and a stage-2 save (ROSIGMA_FINALE_SAVE)",
+    "test_separate_campaign_rosigma_single_seat_craft": "40K + ROSIGMA mods",
+    "test_separate_campaign_same_faction_research": "40K + ROSIGMA mods",
+    "test_separate_campaign_storage_owner_resume": "40K + ROSIGMA mods and a 40K campaign save",
+    "test_separate_campaign_three_month_factions": "40K + ROSIGMA mods"
+  }
+}

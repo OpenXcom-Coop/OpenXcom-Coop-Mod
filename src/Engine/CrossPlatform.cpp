@@ -1772,8 +1772,9 @@ static bool logToFile(const std::string& filename, const std::string& data) {
 static const size_t LOG_BUFFER_LIMIT = 1<<10;
 static std::list<std::pair<int, std::string>> logBuffer;
 static std::string logFileName;
-// coop: the co-op threads log too; one writer at a time, so two lines written in the same moment cannot overwrite
-// each other in the file. Recursive because the crash handler logs, and a crash can land inside log().
+// The co-op threads log too: one writer at a time, so two lines written in the
+// same moment cannot overwrite each other in the file or the buffer. Recursive
+// because the crash handler logs, and a crash can land inside log().
 static std::recursive_mutex logMutex;
 const std::string& getLogFileName() { return logFileName; }
 

@@ -37,6 +37,7 @@ class MonthlyCostsState : public State
 private:
 	Base *_base;
 	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
+	int _displayedMaintenance;
 
 	TextButton *_btnOk;
 	Window *_window;
@@ -49,6 +50,8 @@ public:
 	~MonthlyCostsState();
 	/// Handler for clicking the OK button.
 	void btnOkClick(Action *action);
+	/// Test automation: maintenance value rendered in this dialog.
+	int harnessDisplayedMaintenance() const { return _displayedMaintenance; }
 };
 
 }

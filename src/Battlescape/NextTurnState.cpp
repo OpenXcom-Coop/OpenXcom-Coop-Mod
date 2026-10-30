@@ -493,6 +493,18 @@ void NextTurnState::handle(Action *action)
 {
 	State::handle(action);
 
+	// Allow the debug toggle while the co-op next-turn overlay is visible. The
+	// overlay normally consumes every key press by closing immediately, so Ctrl+D
+	// never reached BattlescapeState's regular debug-key handler.
+	if (Options::debug
+		&& action->getDetails()->type == SDL_KEYDOWN
+		&& action->getDetails()->key.keysym.sym == SDLK_d
+		&& _game->isCtrlPressed())
+	{
+		_battleGame->setDebugMode();
+		return;
+	}
+
 	if (_battleGame->isPreview())
 	{
 		// prevent NPE on Android/iOS

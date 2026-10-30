@@ -83,6 +83,7 @@
 #include "../Savegame/HitLog.h"
 #include "../Ufopaedia/Ufopaedia.h"
 #include "../Savegame/Ufo.h"
+#include "../CoopMod/SeparateEcon.h"
 #include "../Mod/RuleEnviroEffects.h"
 #include "../Mod/RuleInterface.h"
 #include "../Mod/RuleInventory.h"
@@ -4006,6 +4007,7 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		}
 		_game->pushState(new DebriefingState);
 		std::string cutscene;
+		bool partialFactionVictory = false;
 		if (ruleDeploy)
 		{
 			if (abort)
@@ -4023,12 +4025,42 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 		}
 		if (!cutscene.empty())
 		{
+			const RuleVideo *videoRule = _game->getMod()->getVideo(cutscene, true);
+			// A faction finale belongs to the player whose craft launched the battle.
+			// Mission-marker ownership is retained separately for score routing, but
+			// it may still carry the host's name in a client-requested final mission.
+			const std::string factionOwner = _game->getSavedGame()->getSavedBattle()
+				? _game->getSavedGame()->getSavedBattle()->getBattleOwnerPlayerName()
+				: std::string();
+			const bool terminalVictory = videoRule->getWinGame();
+			const bool terminalDefeat = videoRule->getLoseGame();
+			if ((terminalVictory || terminalDefeat)
+				&& !SeparateEcon::resolveFactionFinalOutcome(
+					_game, factionOwner, terminalVictory))
+			{
+				// This faction finished its own finale, but other distinct factions
+				// are still playing. Keep the debriefing and return to Geoscape.
+				partialFactionVictory = terminalVictory;
+				cutscene.clear();
+			}
+		}
+		if (!cutscene.empty())
+		{
+			const RuleVideo *videoRule = _game->getMod()->getVideo(cutscene, true);
+			const bool terminalSeparate = _game->getCoopMod()->isSeparateCampaign()
+				&& _game->getCoopMod()->getServerOwner()
+				&& (videoRule->getWinGame() || videoRule->getLoseGame());
+			// A terminal Separate result is sent below together with the cutscene id
+			// and verdict. Suppress CutsceneState's older standalone packet, whose
+			// ending would still be END_NONE at construction time.
+			if (terminalSeparate)
+				_game->getCoopMod()->allow_cutscene = false;
+
 			// if cutscene is "wingame" or "losegame", then the DebriefingState
 			// pushed above will get popped without being shown.  otherwise
 			// it will get shown after the cutscene.
 			_game->pushState(new CutsceneState(cutscene));
 
-			const RuleVideo *videoRule = _game->getMod()->getVideo(cutscene, true);
 			if (videoRule->getWinGame())
 			{
 				_game->getSavedGame()->setEnding(END_WIN);
@@ -4037,11 +4069,33 @@ void BattlescapeState::finishBattle(bool abort, int inExitArea)
 			{
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
+			// PVE clients do not run finishBattle independently.  A terminal
+			// faction finale therefore needs an explicit host verdict to replace
+			// their End Turn screen with their own faction's Statistics screen.
+			if (_game->getCoopMod()->isSeparateCampaign()
+				&& _game->getCoopMod()->getServerOwner()
+				&& _game->getSavedGame()->getEnding() != END_NONE)
+			{
+				_game->getCoopMod()->prepareLocalEndingFactionDisplayName();
+				_game->getCoopMod()->setEndingCutsceneId(cutscene);
+				Json::Value ending;
+				ending["state"] = "faction_campaign_end";
+				ending["cutscene"] = cutscene;
+				ending["victory"] = _game->getSavedGame()->getEnding() == END_WIN;
+				_game->getCoopMod()->sendTCPPacketData(ending.toStyledString());
+			}
 			// Autosave if game is over
 			if (_game->getSavedGame()->getEnding() != END_NONE && connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->isIronman()) // coop
 			{
 				_game->pushState(new SaveGameState(OPT_BATTLESCAPE, SAVE_IRONMAN, _palette));
 			}
+		}
+		else if (partialFactionVictory)
+		{
+			const std::string owner = _game->getSavedGame()->getSavedBattle()
+					? _game->getSavedGame()->getSavedBattle()->getBattleOwnerPlayerName()
+					: std::string();
+			_game->getCoopMod()->queueFactionFinaleVote(owner);
 		}
 	}
 }

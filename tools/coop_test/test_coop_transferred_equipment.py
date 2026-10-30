@@ -1,38 +1,30 @@
-"""Regression tests for the equipment of a soldier that was vanilla-transferred
-to a co-op base ("issue investigation" + the 2026-07-21 playtest report).
+"""Regression tests for the equipment of a soldier transferred to the other
+player's base, in the single host-owned SEPARATE world.
 
-Two scenarios, each in its own fresh session (a fresh base has exactly ONE
-base-resident soldier, and only a base-resident soldier is individually
-transferable):
+There is one world: HostBase (the host's) and ClientBase (the client's) are
+real bases on both machines, a transfer is a host command, and a visitor opens
+the partner's base screens directly. A layout set on an inventory screen goes
+to the host as a command (test_coop_equip_layout_sync); give_layout is a test
+shortcut that writes one machine's copy, so this test writes it on both.
 
-  scenario_conservation()   - the ORIGINAL test. The host equips a base soldier
-    with a rocket (persistent layout), then does a *vanilla base transfer* (NOT
-    a gift/ownership change) of that soldier to the client's base. The concern
-    raised was that the transfer might *duplicate* the equipment. This locks in
-    the conservation invariant that proves it does not:
-      1. The total number of the item across the whole co-op world (host base
-         storage + client base storage) is unchanged by the transfer.
-      2. In the equip screen at the client's base, the total number of rocket
-         *instances* actually present (ground + carried + loaded) never exceeds
-         the client base's real storage - and is the same whether the host
-         (visiting) or the client (at home) opens it.
+  scenario_conservation()   - the host transfers a soldier carrying a rocket in
+    its layout to the client's base:
+      1. the number of rockets in the whole world (both bases' stores, items en
+         route included) is unchanged by the transfer and its arrival;
+      2. at the client's base, the equip screen holds no more rocket instances
+         than that base's stores, and the host (visiting with the transferred
+         soldier) and the client (at home) see the same number.
 
   scenario_two_screens_agree() - the playtest report. With "Alternate craft
-    equipment management" ON (so the gear is supposed to travel with the
-    soldier), the host equips a soldier with a weapon in EACH hand and rockets
-    in the backpack, transfers it to the client's base, visits that base and
-    seats the soldier on the peer's craft. Then it opens BOTH equip screens at
-    that base:
-
-      Bases > Soldiers > Inventory        (SoldiersState -> runInventory(0))
-      Bases > Equip craft > ... > Inventory (CraftEquipmentState -> runInventory(craft))
-
-    and asserts the two screens agree - the soldier wears the SAME items in the
-    SAME slots, and the SAME items are free on the ground pane - and that the
-    loadout is still the one that was equipped before the transfer. The report
-    was that the hand weapons vanish on the soldier screen, the two screens
-    disagree, and items dropped onto the soldier in the craft screen fall
-    straight back to the ground pane.
+    equipment management" ON, the host's soldier carries a weapon in each hand
+    and rockets in the backpack and is transferred to the client's base:
+      2b. the transfer settles cleanly: no error dialog on either machine, the
+          sender's stores lose the gear once and the receiver's gain it once;
+      3.  the host seats the soldier on the client's Skyranger there;
+      4.  the soldier equip screen (Soldiers > Inventory) and the craft equip
+          screen (Equip craft > Inventory) at that base, on the host, both show
+          the soldier wearing the loadout it had before the transfer, slot for
+          slot, and hold the same item instances.
 
 Run:  python tools/coop_test/test_coop_transferred_equipment.py
 """
@@ -43,14 +35,16 @@ import time
 import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
-import session
+import separate_campaign_fixture as fixture
 
+HB, CB = "HostBase", "ClientBase"
+PORTS = (47811, 47812, 47900)
 ROCKET = "STR_SMALL_ROCKET"
+SKYRANGER = "STR_SKYRANGER"
 OPT = "oxceAlternateCraftEquipmentManagement"
 
-# The playtest loadout: a weapon in each hand + rockets in the backpack. All are
-# in a fresh starting base's stores (PISTOL 2, RIFLE 2, SMALL_ROCKET 4).
+# A weapon in each hand + rockets in the backpack. All are in a fresh starting
+# base's stores (PISTOL 2, RIFLE 2, SMALL_ROCKET 4).
 LOADOUT = [
     ("STR_RIFLE", "right", 1),
     ("STR_PISTOL", "left", 1),
@@ -60,30 +54,134 @@ SLOT_ID = {"right": "STR_RIGHT_HAND", "left": "STR_LEFT_HAND",
            "backpack": "STR_BACK_PACK", "belt": "STR_BELT"}
 
 
+# ---- shared single-world helpers (imported by the other equipment tests) ----
+
+def bring_up(tag):
+    return fixture.bring_up(tag, PORTS)
+
+
 def _has_state(gc, n):
     return any(n in s for s in gc.cmd({"cmd": "get_state"})["states"])
 
 
-def own_base(gc):
-    s = gc.ok({"cmd": "get_soldiers"})
-    return next(b for b in s["bases"]
-               if not b["coopBaseFlag"] and not b["coopIcon"] and b["soldiers"])
+def report(gc, base):
+    return gc.ok({"cmd": "base_report", "base": base})
 
 
-def storage_rockets(gc, base_name=None, coop=False):
-    req = {"cmd": "base_report"}
-    if coop:
-        req["coop"] = True
-    elif base_name:
-        req["base"] = base_name
-    return gc.ok(req)["storage"].get(ROCKET, 0)
+def stored(gc, base, item):
+    return report(gc, base)["storage"].get(item, 0)
+
+
+def incoming(gc, base):
+    return gc.ok({"cmd": "incoming_transfers", "base": base})
+
+
+def soldier_at(gc, base, sid):
+    return next((s for s in report(gc, base)["soldiers"] if s["id"] == sid), None)
+
+
+def craft_id(gc, base, ctype=SKYRANGER):
+    return next(c["id"] for c in report(gc, base)["crafts"] if c["type"] == ctype)
+
+
+def crew(gc, base, cid, ctype=SKYRANGER):
+    return next(c["soldiers"] for c in report(gc, base)["crafts"]
+                if c["id"] == cid and c["type"] == ctype)
+
+
+def settle(gc, timeout=10):
+    """Close arrival popups until the geoscape is on top."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        top = gc.cmd({"cmd": "get_state"})["states"][-1]
+        if "GeoscapeState" in top:
+            return
+        gc.cmd({"cmd": "dismiss_popup"})
+        time.sleep(0.2)
+    raise AssertionError(f"{gc.name}: still not on the geoscape: "
+                         f"{gc.cmd({'cmd': 'get_state'})['states']}")
+
+
+def set_alt(host, client, on):
+    for gc in (host, client):
+        gc.ok({"cmd": "set_option", "name": OPT, "value": on})
+
+
+def seat(owner, host, client, base, sid, cid, on):
+    """Seat (on) or unseat a soldier through its owner's machine; wait until
+    both machines agree."""
+    r = owner.ok({"cmd": "craft_assign", "base": base, "soldier_id": sid,
+                  "craft_id": cid, "craft_type": SKYRANGER, "on": on})
+    want = cid if on else -1
+    for gc in (host, client):
+        try:
+            gc.wait_for(f"{gc.name}: soldier {sid} craft -> {want}",
+                        lambda gc=gc: ((soldier_at(gc, base, sid) or {}).get("craft") == want)
+                        or None, timeout=30, interval=0.3)
+        except TimeoutError:
+            seen = {m.name: ((soldier_at(m, base, sid) or {}).get("craft"), crew(m, base, cid))
+                    for m in (host, client)}
+            raise AssertionError(f"seat {sid} on={on} at {base}: craft_assign resp={r}; "
+                                 f"(craft, crew) per machine={seen}")
+
+
+def free_soldier(owner, host, client, base, owner_seat, exclude=()):
+    """A base-resident soldier of owner_seat at base (only those are
+    transferable); unseats one from the Skyranger when none is free."""
+    r = report(host, base)
+    mine = [s for s in r["soldiers"] if s["owner"] == owner_seat and s["id"] not in exclude]
+    free = [s for s in mine if s["craft"] == -1]
+    if free:
+        return free[0]["id"]
+    sid = mine[0]["id"]
+    seat(owner, host, client, base, sid, mine[0]["craft"], False)
+    return sid
+
+
+def rename(owner, host, client, base, sid, name):
+    owner.ok({"cmd": "soldier_rename", "base": base, "soldierId": sid, "name": name})
+    for gc in (host, client):
+        gc.wait_for(f"{gc.name}: rename to {name}",
+                    lambda gc=gc: ((soldier_at(gc, base, sid) or {}).get("name") == name) or None,
+                    timeout=30, interval=0.3)
+
+
+def give_layout(host, client, base, name, item, slot, qty=1):
+    """Write a layout entry on both machines (give_layout edits one machine's
+    copy only; a real inventory screen sends the layout to the host)."""
+    for gc in (host, client):
+        g = gc.ok({"cmd": "give_layout", "base": base, "item": item, "slot": slot,
+                   "name": name, "count": 1, "qty": qty})
+        assert g.get("entries") == qty, f"{gc.name}: give_layout {item} wrote {g}"
+
+
+def send_soldier(sender, host, client, sid, src, dst):
+    """Transfer one soldier src -> dst through the sender's own transfer screen
+    (a host command); wait until both machines show it en route."""
+    before = {gc.name: incoming(gc, dst)["soldiers"] for gc in (host, client)}
+    r = sender.ok({"cmd": "shared_transfer", "soldier_id": sid,
+                   "fromBase": src, "toBase": dst})
+    assert r.get("sent"), f"transfer of soldier {sid} not sent: {r}"
+    for gc in (host, client):
+        gc.wait_for(f"{gc.name}: soldier {sid} en route to {dst}",
+                    lambda gc=gc: (soldier_at(gc, src, sid) is None
+                                   and incoming(gc, dst)["soldiers"] == before[gc.name] + 1)
+                    or None, timeout=30, interval=0.3)
+
+
+def arrive(host, client, dst, sid):
+    host.ok({"cmd": "force_transfer_arrivals", "base": dst})
+    for gc in (host, client):
+        gc.wait_for(f"{gc.name}: soldier {sid} arrived at {dst}",
+                    lambda gc=gc: (soldier_at(gc, dst, sid) is not None
+                                   and incoming(gc, dst)["soldiers"] == 0) or None,
+                    timeout=30, interval=0.3)
+        settle(gc)
 
 
 # ---- the two equip screens ------------------------------------------------
 
 def _read_open_inventory(gc):
-    """Read the ground/carried panes of an already-open InventoryState and close
-    it again."""
     gc.wait_for("inventory", lambda: _has_state(gc, "InventoryState") or None, timeout=30)
     g = gc.ok({"cmd": "inventory_ground"})
     gc.ok({"cmd": "battle_inventory", "action": "ok"})
@@ -93,11 +191,11 @@ def _read_open_inventory(gc):
 
 
 def base_equip_screen(gc, base_name):
-    """Bases > Soldiers > (Solder Info dropdown) > Inventory, for base_name."""
+    """Bases > Soldiers > Inventory, for base_name."""
     gc.ok({"cmd": "open_soldiers", "base": base_name})
     gc.wait_for("soldiers", lambda: _has_state(gc, "SoldiersState") or None, timeout=30)
     r = gc.ok({"cmd": "soldiers_inventory"})
-    assert r.get("opened"), f"base equip screen did not open: {r}"
+    assert r.get("opened"), f"{gc.name}: base equip screen did not open at {base_name}: {r}"
     g = _read_open_inventory(gc)
     gc.ok({"cmd": "soldiers_ok"})
     gc.wait_for("soldiers closed",
@@ -105,18 +203,13 @@ def base_equip_screen(gc, base_name):
     return g
 
 
-def craft_equip_screen(gc, craft_id, base_name=None, coop=False):
+def craft_equip_screen(gc, base_name, cid):
     """Bases > Equip craft > <craft> > Equipment > Inventory."""
-    req = {"cmd": "open_craft_equipment", "craft_id": craft_id}
-    if coop:
-        req["coop"] = True
-    elif base_name:
-        req["base"] = base_name
-    gc.ok(req)
+    gc.ok({"cmd": "open_craft_equipment", "craft_id": cid, "base": base_name})
     gc.wait_for("craft equipment",
                 lambda: _has_state(gc, "CraftEquipmentState") or None, timeout=30)
     r = gc.ok({"cmd": "craft_inventory"})
-    assert r.get("opened"), f"craft equip screen did not open the inventory: {r}"
+    assert r.get("opened"), f"{gc.name}: craft equip screen did not open the inventory: {r}"
     g = _read_open_inventory(gc)
     gc.ok({"cmd": "craft_equipment_ok"})
     gc.wait_for("craft equipment closed",
@@ -124,20 +217,20 @@ def craft_equip_screen(gc, craft_id, base_name=None, coop=False):
     return g
 
 
-def loadout_of(ground, name):
-    """{slot -> sorted [(item, x, y, ammo...)]} for the named soldier in an
-    inventory_ground dump; {} if that soldier is not in the screen at all."""
+def loadout_of(ground, sid):
+    """{slot -> sorted [(item, x, y, ammo...)]} for soldier sid in an
+    inventory_ground dump; {} if that soldier is not in the screen."""
     for u in ground["soldiers"]:
-        if name in u["name"]:
+        if u["id"] == sid:
             return {slot: sorted((e["item"], e["x"], e["y"], tuple(e["ammo"]))
                                  for e in entries)
                     for slot, entries in u["slots"].items()}
     return {}
 
 
-def expected_loadout():
+def expected_loadout(gear=LOADOUT):
     out = {}
-    for item, slot, qty in LOADOUT:
+    for item, slot, qty in gear:
         out.setdefault(SLOT_ID[slot], []).extend([item] * qty)
     return {k: sorted(v) for k, v in out.items()}
 
@@ -146,271 +239,119 @@ def items_only(lo):
     return {slot: sorted(e[0] for e in entries) for slot, entries in lo.items()}
 
 
-# ---- scenario 1: no duplication (the original test) -----------------------
-
-def equip_rocket_instances(gc, base_name):
-    """Open the base equip screen and return (all_instances, ground, carried, units)."""
-    g = base_equip_screen(gc, base_name)
-    return (g["all"].get(ROCKET, 0), g["items"].get(ROCKET, 0),
-            g["carried"].get(ROCKET, 0), g["units"])
+def dialogs(gc):
+    return [s for s in gc.cmd({"cmd": "get_state"})["states"]
+            if "CoopState" in s or "ErrorMessageState" in s]
 
 
-def scenario_conservation():
-    host = GameClient("host", 47811, make_user_dir("host-user"))
-    client = GameClient("client", 47812, make_user_dir("client-user"))
-    try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client)
-        print("fresh coop session established")
+# ---- scenario 1: no duplication -------------------------------------------
 
-        hb = own_base(host); cb = own_base(client)
-        world_rockets_before = storage_rockets(host, hb["name"]) + storage_rockets(client, cb["name"])
-        client_stock = storage_rockets(client, cb["name"])
-        print(f"world rockets before={world_rockets_before}, client base stock={client_stock}")
-        assert client_stock > 0, "client base has no rockets to reason about"
-
-        # Peer-local rosters can reuse names, so the soldier gets a unique name
-        # and only the actual guest delivery can satisfy the wait below.
-        picked = next(s for s in hb["soldiers"] if not s.get("craft"))
-        soldier_id = picked["id"]
-        soldier = f"XFER {uuid.uuid4().hex}"
-        host.ok({"cmd": "rename_soldier", "name": picked["name"], "newName": soldier})
-
-        hs = host.ok({"cmd": "get_soldiers"})
-        host_unit = next(x for b in hs["bases"] for x in b["soldiers"] if x["id"] == soldier_id)
-        assert host_unit["name"] == soldier, (
-            f"rename did not stick: host soldier id {soldier_id} is "
-            f"{host_unit['name']!r}, wanted {soldier!r}")
-
-        cs = client.ok({"cmd": "get_soldiers"})
-        assert not any(
-            x["name"] == soldier
-            for b in cs["bases"]
-            for x in b["soldiers"]), (
-            f"fixture-unique name {soldier!r} unexpectedly already present in the "
-            f"client's resident roster")
-
-        target_coop_base = cb["coopBaseId"]
-        assert target_coop_base >= 0, f"destination lacks a co-op identity: {cb}"
-        guests_before = client.ok({"cmd": "base_report", "base": cb["name"]})["coopGuests"]
-
-        host.ok({"cmd": "give_layout", "item": ROCKET, "slot": "left", "name": soldier, "count": 1})
-        print(f"equipped host soldier '{soldier}' (id {soldier_id}) with a {ROCKET} (off-hand)")
-
-        # vanilla base transfer of that soldier to the client's base
-        tr = host.ok({"cmd": "transfer_to_coop_base", "name": soldier, "toBase": cb["name"]})
-        assert tr.get("transferred"), f"transfer failed: {tr}"
-
-        # The host retains the named Soldier; the peer receives a guest census.
-        # Require both signals within one 30-second deadline.
-        last_delivery = {}
-        def guest_delivered():
-            r = host.ok({"cmd": "get_soldiers"})
-            u = next((x for b in r["bases"] for x in b["soldiers"]
-                      if x["id"] == soldier_id), None)
-            guests = client.ok({"cmd": "base_report", "base": cb["name"]})["coopGuests"]
-            last_delivery.update(host_soldier=u, client_guests=guests)
-            if u is not None and u["coopBase"] == target_coop_base and guests == guests_before + 1:
-                return last_delivery
-            return None
-        try:
-            delivery = client.wait_for("host assignment and client guest delivery",
-                                       guest_delivered, timeout=30)
-        except TimeoutError as error:
-            raise TimeoutError(
-                f"{error}; soldier_id={soldier_id}, target_coop_base={target_coop_base}, "
-                f"guests_before={guests_before}, last_delivery={last_delivery!r}") from error
-        print(f"PASS guest-delivery: host soldier {soldier_id} assigned to {target_coop_base}; "
-              f"client guests {guests_before} -> {delivery['client_guests']}")
-
-        # (1) no item created anywhere in the co-op world
-        world_rockets_after = storage_rockets(host, hb["name"]) + storage_rockets(client, cb["name"])
-        assert world_rockets_after == world_rockets_before, (
-            f"item DUPLICATION: world rockets {world_rockets_before} -> {world_rockets_after}")
-        print(f"PASS no-world-duplication: world rockets still {world_rockets_after}")
-
-        # (2) host visits the client base (client idle) and opens the equip screen
-        session.wait_peer_base_shown(host, cb["name"])
-        host.ok({"cmd": "visit_coop_base", "base": cb["name"]})
-        host.wait_for("host inside peer base",
-                      lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-        host_all, host_gnd, host_car, host_units = equip_rocket_instances(host, cb["name"])
-        host.ok({"cmd": "leave_base"})
-        session.wait_back_on_geoscape(host, "host back home")
-
-        # client opens the equip screen for its own base (host idle)
-        cli_all, cli_gnd, cli_car, cli_units = equip_rocket_instances(client, cb["name"])
-
-        print(f"HOST visited: rocket_instances={host_all} (ground={host_gnd} carried={host_car} units={host_units})")
-        print(f"CLIENT home : rocket_instances={cli_all} (ground={cli_gnd} carried={cli_car} units={cli_units})")
-
-        assert host_all <= client_stock, (
-            f"host equip screen shows {host_all} rocket instances > client stock {client_stock} (phantom items)")
-        assert cli_all <= client_stock, (
-            f"client equip screen shows {cli_all} rocket instances > client stock {client_stock}")
-        assert host_all == cli_all, (
-            f"host and client disagree on total rocket instances at the client base: "
-            f"host={host_all} client={cli_all}")
-        print(f"PASS equip-view-conservation: both see {host_all} rocket instances (== stock {client_stock})")
-    finally:
-        host.shutdown(); client.shutdown()
+def world_rockets(gc):
+    return (stored(gc, HB, ROCKET) + stored(gc, CB, ROCKET)
+            + incoming(gc, HB)["items"].get(ROCKET, 0)
+            + incoming(gc, CB)["items"].get(ROCKET, 0))
 
 
-# ---- the co-op trade confirmation -----------------------------------------
+def scenario_conservation(host, client):
+    before = {gc.name: world_rockets(gc) for gc in (host, client)}
+    client_stock = stored(host, CB, ROCKET)
+    assert client_stock > 0, "client base has no rockets to reason about"
 
-def assert_transfer_confirms_cleanly(host, client, seconds=25):
-    """Run the clock until the co-op layer confirms the trade, and require that
-    NEITHER side ends up on an error dialog.
+    sid = free_soldier(host, host, client, HB, 0)
+    rename(host, host, client, HB, sid, "Zzz Cons")
+    give_layout(host, client, HB, "Zzz Cons", ROCKET, "left")
+    send_soldier(host, host, client, sid, HB, CB)
+    for gc in (host, client):
+        assert world_rockets(gc) == before[gc.name], (
+            f"{gc.name}: item DUPLICATION on send: world rockets "
+            f"{before[gc.name]} -> {world_rockets(gc)}")
+    arrive(host, client, CB, sid)
+    for gc in (host, client):
+        assert world_rockets(gc) == before[gc.name], (
+            f"{gc.name}: item DUPLICATION on arrival: world rockets "
+            f"{before[gc.name]} -> {world_rockets(gc)}")
+    print(f"PASS no-world-duplication: world rockets still {before['host']} on both machines")
 
-    The sender confirms by calling Base::removePendingTransfers(), which
-    re-validates that everything it promised is still in its stores. An
-    equipment transfer built by TransferItemsState has already debited those
-    stores when it created the 0-hour Transfer objects, so the re-validation
-    finds nothing left to remove and the whole confirmation fails: CoopState 552
-    "Failed to remove items from your base." on the sender, while the receiver
-    has already added the goods (CoopState 150 "Items received").
-    """
-    def top(gc):
-        return gc.cmd({"cmd": "get_state"})["states"][-1]
-
-    deadline = time.time() + seconds
-    dialogs = {}
-    while time.time() < deadline:
-        for gc in (host, client):
-            if "GeoscapeState" in top(gc):
-                gc.cmd({"cmd": "geo_set_speed", "idx": 5})
-            elif "CoopState" in top(gc):
-                info = gc.cmd({"cmd": "coop_dialog_info"})
-                if info.get("present"):
-                    dialogs[gc.name] = (info.get("code"), info.get("title"))
-        if len(dialogs) == 2:
-            break
-        time.sleep(0.5)
-
-    bad = {n: d for n, d in dialogs.items() if d[0] not in (150,)}
-    assert not bad, (
-        "the co-op transfer confirmation FAILED on one side while the other "
-        f"already applied it: {bad} (other side: {dialogs})")
-    print(f"PASS transfer-confirms-cleanly: {dialogs}")
+    client_stock = stored(host, CB, ROCKET)
+    host_g = base_equip_screen(host, CB)      # the visitor, through its own soldier
+    cli_g = base_equip_screen(client, CB)     # the owner, at home
+    host_all, cli_all = host_g["all"].get(ROCKET, 0), cli_g["all"].get(ROCKET, 0)
+    print(f"HOST visiting: rocket instances={host_all} CLIENT home: {cli_all} "
+          f"(ClientBase stock {client_stock})")
+    assert host_all <= client_stock, (
+        f"host equip screen shows {host_all} rocket instances > stock {client_stock}")
+    assert cli_all <= client_stock, (
+        f"client equip screen shows {cli_all} rocket instances > stock {client_stock}")
+    assert host_all == cli_all, (
+        f"host and client disagree on rocket instances at the client base: "
+        f"host={host_all} client={cli_all}")
+    print(f"PASS equip-view-conservation: both see {host_all} rocket instances "
+          f"(stock {client_stock})")
 
 
 # ---- scenario 2: the two equip screens must agree -------------------------
 
-def scenario_two_screens_agree():
-    host = GameClient("host", 47811, make_user_dir("host-user"))
-    client = GameClient("client", 47812, make_user_dir("client-user"))
-    try:
-        host.spawn(); client.spawn()
-        host.connect(); client.connect()
-        session.new_campaign(host, client)
-        print("fresh coop session established")
+def scenario_two_screens_agree(host, client):
+    set_alt(host, client, True)
+    sid = free_soldier(host, host, client, HB, 0)
+    rename(host, host, client, HB, sid, "Zzz Xfer")
+    for item, slot, qty in LOADOUT:
+        assert stored(host, HB, item) >= qty, f"HostBase needs {qty}x {item}"
+        give_layout(host, client, HB, "Zzz Xfer", item, slot, qty)
+    want = expected_loadout()
+    gear = {}
+    for item, _slot, qty in LOADOUT:
+        gear[item] = gear.get(item, 0) + qty
+    send0 = {gc.name: {i: stored(gc, HB, i) for i in gear} for gc in (host, client)}
+    recv0 = {gc.name: {i: stored(gc, CB, i) for i in gear} for gc in (host, client)}
 
-        # gear is supposed to travel with the soldier -> both machines, same value
-        host.ok({"cmd": "set_option", "name": OPT, "value": True})
-        client.ok({"cmd": "set_option", "name": OPT, "value": True})
+    send_soldier(host, host, client, sid, HB, CB)
+    arrive(host, client, CB, sid)
+    for gc in (host, client):
+        bad = dialogs(gc)
+        assert not bad, f"{gc.name}: the transfer left an error dialog: {bad}"
+        for i, q in gear.items():
+            assert stored(gc, HB, i) == send0[gc.name][i] - q, (
+                f"{gc.name}: sender {i} {send0[gc.name][i]} -> {stored(gc, HB, i)}, expected -{q}")
+            assert stored(gc, CB, i) == recv0[gc.name][i] + q, (
+                f"{gc.name}: receiver {i} {recv0[gc.name][i]} -> {stored(gc, CB, i)}, expected +{q}")
+    print(f"PASS transfer-settles-cleanly: no error dialog, gear {gear} left HostBase "
+          f"and reached ClientBase once, on both machines")
 
-        hb = own_base(host); cb = own_base(client)
+    guest = soldier_at(host, CB, sid)
+    assert guest["layout"], "transferred soldier arrived with an EMPTY layout (alt ON)"
+    cid = craft_id(host, CB)
+    seat(host, host, client, CB, sid, cid, True)
+    print(f"seated 'Zzz Xfer' on the client's Skyranger {cid}")
 
-        # 1. a weapon in each hand + rockets in the backpack, on the lone
-        #    base-resident soldier (uniquely renamed so every lookup is exact).
-        soldier = next(s for s in hb["soldiers"] if not s.get("craft"))["name"]
-        host.ok({"cmd": "rename_soldier", "name": soldier, "newName": "Zzz Xfer"})
-        stock = host.ok({"cmd": "base_report", "base": hb["name"]})["storage"]
-        for item, slot, qty in LOADOUT:
-            assert stock.get(item, 0) >= qty, \
-                f"sending base needs {qty}x {item} to equip (has {stock.get(item, 0)})"
-            g = host.ok({"cmd": "give_layout", "item": item, "slot": slot,
-                         "name": "Zzz", "count": 1, "qty": qty})
-            assert g.get("entries") == qty, \
-                f"give_layout wrote {g.get('entries')} {item} entries, wanted {qty}"
-        want = expected_loadout()
-        print(f"equipped 'Zzz Xfer' at the host base: {want}")
-
-        # 2. vanilla base transfer to the client's base
-        tr = host.ok({"cmd": "transfer_to_coop_base", "name": "Zzz", "toBase": cb["name"]})
-        assert tr.get("transferred"), f"transfer failed: {tr}"
-
-        # 2b. let the clock run so the co-op layer confirms the trade
-        #     ("transfer_completed"). The sender must then be able to remove what
-        #     it sent; if it cannot, the trade is left half-applied - the receiver
-        #     has the goods, the sender's pending-transfer list is never cleared
-        #     and no funds are debited.
-        assert_transfer_confirms_cleanly(host, client)
-
-        # 3. the host visits the peer base and seats the soldier on the peer craft
-        session.wait_peer_base_shown(host, cb["name"])
-        host.ok({"cmd": "visit_coop_base", "base": cb["name"]})
-        host.wait_for("host inside peer base",
-                      lambda: host.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-        rep = host.wait_for(
-            "guest visible at the visited base",
-            lambda: (lambda r: r if any("Zzz" in s["name"] for s in r["soldiers"]) else None)(
-                host.ok({"cmd": "base_report", "coop": True})), timeout=30)
-        guest = next(s for s in rep["soldiers"] if "Zzz" in s["name"])
-        assert guest["layout"], (
-            f"transferred soldier arrived with an EMPTY layout ({OPT} is ON, so its "
-            f"gear should have travelled with it)")
-        craft = next(c for c in rep["crafts"] if c["type"] == "STR_SKYRANGER")
-        host.ok({"cmd": "craft_assign", "soldier_id": guest["id"],
-                 "craft_id": craft["id"], "coop": True, "on": True})
-        host.wait_for(
-            "guest seated on the peer craft",
-            lambda: (next(c for c in host.ok({"cmd": "base_report", "coop": True})["crafts"]
-                          if c["id"] == craft["id"])["soldiers"] > 0) or None,
-            timeout=30)
-        print(f"seated 'Zzz Xfer' on the peer's {craft['type']} {craft['id']}")
-
-        # 4. + 5. both equip screens at that base, read back to back
-        base_g = base_equip_screen(host, cb["name"])
-        craft_g = craft_equip_screen(host, craft["id"], coop=True)
-
-        base_lo = loadout_of(base_g, "Zzz")
-        craft_lo = loadout_of(craft_g, "Zzz")
-        print(f"soldier equip screen: soldier={items_only(base_lo)} ground={base_g['items']}")
-        print(f"craft  equip screen: soldier={items_only(craft_lo)} ground={craft_g['items']}")
-
-        # (a) the soldier still wears what was equipped before the transfer
-        assert items_only(base_lo) == want, (
-            f"soldier equip screen at the peer base LOST equipment: expected {want}, "
-            f"got {items_only(base_lo)}")
-        print("PASS soldier-screen-keeps-loadout")
-
-        # (b) the two screens show the same soldier loadout, slot for slot
-        assert base_lo == craft_lo, (
-            f"the two equip screens DISAGREE on the soldier's loadout:\n"
-            f"  soldier screen: {base_lo}\n"
-            f"  craft   screen: {craft_lo}")
-        print("PASS screens-agree-on-soldier")
-
-        # (c) ... and hold the very same set of physical item instances.
-        #
-        # NOT the ground pane: the two screens legitimately distribute the same
-        # items differently, and they do so in stock OXCE with no co-op base in
-        # sight (verified against a plain own base). The base screen deploys
-        # EVERY soldier at the base, the craft screen only that craft's crew, so
-        # a benched soldier's gear sits on its body in one and on the floor in
-        # the other; and the extra loose weapons then auto-chamber ammo, which
-        # takes clips off the ground tile and puts them inside a weapon. What is
-        # genuinely invariant is the total instance count - `all` counts every
-        # BattleItem including ammo loaded into weapons.
-        assert base_g["all"] == craft_g["all"], (
-            f"the two equip screens hold DIFFERENT items (not just a different "
-            f"layout of the same ones):\n"
-            f"  soldier screen: {base_g['all']}\n"
-            f"  craft   screen: {craft_g['all']}")
-        print("PASS screens-agree-on-item-instances")
-
-        host.ok({"cmd": "leave_base"})
-        session.wait_back_on_geoscape(host, "host back home")
-    finally:
-        host.shutdown(); client.shutdown()
+    base_g = base_equip_screen(host, CB)
+    seat(host, host, client, CB, sid, cid, True)  # alt ON: the base screen unseats on open
+    craft_g = craft_equip_screen(host, CB, cid)
+    base_lo, craft_lo = loadout_of(base_g, sid), loadout_of(craft_g, sid)
+    print(f"soldier equip screen: soldier={items_only(base_lo)}")
+    print(f"craft  equip screen: soldier={items_only(craft_lo)}")
+    assert items_only(base_lo) == want, (
+        f"soldier equip screen at the client base LOST equipment: expected {want}, "
+        f"got {items_only(base_lo)}")
+    print("PASS soldier-screen-keeps-loadout")
+    assert base_lo == craft_lo, (
+        f"the two equip screens DISAGREE on the soldier's loadout:\n"
+        f"  soldier screen: {base_lo}\n  craft   screen: {craft_lo}")
+    print("PASS screens-agree-on-soldier")
+    assert base_g["all"] == craft_g["all"], (
+        f"the two equip screens hold DIFFERENT items:\n"
+        f"  soldier screen: {base_g['all']}\n  craft   screen: {craft_g['all']}")
+    print("PASS screens-agree-on-item-instances")
 
 
 def main():
-    scenario_conservation()
-    scenario_two_screens_agree()
-    print("TEST PASSED")
+    js = bring_up("xeqxfer")
+    try:
+        scenario_conservation(js.host, js.client)
+        scenario_two_screens_agree(js.host, js.client)
+        print("TEST PASSED")
+    finally:
+        js.shutdown()
 
 
 if __name__ == "__main__":

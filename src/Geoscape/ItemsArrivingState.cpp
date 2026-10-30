@@ -35,6 +35,7 @@
 #include "../Engine/Options.h"
 #include "../Basescape/BasescapeState.h"
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -124,9 +125,19 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 		for (auto transferIt = xbase->getTransfers()->begin(); transferIt != xbase->getTransfers()->end();)
 		{
 			Transfer* transfer = (*transferIt);
-			if (transfer->getHours() == 0)
+			if (transfer->getHours() <= 0)
 			{
-				_base = xbase;
+				std::string transferOwner = transfer->getOwnerPlayerName();
+				// Older transfers and a few vanilla creation paths have no explicit
+				// purchaser attached. In Separate there is still an unambiguous owner:
+				// the player whose base receives the transfer. Do not treat an empty
+				// owner as "show to everybody", which leaked Items Arriving popups to
+				// the other player.
+				if (transferOwner.empty() && _game->getCoopMod()->isSeparateCampaign())
+					transferOwner = xbase->getOwnerPlayerName();
+				const bool showLocally = !_game->getCoopMod()->isSeparateCampaign()
+					|| (!transferOwner.empty()
+						&& transferOwner == connectionTCP::seatName(connectionTCP::localSeat()));
 
 				// Check if we have an automated use for an item
 				if (transfer->getType() == TRANSFER_ITEM)
@@ -164,8 +175,14 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				row.baseIdx = baseIdx;
 				row.ownerSeat = (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
 					? transfer->getSoldier()->getOwnerPlayerId() : -1;
-				_rows.push_back(row);
-				_lstTransfers->addRow(3, formatRow(row).c_str(), ss.str().c_str(), xbase->getName().c_str());
+				row.ownerPlayerName = transferOwner;
+				_allRows.push_back(row);
+				if (showLocally)
+				{
+					if (!_base) _base = xbase;
+					_rows.push_back(row);
+					_lstTransfers->addRow(3, formatRow(row).c_str(), ss.str().c_str(), xbase->getName().c_str());
+				}
 				delete transfer;
 				transferIt = xbase->getTransfers()->erase(transferIt);
 			}
@@ -190,6 +207,16 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state, const std::vector<A
 
 	for (const ArrivalRow& r : rows)
 	{
+		_allRows.push_back(r);
+		if (_game->getCoopMod()->isSeparateCampaign())
+		{
+			std::string owner = r.ownerPlayerName;
+			auto* bases = _game->getSavedGame()->getBases();
+			if (owner.empty() && r.baseIdx >= 0 && r.baseIdx < (int)bases->size())
+				owner = bases->at(r.baseIdx)->getOwnerPlayerName();
+			if (owner.empty() || owner != connectionTCP::seatName(connectionTCP::localSeat()))
+				continue;
+		}
 		_rows.push_back(r);
 		std::ostringstream ss;
 		ss << r.qty;

@@ -42,6 +42,7 @@
 #include <algorithm>
 #include "../Engine/Unicode.h"
 #include "../CoopMod/SharedEcon.h" // coop (PRD-J09 GAP-5b)
+#include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
 {
@@ -164,7 +165,7 @@ CraftArmorState::CraftArmorState(Base *base, size_t craft) : _base(base), _craft
  */
 CraftArmorState::~CraftArmorState()
 {
-	_sharedRefresh.unbind(this); // coop
+	_sharedRefresh.unbind(this);
 	for (auto* sortFunctor : _sortFunctors)
 	{
 		delete sortFunctor;
@@ -186,12 +187,37 @@ void CraftArmorState::cbxSortByChange(Action *action)
 
 	SortFunctor *compFunc = _sortFunctors[selIdx];
 	_dynGetter = NULL;
+	// A visitor never reorders another player's roster, by any sort or the
+	// original order. Keep the dynamic column only.
+	if (_game->getCoopMod()->isSeparateCampaign() && _base->_isForeignBase)
+	{
+		if (compFunc && selIdx != 2 && selIdx != 3)
+		{
+			_dynGetter = compFunc->getGetter();
+		}
+		initList(_lstSoldiers->getScroll());
+		return;
+	}
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally. A stat sort only shows its column; the name sort, the
+	// craft sort and the original order run on a copy of the player's own
+	// soldiers, the result goes to the host as soldier_order, and the list
+	// refreshes when it lands, so both machines show the same order.
+	const bool oneWorld = _game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign();
+	std::vector<Soldier*> ownOrder;
+	std::vector<Soldier*> *roster = _base->getSoldiers();
+	if (oneWorld)
+	{
+		ownOrder = SharedEcon::visibleSoldiers(_game, _base);
+		roster = &ownOrder;
+	}
+	const std::vector<Soldier*> unsorted = ownOrder;
 	if (compFunc)
 	{
 		if (selIdx != 2 && selIdx != 3)
 		{
 			_dynGetter = compFunc->getGetter();
-			if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+			if (oneWorld)
 			{
 				initList(_lstSoldiers->getScroll());
 				return;
@@ -200,7 +226,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 
 		// coop (issue #65, as in CraftSoldiersState): SHARED must not reorder the shared
 		// roster; keep the dynamic-stat column but skip the sort mutations.
-		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
 		{
 			initList(_lstSoldiers->getScroll());
 			return;
@@ -210,7 +236,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 		{
 			if (selIdx == 2)
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+				std::stable_sort(roster->begin(), roster->end(),
 					[](const Soldier* a, const Soldier* b)
 					{
 						return Unicode::naturalCompare(a->getName(), b->getName());
@@ -219,7 +245,7 @@ void CraftArmorState::cbxSortByChange(Action *action)
 			}
 			else if (selIdx == 3)
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(),
+				std::stable_sort(roster->begin(), roster->end(),
 					[](const Soldier* a, const Soldier* b)
 					{
 						if (a->getCraft())
@@ -246,18 +272,18 @@ void CraftArmorState::cbxSortByChange(Action *action)
 			}
 			else
 			{
-				std::stable_sort(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), *compFunc);
+				std::stable_sort(roster->begin(), roster->end(), *compFunc);
 			}
 			if (_game->isShiftPressed(true))
 			{
-				std::reverse(_base->getSoldiers()->begin(), _base->getSoldiers()->end());
+				std::reverse(roster->begin(), roster->end());
 			}
 		}
 	}
 	else
 	{
 		// coop (issue #65): in SHARED "original order" is the shared order - never re-append it.
-		if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false)
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
 		{
 			initList(_lstSoldiers->getScroll());
 			return;
@@ -266,14 +292,19 @@ void CraftArmorState::cbxSortByChange(Action *action)
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
 		{
-			auto soldierIt = std::find(_base->getSoldiers()->begin(), _base->getSoldiers()->end(), origSoldier);
-			if (soldierIt != _base->getSoldiers()->end())
+			auto soldierIt = std::find(roster->begin(), roster->end(), origSoldier);
+			if (soldierIt != roster->end())
 			{
 				Soldier *s = *soldierIt;
-				_base->getSoldiers()->erase(soldierIt);
-				_base->getSoldiers()->insert(_base->getSoldiers()->end(), s);
+				roster->erase(soldierIt);
+				roster->insert(roster->end(), s);
 			}
 		}
+	}
+
+	if (oneWorld && ownOrder != unsorted)
+	{
+		SharedEcon::submitSoldierOrder(_game, _base, ownOrder);
 	}
 
 	initList(_lstSoldiers->getScroll());
@@ -297,8 +328,9 @@ void CraftArmorState::init()
 	}
 
 	touchComponentsRefresh();
-	_sharedRefresh.bind(_game, this, _base); // coop: redraw when a shared apply lands
+	_sharedRefresh.bind(_game, this, _base);
 }
+
 
 /**
  * Shows the soldiers in a list at specified offset/scroll.
@@ -390,7 +422,30 @@ void CraftArmorState::lstItemsLeftArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED does not reorder at all, and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, true, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() - static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollUp(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -444,7 +499,30 @@ void CraftArmorState::lstItemsRightArrowClick(Action *action)
  */
 void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max)
 {
-	if (_game->getCoopMod()->isSharedCampaign() && _base->_coopBase == false) return;
+	// One-world campaigns (SHARED and Separate) never reorder the host-owned
+	// roster locally, and the row is an index into the owner-filtered list, not
+	// into _base->getSoldiers(). Separate sends the player's new order at their
+	// own base to the host (soldier_order); the list refreshes when it lands.
+	// SHARED does not reorder at all, and a visitor never reorders
+	// another player's roster.
+	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+	{
+		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, false, max))
+			return;
+		if (!max && action)
+		{
+			if (row != _lstSoldiers->getVisibleRows() - 1 + _lstSoldiers->getScroll())
+			{
+				SDL_WarpMouse(action->getLeftBlackBand() + action->getXMouse(), action->getTopBlackBand() + action->getYMouse() + static_cast<Uint16>(8 * action->getYScale()));
+			}
+			else
+			{
+				_lstSoldiers->scrollDown(false);
+			}
+		}
+		return;
+	}
 	Soldier *s = _base->getSoldiers()->at(row);
 	if (max)
 	{
@@ -477,6 +555,79 @@ void CraftArmorState::btnOkClick(Action *)
 }
 
 /**
+ * Seats @a s on this screen's craft, or takes them off it (the list's
+ * ctrl-click). @a row is the soldier's row on the list.
+ */
+void CraftArmorState::toggleCraftSeat(Soldier *s, unsigned int row)
+{
+	Craft* c = _base->getCrafts()->at(_craft);
+	// One-world campaigns: the host seats the soldier (craft_assign, as the Select
+	// Squad screen does) and moves the gear with the seat; the list refreshes
+	// when the host's apply lands.
+	if (_game->getCoopMod()
+		&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+	{
+		if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		else SeparateEcon::submitCraftAssign(_game, c, s, s->getCraft() != c);
+		return;
+	}
+	if (s->getCraft() == c)
+	{
+		s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
+		_lstSoldiers->setCellText(row, 1, tr("STR_NONE_UC"));
+		_lstSoldiers->setRowColor(row, _lstSoldiers->getColor());
+	}
+	else if (s->hasFullHealth())
+	{
+		int space = c->getSpaceAvailable();
+		CraftPlacementErrors err = c->validateAddingSoldier(space, s);
+		if (err == CPE_None)
+		{
+			s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
+			_lstSoldiers->setCellText(row, 1, c->getName(_game->getLanguage()));
+			_lstSoldiers->setRowColor(row, _lstSoldiers->getSecondaryColor());
+		}
+		else if (err == CPE_SoldierGroupNotAllowed)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+		else if (err == CPE_SoldierGroupNotSame)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_SAME"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+		else if (err == CPE_ArmorGroupNotAllowed)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_ARMOR_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+		else if (space > 0)
+		{
+			_game->pushState(new ErrorMessageState(tr("STR_NOT_ENOUGH_CRAFT_SPACE"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
+		}
+	}
+}
+
+/**
+ * Harness: the list's ctrl-click on soldier @a soldierId, through the real
+ * handler body. Builds the list first (normally deferred to init()). Returns
+ * false if the soldier is not on the list or rides a craft out on a mission.
+ */
+bool CraftArmorState::harnessCtrlClick(int soldierId)
+{
+	initList(0);
+	for (size_t row = 0; row < _viewSoldiers.size(); ++row)
+	{
+		Soldier *s = _viewSoldiers[row];
+		if (s->getId() != soldierId)
+			continue;
+		if (s->getCraft() && s->getCraft()->getStatus() == "STR_OUT")
+			return false;
+		toggleCraftSeat(s, (unsigned int)row);
+		return true;
+	}
+	return false;
+}
+
+/**
  * Shows the Select Armor window.
  * @param action Pointer to an action.
  */
@@ -495,42 +646,7 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 		{
 			if (_game->isCtrlPressed(true))
 			{
-				Craft* c = _base->getCrafts()->at(_craft);
-				if (s->getCraft() == c)
-				{
-					if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, false); return; } // coop: the host unseats (craft_assign); the refresh redraws
-					s->setCraftAndMoveEquipment(0, _base, _game->getSavedGame()->getMonthsPassed() == -1);
-					_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, tr("STR_NONE_UC"));
-					_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getColor());
-				}
-				else if (s->hasFullHealth())
-				{
-					int space = c->getSpaceAvailable();
-					CraftPlacementErrors err = c->validateAddingSoldier(space, s);
-					if (err == CPE_None)
-					{
-						if (_game->getCoopMod()->isSharedCampaign()) { SharedEcon::submitCraftAssign(_game, c, s, true); return; } // coop: the host seats (craft_assign); the refresh redraws
-						s->setCraftAndMoveEquipment(c, _base, _game->getSavedGame()->getMonthsPassed() == -1, true);
-						_lstSoldiers->setCellText(_lstSoldiers->getSelectedRow(), 1, c->getName(_game->getLanguage()));
-						_lstSoldiers->setRowColor(_lstSoldiers->getSelectedRow(), _lstSoldiers->getSecondaryColor());
-					}
-					else if (err == CPE_SoldierGroupNotAllowed)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-					else if (err == CPE_SoldierGroupNotSame)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_SOLDIER_GROUP_NOT_SAME"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-					else if (err == CPE_ArmorGroupNotAllowed)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_ARMOR_GROUP_NOT_ALLOWED"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-					else if (space > 0)
-					{
-						_game->pushState(new ErrorMessageState(tr("STR_NOT_ENOUGH_CRAFT_SPACE"), _palette, _game->getMod()->getInterface("soldierInfo")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("soldierInfo")->getElement("errorPalette")->color));
-					}
-				}
+				toggleCraftSeat(s, _lstSoldiers->getSelectedRow());
 			}
 			else
 			{
@@ -579,9 +695,10 @@ void CraftArmorState::lstSoldiersClick(Action *action)
 					// host-authoritative - route the armor change as an absolute
 					// end-state via soldier_armor instead of moving the store items
 					// on this replica (which drifts chkItems from the host).
-					if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+					if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 					{
-						SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+						if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+						else SeparateEcon::submitSoldierArmor(_game, _base, s, a->getType());
 					}
 					else if (a->getStoreItem() == nullptr ||
 						a->getStoreItem() == s->getArmor()->getStoreItem() ||
@@ -671,9 +788,10 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 			// shared host-authoritative path; the replica mutates nothing. Each
 			// soldier is an INDEPENDENT absolute end-state (its own default armor),
 			// so a per-soldier command has no ordering dependency - no local batch.
-			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+			if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
-				SharedEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
+				else SeparateEcon::submitSoldierArmor(_game, _base, soldier, a->getType());
 			}
 			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{
@@ -718,9 +836,10 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 			}
 			// SHARED (PRD-J09 GAP-5b): route through the shared host-authoritative
 			// path (see btnDeequipAllArmorClick); the replica mutates nothing.
-			if (_game->getCoopMod() && _game->getCoopMod()->isSharedCampaign())
+			if (_game->getCoopMod() && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 			{
-				SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+				if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitSoldierArmor(_game, _base, s, a->getType());
+				else SeparateEcon::submitSoldierArmor(_game, _base, s, a->getType());
 			}
 			else if (a->getStoreItem() == nullptr || _base->getStorageItems()->getItem(a->getStoreItem()) > 0)
 			{
@@ -766,6 +885,12 @@ std::vector<int> CraftArmorState::harnessDisplayedSoldierIds() const
 	for (const auto* s : _viewSoldiers)
 		ids.push_back(s->getId());
 	return ids;
+}
+
+void CraftArmorState::harnessSort(size_t index)
+{
+	_cbxSortBy->setSelected(index);
+	cbxSortByChange(nullptr);
 }
 
 }
