@@ -1,39 +1,51 @@
-"""W2-H80 S-A LBG (tools/coop_test/test_lost_base_ghost.py): a base the host loses in a base defence leaves a marker of itself on the
-host's globe, and clicking it opens the partner's base (lead L-BH2, ruling R-LBH2-1, veto line VL-H80-1; capture lbh2-cap F21826-F21830).
-Spec docs rewrite/prompts/w2h80_lost_base_ghost.md (f) LBG; TASK 0 values in rewrite/w2h80-task0/sa/CONSTANTS.md.
-In a SEPARATE campaign the host owns HB (garrisoned, its first base) and SPARE; a base defence on HB pulls the client in; the host aborts; the
-host's debriefing erases HB and sends nothing. The HOST presses OK first; its geoscape init asks the client for its bases while the client is
-still on its display-only debriefing in the battle world (the host's world), which answers [HB, SPARE]; W2-H62 EB1 drops SPARE, not HB, so
-the host builds a partner-style marker of its own lost base. Green (E1, TCP): the client does not answer while its live world is the SEPARATE
-battle world (`[coop] baseRequest not answered ...`).
-ONE boot (key KEY, dirs w2h80_g_*). Bring-up: spawn + connect both; session.new_campaign (HB at HOST_POS); geo.slow_clock; geo.drain_popups;
-the window mapping per machine from INTERCEPT + CANCEL (real clicks). SPARE: BASES, BUILD NEW BASE, one globe click at PICK, OK, the name keys,
-OK, LIFTS, GEOSCAPE (real clicks). P0: client INTERCEPT + CANCEL, 3 s: host own [HB, SPARE], host mirrors [CB], client mirrors {HB, SPARE}.
-D-mark; spawn_ufo; trigger_base_defense (HB: the first own base); briefing OK clicks, the host's pre-battle battle_inventory ok (lever),
-NextTurnState clicks; abort (battle_action abort, dismiss_popup on AbortMissionState, session.abort_vote_yes: levers); both DebriefingState;
-HOST OK (real clicks to GeoscapeState); OK_GAP_S; CLIENT OK; A0 both GeoscapeState; A1 client INTERCEPT + CANCEL + RT_SETTLE; A1h the same
-on the host; A2 >= PLUS10_S after A0. GHOST(host) = host mirrors with id LOST or within POS_TOL of LOST_POS.
-  Row R1  R1-pre (GUARD) the construction above reached A0 (P0, the trigger names HB, host BattlescapeState + client phase Active, both
-          DebriefingState, LOST gone from the host's own list at HOST_BACK, the client still on DebriefingState after OK_GAP_S, the client's
-          RETURN line, both GeoscapeState at A0).  R1-A0 (FIX) GHOST(host) empty at A0.  R1-RT (FIX) GHOST(host) empty at A1h.
-          R1-10 (FIX) GHOST(host) empty at A2.  R1-cb (GUARD) CB in the host's mirrors at A0, A1h, A2.  R1-skip (FIX) the client's SKIP
-          lines between D-mark and A0 >= 1.  R1-own (GUARD) the client's SKIP lines between A0 and A2 == 0.
-  Row R2  R2-open (FIX) no ghost to click at A2, or the host's click on it (right-click centre, ZOOM_MIN, click) opens no BasescapeState
-          within W_OPEN (today: BasescapeState of the client's world, selectedBase = CB's name).
-  Row R3  R3-mir (GUARD) the client's mirror ids == [SPARE] at A0, A1, A1h and A2.
-  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today: R1-A0, R1-RT, R1-10, R1-skip, R2-open FAIL; the other 5 PASS. Green (E1): all 10 PASS.
-Every press is a real click_widget or inject_input except the logged levers named above. One EVIDENCE line per row, one PASS / FAIL line per
-cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails R1-pre with ONE
-CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
-Run: python tools/coop_test/test_lost_base_ghost.py   (OXC_HARNESS_SLOT selects the lane)"""
+"""test_lost_base_ghost.py: a base the host loses in a base defence must not leave a marker of itself on the host's
+globe, and the host must not be able to open the partner's base by clicking such a marker.
+In a SEPARATE campaign the host owns HB (garrisoned, its first base) and SPARE; a base defence on HB pulls the client
+in; the host aborts; the host's debriefing erases HB and sends nothing. The HOST presses OK first; its geoscape init
+asks the client for its bases while the client is still on its display-only debriefing in the battle world (the host's
+world), which answers [HB, SPARE]. The host drops the markers of bases it still owns (SPARE) but not HB, which its
+debriefing erased, so without the fix it builds a partner-style marker of its own lost base. With the fix the client
+does not answer while its live world is the SEPARATE battle world (`[coop] baseRequest not answered ...`).
+ONE boot (key KEY, dirs lost_base_ghost_*). Bring-up: spawn + connect both; session.new_campaign (HB at HOST_POS);
+geo.slow_clock; geo.drain_popups; the window mapping per machine from INTERCEPT + CANCEL (real clicks). SPARE: BASES,
+BUILD NEW BASE, one globe click at PICK, OK, the name keys, OK, LIFTS, GEOSCAPE (real clicks). P0: client INTERCEPT +
+CANCEL, 3 s: host own [HB, SPARE], host mirrors [CB], client mirrors {HB, SPARE}. The trigger mark; spawn_ufo;
+trigger_base_defense (HB: the first own base); briefing OK clicks, the host's pre-battle battle_inventory ok (test
+command), NextTurnState clicks; abort (battle_action abort, dismiss_popup on AbortMissionState,
+session.abort_vote_yes: test commands); both DebriefingState; HOST OK (real clicks to GeoscapeState); OK_GAP_S; CLIENT
+OK; A0 both GeoscapeState; A1 client INTERCEPT + CANCEL + RT_SETTLE; A1h the same on the host; A2 >= PLUS10_S after
+A0. GHOST(host) = host mirrors with id LOST or within POS_TOL of LOST_POS.
+  Row host_globe:
+      host_globe-pre (GUARD) the construction above reached A0 (P0, the trigger names HB, host BattlescapeState +
+        client phase Active, both DebriefingState, LOST gone from the host's own list at HOST_BACK, the client still
+        on DebriefingState after OK_GAP_S, the client's RETURN line, both GeoscapeState at A0).
+      host_globe-at_return (FIX) GHOST(host) empty at A0.
+      host_globe-after_refresh (FIX) GHOST(host) empty at A1h.
+      host_globe-after_10s (FIX) GHOST(host) empty at A2.
+      host_globe-partner_marker (GUARD) CB in the host's mirrors at A0, A1h, A2.
+      host_globe-request_unanswered (FIX) the client's SKIP lines between the trigger mark and A0 >= 1.
+      host_globe-own_world_answers (GUARD) the client's SKIP lines between A0 and A2 == 0.
+  Row ghost_click:
+      ghost_click-opens_nothing (FIX) no ghost to click at A2, or the host's click on it (right-click centre,
+        ZOOM_MIN, click) opens no BasescapeState within W_OPEN (without the fix: BasescapeState of the client's world,
+        selectedBase = CB's name).
+  Row client_mirrors:
+      client_mirrors-spare_only (GUARD) the client's mirror ids == [SPARE] at A0, A1, A1h and A2.
+  END CRASH (GUARD): no new crash file in the harness slot's crash folder since the file start; both processes alive
+      until their shutdown.
+Without the fix host_globe-at_return, host_globe-after_refresh, host_globe-after_10s, host_globe-request_unanswered
+and ghost_click-opens_nothing FAIL; the other 5 PASS. With it all 10 PASS. Every press is a real click_widget or
+inject_input except the logged test commands named above. One EVIDENCE line per row, one PASS / FAIL line per cell,
+then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails
+host_globe-pre with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+Run: python tools/coop_test/test_lost_base_ghost.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo, harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-KEY = "49492"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 4aaaff0c0)
+KEY = "49492"                               # lobby key (no other user in src + tools)
 HOST_POS = (0.90, -0.60)                    # rad: HB; SPARE is picked >= 0.15 rad away on land
 SPARE_NAME = "spare"
 LIFTS = ((2, 2), (3, 2), (2, 3), (3, 3))    # the lift tile, then its replacement tiles in row order
@@ -42,13 +54,16 @@ BOOT_S, W_BATTLE, W_DEBRIEF = 240.0, 180.0, 150.0
 ZOOM_MIN, SYM_PLUS, SYM_ESC = 3, 43, 27
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
-SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (client)
-EB1_N = "[coop] coopBase3 marker"                                                       # host, EVIDENCE only
+SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # client
+MARKER_N = "[coop] coopBase3 marker"                                                    # host, EVIDENCE only
 RETURN_N = "SEPARATE return - own world loaded"                                                      # client
 NEEDLES = ("baseRequest not answered", "coopBase3 marker", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
-ROWS = (("R1", ("R1-pre", "R1-A0", "R1-RT", "R1-10", "R1-cb", "R1-skip", "R1-own")), ("R2", ("R2-open",)), ("R3", ("R3-mir",)),
+ROWS = (("host_globe", ("host_globe-pre", "host_globe-at_return", "host_globe-after_refresh", "host_globe-after_10s",
+                        "host_globe-partner_marker", "host_globe-request_unanswered", "host_globe-own_world_answers")),
+        ("ghost_click", ("ghost_click-opens_nothing",)), ("client_mirrors", ("client_mirrors-spare_only",)),
         ("END", ("CRASH",)))
-FIX = ("R1-A0", "R1-RT", "R1-10", "R1-skip", "R2-open")
+FIX = ("host_globe-at_return", "host_globe-after_refresh", "host_globe-after_10s", "host_globe-request_unanswered",
+       "ghost_click-opens_nothing")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -57,7 +72,7 @@ class Stop(Exception):  # a precondition missed: the row ends here (capture=Fals
         Exception.__init__(self, what)
         self.capture = capture
 
-# ----- probes and real input (copied from the capture rewrite/lbh2-cap/cap.py, never imported) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -153,8 +168,8 @@ def capture(b):
 # ----- the boot and the construction steps -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h80_g_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h80_g_client"))
+        self.host = GameClient("host", None, make_user_dir("lost_base_ghost_host"))
+        self.client = GameClient("client", None, make_user_dir("lost_base_ghost_client"))
         self.aff, self.swaps = {}, []
 class Row:
     def __init__(self, x, b, rid):
@@ -240,7 +255,8 @@ def p0(b, r, st):
     r.need(mir_ids(p["host"]) == [st["cb"]] and sorted(mir_ids(p["client"])) == sorted([st["lost"], st["spare"]]),
            "P0: host mirrors %s (want [CB]), client mirrors %s (want {HB, SPARE})" % (mir_ids(p["host"]), mir_ids(p["client"])))
 def advance_to_battle(b, r):
-    """press the briefing's OK (real click), the pre-battle inventory's OK (battle_inventory lever, logged) and NextTurnState (click)"""
+    """press the briefing's OK (real click), the pre-battle inventory's OK (battle_inventory test command, logged) and
+    NextTurnState (click)"""
     trace, t1, pressed = [], time.time(), []
     while time.time() - t1 < W_BATTLE:
         row = [round(time.time() - t1, 2)]
@@ -251,7 +267,8 @@ def advance_to_battle(b, r):
                 if session.wait_widget_ready(gc, "OK", timeout=5) is not None:
                     pressed.append([gc.name, "BriefingState OK", cw(gc, "OK", 0.5)["after"][-1:]])
             elif t == "InventoryState":
-                pressed.append([gc.name, "battle_inventory ok (lever)", q(gc, {"cmd": "battle_inventory", "action": "ok"}).get("ok")])
+                pressed.append([gc.name, "battle_inventory ok (test command)",
+                                q(gc, {"cmd": "battle_inventory", "action": "ok"}).get("ok")])
                 time.sleep(0.5)
             elif t == "NextTurnState":
                 sc = b.aff[gc.name]
@@ -299,7 +316,7 @@ def press_through(gc, cap=90.0):
                 break
     return {"steps": steps, "secs": round(time.time() - t1, 2)}
 def abort_host(b, r):
-    """the abort (levers): battle_action abort, AbortMissionState, dismiss_popup, session.abort_vote_yes"""
+    """the abort (test commands): battle_action abort, AbortMissionState, dismiss_popup, session.abort_vote_yes"""
     h = b.host
     ev = r.ev["abort"] = {"abort": q(h, {"cmd": "battle_action", "action": "abort"})}
     t1 = time.time()
@@ -382,13 +399,14 @@ def visit(b, r, m):
         back["back"] = "%s: %s" % (type(e).__name__, str(e)[:300])
     return ev
 # ----- the rows -----
-def row_r1(b, r, st):
-    """R1: the boot, SPARE, P0, the base defence on HB, the abort, HOST OK, OK_GAP_S, CLIENT OK, A0 / A1 / A1h / A2"""
+def row_host_globe(b, r, st):
+    """host_globe: the boot, SPARE, P0, the base defence on HB, the abort, HOST OK, OK_GAP_S, CLIENT OK,
+    A0 / A1 / A1h / A2"""
     h, c, ev = b.host, b.client, r.ev
     bring_up(b, r)
     st["spare"] = build_base(b, r, h, SPARE_NAME)
     p0(b, r, st)
-    nh, nc = len(logl(h)), len(logl(c))  # D-mark
+    nh, nc = len(logl(h)), len(logl(c))  # the trigger mark
     ufo = q(h, UFO)
     tr = ev["trigger"] = {"ufo": ufo, "reply": q(h, {"cmd": "trigger_base_defense", "ufo_id": ufo.get("ufo_id")}), "t": now()}
     r.need(ufo.get("ok") and tr["reply"].get("ok") and tr["reply"].get("base") == st["lostName"],
@@ -410,7 +428,8 @@ def row_r1(b, r, st):
     t_a0, nh0, nc0 = time.time(), len(logl(h)), len(logl(c))
     r.need(ret and a0["host"]["stack"] == ["GeoscapeState"] and a0["client"]["stack"] == ["GeoscapeState"],
            "A0: RETURN %s; stacks %s, %s" % (ret, a0["host"]["stack"], a0["client"]["stack"]))
-    r.cell("R1-pre", True, "reached A0: P0 %s; trigger %s; LOST %s gone from the host's own list at HOST_BACK; client on DebriefingState "
+    r.cell("host_globe-pre", True, "reached A0: P0 %s; trigger %s; LOST %s gone from the host's own list at HOST_BACK; "
+                                   "client on DebriefingState "
                            "after OK_GAP_S; RETURN %s" % (ev["P0"]["hostOwn"], tr["reply"], st["lost"], ret[0][1]))
     ev["cpuA0"] = cpu()
     ev["A1cycle"] = cycle(c)
@@ -427,31 +446,40 @@ def row_r1(b, r, st):
     gh = {k: ghost(st[k]["host"], st) for k in ("A0", "A1", "A1h", "A2")}
     ev["host"] = {k: [x[:4] for x in st[k]["host"]["bases"]] for k in ("A0", "A1", "A1h", "A2")}
     sk1, sk2 = hits(c, SKIP_N, nc, nc0), hits(c, SKIP_N, nc0, nc2)
-    ev["needles"] = {"skipDmarkToA0": sk1, "skipA0toA2": sk2, "skipHost": hits(h, SKIP_N, nh), "eb1": hits(h, EB1_N, nh), "return": ret}
-    r.cell("R1-A0", not gh["A0"], "GHOST(host) at A0: %s (want none; LOST %s at %s)" % (gh["A0"], st["lost"], st["lostPos"]))
-    r.cell("R1-RT", not gh["A1h"], "GHOST(host) at A1h, after the host's INTERCEPT + CANCEL: %s (want none)" % gh["A1h"])
-    r.cell("R1-10", not gh["A2"] and since >= PLUS10_S, "GHOST(host) at A2, %.2f s after A0: %s (want none)" % (since, gh["A2"]))
+    ev["needles"] = {"skipMarkToA0": sk1, "skipA0toA2": sk2, "skipHost": hits(h, SKIP_N, nh),
+                     "marker": hits(h, MARKER_N, nh), "return": ret}
+    r.cell("host_globe-at_return", not gh["A0"],
+           "GHOST(host) at A0: %s (want none; LOST %s at %s)" % (gh["A0"], st["lost"], st["lostPos"]))
+    r.cell("host_globe-after_refresh", not gh["A1h"],
+           "GHOST(host) at A1h, after the host's INTERCEPT + CANCEL: %s (want none)" % gh["A1h"])
+    r.cell("host_globe-after_10s", not gh["A2"] and since >= PLUS10_S,
+           "GHOST(host) at A2, %.2f s after A0: %s (want none)" % (since, gh["A2"]))
     cbs = {k: st["cb"] in mir_ids(st[k]["host"]) for k in ("A0", "A1h", "A2")}
-    r.cell("R1-cb", all(cbs.values()), "CB %s in the host's mirrors at A0 / A1h / A2: %s" % (st["cb"], cbs))
-    r.cell("R1-skip", len(sk1) >= 1, "the client's SKIP lines between D-mark and A0: %d %s (want >= 1)" % (len(sk1), sk1[:3]))
-    r.cell("R1-own", not sk2, "the client's SKIP lines between A0 and A2: %d %s (want 0)" % (len(sk2), sk2[:3]))
-def row_r2(b, r, st):
-    """R2: the host's click on the ghost at A2 (CLICK), if one exists"""
-    r.need("A2" in st, "R1 did not reach A2", capture=False)
+    r.cell("host_globe-partner_marker", all(cbs.values()),
+           "CB %s in the host's mirrors at A0 / A1h / A2: %s" % (st["cb"], cbs))
+    r.cell("host_globe-request_unanswered", len(sk1) >= 1,
+           "the client's SKIP lines between the trigger mark and A0: %d %s (want >= 1)" % (len(sk1), sk1[:3]))
+    r.cell("host_globe-own_world_answers", not sk2,
+           "the client's SKIP lines between A0 and A2: %d %s (want 0)" % (len(sk2), sk2[:3]))
+def row_ghost_click(b, r, st):
+    """ghost_click: the host's click on the ghost at A2 (CLICK), if one exists"""
+    r.need("A2" in st, "host_globe did not reach A2", capture=False)
     g2 = ghost(st["A2"]["host"], st)
     r.ev["ghostA2"] = g2
     if not g2:
-        r.cell("R2-open", True, "GHOST(host) empty at A2: nothing to click")
+        r.cell("ghost_click-opens_nothing", True, "GHOST(host) empty at A2: nothing to click")
         return
     v = visit(b, r, g2[0])
-    r.cell("R2-open", v["bsAt"] is None, "the host's click on ghost %s: BasescapeState at %s s, selectedBase %r, insideCoopBase %s (want no "
-                                         "BasescapeState within W_OPEN)" % (g2[0], v["bsAt"], v["open"]["selectedBase"], v["open"]["insideCoopBase"]))
-def row_r3(b, r, st):
-    """R3: the client's mirrors = the host's surviving bases"""
-    r.need(all(k in st for k in ("A0", "A1", "A1h", "A2")), "R1 did not reach A2", capture=False)
+    r.cell("ghost_click-opens_nothing", v["bsAt"] is None, "the host's click on ghost %s: BasescapeState at %s s, "
+           "selectedBase %r, insideCoopBase %s (want no BasescapeState within W_OPEN)" % (
+               g2[0], v["bsAt"], v["open"]["selectedBase"], v["open"]["insideCoopBase"]))
+def row_client_mirrors(b, r, st):
+    """client_mirrors: the client's mirrors = the host's surviving bases"""
+    r.need(all(k in st for k in ("A0", "A1", "A1h", "A2")), "host_globe did not reach A2", capture=False)
     m = r.ev["clientMir"] = {k: mir_ids(st[k]["client"]) for k in ("A0", "A1", "A1h", "A2")}
     r.ev["client"] = {k: [x[:4] for x in st[k]["client"]["bases"]] for k in ("A0", "A1", "A1h", "A2")}
-    r.cell("R3-mir", all(v == [st["spare"]] for v in m.values()), "client mirror ids at A0 / A1 / A1h / A2: %s (want [%s] each)" % (m, st["spare"]))
+    r.cell("client_mirrors-spare_only", all(v == [st["spare"]] for v in m.values()),
+           "client mirror ids at A0 / A1 / A1h / A2: %s (want [%s] each)" % (m, st["spare"]))
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
 def main():
@@ -459,7 +487,8 @@ def main():
     T0[0] = time.time()
     try:
         b = Boot()
-        for rid, fn in (("R1", row_r1), ("R2", row_r2), ("R3", row_r3)):
+        for rid, fn in (("host_globe", row_host_globe), ("ghost_click", row_ghost_click),
+                        ("client_mirrors", row_client_mirrors)):
             r = Row(x, b, rid)
             try:
                 fn(b, r, st)
@@ -483,8 +512,9 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H80 S-A LBG: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                               sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY lost base ghost: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
+                                                                                sorted(set(x.fails)) or "none", now()),
+          flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
