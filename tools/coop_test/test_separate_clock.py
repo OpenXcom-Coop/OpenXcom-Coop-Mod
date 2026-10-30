@@ -1,17 +1,23 @@
-"""W2-H23 (F9871, F9874, F9904, F9913; spec rewrite/prompts/w2h23_separate_clock_boundary.md (f); TASK 0
-rewrite/w2h23-task0/CONSTANTS.md): a SEPARATE second player's own geoscape loops skip or run twice, because the host's
-"time" heartbeat moves its clock while its loops run only on its own step. Deterministic lever: the per-player
-geoClockSpeed option (250 ms on the slow side, the default 80 ms on the other), no TestServer lever.
-Boot S (lobby 47931; host 80 ms, client 250 ms): R1 day (wound recovery -1 a day, ROLL_DAY(4)), R2 hour (Skyranger
-repair -1 an hour, ROLL_HOUR(6)), R4 jump guard (set_geo_day +2 / -1 day runs no day loop; both builds pass),
-R5 month end (R-H23-G-2: SETTLE_AT(28, 12), roll to the host's MonthlyReportState; every client date sampled at B0,
-while the client's report is open and for 3 s after both close is a valid calendar date (V1) and never moves backwards (M1)).
-Boot F (lobby 47932; host 250 ms, client 80 ms): R3 day (ROLL_DAY(3), the double).
-Each machine's loop counts are judged against its OWN clock B0 -> B1: the host's are guards (G1-G3), the client's are
-RED (A1-A3); C1 = the client's clock within 1 game minute of the host's at B0 and B1; J1 also needs STAGE's replies.
-FREEZE / RELEASE / SETTLE_AT / STAGE / READ / ROLL as the spec (f); W = 10 s at 0.1 s polls; a WAIT that times out ends
-the row; every row RELEASEs in a finally. RED: R1 fails A1 only, R2 A2 only, R3 A3 only, R4 passes. R5 is red on
-d089b0138 (V1 and M1: the monthly_report handler writes the host's month into the client's clock, 1999-02-31). GREEN: all pass.
+"""A SEPARATE second player's own geoscape loops must run exactly once per step of its own clock. Without the fix
+they skip or run twice, because the host's "time" heartbeat moves the client's clock while its loops run only on its
+own step. Deterministic hook: the per-player geoClockSpeed option (250 ms on the slow side, the default 80 ms on the
+other), no test command.
+Slow-client boot (lobby 47931; host 80 ms, client 250 ms): slow_client_day (wound recovery -1 a day, ROLL_DAY(4)),
+slow_client_hour (Skyranger repair -1 an hour, ROLL_HOUR(6)), date_jump (set_geo_day +2 / -1 day runs no day loop;
+passes with or without the fix), month_end (SETTLE_AT(28, 12), roll to the host's MonthlyReportState; every client
+date sampled at B0, while the client's report is open and for 3 s after both close is a valid calendar date
+(client_dates_valid) and never moves backwards (client_date_monotonic)).
+Slow-host boot (lobby 47932; host 250 ms, client 80 ms): slow_host_day (ROLL_DAY(3), the double).
+Each machine's loop counts are judged against its OWN clock B0 -> B1: the host's are guards (host_heal_days,
+host_repair_hours, no_heal_without_midnight), the client's are the fix checks (client_heal_days_no_skip,
+client_repair_hours, client_heal_days_no_double); clocks_agree = the client's clock within 1 game minute of the host's
+at B0 and B1; forward_jump_no_heal also needs STAGE's replies.
+FREEZE / RELEASE / SETTLE_AT / STAGE / READ / ROLL are freeze / release / settle_at / stage / read / roll below; W = 10
+s at 0.1 s polls; a WAIT that times out ends the row; every row RELEASEs in a finally. Without the fix
+slow_client_day fails client_heal_days_no_skip only, slow_client_hour client_repair_hours only, slow_host_day
+client_heal_days_no_double only, and date_jump passes. month_end fails client_dates_valid and client_date_monotonic
+when the monthly_report handler writes the host's month into the client's clock (1999-02-31). With the fix every row
+passes.
 CAPTURE (a failed row) then EVIDENCE then PASS / FAIL per row; every row runs; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -28,9 +34,9 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 W, POLL, GEO, SOL, MRS = 10.0, 0.1, "GeoscapeState", "SoldiersState", "MonthlyReportState"
 SLOW = {"geoClockSpeed": 250}
-BOOT_S = ("w2h23_s", (49610, 49611), "47931", None, SLOW)
-BOOT_F = ("w2h23_f", (49612, 49613), "47932", SLOW, None)
-ORDER = ["R1", "R2", "R4", "R5", "R3"]
+BOOT_SLOW_CLIENT = ("separate_clock_slow_client", (49610, 49611), "47931", None, SLOW)
+BOOT_SLOW_HOST = ("separate_clock_slow_host", (49612, 49613), "47932", SLOW, None)
+ORDER = ["slow_client_day", "slow_client_hour", "date_jump", "month_end", "slow_host_day"]
 KEYS = "[elapsed days, elapsed hours, heal days, repair hours] host / client"
 
 short = lambda e, n=600: (lambda s: s if len(s) <= n else s[:n] + "...")(f"{type(e).__name__}: {e}")  # noqa: E731
@@ -150,14 +156,14 @@ def capture(r):
 def freeze(r):  # both clocks still; the client holds the host's FINAL time
     h, c = r.x.h, r.x.c
     c.cmd({"cmd": "open_screen", "screen": "soldiers"})
-    r.wait("freeze1 client SoldiersState", lambda: top(c) == SOL)
+    r.wait("freeze: client SoldiersState", lambda: top(c) == SOL)
     time.sleep(1.5)                                   # the host's clock stops 1 s after the client's last heartbeat
     h.cmd({"cmd": "open_screen", "screen": "soldiers"})
-    r.wait("freeze3 host SoldiersState", lambda: top(h) == SOL)
+    r.wait("freeze: host SoldiersState", lambda: top(h) == SOL)
     c.cmd({"cmd": "close_screens"})
-    r.wait("freeze4 client GeoscapeState", lambda: top(c) == GEO)
+    r.wait("freeze: client GeoscapeState", lambda: top(c) == GEO)
     geo.drain_popups(c)
-    r.wait("freeze5 clocks within 1 game minute", lambda: apart(gtime(h), gtime(c)) <= 1.0)
+    r.wait("freeze: clocks within 1 game minute", lambda: apart(gtime(h), gtime(c)) <= 1.0)
     time.sleep(0.5)
 
 
@@ -180,7 +186,7 @@ def settle_at(r, day, hour):
     freeze(r)
 
 
-def stage(r):  # client first (S25): wound recovery 60 days, own craft at damage 149 in repairs
+def stage(r):  # client first: wound recovery 60 days, own craft at damage 149 in repairs
     rep = {}
     for gc in (r.x.c, r.x.h):
         o = r.x.own[gc.name]
@@ -219,53 +225,56 @@ def miss(kind, ran, el):
     return f"the client's own {kind} loop ran {ran} times over its own {el} {kind}s: {how}"
 
 
-def c1(r):
+def cell_clocks_agree(r):
     gaps = [round(apart(r.ev[b]["host"]["time"], r.ev[b]["client"]["time"]), 2) for b in ("B0", "B1")]
-    r.cell("C1", all(g <= 1.0 for g in gaps), f"client vs host clock gap (game minutes) at B0 / B1: {gaps}")
+    r.cell("clocks_agree", all(g <= 1.0 for g in gaps), f"client vs host clock gap (game minutes) at B0 / B1: {gaps}")
 
 
-def day_row(r, ndays, dmin, red):  # R1 (slow client) and R3 (slow host)
+def day_row(r, ndays, dmin, client_cell):  # slow_client_day (slow client) and slow_host_day (slow host)
     settle_at(r, 2, 12)
     ok, b0, b1, lh, lc = measure(r, ndays * 1440, 5)
     d, month = lh[0], [b0["host"]["time"][1], b1["host"]["time"][1]]
     rec = [b1["host"]["recovery"], b1["client"]["recovery"]]
     r.cell("setup", ok and d >= dmin and month[0] == month[1] and min(rec) > 0,
            f"stage ok {ok}, host days {d} (>= {dmin}), host month {month}, recoveries at B1 {rec}")
-    r.cell("G1", lh[2] == d, f"host heal days {lh[2]} vs its {d} days")
-    r.cell(red, lc[2] == lc[0], miss("day", lc[2], lc[0]) + f" (host days {d})")
-    c1(r)
+    r.cell("host_heal_days", lh[2] == d, f"host heal days {lh[2]} vs its {d} days")
+    r.cell(client_cell, lc[2] == lc[0], miss("day", lc[2], lc[0]) + f" (host days {d})")
+    cell_clocks_agree(r)
 
 
-row_r1 = lambda r: day_row(r, 4, 2, "A1")  # noqa: E731  R1: ROLL_DAY(4), host days >= 2, boot S (slow client)
-row_r3 = lambda r: day_row(r, 3, 1, "A3")  # noqa: E731  R3: ROLL_DAY(3), host days >= 1, boot F (slow host)
+# ROLL_DAY(4), host days >= 2, the slow-client boot
+row_slow_client_day = lambda r: day_row(r, 4, 2, "client_heal_days_no_skip")  # noqa: E731
+# ROLL_DAY(3), host days >= 1, the slow-host boot
+row_slow_host_day = lambda r: day_row(r, 3, 1, "client_heal_days_no_double")  # noqa: E731
 
 
-def row_r2(r):  # hour, slow client
+def row_slow_client_hour(r):  # hour, slow client
     settle_at(r, 20, 1)
     ok, b0, b1, lh, lc = measure(r, 6 * 60, 4)
     hh, dmg = lh[1], [b1["host"]["damage"], b1["client"]["damage"]]
     r.cell("setup", ok and hh >= 3 and b0["host"]["time"][:3] == b1["host"]["time"][:3] and min(dmg) > 0,
            f"stage ok {ok}, host hours {hh} (>= 3), host date {b0['host']['time'][:3]} -> {b1['host']['time'][:3]}, "
            f"damages at B1 {dmg}")
-    r.cell("G2", lh[3] == hh, f"host repair hours {lh[3]} vs its {hh} hours")
-    r.cell("A2", lc[3] == lc[1], miss("hour", lc[3], lc[1]) + f" (host hours {hh})")
-    r.cell("G3", lh[2] == 0 and lc[2] == 0, f"heal days host {lh[2]} / client {lc[2]} with no midnight")
-    c1(r)
+    r.cell("host_repair_hours", lh[3] == hh, f"host repair hours {lh[3]} vs its {hh} hours")
+    r.cell("client_repair_hours", lc[3] == lc[1], miss("hour", lc[3], lc[1]) + f" (host hours {hh})")
+    r.cell("no_heal_without_midnight", lh[2] == 0 and lc[2] == 0,
+           f"heal days host {lh[2]} / client {lc[2]} with no midnight")
+    cell_clocks_agree(r)
 
 
-def row_r4(r):  # jump guard: a forward and a backward set_geo_day run no day loop on either machine
+def row_date_jump(r):  # jump guard: a forward and a backward set_geo_day run no day loop on either machine
     h, c = r.x.h, r.x.c
     settle_at(r, 22, 12)
     ok = stage(r)
     reads(r, "B0")
     r.ev["jump +2 [day, month]"] = [h.cmd({"cmd": "set_geo_day", "day": 24, "hour": 12}).get(k) for k in ("day", "month")]
     release(r)
-    t24 = r.wait("J3 client date day 24", lambda: gtime(c)[2] == 24)
+    t24 = r.wait("client_follows_jumps: client date day 24", lambda: gtime(c)[2] == 24)
     freeze(r)
     reads(r, "B1")
     r.ev["jump -1 [day, month]"] = [h.cmd({"cmd": "set_geo_day", "day": 23, "hour": 12}).get(k) for k in ("day", "month")]
     release(r)
-    t23 = r.wait("J3 client date day 23", lambda: gtime(c)[2] == 23)
+    t23 = r.wait("client_follows_jumps: client date day 23", lambda: gtime(c)[2] == 23)
     freeze(r)
     reads(r, "B2")
     release(r)
@@ -273,12 +282,13 @@ def row_r4(r):  # jump guard: a forward and a backward set_geo_day run no day lo
     for a, b in (("B0", "B1"), ("B1", "B2")):
         j[a + "-" + b] = [loops(r.ev[a][n], r.ev[b][n])[2] for n in ("host", "client")]
     r.ev["heal days host / client"] = j
-    r.cell("J1", ok and j["B0-B1"] == [0, 0], f"stage ok {ok}, heal days host / client {j['B0-B1']} over the +2 day jump")
-    r.cell("J2", j["B1-B2"] == [0, 0], f"heal days host / client {j['B1-B2']} over the -1 day jump")
-    r.cell("J3", True, f"client followed in {t24} s / {t23} s")
+    r.cell("forward_jump_no_heal", ok and j["B0-B1"] == [0, 0],
+           f"stage ok {ok}, heal days host / client {j['B0-B1']} over the +2 day jump")
+    r.cell("backward_jump_no_heal", j["B1-B2"] == [0, 0], f"heal days host / client {j['B1-B2']} over the -1 day jump")
+    r.cell("client_follows_jumps", True, f"client followed in {t24} s / {t23} s")
 
 
-def row_r5(r):  # across a month-end report the client's date stays a valid calendar date, never backwards
+def row_month_end(r):  # across a month-end report the client's date stays a valid calendar date, never backwards
     h, c = r.x.h, r.x.c
     settle_at(r, 28, 12)
     smp = r.ev["samples [phase, client top, year .. minute]"] = [["B0", top(c)] + gtime(c)]
@@ -299,8 +309,8 @@ def row_r5(r):  # across a month-end report the client's date stays a valid cale
     back = [[a, b] for a, b in zip(smp, smp[1:]) if b[2:] < a[2:]]
     r.cell("setup", sk.get("hit") is not None and gtime(h)[1] == 2 and smp[-1][3] == 2,
            f"roll hit {sk.get('hit')}, host {gtime(h)}, client last sample {smp[-1]}")
-    r.cell("V1", not bad, f"client dates that are not calendar dates: {bad}")
-    r.cell("M1", not back, f"client date moved backwards: {back}")
+    r.cell("client_dates_valid", not bad, f"client dates that are not calendar dates: {bad}")
+    r.cell("client_date_monotonic", not back, f"client date moved backwards: {back}")
 
 
 def run_row(rid, fn, x, results):
@@ -320,8 +330,8 @@ def run_row(rid, fn, x, results):
     r.report(results)
 
 
-def boot(spec, rows, results, walls):
-    (tag, labels, lobby, hopt, copt), t0 = spec, time.time()
+def boot(boot_args, rows, results, walls):
+    (tag, labels, lobby, hopt, copt), t0 = boot_args, time.time()
     h = GameClient("host", labels[0], make_user_dir(tag + "_host", options=hopt))
     c = GameClient("client", labels[1], make_user_dir(tag + "_client", options=copt))
     x = type("X", (), {"h": h, "c": c, "own": {}})
@@ -353,8 +363,10 @@ def boot(spec, rows, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_S, (("R1", row_r1), ("R2", row_r2), ("R4", row_r4), ("R5", row_r5)), results, walls)
-    boot(BOOT_F, (("R3", row_r3),), results, walls)
+    boot(BOOT_SLOW_CLIENT,
+         (("slow_client_day", row_slow_client_day), ("slow_client_hour", row_slow_client_hour),
+          ("date_jump", row_date_jump), ("month_end", row_month_end)), results, walls)
+    boot(BOOT_SLOW_HOST, (("slow_host_day", row_slow_host_day),), results, walls)
     failed = [n for n in ORDER if not results.get(n)]
     print(f"\ntest_separate_clock: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
