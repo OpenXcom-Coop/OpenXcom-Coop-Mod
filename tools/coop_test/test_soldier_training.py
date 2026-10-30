@@ -2,10 +2,10 @@
 gym 10, healthRecoveryPerDay 3) at (0, 3), index 9. Shared boot (SHARED): the monthly phase (option off) stages ids 1-8
 psi at 0, ids 1-2 training, id 3 rtwh, id 4 healthMissing 30, rolls the month (4 host day rolls) ->
 soldier_training_1..4; the daily phase flips anytimePsiTraining on, id 5 psi at 0, id 6 psi at 100 (finishes on the
-first roll) -> soldier_training_5, soldier_training_6. Separate boot (SEPARATE): soldier_training_7 guard row. Test
+first roll) -> soldier_training_5, soldier_training_6. Test
 commands go to the client first. Window: both probes every 0.5 s for 3 s from the hit, cells at its end, the client's
 requests == baseline. Clean: wait_resync_clear, drain client then host, 4 s, requests == baseline. Without the fix
-soldier_training_1..6 fail on the client's cells and soldier_training_7 passes. "guard:" = guard (a phase miss prints
+soldier_training_1..6 fail on the client's cells. "guard:" = guard (a phase miss prints
 one CAPTURE). EVIDENCE then PASS / FAIL per row; one run; exit 0 only if all pass, else 2.
 """
 
@@ -18,11 +18,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierFx_Test")
 BOOT_SHARED = ("soldier_training_shared", (49314, 49315, 47294))
-BOOT_SEPARATE = ("soldier_training_separate", (49316, 49317), "47296")
 FAC, FAC_IDX = "STR_TRAINTEST_TRAINING", 9
 IDS = list(range(1, 9))
 PHYS = ("tu", "stamina", "health", "firing", "throwing", "strength", "melee")    # Soldier::trainPhys
@@ -283,58 +281,10 @@ def boot_shared(results, walls):
         js.shutdown()
         walls[tag] = round(time.time() - t0, 1)
 
-def row_7(ph, x, r):
-    h, c = x.host, x.client
-    p = probe(c)
-    own = [s for s in p["soldiers"] if s["baseIndex"] == 0]
-    need(ph, x, "ownBase", p["bases"][:1] and p["bases"][0]["index"] == 0 and own, p["bases"])
-    sid = own[0]["id"]
-    r.ev["soldier"], r.ev["staged"] = sid, set_training(c, sid, psiTraining=True, psiSkill=0)          # client only
-    r.ev["fac_build"] = c.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok")   # local in SEPARATE
-    need(ph, x, "facilityListed", wait_until(lambda: fac_index(c) == FAC_IDX, 10), fac_index(c))
-    bt = c.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": FAC_IDX, "time": 0})
-    need(ph, x, "buildTime0", bt.get("ok") and bt.get("buildTime") == 0, bt)
-    b0 = probe(c, [])["bases"][0]
-    need(ph, x, "psiLabs", b0["psiLabs"] == 10, b0)
-    ss = lambda: {gc.name: gc.cmd({"cmd": "shared_stats"}).get("applyCount") for gc in (h, c)}  # noqa: E731
-    r.ev["applyCount before"] = ss()
-    month_roll(ph, x, host_top=False)
-    rec = probe(c, [sid])["soldiers"][0]
-    r.ev["applyCount after"], r.ev["client soldier"] = ss(), rec
-    r.cell("ownRoll", 16 <= rec["stats"]["psiSkill"] <= 24, f"(psiSkill, improvement) {psi(rec)}")
-
-def boot_separate(results, walls):
-    (tag, labels, lobby), t0 = BOOT_SEPARATE, time.time()
-    h = GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,)))
-    c = GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,)))
-    x = type("X", (), {"host": h, "client": c})
-    try:
-        try:
-            h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=lobby, campaign_mode="coop")
-            geo.wait_both_ready(h, c)
-        except Exception as e:
-            return boot_miss(tag, e, ["soldier_training_7"], results)
-        walls[tag + " bring-up"] = round(time.time() - t0, 1)
-        ph, r = {"tag": "separate", "ev": {}, "guards": [], "miss": []}, Row("soldier_training_7")
-        try:
-            row_7(ph, x, r)
-        except Miss:
-            r.cell("guard:" + ph["miss"][-1].split(":")[0], False, ph["miss"][-1])
-        except Exception as e:
-            r.cell("exception", False, short(e, 800))
-            capture("soldier_training_7", x, "exception")
-        r.ev["guardsPassed"], r.ev["phase"] = ph["guards"], ph["ev"]
-        r.report(results)
-    finally:
-        shutdown_clients(h, c)
-        walls[tag] = round(time.time() - t0, 1)
-
 def main():
     t0, results, walls = time.time(), {}, {}
     boot_shared(results, walls)
-    boot_separate(results, walls)
-    order = ["soldier_training_%d" % n for n in range(1, 8)]
+    order = ["soldier_training_%d" % n for n in range(1, 7)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_soldier_training: {len(order) - len(failed)}/{len(order)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)

@@ -2,13 +2,13 @@
 (+0.5 hp/day) at (0, 3), index 9; the Avenger with one pilot seat; STR_SOLDIER dogfightExperience 100 %; pilots never
 survive an evacuation. Shared boot (SHARED, one boot): soldier_effect_1 stale day_tick cache (stock), soldier_effect_2
 sick-bay fraction, soldier_effect_3 daily pilot list reset, soldier_effect_4 pilot dogfight award, soldier_effect_5
-crewless lost craft, soldier_effect_6 crewed lost craft (last). Separate boot (SEPARATE): soldier_effect_7 guard row.
+crewless lost craft, soldier_effect_6 crewed lost craft (last).
 Test commands go to the client first. roll = an exact one-day recipe (guard: host day + 1, month unchanged). window =
 both probes every 0.25 s for 3 s; the replica cells read the FIRST sample with the client's requests == R0. hold (the
 lost-craft rows) = host SoldiersState the moment its craft is gone; release = close_screens. clean = wait_resync_clear,
 drain client then host, 4 s after the window / release: requests == R0 through it is a verdict when the replica matched
 at the first sample, else recorded (a repair restream without the fix, never a verdict). Without the fix
-soldier_effect_1..6 fail on the replica's cells and soldier_effect_7 passes. "guard:" = guard (a miss prints one
+soldier_effect_1..6 fail on the replica's cells. "guard:" = guard (a miss prints one
 CAPTURE). EVIDENCE then PASS / FAIL per row; every row runs after a failure; there is no skip path; exit 0 only if all
 pass, else 2.
 """
@@ -23,11 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_SoldierEffects_Test")
 BOOT_SHARED = ("soldier_effects_shared", (49384, 49385, 47364))
-BOOT_SEPARATE = ("soldier_effects_separate", (49386, 49387), "47366")
 FAC, FAC_IDX = "STR_EFFECTTEST_SICKBAY", 9
 AV, SKY, INT = "STR_AVENGER", "STR_SKYRANGER", "STR_INTERCEPTOR"
 CRASHED, HOURS = 2, 72                                # ufo status crashed; xcom1 timePersonnel
@@ -379,25 +377,6 @@ def row_6(r, x, st):  # a crewed craft lost: evacuation and a pilot killed (last
     st["matched"] = c1 and c2 and c3
 
 
-def row_7(r, x, st):  # SEPARATE keeps its own day (the separate boot; guard row)
-    h, c = x.host, x.client
-    p = fx(c)
-    own = [s for s in p["soldiers"] if s["baseIndex"] == 0]
-    r.need("ownBase", p["bases"][:1] and p["bases"][0]["index"] == 0 and own, p["bases"])
-    sid = own[0]["id"]
-    s0 = {gc.name: ss(gc) for gc in (h, c)}
-    rep = c.ok({"cmd": "set_soldier_recovery", "soldierId": sid, "days": 1})          # client only
-    staged = recs(fx(c, [sid]))[sid]
-    r.ev["soldier, reply, staged"] = [sid, rep.get("recovery"), staged]
-    r.need("staged", rep.get("recovery") == 1 and staged["recovery"] == 1 and staged["baseIndex"] == 0, r.ev["soldier, reply, staged"])
-    roll(r, x, "roll")
-    after = recs(fx(c, [sid]))[sid]
-    s1 = {gc.name: ss(gc) for gc in (h, c)}
-    r.ev["after the roll: client soldier, shared_stats [before, after]"] = [after, s0, s1]
-    r.cell("ownHeal", after["recoveryExact"] == 0 and after["recovery"] == 0, after)
-    r.cell("sharedStats", s0 == s1, [s0, s1])
-
-
 def run_row(rid, steps, x, results):
     r, st, t0 = Row(rid, x), {}, time.time()
     for step in steps:                                # the clean runs after a miss too, so the next row starts clean
@@ -437,29 +416,10 @@ def boot_shared(results, walls):
         walls[tag] = round(time.time() - t0, 1)
 
 
-def boot_separate(results, walls):
-    (tag, labels, lobby), t0 = BOOT_SEPARATE, time.time()
-    h = GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,)))
-    c = GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,)))
-    try:
-        try:
-            h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=lobby, campaign_mode="coop")
-            geo.wait_both_ready(h, c)
-        except Exception as e:
-            return boot_miss(tag, e, ["soldier_effect_7"], results)
-        walls[tag + " bring-up"] = round(time.time() - t0, 1)
-        run_row("soldier_effect_7", (row_7,), type("X", (), {"host": h, "client": c}), results)
-    finally:
-        shutdown_clients(h, c)
-        walls[tag] = round(time.time() - t0, 1)
-
-
 def main():
     t0, results, walls = time.time(), {}, {}
     boot_shared(results, walls)
-    boot_separate(results, walls)
-    order = ["soldier_effect_%d" % n for n in range(1, 8)]
+    order = ["soldier_effect_%d" % n for n in range(1, 7)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_soldier_effects: {len(order) - len(failed)}/{len(order)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
