@@ -1,31 +1,42 @@
-"""W2-H83 S-A RBG (tools/coop_test/test_removed_base_ghost.py): a partner base removed while the receiver has its OWN base view open
-leaves no ghost marker (lead L-BH3 row G, ruling R-LBH3-1, veto line VL-H83-1; capture lbh3-cap F22265-F22267).
-Spec docs rewrite/prompts/w2h83_removed_base_views.md (common: rulings, R3, QH83-1 (a)) + rewrite/prompts/w2h83_sa_delete_paths.md (f) RBG;
-TASK 0 values in rewrite/w2h83-task0/sa/CONSTANTS.md. In a SEPARATE campaign the client's own base view moves every partner mirror into the
-process-wide stash; the host then dismantles the lift of its lift-only HostBase2; the client's delete_base handler searches only the live list,
-so leaving the view puts the HostBase2 mirror back (today). The green (EA1-EA4) deletes the stashed mirror in the handler and logs one line.
-ONE boot (key KEY, dirs w2h83_g_*, campaign_mode "coop"): spawn + connect; session.new_campaign; geo_set_speed idx 0 both; the window mapping
-per machine (real INTERCEPT + CANCEL). HB_ID = the host's first base id (mir(client) at boot).
-  Row G   host build_new_base HostBase2 at B2 (+ real GEOSCAPE); G_ID in mir(client); G-mark; client real BASES (its own base view; key 1 if
-          another base shows); the host dismantles HostBase2 (real BASES, key 2 if needed, the BaseView lift cell, DismantleFacilityState OK)
-          + real GEOSCAPE; DEL_SETTLE; client real GEOSCAPE; RT_SETTLE; read A; client CYCLE (INTERCEPT, CANCEL) + RT_SETTLE; read B; CLICK
-          (only if G_ID in mir(client) at B): a real globe click on its marker, watch W_OPEN, then (if a view opened) real GEOSCAPE.
-          G-pre (GUARD) HostBase2 in the host's own and in mir(client); the client's view shows its own base and no G_ID; the host's OK
-          reached, HostBase2 gone from its own; the client back on GeoscapeState.  G-a (FIX) no G_ID in mir(client) at A.  G-rt (FIX) none
-          at B.  G-open (FIX) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.  G-stash (FIX) the client's LINE(G_ID) since
-          G-mark: exactly 1, ending "stash=1".  G-mir (GUARD) HB_ID in mir(client) at B (the client keeps the host's first-base marker;
-          CONSTANTS.md F22520).
-  Row C   (G-ctl) host build_new_base HostBase3 at B3; C_ID; the client stays on its globe; C-mark; the host dismantles HostBase3; GONE = poll
-          mir(client) every 0.05 s for GONE_S from the host's OK click; host GEOSCAPE; client CYCLE; read.
-          C-pre (GUARD) HostBase3 in mir(client); the client's top GeoscapeState throughout; the host's OK reached.  C-gone (GUARD) no C_ID
-          in mir(client) within GONE_S of the OK click, and none after the client's CYCLE.
-  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today: G-a, G-rt, G-open, G-stash FAIL (4 of 9); every other cell PASS. Green (EA1-EA4): all 9 PASS.
-mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon, coopBase,
-lon, lat]. LINE(id) = engine-log lines holding "[coop] removed base: id=<id> cache=". Every press is a real click_widget or
-inject_input except the logged levers build_new_base and geo_set_speed. One EVIDENCE line per row, one PASS / FAIL line per cell, then the
-row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes on; a boot miss fails G-pre with
-ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+"""A partner base removed while the receiver has its OWN base view open leaves no ghost marker.
+In a SEPARATE campaign the client's own base view moves every partner mirror into the process-wide stash; the host then
+dismantles the lift of its lift-only HostBase2; without the fix the client's delete_base handler searches only the live
+list, so leaving the view puts the HostBase2 mirror back. The fix deletes the stashed mirror in the handler and logs
+one line.
+ONE boot (key KEY, dirs removed_base_ghost_*, campaign_mode "coop"): spawn + connect; session.new_campaign;
+geo_set_speed idx 0 both; the window mapping per machine (real INTERCEPT + CANCEL). HB_ID = the host's first base id
+(mir(client) at boot).
+  Row own_view_open
+          host build_new_base HostBase2 at BASE2_POS (+ real GEOSCAPE); BASE2_ID in mir(client); MARK; client real
+          BASES (its own base view; key 1 if another base shows); the host dismantles HostBase2 (real BASES, key 2 if
+          needed, the BaseView lift cell, DismantleFacilityState OK) + real GEOSCAPE; DEL_SETTLE; client real
+          GEOSCAPE; RT_SETTLE; read RETURNED; client CYCLE (INTERCEPT, CANCEL) + RT_SETTLE; read AFTER_CYCLE; CLICK
+          (only if BASE2_ID in mir(client) at AFTER_CYCLE): a real globe click on its marker, watch W_OPEN, then (if a
+          view opened) real GEOSCAPE.
+          own_view_open-pre (GUARD) HostBase2 in the host's own and in mir(client); the client's view shows its own
+          base and no BASE2_ID; the host's OK reached, HostBase2 gone from its own; the client back on GeoscapeState.
+          own_view_open-returned (FIX) no BASE2_ID in mir(client) at RETURNED.  own_view_open-after_cycle (FIX) none
+          at AFTER_CYCLE.  own_view_open-open (FIX) no CLICK, or no BasescapeState with insideCoopBase within W_OPEN.
+          own_view_open-stash (FIX) the client's LINE(BASE2_ID) since MARK: exactly 1, ending "stash=1".
+          own_view_open-first_base_kept (GUARD) HB_ID in mir(client) at AFTER_CYCLE (the client keeps the host's
+          first-base marker).
+  Row globe_open
+          (the control for own_view_open) host build_new_base HostBase3 at BASE3_POS; BASE3_ID; the client stays on
+          its globe; MARK; the host dismantles HostBase3; GONE = poll mir(client) every 0.05 s for GONE_S from the
+          host's OK click; host GEOSCAPE; client CYCLE; read.
+          globe_open-pre (GUARD) HostBase3 in mir(client); the client's top GeoscapeState throughout; the host's OK
+          reached.  globe_open-gone (GUARD) no BASE3_ID in mir(client) within GONE_S of the OK click, and none after
+          the client's CYCLE.
+  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until
+          their shutdown.
+Without the fix: own_view_open-returned, -after_cycle, -open and -stash FAIL (4 of 9); every other cell PASS. With the
+fix: all 9 PASS.
+mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name,
+coopIcon, coopBase, lon, lat]. LINE(id) = engine-log lines holding "[coop] removed base: id=<id> cache=". Every press
+is a real click_widget or inject_input except the logged test commands build_new_base and geo_set_speed. One EVIDENCE
+line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line,
+later cells "not reached") and the file goes on; a boot miss fails own_view_open-pre with ONE CAPTURE line. ONE
+foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_ghost.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -33,17 +44,20 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
-KEY = "49556"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 0014f9bf1)
-B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2: on land
-B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land
+KEY = "49556"                               # lobby key (unused by every other test file)
+BASE2_POS = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2: on land
+BASE3_POS = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_1, KEY_2, ZOOM_MIN, SYM_PLUS = 49, 50, 3, 43
 DEL_SETTLE, RT_SETTLE, GONE_S = 3.0, 3.0, 2.0
 W_OPEN, BOOT_S = 20.0, 60.0
 NEEDLE = "[coop] removed base: id=%s cache="
 LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "[coop-session]", "coop-ui] push", "coop-ui] pop")
-ROWS = (("G", ("G-pre", "G-a", "G-rt", "G-open", "G-stash", "G-mir")), ("C", ("C-pre", "C-gone")), ("END", ("CRASH",)))
-FIX = ("G-a", "G-rt", "G-open", "G-stash")
+ROWS = (("own_view_open",
+         ("own_view_open-pre", "own_view_open-returned", "own_view_open-after_cycle", "own_view_open-open",
+          "own_view_open-stash", "own_view_open-first_base_kept")),
+        ("globe_open", ("globe_open-pre", "globe_open-gone")), ("END", ("CRASH",)))
+FIX = ("own_view_open-returned", "own_view_open-after_cycle", "own_view_open-open", "own_view_open-stash")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -52,7 +66,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes and real input (copied from the capture docs rewrite/lbh3-cap/cap.py, never imported) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -195,8 +209,8 @@ def cycle(gc):
     must_click(gc, "CANCEL", 10)
     wait_top(gc, "GeoscapeState", 10)
 def build_base2(gc, name, pos):
-    """the harness base-build lever (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState -> PlaceLiftState, real states), then a
-    real GEOSCAPE from the new base's BasescapeState"""
+    """the harness base-build test command (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState ->
+    PlaceLiftState, real states), then a real GEOSCAPE from the new base's BasescapeState"""
     r = q(gc, {"cmd": "build_new_base", "lon": pos[0], "lat": pos[1], "name": name})
     if not r.get("ok"):
         raise Stop("build_new_base %s -> %s" % (name, r))
@@ -240,8 +254,8 @@ def capture(b):
 # ----- the boot and the rows -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h83_g_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h83_g_client"))
+        self.host = GameClient("host", None, make_user_dir("removed_base_ghost_host"))
+        self.client = GameClient("client", None, make_user_dir("removed_base_ghost_client"))
         self.sc = {}
 class Row:
     def __init__(self, x, b, rid):
@@ -285,19 +299,19 @@ def bring_up(b, st):
         raise Stop("boot: stacks %s / %s, host own %s, client own %s, client mirrors %s" % (
             p["host"]["stack"], p["client"]["stack"], own(p["host"]), own(p["client"]), mir(p["client"])))
     st["HB_ID"], st["CB"] = mir_ids(p["client"])[0], own(p["client"])[0][:2]
-def row_g(b, r, st):
+def row_own_view_open(b, r, st):
     h, c, ev = b.host, b.client, r.ev
     ev["ids"] = {"HB_ID": st["HB_ID"], "CB": st["CB"]}
-    ev["build"] = build_base2(h, "HostBase2", B2)
+    ev["build"] = build_base2(h, "HostBase2", BASE2_POS)
     ev["otherHasS"] = other_has(c, "HostBase2")
     time.sleep(1.0)
     p = both(b)
     g2 = [x for x in mir(p["client"]) if x[1] == "HostBase2"]
-    ev["G0"] = {"hostOwn": own(p["host"]), "clientMir": mir(p["client"])}
-    r.need(len(g2) == 1 and "HostBase2" in own_names(p["host"]), "G0: HostBase2 in the host's own %s and once in mir(client) %s" % (
-        own(p["host"]), mir(p["client"])))
-    st["G_ID"] = ev["ids"]["G_ID"] = g2[0][0]
-    mark = [len(logl(h)), len(logl(c))]  # G-mark
+    ev["afterBuild"] = {"hostOwn": own(p["host"]), "clientMir": mir(p["client"])}
+    r.need(len(g2) == 1 and "HostBase2" in own_names(p["host"]),
+           "afterBuild: HostBase2 in the host's own %s and once in mir(client) %s" % (own(p["host"]), mir(p["client"])))
+    st["BASE2_ID"] = ev["ids"]["BASE2_ID"] = g2[0][0]
+    mark = [len(logl(h)), len(logl(c))]  # MARK
     must_click(c, "BASES", 10)
     wait_top(c, "BasescapeState", 10)
     ev["key1"] = census(c)["selected"] != st["CB"][1]
@@ -307,8 +321,10 @@ def row_g(b, r, st):
     time.sleep(1.0)
     v = census(c)
     ev["view"] = {"stack": v["stack"], "selected": v["selected"], "bases": v["bases"]}
-    r.need(v["stack"][-1:] == ["BasescapeState"] and v["selected"] == st["CB"][1] and st["G_ID"] not in [x[0] for x in v["bases"]],
-           "G view: the client's view %s shows %r with bases %s (want its own %r, no G_ID)" % (v["stack"], v["selected"], v["bases"], st["CB"][1]))
+    r.need(v["stack"][-1:] == ["BasescapeState"] and v["selected"] == st["CB"][1]
+           and st["BASE2_ID"] not in [x[0] for x in v["bases"]],
+           "own_view_open view: the client's view %s shows %r with bases %s (want its own %r, no BASE2_ID)"
+           % (v["stack"], v["selected"], v["bases"], st["CB"][1]))
     ev["dismantle"] = dismantle(h, b.sc["host"], "HostBase2")
     must_click(h, "GEOSCAPE", 10)
     wait_top(h, "GeoscapeState", 15)
@@ -320,17 +336,18 @@ def row_g(b, r, st):
     wait_top(c, "GeoscapeState", 10)
     ev["rtSettleA"] = settle(c, RT_SETTLE)
     a = census(c)
-    ev["A"] = a["bases"]
+    ev["RETURNED"] = a["bases"]
     r.need(a["stack"] == ["GeoscapeState"], "the client not back on GeoscapeState: %s" % a["stack"])
-    r.cell("G-pre", True, "HostBase2 %s built and mirrored; the client's view showed %r only; the host's OK reached (own after %s); client %s" % (
-        st["G_ID"], v["selected"], [x[1] for x in ev["hostAfter"]], a["stack"]))
+    r.cell("own_view_open-pre", True,
+           "HostBase2 %s built and mirrored; the client's view showed %r only; the host's OK reached (own after %s); "
+           "client %s" % (st["BASE2_ID"], v["selected"], [x[1] for x in ev["hostAfter"]], a["stack"]))
     cycle(c)
     ev["rtSettleB"] = settle(c, RT_SETTLE)
     bb = census(c)
-    ev["B"] = bb["bases"]
+    ev["AFTER_CYCLE"] = bb["bases"]
     ev["click"] = None
-    if st["G_ID"] in mir_ids(bb):
-        gh = [x for x in mir(bb) if x[0] == st["G_ID"]][0]
+    if st["BASE2_ID"] in mir_ids(bb):
+        gh = [x for x in mir(bb) if x[0] == st["BASE2_ID"]][0]
         mk = click_marker(c, b.sc["client"], gh[4], gh[5], "HostBase2")
         w = watch(b, W_OPEN, lambda: top(c) == "BasescapeState" and coop(c).get("insideCoopBase") is True)
         opened = top(c) == "BasescapeState" and coop(c).get("insideCoopBase") is True
@@ -341,34 +358,42 @@ def row_g(b, r, st):
             ev["click"]["back"] = wait(lambda: top(c) == "GeoscapeState", 30, 0.25)
             time.sleep(2.0)
             ev["click"]["after"] = census(c)["bases"]
-    ln = ev["lines"] = {"client": hits(c, NEEDLE % st["G_ID"], mark[1]), "host": hits(h, NEEDLE % st["G_ID"], mark[0])}
+    ln = ev["lines"] = {"client": hits(c, NEEDLE % st["BASE2_ID"], mark[1]),
+                        "host": hits(h, NEEDLE % st["BASE2_ID"], mark[0])}
     ma, mb = mir_ids(a), mir_ids(bb)
-    r.cell("G-a", st["G_ID"] not in ma, "mir(client) at A %s; G_ID %s (want absent)" % (ma, st["G_ID"]))
-    r.cell("G-rt", st["G_ID"] not in mb, "mir(client) at B %s; G_ID %s (want absent)" % (mb, st["G_ID"]))
+    r.cell("own_view_open-returned", st["BASE2_ID"] not in ma, "mir(client) at RETURNED %s; BASE2_ID %s (want absent)"
+           % (ma, st["BASE2_ID"]))
+    r.cell("own_view_open-after_cycle", st["BASE2_ID"] not in mb,
+           "mir(client) at AFTER_CYCLE %s; BASE2_ID %s (want absent)" % (mb, st["BASE2_ID"]))
     ck = ev["click"]
-    r.cell("G-open", ck is None or not ck["opened"], "no CLICK (no ghost at B)" if ck is None else "CLICK opened %s: selectedBase %r, view %s" % (
-        ck["opened"], ck["selected"], ck["viewBases"]))
-    r.cell("G-stash", len(ln["client"]) == 1 and ln["client"][0][1].endswith("stash=1"),
-           "the client's LINE(%s) since G-mark: %d %s (want exactly 1 ending stash=1)" % (st["G_ID"], len(ln["client"]), ln["client"]))
-    r.cell("G-mir", st["HB_ID"] in mb, "mir(client) at B %s; HB_ID %s (want present)" % (mb, st["HB_ID"]))
-def row_c(b, r, st):
+    r.cell("own_view_open-open", ck is None or not ck["opened"],
+           "no CLICK (no ghost at AFTER_CYCLE)" if ck is None else "CLICK opened %s: selectedBase %r, view %s" % (
+               ck["opened"], ck["selected"], ck["viewBases"]))
+    r.cell("own_view_open-stash", len(ln["client"]) == 1 and ln["client"][0][1].endswith("stash=1"),
+           "the client's LINE(%s) since MARK: %d %s (want exactly 1 ending stash=1)"
+           % (st["BASE2_ID"], len(ln["client"]), ln["client"]))
+    r.cell("own_view_open-first_base_kept", st["HB_ID"] in mb, "mir(client) at AFTER_CYCLE %s; HB_ID %s (want present)"
+           % (mb, st["HB_ID"]))
+def row_globe_open(b, r, st):
     h, c, ev = b.host, b.client, r.ev
-    ev["build"] = build_base2(h, "HostBase3", B3)
+    ev["build"] = build_base2(h, "HostBase3", BASE3_POS)
     ev["otherHasS"] = other_has(c, "HostBase3")
     time.sleep(1.0)
     p = both(b)
     g3 = [x for x in mir(p["client"]) if x[1] == "HostBase3"]
-    ev["C0"] = {"hostOwn": own(p["host"]), "clientMir": mir(p["client"]), "clientStack": p["client"]["stack"]}
-    r.need(len(g3) == 1 and p["client"]["stack"] == ["GeoscapeState"], "C0: mir(client) %s, client %s (want HostBase3 once, GeoscapeState)" % (
-        mir(p["client"]), p["client"]["stack"]))
-    st["C_ID"] = ev["C_ID"] = g3[0][0]
+    ev["afterSecondBuild"] = {"hostOwn": own(p["host"]), "clientMir": mir(p["client"]),
+                              "clientStack": p["client"]["stack"]}
+    r.need(len(g3) == 1 and p["client"]["stack"] == ["GeoscapeState"],
+           "afterSecondBuild: mir(client) %s, client %s (want HostBase3 once, GeoscapeState)" % (
+               mir(p["client"]), p["client"]["stack"]))
+    st["BASE3_ID"] = ev["BASE3_ID"] = g3[0][0]
     tops = [p["client"]["stack"][-1]]
 
     def gone_poll(tc):
         tr, at = [], None
         while time.time() - tc < GONE_S:
             g, tt = census(c), round(time.time() - tc, 3)
-            e = [st["C_ID"] in mir_ids(g), g["stack"][-1]]
+            e = [st["BASE3_ID"] in mir_ids(g), g["stack"][-1]]
             tops.append(e[1])
             if not tr or tr[-1][1:] != e:
                 tr.append([tt] + e)
@@ -385,9 +410,11 @@ def row_c(b, r, st):
     a = census(c)
     ev["after"] = a["bases"]
     gone = d["during"]
-    r.cell("C-pre", all(t == "GeoscapeState" for t in tops), "HostBase3 %s in mir(client); the client's tops %s; the host's OK reached" % (
-        st["C_ID"], sorted(set(tops))))
-    r.cell("C-gone", gone["goneAt"] is not None and not gone["trace"][-1][1] and st["C_ID"] not in mir_ids(a),
+    r.cell("globe_open-pre", all(t == "GeoscapeState" for t in tops),
+           "HostBase3 %s in mir(client); the client's tops %s; the host's OK reached"
+           % (st["BASE3_ID"], sorted(set(tops))))
+    r.cell("globe_open-gone", gone["goneAt"] is not None and not gone["trace"][-1][1]
+           and st["BASE3_ID"] not in mir_ids(a),
            "GONE trace %s (gone at +%s s of the OK); mir(client) after the CYCLE %s" % (gone["trace"], gone["goneAt"], mir_ids(a)))
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
@@ -407,14 +434,14 @@ def main():
         b = Boot()
         try:
             bring_up(b, st)
-        except Exception as e:  # noqa: BLE001 - a boot miss fails G-pre with ONE CAPTURE line
-            r = Row(x, b, "G")
+        except Exception as e:  # noqa: BLE001 - a boot miss fails own_view_open-pre with ONE CAPTURE line
+            r = Row(x, b, "own_view_open")
             r.ev["boot"] = st.get("boot")
             r.finish("boot miss: %s: %s" % (type(e).__name__, str(e)[:300]))
-            Row(x, None, "C").finish("boot miss", capture_it=False)
+            Row(x, None, "globe_open").finish("boot miss", capture_it=False)
         else:
-            run_row(x, b, "G", row_g, st)
-            run_row(x, b, "C", row_c, st)
+            run_row(x, b, "own_view_open", row_own_view_open, st)
+            run_row(x, b, "globe_open", row_globe_open, st)
     finally:
         for gc in ((b.client, b.host) if b else ()):
             x.alive.append([gc.name, alive(gc)])
@@ -430,8 +457,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H83 S-A RBG: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                              sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_removed_base_ghost: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
