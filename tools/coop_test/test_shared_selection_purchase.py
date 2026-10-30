@@ -1,85 +1,83 @@
 """test_shared_selection_purchase.py: in a SHARED campaign the Purchase/Hire screen joins the shared
-selection the Sell, Transfer and Alien Containment screens use since S-C-E1 / S-C-E2 (owner D242 (b), D184 (a), D203,
-D204 (a), D243; MR8, MR10): two players on the Purchase screen of the same base edit ONE list of pending amounts, the
-label naming the other player sits above OK/Cancel and the rows the other player changed last are drawn in the
-screen's highlight colour, whoever confirms buys the list as the host holds it (a confirm racing an edit is let
-through), a second confirm of the same list counts as done, a refused purchase keeps the screen and the list, another
-player's purchase no longer wipes an order being built, and the Purchase screen opened from "not enough equipment to
-re-equip" shares its own list whose purchase lowers the missing counts on both machines (docs
-rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-9: PR-54..PR-63; Q-P9-1..Q-P9-3 (a)).
+selection the Sell, Transfer and Alien Containment screens use: two players on the Purchase screen of the same base
+edit ONE list of pending amounts, the label naming the other player sits above OK/Cancel and the rows the other
+player changed last are drawn in the screen's highlight colour, whoever confirms buys the list as the host holds it
+(a confirm racing an edit is let through), a second confirm of the same list counts as done, a refused purchase
+keeps the screen and the list, another player's purchase no longer wipes an order being built, and the Purchase
+screen opened from "not enough equipment to re-equip" shares its own list whose purchase lowers the missing counts
+on both machines.
 
-Before S-C-E3: each machine's Purchase screen keeps its own amounts - the other
+Without the shared list, each machine's Purchase screen keeps its own amounts - the other
 player never sees them, the store (sel_state) holds no buy key, a confirm sends the confirmer's own list and closes
 the screen before the host answers, a rebuild after any world change resets every amount to 0, and the SHARED
 reequip Purchase never lowers the missing counts.
 
-Fixtures (AMENDMENT P7-9 section 4; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
-FAILs "pre-cell"):
-  BUY = shared_fixture.bring_up(tag, (0, 0, "47321")), geoscape only; X = STR_RIFLE ($3,000), Y = STR_PISTOL ($800),
-        S = STR_SOLDIER ($40,000) (xcom1 items.rul / soldiers.rul costBuy). Pre-cell: both machines' funds equal
-        (funds0), base 0's base_report free quarters (availableQuarters - usedQuarters) >= 2 on both, the roster
-        names (save_markers.coopPlayers, seat 0 = the host). Each row turns every hold off, dismisses any box
-        (ErrorMessageState / CoopState only, F4333), cancels every Purchase screen with its real Cancel (both back on
+Fixtures (a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot FAILs "pre-cell"):
+  buy_screen = shared_fixture.bring_up(tag, (0, 0, "47321")), geoscape only; X = STR_RIFLE ($3,000), Y = STR_PISTOL
+        ($800), S = STR_SOLDIER ($40,000) (xcom1 items.rul / soldiers.rul costBuy). Pre-cell: both machines' funds
+        equal (funds0), base 0's base_report free quarters (availableQuarters - usedQuarters) >= 2 on both, the
+        roster names (save_markers.coopPlayers, seat 0 = the host). Each row turns every hold off, dismisses any box
+        (ErrorMessageState / CoopState only), cancels every Purchase screen with its real Cancel (both back on
         GeoscapeState), restores funds0 on both (client first) when they moved, then opens open_screen {screen:
         "purchase"} on both (host first; the REAL screen, its init() binds it, key buy|n|0|) and waits one pump after
         its rows show (a Purchase list is built in the constructor, so screen_rows.screen does not prove init() ran).
         No row reads base stock: a purchase adds transfers, so rows assert incoming_transfers deltas (no give_items).
-  REQ = shared_fixture.bring_up(tag, (0, 0, "47322")); pre-cell: screen_push {screen: "cannot_reequip", base: 0,
-        missing: [{STR_RIFLE, 3, "SKYRANGER-1"}, {STR_PISTOL, 2, "SKYRANGER-1"}]} on both (client first; vanilla's
-        own push, CraftEquipmentState :1230), both tops CannotReequipState with equal followup_state rows; key
-        buy|r|0| (its Purchase opens from click_widget PURCHASE/RECRUIT).
-  Probes / levers: screen_rows / screen_set_amount on a top PurchaseState (PR-63 (i): columns name, cost, stock,
-  amount - read here with the test-local prow_of; textItems, rows[i].color, secondaryColor, highlightColor from
-  "buyMenu"), screen_state.funds (the constructor-time funds text: a change proves a rebuild), sel_state (PR-46),
-  incoming_transfers (+ soldierOwners, scientists, engineers, PR-63 (iii)), screen_push {cannot_reequip} (PR-63
-  (ii)), followup_state, list_widgets (E2.1b's geometry), set_funds (both, client first), the host's `buy` lever
-  (unbound: never opens a selection, applied as sent, PR-56 (iv), P9-6), shared_update_defer {on} (a "hold",
-  released within HOLD_MAX_S of the other machine's world change, F4529 / F5840), click_widget on the real captions
-  (OK, Cancel, PURCHASE/RECRUIT, F6641), coop_dialog_back ONLY on a CoopState top, dismiss_popup ONLY on an
-  ErrorMessageState top.
+  reequip_screen = shared_fixture.bring_up(tag, (0, 0, "47322")); pre-cell: screen_push {screen: "cannot_reequip",
+        base: 0, missing: [{STR_RIFLE, 3, "SKYRANGER-1"}, {STR_PISTOL, 2, "SKYRANGER-1"}]} on both (client first;
+        vanilla's own push, CraftEquipmentState :1230), both tops CannotReequipState with equal followup_state rows;
+        key buy|r|0| (its Purchase opens from click_widget PURCHASE/RECRUIT).
+  Probes / test commands: screen_rows / screen_set_amount on a top PurchaseState (columns name, cost, stock, amount -
+  read here with the test-local prow_of; textItems, rows[i].color, secondaryColor, highlightColor from "buyMenu"),
+  screen_state.funds (the constructor-time funds text: a change proves a rebuild), sel_state, incoming_transfers
+  (+ soldierOwners, scientists, engineers), screen_push {cannot_reequip}, followup_state, list_widgets (the screen
+  geometry), set_funds (both, client first), the host's `buy` test command (unbound: never opens a selection,
+  applied as sent), shared_update_defer {on} (a "hold", released within HOLD_MAX_S of the other machine's world
+  change), click_widget on the real captions (OK, Cancel, PURCHASE/RECRUIT), coop_dialog_back ONLY on a CoopState
+  top, dismiss_popup ONLY on an ErrorMessageState top.
 
-Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot BUY (port 47321): P-a, P-k, P-l, P-e, P-c, P-d, P-r, P-h.
-  P-a (1) client X = 3 -> the host's X amount 3 within SEL_S.
+Rows (cells checked in order; a failed cell ends its row and the rest are reported "not reached"):
+  Boot buy_screen (port 47321): amounts_shared, edit_highlight, label_and_list_height, rebuild_keeps_amounts,
+  confirm_buys_host_list, duplicate_confirm, refused_purchase_kept, hire_owner.
+  amounts_shared (1) client X = 3 -> the host's X amount 3 within SEL_S.
       (2) host Y = 2 -> the client's Y amount 2 within SEL_S.
       (3) sel_state buy|n|0| on both: rows {i:STR_RIFLE: 3, i:STR_PISTOL: 2}, equal rev, viewers [0, 1]; both
           screens' "Cost of Purchases" texts equal.
-  P-k (D203, V-P5) (1) client X = 2: on the host X's color == highlightColor within SEL_S; on the client X's color
+  edit_highlight (1) client X = 2: on the host X's color == highlightColor within SEL_S; on the client X's color
           == secondaryColor.
       (2) host Y = 1: on the client Y's color == highlightColor within SEL_S.
       (3) host OK: its PurchaseState gone within PAGE_S; the client's top stays PurchaseState, rebuilt
           (screen_state.funds changed), no row in highlightColor, every amount 0, the label hidden within SCREEN_S.
-  P-l (D243 by analogy, V-P4; list_widgets on the top state)
+  label_and_list_height (the Sell screen's label layout; list_widgets on the top state)
       (1) both screens show a VISIBLE label "Also on this screen: <the other's roster name>" whose rect lies between
           the list's bottom and the Cancel button's top, within SEL_S.
       (2) on both the list is exactly one text row shorter than vanilla's 120-px list (PURCHASE_LIST_H - ROW_H).
       (3) client Cancel: the host's label hidden within SEL_S, its list height unchanged.
-  P-e (F2161, V-P6) (1) client X = 3, Y = 2 (local check only).
-      (2) the host's `buy {STR_GRENADE, 1}` (the lever): the client's top stays PurchaseState, rebuilt (screen_state.
-          funds changed), its X 3 and Y 2 survive.
+  rebuild_keeps_amounts (1) client X = 3, Y = 2 (local check only).
+      (2) the host's `buy {STR_GRENADE, 1}` (the test command): the client's top stays PurchaseState, rebuilt
+          (screen_state.funds changed), its X 3 and Y 2 survive.
       (3) the host's X 3 and Y 2.
-  P-c (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it (EVIDENCE only, never a
-          failed cell); host hold on; host X = 5; client OK.
+  confirm_buys_host_list (1) client X = 1, then a wait of up to SEL_S for the host's sel_state to show it (EVIDENCE
+          only, never a failed cell); host hold on; host X = 5; client OK.
       (2) host hold off: within PAGE_S the client's PurchaseState gone, no CoopState on either;
-          incoming_transfers.items[STR_RIFLE] == before + 5 on both (D203: the host applies its current list); the
+          incoming_transfers.items[STR_RIFLE] == before + 5 on both (the host applies its current list); the
           host's top PurchaseState rebuilt (funds changed), every amount 0.
-  P-d (MR8) (1) client X = 2; host screen_set_amount {X, 2} (no change when shared); client hold on; host OK -> the
-          host's PurchaseState gone within PAGE_S.
+  duplicate_confirm (1) client X = 2; host screen_set_amount {X, 2} (no change when shared); client hold on; host
+          OK -> the host's PurchaseState gone within PAGE_S.
       (2) client OK; client hold off: within PAGE_S its PurchaseState gone, no CoopState on either, incoming X ==
           before + 2 on both (one purchase), the client's shared_stats.lastFail == coop_sel_dup.
-  P-r (MR10, Q-P9-2 (a), V-P1) (1) client X = 4 (local); set_funds {1000} on both (client first); client OK: within
+  refused_purchase_kept (1) client X = 4 (local); set_funds {1000} on both (client first); client OK: within
           PAGE_S the client's top CoopState (556) with PurchaseState directly under it; sel_state buy|n|0| rows
           {i:STR_RIFLE: 4}, rev unchanged by the refusal, on both.
       (2) coop_dialog_back; funds0 restored on both; client OK: within PAGE_S its PurchaseState gone; incoming X ==
           before + 4 on both; the host's PurchaseState rebuilt (funds changed), every amount 0.
-  P-h (OWNER?-P9-1 = D254 (b)) (1) client S = 1, host X = 1 -> the host's S amount 1 within SEL_S; sel_state
-          buy|n|0| rows {h:STR_SOLDIER: 1, i:STR_RIFLE: 1}, editors {h:STR_SOLDIER: 1, i:STR_RIFLE: 0} on both.
+  hire_owner (1) client S = 1, host X = 1 -> the host's S amount 1 within SEL_S; sel_state buy|n|0| rows
+          {h:STR_SOLDIER: 1, i:STR_RIFLE: 1}, editors {h:STR_SOLDIER: 1, i:STR_RIFLE: 0} on both.
       (2) host OK: its PurchaseState gone within PAGE_S; incoming soldiers == before + 1 and X == before + 1 on both
           within EQUAL_S; the client's screen rebuilt (funds changed), every amount 0; the new soldierOwners entry ==
-          HIRE_OWNER (1, the client who set the Soldier row) on both within EQUAL_S (D254 (b), S32 commit E3.1b).
-  Boot REQ (port 47322): P-q.
-  P-q (Q-P9-3 (a), V-P3) (1) client PURCHASE/RECRUIT: its top PurchaseState with X 3, Y 2 (vanilla's pre-fill) and
-          the host's sel_state buy|r|0| rows {i:STR_RIFLE: 3, i:STR_PISTOL: 2} within SEL_S; client Y = 0.
+          HIRE_OWNER (1, the client who set the Soldier row) on both within EQUAL_S.
+  Boot reequip_screen (port 47322): reequip_shared.
+  reequip_shared (1) client PURCHASE/RECRUIT: its top PurchaseState with X 3, Y 2 (vanilla's pre-fill) and the
+          host's sel_state buy|r|0| rows {i:STR_RIFLE: 3, i:STR_PISTOL: 2} within SEL_S; client Y = 0.
       (2) host PURCHASE/RECRUIT: its X 3 and Y 0 (adopted, not its own pre-fill) within SEL_S; sel_state buy|r|0|
           viewers [0, 1] on both.
       (3) host OK: its PurchaseState gone, top CannotReequipState, followup_state rows [["Pistol", "2",
@@ -88,12 +86,12 @@ Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest
       (4) client Cancel: its top CannotReequipState with the same rows.
 Guard on every row: no new crash log; the client zero-disk at each boot's end.
 
-RED (commit S-C-E3.1: the Purchase probe, the reequip lever, the hire owners; product untouched): P-a, P-h fail on
-cell 1 (the host's amount stays 0), P-k on cell 1 (the host's X is not drawn in highlightColor), P-l on cell 1 (no
-label), P-e on cell 2 (the client's rebuilt amounts are 0), P-c on cell 2 (X before + 1: the client's own list was
-bought), P-d on cell 2 (X before + 4: two purchases), P-r on cell 1 (the client's screen closed before the refusal:
-no PurchaseState under the box), P-q on cell 1 (the host's sel_state holds no buy|r|0| key). GREEN (commit
-S-C-E3.2): every row passes.
+Without the shared list: amounts_shared and hire_owner fail on cell 1 (the host's amount stays 0), edit_highlight
+on cell 1 (the host's X is not drawn in highlightColor), label_and_list_height on cell 1 (no label),
+rebuild_keeps_amounts on cell 2 (the client's rebuilt amounts are 0), confirm_buys_host_list on cell 2 (X before +
+1: the client's own list was bought), duplicate_confirm on cell 2 (X before + 4: two purchases),
+refused_purchase_kept on cell 1 (the client's screen closed before the refusal: no PurchaseState under the box),
+reequip_shared on cell 1 (the host's sel_state holds no buy|r|0| key).
 Each row prints ONE "EVIDENCE <id>:" line (both machines' sel_state, screen and incoming transfers at the row's end),
 then "PASS <id>" or "FAIL <id>: <message>". ONE foreground run, no skip path; exit 0 only when every
 row passes, 2 otherwise.
@@ -110,36 +108,37 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session
 import shared_fixture
 import test_shared_forced_storage as fst
-import test_shared_selection as e1
+import test_shared_selection as selection
 import test_shared_selection_screens as scr
 import test_shared_selection_presence as pres
 
-# ----- pins -----
+# ----- fixture values -----
 X, Y, S = "STR_RIFLE", "STR_PISTOL", "STR_SOLDIER"   # xcom1 costBuy 3000 / 800 / 40000 (items.rul, soldiers.rul)
-GRENADE = "STR_GRENADE"                  # P-e's lever purchase (xcom1 costBuy 300)
-BUY_KEY = "buy|n|0|"                     # SharedEcon::buyKey(base 0, normal) (P7-9 PR-54)
-REQ_KEY = "buy|r|0|"                     # SharedEcon::buyKey(base 0, reequip) (P7-9 PR-54, PR-61)
-BOOT_PORT = {"BUY": "47321", "REQ": "47322"}
+GRENADE = "STR_GRENADE"                  # rebuild_keeps_amounts' test-command purchase (xcom1 costBuy 300)
+BUY_KEY = "buy|n|0|"                     # SharedEcon::buyKey(base 0, normal)
+REQ_KEY = "buy|r|0|"                     # SharedEcon::buyKey(base 0, reequip)
+BOOT_PORT = {"buy_screen": "47321", "reequip_screen": "47322"}
 OK, CANCEL = "OK", "Cancel"              # PurchaseState's captions (xcom1 en-US STR_OK / STR_CANCEL)
-PURCHASE_RECRUIT = "PURCHASE/RECRUIT"    # CannotReequipState's button (xcom1 en-US STR_PURCHASE_RECRUIT, F6641)
-P_C_CLIENT, P_C_HOST = 1, 5              # P7-9 section 4 P-c's amounts
-P_R_SET, P_R_FUNDS = 4, 1000             # P7-9 section 4 P-r: 4 x $3,000 > $1,000
-SEL_DUP = e1.SEL_DUP                     # "coop_sel_dup" (PR-45: a duplicate confirm, answered as a success)
+PURCHASE_RECRUIT = "PURCHASE/RECRUIT"    # CannotReequipState's button (xcom1 en-US STR_PURCHASE_RECRUIT)
+CONFIRM_CLIENT, CONFIRM_HOST = 1, 5      # confirm_buys_host_list's amounts
+REFUSED_SET, REFUSED_FUNDS = 4, 1000     # refused_purchase_kept: 4 x $3,000 > $1,000
+SEL_DUP = selection.SEL_DUP              # "coop_sel_dup" (a duplicate confirm, answered as a success)
 SHARED_FAIL = scr.SHARED_FAIL            # 556 = CoopState COOP_DLG_SHARED_FAIL
-MIN_FREE_QUARTERS = 2                    # BUY pre-cell (P-h hires one soldier)
+MIN_FREE_QUARTERS = 2                    # buy_screen pre-cell (hire_owner hires one soldier)
 REQ_CRAFT = "SKYRANGER-1"
 REQ_MISSING = [{"item": X, "qty": 3, "craft": REQ_CRAFT}, {"item": Y, "qty": 2, "craft": REQ_CRAFT}]
-REQ_AFTER = [["Pistol", "2", REQ_CRAFT]]   # P-q (3): the rifles bought, the pistols still missing (xcom1 en-US STR_PISTOL)
-HIRE_OWNER = 1                           # D254 (b) (OWNER?-P9-1): the client set the Soldier row: seat 1 owns the hire
+REQ_AFTER = [["Pistol", "2", REQ_CRAFT]]   # reequip_shared (3): the rifles bought, the pistols still missing
+                                           # (xcom1 en-US STR_PISTOL)
+HIRE_OWNER = 1                           # the client set the Soldier row: seat 1 owns the hire
 ROW_H = scr.ROW_H                        # 8 px: one small-font text row (TextList::updateVisible)
-PURCHASE_LIST_H = 120                    # PurchaseState :111 TextList(287, 120, 8, 54) (F6630: Sell's geometry)
-SHARED_PURCHASE_LIST_H = PURCHASE_LIST_H - ROW_H   # D243 by analogy (V-P4): one text row shorter in SHARED
+PURCHASE_LIST_H = 120                    # PurchaseState :111 TextList(287, 120, 8, 54) (Sell's geometry)
+SHARED_PURCHASE_LIST_H = PURCHASE_LIST_H - ROW_H   # as on Sell: one text row shorter in SHARED
 SETTLE_S = 0.2                           # one pump after a Purchase list shows: its init() runs after the push
-SEL_S = e1.SEL_S                         # 3 s: a cross-machine amount
-PAGE_S = e1.PAGE_S                       # 5 s: a screen push / close after a real click or a release
-ANSWER_S = e1.ANSWER_S                   # 2.5 s
-SCREEN_S = e1.SCREEN_S                   # 10 s
-EQUAL_S = e1.EQUAL_S                     # 10 s: a shared_apply's effect may lag one round trip
+SEL_S = selection.SEL_S                         # 3 s: a cross-machine amount
+PAGE_S = selection.PAGE_S                       # 5 s: a screen push / close after a real click or a release
+ANSWER_S = selection.ANSWER_S                   # 2.5 s
+SCREEN_S = selection.SCREEN_S                   # 10 s
+EQUAL_S = selection.EQUAL_S                     # 10 s: a shared_apply's effect may lag one round trip
 
 
 class FixtureMiss(scr.FixtureMiss):
@@ -157,23 +156,23 @@ def short(e, n=400):
 
 
 def stack(gc):
-    return e1.stack(gc)
+    return selection.stack(gc)
 
 
 def top(gc):
-    return e1.top(gc)
+    return selection.top(gc)
 
 
 def wait_until(pred, timeout, interval=0.2):
-    return e1.wait_until(pred, timeout, interval)
+    return selection.wait_until(pred, timeout, interval)
 
 
 def poll(fn, timeout, interval=0.2):
-    return e1.poll(fn, timeout, interval)
+    return selection.poll(fn, timeout, interval)
 
 
 def rows(gc, **kw):
-    return e1.rows(gc, **kw)
+    return selection.rows(gc, **kw)
 
 
 def as_int(s):
@@ -253,17 +252,17 @@ def purchase_ready(gc):
 
 
 def sel(gc, key):
-    return e1.sel(gc, key)
+    return selection.sel(gc, key)
 
 
 def sel_rows(gc, key):
-    return e1.sel_rows(gc, key)
+    return selection.sel_rows(gc, key)
 
 
 def view(gc):
     """One machine's end-of-row state for the EVIDENCE line."""
     r = rows(gc)
-    v = {"stack": stack(gc), "sel": e1.sel_all(gc), "shared": fst.sstats(gc), "incoming": incoming(gc),
+    v = {"stack": stack(gc), "sel": selection.sel_all(gc), "shared": fst.sstats(gc), "incoming": incoming(gc),
          "screen": {"state": r.get("state")}}
     if r.get("state") == "PurchaseState":
         v["screen"].update({"amounts": {k: a for k, a in pamounts(r).items() if a}, "funds": funds_text(gc),
@@ -283,7 +282,8 @@ def capture(name, err, machines):
     cap = {}
     for gc in machines:
         try:
-            cap[gc.name] = {"stack": stack(gc), "sel": e1.sel_all(gc), "screen": rows(gc), "funds": scr.funds(gc),
+            cap[gc.name] = {"stack": stack(gc), "sel": selection.sel_all(gc), "screen": rows(gc),
+                            "funds": scr.funds(gc),
                             "screenFunds": funds_text(gc), "incoming": incoming(gc), "followup": followup(gc),
                             "shared": fst.sstats(gc), "dialog": scr.dialog(gc)}
         except Exception as e:
@@ -296,7 +296,8 @@ def capture(name, err, machines):
 
 
 def buy_pre(js, ctx):
-    """BUY pre-cell: funds0 equal on both, base 0's free quarters >= MIN_FREE_QUARTERS on both, the roster names."""
+    """buy_screen pre-cell: funds0 equal on both, base 0's free quarters >= MIN_FREE_QUARTERS on both, the roster
+    names."""
     host, client = js.host, js.client
     m = (host, client)
     ctx["names"] = scr.roster_names(host)
@@ -309,13 +310,13 @@ def buy_pre(js, ctx):
     free = {n: (v.get("availableQuarters") or 0) - (v.get("usedQuarters") or 0) for n, v in q.items()}
     if (len(ctx["names"]) != 2 or ctx["funds0"]["host"] is None or ctx["funds0"]["host"] != ctx["funds0"]["client"]
             or not all(f >= MIN_FREE_QUARTERS for f in free.values())):
-        capture("BUY pre-cell", f"coopPlayers {ctx['names']} (want 2), funds {ctx['funds0']} (want equal), free "
+        capture("buy_screen pre-cell", f"coopPlayers {ctx['names']} (want 2), funds {ctx['funds0']} (want equal), free "
                 f"quarters {free} (want >= {MIN_FREE_QUARTERS} on both)", m)
 
 
 def req_pre(js, ctx):
-    """REQ pre-cell: screen_push {cannot_reequip} on both (client first); both tops CannotReequipState with equal
-    followup_state rows; the roster names and funds0."""
+    """reequip_screen pre-cell: screen_push {cannot_reequip} on both (client first); both tops CannotReequipState
+    with equal followup_state rows; the roster names and funds0."""
     host, client = js.host, js.client
     m = (host, client)
     ctx["names"] = scr.roster_names(host)
@@ -330,15 +331,16 @@ def req_pre(js, ctx):
     ctx["reequip"] = {"push": pushed, "up": ok, "secs": secs, "followup": fu}
     if not (ok and all(v.get("isTop") is True and v.get("rows") for v in fu.values())
             and fu["host"].get("rows") == fu["client"].get("rows")):
-        capture("REQ pre-cell", f"screen_push cannot_reequip {pushed}; tops CannotReequipState {ok}; followup_state "
+        capture("reequip_screen pre-cell",
+                f"screen_push cannot_reequip {pushed}; tops CannotReequipState {ok}; followup_state "
                 f"{fu} (want equal, non-empty rows on both)", m)
 
 
 def hygiene(host, client, ctx):
-    """Holds off; boxes dismissed (ErrorMessageState / CoopState only, F4333); every Purchase screen cancelled with
+    """Holds off; boxes dismissed (ErrorMessageState / CoopState only); every Purchase screen cancelled with
     its real Cancel - both machines back on GeoscapeState (a miss is a setup failure)."""
     m = (host, client)
-    h = {"holds": {gc.name: e1.hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
+    h = {"holds": {gc.name: selection.hold(gc, False) for gc in m}, "dismissed": [], "cancelled": []}
     t0 = time.time()
     while time.time() - t0 < SCREEN_S:
         busy = False
@@ -348,7 +350,7 @@ def hygiene(host, client, ctx):
                 h["dismissed"].append(f"{gc.name}:{fst.dismiss_box(gc)}")
                 busy = True
             elif t == "PurchaseState":
-                h["cancelled"].append(f"{gc.name}:{e1.click(gc, CANCEL)}")
+                h["cancelled"].append(f"{gc.name}:{selection.click(gc, CANCEL)}")
                 wait_until(lambda gc=gc: top(gc) != "PurchaseState", PAGE_S)
                 busy = True
         if not busy and time.time() - t0 > 0.6:
@@ -372,7 +374,8 @@ def open_buy(gc, ctx, key):
 
 
 def buy_start(host, client, ctx):
-    """BUY row start: hygiene, funds0 restored on both (client first) when they moved, both Purchase screens open."""
+    """buy_screen row start: hygiene, funds0 restored on both (client first) when they moved, both Purchase screens
+    open."""
     hygiene(host, client, ctx)
     scr.restore_funds(host, client, ctx, scr.boot_of(ctx))
     for gc in (host, client):
@@ -384,7 +387,7 @@ def buy_start(host, client, ctx):
 
 
 def set_ok(gc, value, ctx, key, item=None, row=None):
-    return e1.set_ok(gc, value, ctx, key, item=item, row=row)
+    return selection.set_ok(gc, value, ctx, key, item=item, row=row)
 
 
 def pcross(gc, item, want, ctx, key, timeout=SEL_S):
@@ -394,11 +397,11 @@ def pcross(gc, item, want, ctx, key, timeout=SEL_S):
 
 
 def gone(gc, ctx, key, timeout=PAGE_S):
-    return e1.gone(gc, ctx, key, timeout, cls="PurchaseState")
+    return selection.gone(gc, ctx, key, timeout, cls="PurchaseState")
 
 
 def no_box(host, client, ctx, key):
-    return e1.no_box(host, client, ctx, key)
+    return selection.no_box(host, client, ctx, key)
 
 
 def stays_rebuilt(gc, ctx, key, want=None, timeout=SCREEN_S):
@@ -448,7 +451,7 @@ def sel_both(host, client, key, pred, timeout=SEL_S):
 
 
 def pgeo(gc):
-    """list_widgets on the top state (E2.1b's scr.geometry): the list rect, the buttons by caption, the labels."""
+    """list_widgets on the top state (scr.geometry): the list rect, the buttons by caption, the labels."""
     return scr.geometry(gc)
 
 
@@ -464,14 +467,14 @@ def label_between(g, want_label):
     bottom = lst["y"] + lst["h"]
     if not (t["y"] >= bottom and t["y"] + t["h"] <= cancel["y"]):
         return False, (f"label rect y {t['y']}..{t['y'] + t['h']} not between the list's bottom {bottom} and the "
-                       f"{CANCEL} button's top {cancel['y']} (D243)")
+                       f"{CANCEL} button's top {cancel['y']}")
     return True, ""
 
 
-# ===================== BUY rows =====================
+# ===================== buy_screen rows =====================
 
 
-def p_a_cells(host, client, ctx):
+def amounts_shared_cells(host, client, ctx):
     def c1():
         buy_start(host, client, ctx)
         return set_ok(client, 3, ctx, "c1set", item=X) or pcross(host, X, 3, ctx, "c1host")
@@ -497,7 +500,7 @@ def p_a_cells(host, client, ctx):
     ]
 
 
-def p_k_cells(host, client, ctx):
+def edit_highlight_cells(host, client, ctx):
     def c1():
         buy_start(host, client, ctx)
         f = set_ok(client, 2, ctx, "c1set", item=X)
@@ -512,7 +515,7 @@ def p_k_cells(host, client, ctx):
         ctx["c1host"] = {"ok": ok, "seen": got, "secs": secs}
         if not ok:
             return [f"the host's {X} (amount, color) {got.get('row')} {SEL_S}s after the client's edit (want color == "
-                    f"highlightColor {got.get('highlightColor')}: a row another player set is highlighted, D203)"]
+                    f"highlightColor {got.get('highlightColor')}: a row another player set is highlighted)"]
         rc = rows(client)
         ctx["c1client"] = {"row": prow_color(rc, X), "secondaryColor": rc.get("secondaryColor")}
         return [] if prow_color(rc, X)[1] == rc.get("secondaryColor") else [
@@ -533,7 +536,7 @@ def p_k_cells(host, client, ctx):
                               f"color == highlightColor {got.get('highlightColor')})"]
 
     def c3():
-        ctx["c3click"] = e1.click(host, OK)
+        ctx["c3click"] = selection.click(host, OK)
         f = gone(host, ctx, "c3hostGone") or stays_rebuilt(client, ctx, "c3clientRebuilt")
         if f:
             return f
@@ -553,7 +556,7 @@ def p_k_cells(host, client, ctx):
     ]
 
 
-def p_l_cells(host, client, ctx):
+def label_and_list_height_cells(host, client, ctx):
     names = scr.boot_of(ctx)["names"]
 
     def geo_both(machines, check, key, timeout=SEL_S):
@@ -574,7 +577,7 @@ def p_l_cells(host, client, ctx):
     def height_ok(g):
         h = (g.get("list") or {}).get("h")
         return h == SHARED_PURCHASE_LIST_H, (f"list height {h} (want {SHARED_PURCHASE_LIST_H}, vanilla "
-                                             f"{PURCHASE_LIST_H}: one text row shorter in SHARED, D243)")
+                                             f"{PURCHASE_LIST_H}: one text row shorter in SHARED)")
 
     def c1():
         buy_start(host, client, ctx)
@@ -585,7 +588,7 @@ def p_l_cells(host, client, ctx):
         return geo_both((host, client), lambda gc, g: height_ok(g), "c2geo", timeout=0.5)
 
     def c3():
-        ctx["c3cancel"] = e1.click(client, CANCEL)
+        ctx["c3cancel"] = selection.click(client, CANCEL)
         f = gone(client, ctx, "c3clientGone")
         if f:
             return f
@@ -599,12 +602,12 @@ def p_l_cells(host, client, ctx):
         return geo_both((host,), host_ok, "c3geo")
     return [
         ("1 both screens name the other player in a label between the list and the buttons", c1),
-        ("2 both lists are one text row shorter than vanilla's (D243)", c2),
+        ("2 both lists are one text row shorter than vanilla's", c2),
         ("3 the client leaves: the host's label hidden, its list height unchanged", c3),
     ]
 
 
-def p_e_cells(host, client, ctx):
+def rebuild_keeps_amounts_cells(host, client, ctx):
     def c1():
         buy_start(host, client, ctx)
         return set_ok(client, 3, ctx, "c1x", item=X) or set_ok(client, 2, ctx, "c1y", item=Y)
@@ -620,39 +623,39 @@ def p_e_cells(host, client, ctx):
         return pcross(host, X, 3, ctx, "c3x") + pcross(host, Y, 2, ctx, "c3y")
     return [
         ("1 the client's local amounts X 3, Y 2", c1),
-        ("2 the host's lever purchase rebuilds the client's screen; its amounts survive", c2),
+        ("2 the host's test-command purchase rebuilds the client's screen; its amounts survive", c2),
         ("3 the host's screen shows the same amounts", c3),
     ]
 
 
-def p_c_cells(host, client, ctx):
+def confirm_buys_host_list_cells(host, client, ctx):
     def c1():
         buy_start(host, client, ctx)
         ctx["before"] = {gc.name: inc_item(gc, X) for gc in (host, client)}
-        f = set_ok(client, P_C_CLIENT, ctx, "c1set", item=X)
+        f = set_ok(client, CONFIRM_CLIENT, ctx, "c1set", item=X)
         if f:
             return f
-        seen, rv, secs = poll(lambda: (lambda r: (bool(r) and r.get(f"i:{X}") == P_C_CLIENT, r))(sel_rows(host, BUY_KEY)),
-                              SEL_S)
+        seen, rv, secs = poll(lambda: (lambda r: (bool(r) and r.get(f"i:{X}") == CONFIRM_CLIENT, r))(
+            sel_rows(host, BUY_KEY)), SEL_S)
         ctx["c1hostSel"] = {"seen": seen, "rows": rv, "secs": secs}   # EVIDENCE only (never a failed cell)
-        ctx["c1hold"] = e1.hold(host, True)
+        ctx["c1hold"] = selection.hold(host, True)
         if ctx["c1hold"] is not True:
             return [f"host shared_update_defer on answered deferred={ctx['c1hold']!r}"]
-        f = set_ok(host, P_C_HOST, ctx, "c1hostSet", item=X)
+        f = set_ok(host, CONFIRM_HOST, ctx, "c1hostSet", item=X)
         if f:
-            e1.hold(host, False)
+            selection.hold(host, False)
             return f
-        ctx["c1click"] = e1.click(client, OK)
+        ctx["c1click"] = selection.click(client, OK)
         return []
 
     def c2():
-        ctx["c2release"] = e1.hold(host, False)
+        ctx["c2release"] = selection.hold(host, False)
         f = gone(client, ctx, "c2gone") + no_box(host, client, ctx, "c2stacks")
         if f:
             return f
-        f = inc_settled(host, client, ctx["before"], P_C_HOST, ctx, "c2incoming")
+        f = inc_settled(host, client, ctx["before"], CONFIRM_HOST, ctx, "c2incoming")
         if f:
-            return [f[0] + f" (D203: the host buys its current list, {P_C_HOST})"]
+            return [f[0] + f" (the host buys its current list, {CONFIRM_HOST})"]
         return stays_rebuilt(host, ctx, "c2hostRebuilt")
     return [
         ("1 client X 1; host held; host X 5; the client confirms", c1),
@@ -660,63 +663,63 @@ def p_c_cells(host, client, ctx):
     ]
 
 
-def p_d_cells(host, client, ctx):
+def duplicate_confirm_cells(host, client, ctx):
     def c1():
         buy_start(host, client, ctx)
         ctx["before"] = {gc.name: inc_item(gc, X) for gc in (host, client)}
         f = set_ok(client, 2, ctx, "c1client", item=X) or set_ok(host, 2, ctx, "c1host", item=X)
         if f:
             return f
-        ctx["c1hold"] = e1.hold(client, True)
+        ctx["c1hold"] = selection.hold(client, True)
         if ctx["c1hold"] is not True:
             return [f"client shared_update_defer on answered deferred={ctx['c1hold']!r}"]
-        ctx["c1click"] = e1.click(host, OK)
+        ctx["c1click"] = selection.click(host, OK)
         f = gone(host, ctx, "c1hostGone")
         ctx["tChange"] = time.time()
         if f:
-            e1.hold(client, False)
+            selection.hold(client, False)
         return f
 
     def c2():
-        ctx["c2click"] = e1.click(client, OK)
-        ctx["c2release"] = e1.hold(client, False)
+        ctx["c2click"] = selection.click(client, OK)
+        ctx["c2release"] = selection.hold(client, False)
         ctx["heldAfterChangeS"] = round(time.time() - ctx["tChange"], 2)
         f = gone(client, ctx, "c2gone") + no_box(host, client, ctx, "c2stacks")
         if f:
             return f
         f = inc_settled(host, client, ctx["before"], 2, ctx, "c2incoming")
         if f:
-            return [f[0] + " (one purchase, MR8)"]
+            return [f[0] + " (one purchase)"]
         ok, s, secs = poll(lambda: (lambda x: (x.get("lastFail") == SEL_DUP, x))(fst.sstats(client)), ANSWER_S)
         ctx["c2stats"] = {"ok": ok, "stats": s, "secs": secs}
-        return [] if ok else [f"the client's shared_stats {s} (want lastFail {SEL_DUP!r}, PR-45)"]
+        return [] if ok else [f"the client's shared_stats {s} (want lastFail {SEL_DUP!r})"]
     return [
         ("1 both at X 2; client held; the host confirms and its screen closes", c1),
         ("2 the client's duplicate confirm: one purchase, no box, coop_sel_dup", c2),
     ]
 
 
-def p_r_cells(host, client, ctx):
+def refused_purchase_kept_cells(host, client, ctx):
     boot = scr.boot_of(ctx)
 
     def c1():
         buy_start(host, client, ctx)
         ctx["before"] = {gc.name: inc_item(gc, X) for gc in (host, client)}
-        f = set_ok(client, P_R_SET, ctx, "c1set", item=X)
+        f = set_ok(client, REFUSED_SET, ctx, "c1set", item=X)
         if f:
             return f
-        want = {f"i:{X}": P_R_SET}
+        want = {f"i:{X}": REFUSED_SET}
         seen, s0, secs = sel_both(host, client, BUY_KEY, lambda v: v.get("rows") == want)
         ctx["c1before"] = {"seen": seen, "sel": s0, "secs": secs}   # EVIDENCE only: the rev the refusal must not move
-        ctx["c1funds"] = scr.set_funds_both(host, client, P_R_FUNDS)
-        ctx["c1click"] = e1.click(client, OK)
+        ctx["c1funds"] = scr.set_funds_both(host, client, REFUSED_FUNDS)
+        ctx["c1click"] = selection.click(client, OK)
         ok, secs = wait_until(lambda: top(client) == "CoopState" and stack(client)[-2:-1] == ["PurchaseState"]
                               and scr.dialog(client).get("code") == SHARED_FAIL, PAGE_S, 0.1)
         ctx["c1box"] = {"ok": ok, "secs": secs, "stack": stack(client), "dialog": scr.dialog(client),
                         "shared": fst.sstats(client)}
         if not ok:
             return [f"the client's stack {stack(client)} / dialog {scr.dialog(client)} {PAGE_S}s after its refused "
-                    f"purchase (want CoopState {SHARED_FAIL} directly over its PurchaseState, MR10)"]
+                    f"purchase (want CoopState {SHARED_FAIL} directly over its PurchaseState)"]
         after = {gc.name: sel(gc, BUY_KEY) for gc in (host, client)}
         ctx["c1after"] = after
         f = []
@@ -733,19 +736,19 @@ def p_r_cells(host, client, ctx):
         ctx["c2top"] = {"ok": ok, "secs": secs, "stack": stack(client)}
         if not ok:
             return [f"the client's top {top(client)!r} after coop_dialog_back (want its PurchaseState)"]
-        ctx["c2click"] = e1.click(client, OK)
+        ctx["c2click"] = selection.click(client, OK)
         f = gone(client, ctx, "c2gone")
         if f:
             return f
-        f = inc_settled(host, client, ctx["before"], P_R_SET, ctx, "c2incoming")
+        f = inc_settled(host, client, ctx["before"], REFUSED_SET, ctx, "c2incoming")
         return f or stays_rebuilt(host, ctx, "c2hostRebuilt")
     return [
-        ("1 a refused purchase keeps the client's screen and the shared list (MR10)", c1),
-        ("2 the retried purchase applies; the host's screen rebuilt at zero (D204)", c2),
+        ("1 a refused purchase keeps the client's screen and the shared list", c1),
+        ("2 the retried purchase applies; the host's screen rebuilt at zero", c2),
     ]
 
 
-def p_h_cells(host, client, ctx):
+def hire_owner_cells(host, client, ctx):
     def c1():
         buy_start(host, client, ctx)
         ctx["before"] = {gc.name: incoming(gc) for gc in (host, client)}
@@ -762,7 +765,7 @@ def p_h_cells(host, client, ctx):
         return [] if ok else [f"sel_state {BUY_KEY} (host, client) {got} (want rows {want}, editors {weds})"]
 
     def c2():
-        ctx["c2click"] = e1.click(host, OK)
+        ctx["c2click"] = selection.click(host, OK)
         f = gone(host, ctx, "c2hostGone")
         if f:
             return f
@@ -772,7 +775,7 @@ def p_h_cells(host, client, ctx):
         f = f or inc_settled(host, client, {n: (v.get("items") or {}).get(X, 0) for n, v in b.items()}, 1, ctx,
                              "c2items")
 
-        def new_owners():   # the new soldierOwners entry == HIRE_OWNER on both machines (P-h step (2))
+        def new_owners():   # the new soldierOwners entry == HIRE_OWNER on both machines (hire_owner step (2))
             owners = {}
             for gc in (host, client):
                 now = list(incoming(gc).get("soldierOwners") or [])
@@ -784,7 +787,7 @@ def p_h_cells(host, client, ctx):
         ok, owners, secs = poll(new_owners, EQUAL_S)
         ctx["c2hireOwner"] = {"ok": ok, "newEntries": owners, "HIRE_OWNER": HIRE_OWNER, "secs": secs}
         fo = [] if ok else [f"the new soldierOwners entry (host, client) {owners} (want [{HIRE_OWNER}] on both within "
-                            f"{EQUAL_S}s, D254 (b))"]
+                            f"{EQUAL_S}s)"]
         return f or stays_rebuilt(client, ctx, "c2clientRebuilt") or fo
     return [
         ("1 the client's Soldier row and the host's X row are on one shared list", c1),
@@ -792,14 +795,14 @@ def p_h_cells(host, client, ctx):
     ]
 
 
-# ===================== REQ row =====================
+# ===================== reequip_screen row =====================
 
 
-def p_q_cells(host, client, ctx):
+def reequip_shared_cells(host, client, ctx):
     pre = ctx["pre"] if "reequip" in ctx.get("pre", {}) else ctx["boot"]
 
     def open_req(gc, key):
-        c = e1.click(gc, PURCHASE_RECRUIT)
+        c = selection.click(gc, PURCHASE_RECRUIT)
         ok, secs = wait_until(lambda: purchase_ready(gc), PAGE_S)
         time.sleep(SETTLE_S)
         ctx[key] = {"click": c, "ready": ok, "secs": secs, "stack": stack(gc)}
@@ -837,7 +840,7 @@ def p_q_cells(host, client, ctx):
         return [] if ok else [f"sel_state {REQ_KEY} (host, client) {got} (want viewers [0, 1])"]
 
     def c3():
-        ctx["c3click"] = e1.click(host, OK)
+        ctx["c3click"] = selection.click(host, OK)
         ok, fu, secs = poll(lambda: (lambda v: (top(host) == "CannotReequipState" and v.get("isTop") is True
                                                 and v.get("rows") == REQ_AFTER, v))(followup(host)), PAGE_S)
         ctx["c3host"] = {"ok": ok, "followup": fu, "secs": secs, "stack": stack(host)}
@@ -856,7 +859,7 @@ def p_q_cells(host, client, ctx):
                               f"every amount 0: the list was bought)"]
 
     def c4():
-        ctx["c4cancel"] = e1.click(client, CANCEL)
+        ctx["c4cancel"] = selection.click(client, CANCEL)
         ok, fu, secs = poll(lambda: (lambda v: (top(client) == "CannotReequipState" and v.get("isTop") is True
                                                 and v.get("rows") == REQ_AFTER, v))(followup(client)), PAGE_S)
         ctx["c4client"] = {"ok": ok, "followup": fu, "secs": secs, "preRows": pre["reequip"]["followup"]}
@@ -890,7 +893,7 @@ def run_boot(boot, tag, port, pre_fn, rows_spec, results, walls):
             verdict = miss
             if verdict is None:
                 verdict, ctx["cells"] = scr.run_cells(cells_fn(js.host, js.client, ctx))
-                g = e1.guard(js.host, js.client, crash0, ctx, n == len(rows_spec) - 1, False)
+                g = selection.guard(js.host, js.client, crash0, ctx, n == len(rows_spec) - 1, False)
                 if g:
                     verdict = (verdict + " | " if verdict else "") + "guard: " + "; ".join(g)
             if js is not None:
@@ -909,18 +912,22 @@ def run_boot(boot, tag, port, pre_fn, rows_spec, results, walls):
                 try:
                     gc.cmd({"cmd": "shared_update_defer", "on": False})
                 except Exception as e:
-                    print(f"[w2p7-sce3] release shared_update_defer: {short(e)}", flush=True)
+                    print(f"[shared_purchase] release shared_update_defer: {short(e)}", flush=True)
             try:
                 js.shutdown()
             except Exception as e:
-                print(f"[w2p7-sce3] shutdown: {short(e)}", flush=True)
+                print(f"[shared_purchase] shutdown: {short(e)}", flush=True)
         walls[boot] = round(time.time() - t0, 1)
 
 
-BOOTS = (("BUY", "w2p7sce3_buy", buy_pre,
-          (("P-a", p_a_cells), ("P-k", p_k_cells), ("P-l", p_l_cells), ("P-e", p_e_cells), ("P-c", p_c_cells),
-           ("P-d", p_d_cells), ("P-r", p_r_cells), ("P-h", p_h_cells))),
-         ("REQ", "w2p7sce3_req", req_pre, (("P-q", p_q_cells),)))
+BOOTS = (("buy_screen", "shared_selection_purchase", buy_pre,
+          (("amounts_shared", amounts_shared_cells), ("edit_highlight", edit_highlight_cells),
+           ("label_and_list_height", label_and_list_height_cells),
+           ("rebuild_keeps_amounts", rebuild_keeps_amounts_cells),
+           ("confirm_buys_host_list", confirm_buys_host_list_cells),
+           ("duplicate_confirm", duplicate_confirm_cells), ("refused_purchase_kept", refused_purchase_kept_cells),
+           ("hire_owner", hire_owner_cells))),
+         ("reequip_screen", "shared_selection_reequip", req_pre, (("reequip_shared", reequip_shared_cells),)))
 
 
 def main():
