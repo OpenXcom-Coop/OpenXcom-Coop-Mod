@@ -25,6 +25,18 @@ the host's go (coopEndTurnTally.activeSeat 0 on both).
   common_checks           every hash bucket EQUAL (taken after the kills); desyncSeen false on both, no new lane
                           crash file and the client wrote no save (at the end)
 
+One boot, row same_name_soldiers (key 46615, dirs old_battle_same_name_*): as guest_returns_home, on the fixture with a
+second client soldier named GUEST_NAME (same_name_fixture: id DECOY_ID, stationed at the host's base like the guest and
+listed before it, not aboard, other initial stats DECOY_STATS). The older save keeps no id linking the battle copy to
+the client's soldier, so the record must reach the soldier the copy was made from, not the first one with its name.
+  kill_hostiles           as guest_returns_home
+  both_debriefings        as guest_returns_home
+  record_to_its_soldier   the client's OK through its follow-ups -> its GeoscapeState; soldier_record {name:
+                          GUEST_NAME} on each machine, in base order: the decoy (initial tu DECOY_STATS) first with
+                          missions OWN_MISSIONS, then the guest (initial tu GUEST_TU) with missions OWN_MISSIONS + 1,
+                          both living, in a base, the client's; the same on both machines
+  common_checks           as guest_returns_home
+
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. Every cell runs after a failure; a cell whose
 precondition failed FAILs "not reached". ONE run is the result, no skip path; exit 0 only when every cell passes, else
 2.
@@ -32,6 +44,7 @@ precondition failed FAILs "not reached". ONE run is the result, no skip path; ex
 Run:  python tools/coop_test/test_old_battle_end.py
 """
 
+import base64
 import os
 import sys
 import time
@@ -56,6 +69,12 @@ DEBRIEF_TITLE = "Aliens defeated"
 STATUS_DEAD = 6
 SETTLE_S, END_S, DEBRIEF_S, CLIENT_DEBRIEF_S = 45, 30, 60, 20
 CELLS = ("kill_hostiles", "both_debriefings", "client_record_updated", "no_host_copy", "common_checks")
+SAME_NAME_KEY = "46615"
+GUEST_CLIENT_ID = 8               # the guest's id in the client's world (the fixture's blob)
+GUEST_TU, GUEST_FIRING = 50, 54   # its initial (and current) tu / firing
+DECOY_ID = 50                     # the second soldier named GUEST_NAME: an id neither world uses
+DECOY_STATS = {"tu": 70, "firing": 40}  # its initial (and current) stats where they differ from the guest's
+SAME_NAME_CELLS = ("kill_hostiles", "both_debriefings", "record_to_its_soldier", "common_checks")
 
 
 def hostiles(gc):
@@ -208,6 +227,63 @@ def copy_cell(host, ev, tag):
                                    f"(want none; all records {recs})")
 
 
+def same_name_fixture(dst):
+    """Write the fixture to `dst` with a decoy in the client's world: a copy of the guest's record (id
+    GUEST_CLIENT_ID) listed before it, with id DECOY_ID, not aboard (coopcraft -1) and initial / current tu and firing
+    DECOY_STATS. The upgrade moves both to the host's base in that order."""
+    with open(OBR.FIXTURE, "rb") as f:
+        line = [ln for ln in f.read().split(b"\n") if ln.startswith(b"    blob: ")]
+    assert len(line) == 1, f"{len(line)} client-world blob lines (want 1)"
+    world = base64.b64decode(line[0][len(b"    blob: "):].strip()).decode("utf-8")
+    head = f"      - type: STR_SOLDIER\n        id: {GUEST_CLIENT_ID}\n        name: {GUEST_NAME}\n"
+    assert world.count(head) == 1, f"guest record found {world.count(head)} times in the client's world (want 1)"
+    start = world.index(head)
+    end = min(i for i in (world.find("\n      - ", start + 1), world.find("\n    coopbaseid:", start + 1)) if i > 0) + 1
+    decoy = world[start:end]
+    swaps = ((f"        id: {GUEST_CLIENT_ID}\n", f"        id: {DECOY_ID}\n", 1),
+             ("        coopcraft: 1\n", "        coopcraft: -1\n", 1),
+             ("        coopcrafttype: STR_SKYRANGER\n", "        coopcrafttype: ''\n", 1),
+             (f"          tu: {GUEST_TU}\n", f"          tu: {DECOY_STATS['tu']}\n", 2),
+             (f"          firing: {GUEST_FIRING}\n", f"          firing: {DECOY_STATS['firing']}\n", 2))
+    for old, new, n in swaps:
+        assert decoy.count(old) == n, f"guest record holds {old.strip()!r} {decoy.count(old)} times (want {n})"
+        decoy = decoy.replace(old, new)
+    blob = base64.b64encode((world[:start] + decoy + world[start:]).encode("utf-8"))
+    OBR.derive(OBR.FIXTURE, dst, b"    blob: ", b"    blob: " + blob)
+
+
+def same_name_cell(host, client, ev, tag):
+    geo = client_ok(client, ev, tag)
+    recs = []
+    for gc in (host, client):
+        rr = BES.soldier_recs(gc, name=GUEST_NAME)[0]
+        recs.append([{"where": r.get("where"), "id": r.get("id"), "owner": r.get("owner"), "dead": r.get("dead"),
+                      "missions": r.get("missions"), "tu": (r.get("initialStats") or {}).get("tu")} for r in rr])
+    ev[f"{tag}Guest"] = recs
+    want = [("base", CLIENT_SEAT, False, OWN_MISSIONS, DECOY_STATS["tu"]),
+            ("base", CLIENT_SEAT, False, OWN_MISSIONS + 1, GUEST_TU)]
+    got = [[(r["where"], r["owner"], r["dead"], r["missions"], r["tu"]) for r in rr] for rr in recs]
+    ok = geo and got == [want, want] and recs[0] == recs[1]
+    return ok, geo, (f"client on its GeoscapeState {geo}; soldier_record {{name: {GUEST_NAME!r}}} (where, owner, dead, "
+                     f"missions, initial tu) host / client {got} (want {want} on both: the decoy listed first keeps "
+                     f"its missions, the soldier the copy was made from gets this battle); records equal on both "
+                     f"{recs[0] == recs[1]}")
+
+
+def row_same_name_soldiers(host, client, crash0, cells, ev):
+    OBR.attempt(cells, "kill_hostiles", lambda: kill_cell(host, client, ev, "same"), (host, client))
+    OBR.need(cells, "kill_hostiles")
+    OBR.attempt(cells, "both_debriefings", lambda: end_cell(host, client, ev, "same", client_press=True),
+                (host, client))
+    OBR.need(cells, "both_debriefings")
+    ok, geo, detail = same_name_cell(host, client, ev, "same")
+    cells["record_to_its_soldier"] = (ok, detail)
+    if not geo:
+        OBR.capture("record_to_its_soldier", detail[:300], (host, client))
+        raise OBR.NotReached("the client's OK did not reach its geoscape")
+    cells["common_checks"] = common_cell(host, client, crash0, ev, "same")
+
+
 def common_cell(host, client, crash0, ev, tag):
     hashed = ev.get(f"{tag}Hash")
     ds = [OBR.es(host, "desyncSeen"), OBR.es(client, "desyncSeen")]
@@ -238,10 +314,16 @@ def row_guest_returns_home(host, client, crash0, cells, ev):
     cells["common_checks"] = common_cell(host, client, crash0, ev, "end")
 
 
-def run_boot(row, cells_order, key, slug, row_fn):
-    """Spawn the pair (host with the fixture, client empty), the construction, then `row_fn(host, client, crash0,
-    cells, ev)`; a boot miss FAILs every cell "boot" after its ONE CAPTURE line."""
-    host = GameClient("host", None, make_user_dir(f"old_battle_{slug}_host", saves=(OBR.FIXTURE,)))
+def run_boot(row, cells_order, key, slug, row_fn, fixture=None):
+    """Spawn the pair (host with the fixture, or with `fixture(path)` writing a derived one under the fixture's name;
+    client empty), the construction, then `row_fn(host, client, crash0, cells, ev)`; a boot miss FAILs every cell
+    "boot" after its ONE CAPTURE line."""
+    if fixture is None:
+        host_dir = make_user_dir(f"old_battle_{slug}_host", saves=(OBR.FIXTURE,))
+    else:
+        host_dir = make_user_dir(f"old_battle_{slug}_host")
+        fixture(os.path.join(host_dir, "xcom1", os.path.basename(OBR.FIXTURE)))
+    host = GameClient("host", None, host_dir)
     client = GameClient("client", None, make_user_dir(f"old_battle_{slug}_client"))
     crash0 = session._crash_log_snapshot()
     try:
@@ -270,6 +352,8 @@ def run_boot(row, cells_order, key, slug, row_fn):
 def main():
     t0 = time.time()
     fails = run_boot("guest_returns_home", CELLS, KEY, "end", row_guest_returns_home)
+    fails += run_boot("same_name_soldiers", SAME_NAME_CELLS, SAME_NAME_KEY, "same_name", row_same_name_soldiers,
+                      fixture=same_name_fixture)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_old_battle_end: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
