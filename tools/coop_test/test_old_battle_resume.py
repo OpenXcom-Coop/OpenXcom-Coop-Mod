@@ -11,13 +11,13 @@ Boot RS (key 46610, dirs d246u_rs_*): the host gets the fixture, the client an E
   RS-load    host load_save_menu -> HostMenu within 60 s, no ErrorMessageState (red: ErrorMessageState and the refusal
              text "different version of the mod" in the host log, in EVIDENCE)
   RS-log     exactly one "[coop-convert] an older version's mid-battle co-op save converted" line whose counts are
-             RS_PB / RS_PM / RS_SEATS / RS_UNSEATED, turnMode traditional, deployment DEP_RS
+             PARTNER_SNAPSHOTS / PARTNER_MIRRORS / SEATED / UNSEATED, turnMode traditional, deployment DEPLOYMENT
   RS-resume  session.resume_campaign_battle's post-load steps on key 46610: both inBattle, phase Active,
              authority.battleId equal and non-zero
   RS-hash    the host log has "battle_ready saveBlob EQUAL" and no MISMATCH; desyncSeen false on both
   RS-seats   the (name, seat) set == RS_EXPECT on both (rc.assert_split); every non-player original faction has coop -1
   RS-mode    turnMode "traditional" and coopEndTurnTally.activeSeat 0 on both (D100 / D-23: the host's go)
-  RS-deploy  deployment / strTarget / strCraftOrBase == DEP_RS / TGT_RS / COB_RS on both
+  RS-deploy  deployment / strTarget / strCraftOrBase == DEPLOYMENT / TGT_RS / COB_RS on both
   RS-click   the host's RESUME (CoopState 60 / 62); both tops BattlescapeState; no HostMenu / LobbyMenu
   RS-go      the client's turn order for its guest is refused not_your_go; the guest's facing unchanged on both
   RS-pass    the host's END TURN -> coopEndTurnTally.activeSeat 1 on both; side 0 and turn unchanged
@@ -56,12 +56,12 @@ FIXTURE = os.path.join(HERE, "fixtures", "separate_battle.sav")
 RS_KEY = "46610"
 HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"          # the save's coopPlayers (T0-5)
 RS_EXPECT = {"Erno Bartok": 0, "Robin Berggren": 0, "Lyris Kollias": 0, "Guest Zzz": 1}
-RS_SEATS = (3, 1)                 # seated 0 / seated 1 by E4 (1)'s rule (T0-5)
-RS_UNSEATED = 25                  # 14 aliens + 11 civilians, each saved with coop 0 (T0-5)
-RS_PB, RS_PM = 0, 0               # partner world: battle snapshots / droppable mirrors (T0-5 row 6)
-DEP_RS = "STR_TERROR_MISSION"
+SEATED = (3, 1)                   # seated 0 / seated 1 by E4 (1)'s rule (T0-5)
+UNSEATED = 25                     # 14 aliens + 11 civilians, each saved with coop 0 (T0-5)
+PARTNER_SNAPSHOTS, PARTNER_MIRRORS = 0, 0  # partner world: battle snapshots / droppable mirrors (T0-5 row 6)
+DEPLOYMENT = "STR_TERROR_MISSION"
 TGT_RS, COB_RS = "TERROR SITE-1", "BASE> HostBase"
-RS_GUEST, RS_HOST0 = 9, 1         # the guest's battle unit / Erno Bartok's
+GUEST_UNIT, RS_HOST0 = 9, 1       # the guest's battle unit / Erno Bartok's
 LOAD_S, LOG_S, RESUME_S, MODE_S, CLICK_S, DENY_S, PASS_S = 60, 10, 180, 10, 60, 15, 30
 CONVERT = "[coop-convert] an older version's mid-battle co-op save converted"
 CONVERT_RE = re.compile(r"partner worlds: battle snapshots (\d+), mirrors (\d+); seats 0/1 (\d+)/(\d+), "
@@ -357,8 +357,8 @@ def row_rs(host, client, crash0, cells, ev):
     save = os.path.basename(FIXTURE)
     cells["RS-load"] = load_cell(host, save, ev, "rs")
     need(cells, "RS-load")
-    cells["RS-log"] = log_cell(host, ev, "rs", (RS_PB, RS_PM, RS_SEATS[0], RS_SEATS[1], RS_UNSEATED, "traditional",
-                                                DEP_RS))
+    cells["RS-log"] = log_cell(host, ev, "rs", (PARTNER_SNAPSHOTS, PARTNER_MIRRORS, SEATED[0], SEATED[1], UNSEATED,
+                                                "traditional", DEPLOYMENT))
     attempt(cells, "RS-resume", lambda: resume_loaded(host, client, RS_KEY, ev, "rs"), (host, client))
     need(cells, "RS-resume")
     cells["RS-hash"] = hash_cell(host, client, ev, "rs")
@@ -371,24 +371,24 @@ def row_rs(host, client, crash0, cells, ev):
     got = {gc.name: (es(gc, "turnMode"), es(gc, "coopEndTurnTally")) for gc in (host, client)}
     ev["rsMode"] = got
     cells["RS-mode"] = (mode(), f"(turnMode, coopEndTurnTally) {got} (want traditional, activeSeat 0 on both)")
-    cells["RS-deploy"] = deploy_cell(host, client, ev, "rs", (DEP_RS, TGT_RS, COB_RS))
+    cells["RS-deploy"] = deploy_cell(host, client, ev, "rs", (DEPLOYMENT, TGT_RS, COB_RS))
     attempt(cells, "RS-click", lambda: click_cell(host, client, ev, "rs"), (host, client))
     need(cells, "RS-click")
 
     def go():
-        d0 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
+        d0 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
         to = (d0[1] + 1) % 8
-        r = session.send_turn(client, RS_GUEST, to)
+        r = session.send_turn(client, GUEST_UNIT, to)
 
         def denied():
             ld = es(client, "lastDeny") or {}
             return ld if ld.get("reason") and (not r.get("iseq") or ld.get("iseq") == r.get("iseq")) else None
         deny, s = wait_until(denied, DENY_S, 0.1)
-        d1 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
+        d1 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
         ev["rsGo"] = {"dir0": d0, "to": to, "resp": {k: r.get(k) for k in ("ok", "iseq", "error")}, "deny": deny,
                       "s": s, "dir1": d1}
         return ((deny or {}).get("reason") == "not_your_go" and d1 == d0,
-                f"client lastDeny {deny} after {s} s (want reason not_your_go); guest {RS_GUEST} facing host/client "
+                f"client lastDeny {deny} after {s} s (want reason not_your_go); guest {GUEST_UNIT} facing host/client "
                 f"{d0} -> {d1} (want unchanged)")
     attempt(cells, "RS-go", go)
 
@@ -406,15 +406,15 @@ def row_rs(host, client, crash0, cells, ev):
     need(cells, "RS-pass")
 
     def cmd():  # lastDeny is battle-scoped (RS-go's deny stays): prove THIS order's outcome
-        d0 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
+        d0 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
         to, hs0, base = (d0[1] + 1) % 8, event_state(host), es(client, "lastSeqApplied") or 0
-        iseq = ev["rsCmd"] = session.send_turn(client, RS_GUEST, to).get("iseq")
+        iseq = ev["rsCmd"] = session.send_turn(client, GUEST_UNIT, to).get("iseq")
         session.wait_turn_settled(host, client, base)
         deny, hs1 = es(client, "lastDeny") or {}, event_state(host)
         (seq0, adm0), (seq1, adm1) = [(e.get("lastSeqEmitted", 0), ((e.get("intentsReceived") or {}).get("turn") or {})
                                        .get("admitted", 0)) for e in (hs0, hs1)]
         turns = [x.get("seq") for x in hs1.get("deltaRing") or [] if x.get("kind") == "turn" and x.get("seq", 0) > seq0]
-        d1 = [session.unit_of(gc, RS_GUEST).get("direction") for gc in (host, client)]
+        d1 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
         ev["rsCmd"] = detail = (f"own turn iseq {iseq}: client deny {deny} (want none with iseq {iseq}); host seq "
                                 f"{seq0} -> {seq1}, turn deltas {turns}, turn admitted {adm0} -> {adm1} (want +1); "
                                 f"facing {d0} -> {d1} (want {to} on both)")
