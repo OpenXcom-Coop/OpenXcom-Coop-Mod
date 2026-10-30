@@ -265,7 +265,7 @@ def pre_tank_entry(out):
             p_ok, p_txt = parked_cell(client, pins, "the partner's")
             st = storage(host)[0]
             cells["parked_on_craft"] = (p_ok and st == {TANK: 2, SHELLS: SHELLS_GIVEN},
-                                f"{p_txt}; host storage {st} (want {{{TANK}: 2, {SHELLS}: {SHELLS_GIVEN}}})")
+                                        f"{p_txt}; host storage {st} (want {{{TANK}: 2, {SHELLS}: {SHELLS_GIVEN}}})")
         except Exception as e:
             cells["parked_on_craft"] = (False, f"probe failed: {type(e).__name__}: {str(e)[:300]}")
         try:
@@ -299,10 +299,10 @@ def row_parked_tank_enters(host, client, pins, pre, crash0, out):
         OWN.not_reached(cells, ("tank_tag", "tank_seat"), "tank_unit failed")
     cv = craft_vehicles(host, pins["HOST_SKY"])
     cells["host_craft_empty"] = (cv.get("error") is None and TANK not in (cv.get("vehicles") or {}),
-                         f"host craft_vehicles {pins['HOST_SKY']} in the battle {cv} (want no {TANK})")
+                                 f"host craft_vehicles {pins['HOST_SKY']} in the battle {cv} (want no {TANK})")
     st = storage(host)[0]
     cells["host_stores_kept"] = (st == {TANK: 2, SHELLS: SHELLS_GIVEN},
-                          f"host storage in the battle {st} (want {{{TANK}: 2, {SHELLS}: {SHELLS_GIVEN}}})")
+                                 f"host storage in the battle {st} (want {{{TANK}: 2, {SHELLS}: {SHELLS_GIVEN}}})")
     cells["enters_common"] = boot_common(host, client, crash0)
     return cells, ev
 
