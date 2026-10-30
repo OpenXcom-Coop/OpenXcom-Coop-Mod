@@ -1,34 +1,33 @@
-"""R5-U6 S-C rows SC1, SC2 (boot CC, classic co-op: the client commands soldiers 8 and 9, the host the other five): a
-motion-scanner mark reaches the co-op partner (orchestrator R5-V5; QU6-4 (a): an untracked `bt_scan_mark` to a mapped
-same-side seat, once per newly marked unit; the partner marks its own copy of the unit for the current turn). Today a scan
-marks units on the scanning machine only.
+"""Rows client_scan, host_scan (boot classic, classic co-op: the client commands soldiers 8 and 9, the host the other
+five): a motion-scanner mark reaches the co-op partner (an untracked `bt_scan_mark` to a mapped same-side seat, once
+per newly marked unit; the partner marks its own copy of the unit for the current turn). Without the fix a scan marks
+units on the scanning machine only.
 
-Spec: docs repo rewrite/prompts/r5u6_pvp_options.md section (d) Stage S-C and (f) test_scan_share.py, AMENDMENT U6-1
-(U6-1.4, U6-1.7). Constants: rewrite/r5u6-task0/sc/CONSTANTS.md (TASK 0 boots CCa = CCb on the probe build).
-Probes (TEST-ONLY, TC1 / TC2): battle_state.units[].scannedTurn (vanilla's machine-local mark, -1 until a scan marks the
-unit; never saved or hashed) and battle_set_unit_state {motionPoints} (the absolute setter the delta applier uses; applied
-to both machines, client first). Vanilla's ScannerView marks a unit near the scanner whose motionPoints > 0 as it draws.
+Probes (test-only): battle_state.units[].scannedTurn (vanilla's machine-local mark, -1 until a scan marks the unit;
+never saved or hashed) and battle_set_unit_state {motionPoints} (the absolute setter the delta applier uses; applied
+to both machines, client first). Vanilla's ScannerView marks a unit near the scanner whose motionPoints > 0 as it
+draws.
 
-Boot CC (key 49063): test_reaction_prox's bring-up (roster seed 1, map seed 1, seat_count 2, pin_ai_neutral, every
+Boot classic (key 49063): test_reaction_prox's bring-up (roster seed 1, map seed 1, seat_count 2, pin_ai_neutral, every
 player unit's reactions 0), copied with the key as a parameter.
-  SC1  the client's scan marks the host's copy: C (8) on SC1_C_TILE facing A; the scanner into C's right hand by lever
-       (both, ids equal); set_tu_both(C); A motionPoints 30 (both, client first); the client's real-UI USE SCANNER (TAB C,
-       the right-hand box, key 49); its ScannerState; 1.0 s; KEY_CANCEL.
-       SC1-own    the client's ScannerState up and its units[A].scannedTurn == 1 (precondition)
-       SC1-share  the host's units[A].scannedTurn == 1 within 3 s
-  SC2  the host's scan marks the client's copy: the END TURN cycle -> side 0 turn 2; A motionPoints 30 again (both; the
-       value the cycle left is EVIDENCE); H (10) on SC2_H_TILE facing A with a scanner; set_tu_both(H); the host's real-UI
-       USE SCANNER; its ScannerState; 1.0 s; KEY_CANCEL.
-       SC2-own    the host's ScannerState up and its units[A].scannedTurn == 2 (precondition)
-       SC2-share  the client's units[A].scannedTurn == 2 within 3 s
-Common cell after each row (<row>-common): every hash bucket EQUAL, desyncSeen false on both, no new file in the lane
-crash folder. EVIDENCE only: the scanner unit and A on both machines, the screens, the new host contexts, the client's
-intents.
+  client_scan  the client's scan marks the host's copy: C (8) on CLIENT_SCAN_TILE facing A; the scanner into C's
+       right hand by test command (both, ids equal); set_tu_both(C); A motionPoints 30 (both, client first); the
+       client's real-UI USE SCANNER (TAB C, the right-hand box, key 49); its ScannerState; 1.0 s; KEY_CANCEL.
+       client_scan_marks_own    the client's ScannerState up and its units[A].scannedTurn == 1 (precondition)
+       client_scan_marks_host   the host's units[A].scannedTurn == 1 within 3 s
+  host_scan  the host's scan marks the client's copy: the END TURN cycle -> side 0 turn 2; A motionPoints 30 again
+       (both; the value the cycle left is EVIDENCE); H (10) on HOST_SCAN_TILE facing A with a scanner; set_tu_both(H);
+       the host's real-UI USE SCANNER; its ScannerState; 1.0 s; KEY_CANCEL.
+       host_scan_marks_own      the host's ScannerState up and its units[A].scannedTurn == 2 (precondition)
+       host_scan_marks_client   the client's units[A].scannedTurn == 2 within 3 s
+Common cell after each row (client_scan_common, host_scan_common): every hash bucket EQUAL, desyncSeen false on both,
+no new file in this harness slot's crash folder. EVIDENCE only: the scanner unit and A on both machines, the screens,
+the new host contexts, the client's intents.
 
-RED on the probe build (commit C1): SC1-share, SC2-share; every other cell PASS. One EVIDENCE line per row, one PASS/FAIL
-line per cell, then the row verdict; every row runs after a failure. A boot step past its bound prints ONE CAPTURE line
-and fails every row "boot"; a staging step that fails fails its row's cells. run in the foreground to completion.
-ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+Without the fix: client_scan_marks_host and host_scan_marks_client fail; every other cell passes. One EVIDENCE line per
+row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot step past its bound
+prints ONE CAPTURE line and fails every row "boot"; a staging step that fails fails its row's cells. Run in the
+foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 test_scan_share_pvp.py imports this file's helpers.
 
 Run:  python tools/coop_test/test_scan_share.py
@@ -53,15 +52,16 @@ from test_delta_core import both  # noqa: E402
 
 KEY = "49063"
 A_ID, C_ID, H_ID = RPX.A_ID, RPX.C_ID, 10     # the only alien (pinned, (27,12,0)); the client's scanner; the host's
-SC1_C_TILE, SC1_C_DIR = (19, 19, 0), 1        # TASK 0 (U6-1.7 rule): Chebyshev 8 from A, 5 from C's start (14,19,1)
-SC2_H_TILE, SC2_H_DIR = (19, 18, 0), 1        # the same rule for H (start (14,20,1)); C stands on (19,19,0)
-MP = 30                                       # A's motion points by TC2 (ScannerView marks a unit with any > 0)
+CLIENT_SCAN_TILE, CLIENT_SCAN_DIR = (19, 19, 0), 1  # Chebyshev 8 from A, 5 from C's start (14,19,1)
+HOST_SCAN_TILE, HOST_SCAN_DIR = (19, 18, 0), 1      # the same rule for H (start (14,20,1)); C stands on (19,19,0)
+MP = 30                                       # A's motion points (ScannerView marks a unit with any > 0)
 KEY_USE, KEY_CANCEL = 49, 27                  # the scanner menu's USE SCANNER row (keyBattleActionItem1); keyCancel
-SCANNER_ROWS = 2                              # the scanner's action menu rows (TASK 0, CBT ROWS["scanner"])
+SCANNER_ROWS = 2                              # the scanner's action menu rows
 SCREEN_S, DWELL_S, SHARE_S, STEP_S = 5, 1.0, 3, 30
 CURSOR_TARGETING = (2, 3, 4, 5)
 UK = ("x", "y", "z", "direction", "tu", "motionPoints", "scannedTurn", "isOut")
-ROWS = (("SC1", ("SC1-own", "SC1-share", "SC1-common")), ("SC2", ("SC2-own", "SC2-share", "SC2-common")))
+ROWS = (("client_scan", ("client_scan_marks_own", "client_scan_marks_host", "client_scan_common")),
+        ("host_scan", ("host_scan_marks_own", "host_scan_marks_client", "host_scan_common")))
 
 
 # ===================== shared helpers (test_scan_share_pvp imports them) =====================
@@ -77,7 +77,7 @@ def uview(gc, uid):
 
 
 def mark(gc):
-    """units[A].scannedTurn on `gc` (TC1)."""
+    """units[A].scannedTurn on `gc`."""
     return (G3F.units(gc).get(A_ID) or {}).get("scannedTurn")
 
 
@@ -90,15 +90,16 @@ def staged(what, fn):
 
 
 def mp_both(host, client, value):
-    """TC2 on BOTH machines (client first, F607); units[A].motionPoints must read `value` on both."""
+    """battle_set_unit_state {motionPoints} on BOTH machines (client first); units[A].motionPoints must read `value` on
+    both."""
     both(host, client, {"cmd": "battle_set_unit_state", "unit": A_ID, "motionPoints": value}, ("unit",))
     got = [uview(host, A_ID)["motionPoints"], uview(client, A_ID)["motionPoints"]]
-    assert got == [value, value], f"A motionPoints host/client {got} after the lever (want {value} on both)"
+    assert got == [value, value], f"A motionPoints host/client {got} after the setter (want {value} on both)"
     return got
 
 
 def stage_scanner(host, client, uid, tile, d, ev):
-    """`uid` on `tile` facing `d` (S2: kept when already there), the scanner into its right hand (both, ids equal), its
+    """`uid` on `tile` facing `d` (kept when already there), the scanner into its right hand (both, ids equal), its
     TU refilled, A's motion points MP (both). Fills `ev`."""
     ev["place"] = place(host, client, uid, tile, d)
     g = both(host, client, {"cmd": "battle_give", "unit": uid, "item": "STR_MOTION_SCANNER", "clear_hands": True},
@@ -111,7 +112,7 @@ def stage_scanner(host, client, uid, tile, d, ev):
 
 
 def scan_press(gc, uid, ev):
-    """`gc`'s real-UI USE SCANNER for its unit `uid` (CBT C24's order): TAB onto it (asserted), cancel a leftover aim,
+    """`gc`'s real-UI USE SCANNER for its unit `uid`, in this order: TAB onto it (asserted), cancel a leftover aim,
     the right-hand box (self-verified), the menu's rows, key 49. Never retried."""
     ev["tab"] = tab_select(gc, uid)
     assert ev["tab"], f"TAB never selected {uid} on {gc.name} (selectedId {battle_state(gc).get('selectedId')})"
@@ -166,17 +167,17 @@ def share_cell(gc, turn, ev):
 # ===================== rows =====================
 
 
-def row_sc1(host, client, crash0):
+def row_client_scan(host, client, crash0):
     ev = {}
-    staged("C and the scanner", lambda: stage_scanner(host, client, C_ID, SC1_C_TILE, SC1_C_DIR, ev))
+    staged("C and the scanner", lambda: stage_scanner(host, client, C_ID, CLIENT_SCAN_TILE, CLIENT_SCAN_DIR, ev))
     up, own = scan(host, client, client, C_ID, ev)
-    cells = {"SC1-own": own_cell(up, own, ev, "client", 1),
-             "SC1-share": share_cell(host, 1, ev),
-             "SC1-common": G3F.common(host, client, crash0)}
+    cells = {"client_scan_marks_own": own_cell(up, own, ev, "client", 1),
+             "client_scan_marks_host": share_cell(host, 1, ev),
+             "client_scan_common": G3F.common(host, client, crash0)}
     return cells, ev
 
 
-def row_sc2(host, client, crash0):
+def row_host_scan(host, client, crash0):
     ev = {}
     notes = []
     ev["turn0"] = end_turn_cycle(host, client, None, notes)
@@ -184,15 +185,15 @@ def row_sc2(host, client, crash0):
     if notes or ev["turnSide"] != [(2, RPX.FACTION_PLAYER)] * 2:
         raise RuntimeError(f"staging (END TURN cycle): notes {notes}, (turn, side) {ev['turnSide']} (want (2, 0))")
     ev["afterCycle"] = {"A": [uview(host, A_ID), uview(client, A_ID)]}
-    staged("H and the scanner", lambda: stage_scanner(host, client, H_ID, SC2_H_TILE, SC2_H_DIR, ev))
+    staged("H and the scanner", lambda: stage_scanner(host, client, H_ID, HOST_SCAN_TILE, HOST_SCAN_DIR, ev))
     up, own = scan(host, client, host, H_ID, ev)
-    cells = {"SC2-own": own_cell(up, own, ev, "host", 2),
-             "SC2-share": share_cell(client, 2, ev),
-             "SC2-common": G3F.common(host, client, crash0)}
+    cells = {"host_scan_marks_own": own_cell(up, own, ev, "host", 2),
+             "host_scan_marks_client": share_cell(client, 2, ev),
+             "host_scan_common": G3F.common(host, client, crash0)}
     return cells, ev
 
 
-# ===================== boot CC =====================
+# ===================== boot classic =====================
 
 
 def bring_up(host, client, key):
@@ -205,7 +206,7 @@ def bring_up(host, client, key):
     assert hs.get("mapFingerprint") == RPX.MAP_FP and cs.get("mapFingerprint") == RPX.MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} (want {RPX.MAP_FP!r})")
     assert seated.get("soldierIds") == RPX.SEATED, f"seated {seated.get('soldierIds')} (want {RPX.SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="r5u6-cc")
+    pinned = pin_ai_neutral(host, client, tag="scan_share")
     assert pinned == [A_ID], f"pin_ai_neutral pinned {pinned} (want [{A_ID}])"
     uh = session.units_by_id(hs)
     assert (uh.get(A_ID) or {}).get("type") == RPX.A_TYPE, f"A type {(uh.get(A_ID) or {}).get('type')}"
@@ -222,20 +223,20 @@ def scanned_all(host, client):
     return {gc.name: {u["id"]: u.get("scannedTurn") for u in battle_state(gc).get("units", [])} for gc in (host, client)}
 
 
-def boot_cc():
-    host = GameClient("host", None, make_user_dir("r5u6_cc_host"))
-    client = GameClient("client", None, make_user_dir("r5u6_cc_client"))
+def boot_classic():
+    host = GameClient("host", None, make_user_dir("scan_share_host"))
+    client = GameClient("client", None, make_user_dir("scan_share_client"))
     m = (host, client)
     try:
         try:
-            info = G3F.guarded("CC", lambda: bring_up(host, client, KEY), m)
+            info = G3F.guarded("classic", lambda: bring_up(host, client, KEY), m)
             crash0 = session._crash_log_snapshot()
         except G3F.Miss:
-            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE CC line)")
+            return G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE classic line)")
         print(f"EVIDENCE boot: {info}", flush=True)
         rows = dict(ROWS)
-        fails = G3F.run_row("SC1", rows["SC1"], lambda: row_sc1(host, client, crash0))
-        fails += G3F.run_row("SC2", rows["SC2"], lambda: row_sc2(host, client, crash0))
+        fails = G3F.run_row("client_scan", rows["client_scan"], lambda: row_client_scan(host, client, crash0))
+        fails += G3F.run_row("host_scan", rows["host_scan"], lambda: row_host_scan(host, client, crash0))
         return fails
     finally:
         G3F.shut(host, client)
@@ -243,7 +244,7 @@ def boot_cc():
 
 def main():
     t0 = time.time()
-    fails = boot_cc()
+    fails = boot_classic()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_scan_share: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
