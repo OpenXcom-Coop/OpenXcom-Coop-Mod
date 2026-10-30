@@ -1,12 +1,14 @@
-"""W2-H16e (F6176; D226 a; Q1 a .. Q5 a; vetoes V1-V3): the mind-shield switch on the base view, the craft-weapon switch on the
-craft screen and the host's remembered dogfight weapon switch reach the shared world. Spec docs rewrite/prompts/
-w2h16e_item_toggles.md (e)-(f); TASK 0 rewrite/w2h16e-task0/CONSTANTS.md; rulings R-H16e-T0-1..5. Levers (test-only):
-toggle_probe, set_toggle_state (staging, THIS machine), open_craft_info. Real input: right-click on the BaseView cell centre,
-left-click on the CraftInfoState weapon icon (after its icons are not hidden, F6581). Boot A (SHARED, the host's
-oxceRememberDisabledCraftWeapons on): H16e-1..H16e-8 (H16e-8 the dogfight, last); Boot B (SEPARATE): H16e-9 (guard row).
-S0 (every row): every switch enabled except the row's start values, client first (S25); both probes equal; R0 = requests.
-RED (1, 1b): H16e-1..8 fail on their named cell (H16e-7 on bothEnabled since 1b, F6649); H16e-9 passes. GREEN: all pass. "guard:" cells are
-guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2."""
+"""SHARED item switches: the mind-shield switch on the base view, the craft-weapon switch on the craft screen and
+the host's remembered dogfight weapon switch reach the shared world. Test commands (test-only): toggle_probe,
+set_toggle_state (staging, THIS machine), open_craft_info. Real input: right-click on the BaseView cell centre,
+left-click on the CraftInfoState weapon icon (after its icons are not hidden). The SHARED boot (the host's
+oxceRememberDisabledCraftWeapons on): client_shield_off .. dogfight_weapon_remembered (the dogfight last); the
+SEPARATE boot: separate_stays_local (guard row).
+Row baseline (every row): every switch enabled except the row's start values, client first; both probes equal;
+R0 = requests.
+Without the fix every SHARED row fails on its named cell (weapon_on_while_out on bothEnabled); separate_stays_local
+passes. "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if
+all pass, else 2."""
 
 import json
 import os
@@ -22,10 +24,10 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Toggle_Test")
 OPT = "oxceRememberDisabledCraftWeapons"
-BOOT_A = ("w2h16ea", (49335, 49336, 47314))      # SHARED; lobby 47314
-BOOT_B = ("w2h16eb", (49337, 49338, 47316))      # SEPARATE; lobby 47316
+BOOT_SHARED = ("toggles_shared", (49335, 49336, 47314))      # SHARED; lobby 47314
+BOOT_SEPARATE = ("toggles_separate", (49337, 49338, 47316))      # SEPARATE; lobby 47316
 FAC, INT, AV = "STR_TOGGLETEST_MIND_SHIELD", "STR_INTERCEPTOR", "STR_AVENGER"
-CELLS = {"A": (0, 3), "B": (4, 2)}               # beside the radar and the living quarters (TASK 0 (i): indices 9 / 10)
+CELLS = {"A": (0, 3), "B": (4, 2)}               # beside the radar and the living quarters (indices 9 / 10)
 WEAPONS = {"I1.0": (INT, 1, 0), "I1.1": (INT, 1, 1), "I2.0": (INT, 2, 0), "I2.1": (INT, 2, 1)}
 SCALE, BAND, GRID = 2, 0, 32                     # window = int(base * 2 + 0); BaseView::GRID_SIZE
 POLL_S, POLL_I, UI_S = 3.0, 0.25, 3.0
@@ -69,7 +71,7 @@ def proj(bases):
              "crafts": {f"{c['type'][4:]}-{c['id']}": [c["status"], [[w["disabled"], w["ammo"], w["rearming"]] for w in c["weapons"]]]
                         for c in b["crafts"]}} for b in bases]
 def eqp(bases):
-    """The S0 equality: facilities and craft switches / status (ammo / rearming are host-sim only, F6414)."""
+    """The baseline equality: facilities and craft switches / status (ammo / rearming are host-sim only)."""
     return [[b["name"], b["detectionChance"], [[f["x"], f["y"], f["type"], f["buildTime"], f["disabled"]] for f in b["facilities"]],
              [[c["id"], c["type"], c["status"], [[w["slot"], w["type"], w["disabled"]] for w in c["weapons"]]] for c in b["crafts"]]]
             for b in bases]
@@ -93,7 +95,7 @@ def capture(x):
             cap[gc.name] = f"probe failed: {short(e)}"
     return cap
 def guard(r, x, name, ok, detail):
-    """A miss: CAPTURE both machines' toggle_probe, stack, list_widgets, dogfight_state and shared_stats (STOP-IF 3)."""
+    """A miss: CAPTURE both machines' toggle_probe, stack, list_widgets, dogfight_state and shared_stats."""
     if r.cell("guard:" + name, ok, detail):
         return
     print(f"CAPTURE {r.rid} (guard {name}): {json.dumps(capture(x), sort_keys=True, default=str)}", flush=True)
@@ -103,17 +105,18 @@ def stage(gc, key, disabled, x):
         return gc.cmd({"cmd": "set_toggle_state", "kind": "facility", "x": CELLS[key][0], "y": CELLS[key][1], "disabled": disabled})
     ctype, cid, slot = wkey(key, x)
     return gc.cmd({"cmd": "set_toggle_state", "kind": "weapon", "craftId": cid, "craftType": ctype, "slot": slot, "disabled": disabled})
-def s0(r, x, over):
-    """Row frame S0: tops on the geoscape; every switch enabled except `over`, client then host; probes equal; R0."""
+def row_baseline(r, x, over):
+    """Row baseline: tops on the geoscape; every switch enabled except `over`, client then host; probes equal; R0."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, 10.0, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
     want = dict({k: False for k in list(CELLS) + list(WEAPONS) + (["AV.0"] if x.av else [])}, **over)
     st = {f"{gc.name} {k}": stage(gc, k, v, x) for gc in (c, h) for k, v in want.items()}
     guard(r, x, "staging", all(v.get("ok") is True and v.get("disabled") == want[k.split()[1]] for k, v in st.items()), f"{st}")
     ok = wait_until(lambda: eqp(tp(h)) == eqp(tp(c)), UI_S, 0.25)[0]
-    d = r.ev["S0"] = {"R0": {gc.name: rs(gc)["requests"] for gc in (h, c)}, "ss": {gc.name: ss(gc) for gc in (h, c)},
-                      "probe": {gc.name: proj(tp(gc)) for gc in (h, c)}, "staged": over}
-    guard(r, x, "S0 equal", ok, f"host {eqp(tp(h))} / client {eqp(tp(c))}")
+    d = r.ev["baseline"] = {"R0": {gc.name: rs(gc)["requests"] for gc in (h, c)},
+                            "ss": {gc.name: ss(gc) for gc in (h, c)},
+                            "probe": {gc.name: proj(tp(gc)) for gc in (h, c)}, "staged": over}
+    guard(r, x, "baseline equal", ok, f"host {eqp(tp(h))} / client {eqp(tp(c))}")
     return d
 def poll(x, keys, extra=None):
     """Both machines' toggle_probe every 0.25 s for 3 s: the row's switches (+ `extra`); only the changes are kept."""
@@ -136,9 +139,10 @@ def end(r, x):
 def close(r, x, d):
     r.ev["close"] = closeall(x)
     now = r.ev["requests"] = {gc.name: rs(gc)["requests"] for gc in (x.host, x.client)}
-    r.cell("requests", now == d["R0"], f"requests {now} vs R0 {d['R0']} (STOP-IF 5)")
+    r.cell("requests", now == d["R0"], f"requests {now} vs R0 {d['R0']}")
 def rclick(r, x, gc, key):
-    """open_screen basescape; the BaseView shown (TASK 0: (0, 8, 192, 192)); right-click the cell centre of `key`."""
+    """open_screen basescape; the BaseView shown (measured at (0, 8, 192, 192)); right-click the cell centre of
+    `key`."""
     o = gc.cmd({"cmd": "open_screen", "screen": "basescape"})
     def bv():
         st, ws = widgets(gc)
@@ -167,10 +171,11 @@ def icon(r, x, gc, ic, slot):
     time.sleep(0.1)
     names = [t["text"] for t in widgets(gc)[1] if t["type"] == "Text" and t["w"] == 95 and t["h"] == 16]
     r.ev[f"icon {gc.name} {slot}"] = {"rect": [w["x"], w["y"], w["w"], w["h"]], "win": win(*b), "ok": rep.get("ok"),
-                                      "star": [str(n or "").startswith("*") for n in names]}   # R-H16e-T0-2
+                                      "star": [str(n or "").startswith("*") for n in names]}
 def row_switch(r, x, gc, key, start, name, why, dc=False):
-    """H16e-1..4 / H16e-6: `gc` flips switch `key` (S0 disabled = start) by real input; both hold `not start` after the poll."""
-    d = s0(r, x, {key: start})
+    """The switch rows: `gc` flips switch `key` (baseline disabled = start) by real input; both hold `not start`
+    after the poll."""
+    d = row_baseline(r, x, {key: start})
     if key in CELLS:
         rclick(r, x, gc, key)
     else:
@@ -182,25 +187,25 @@ def row_switch(r, x, gc, key, start, name, why, dc=False):
     r.cell(name, got is (not start) and (not dc or dc1 > dc0), f"{o.name} {key} disabled {got} (want {not start})"
            + (f", host detectionChance {dc0} -> {dc1} (want a rise)" if dc else "") + f": {why}")
     close(r, x, d)
-def row_h16e_5(r, x):
+def row_weapon_rearms(r, x):
     h, c = x.host, x.client
-    d = s0(r, x, {"I2.0": True})
+    d = row_baseline(r, x, {"I2.0": True})
     fo = r.ev["force"] = {gc.name: gc.cmd({"cmd": "craft_force", "craft_id": 2, "ammo": 0}) for gc in (c, h)}
     st = {gc.name: craft(tp(gc), INT, 2) for gc in (h, c)}
     guard(r, x, "staged ammo and READY", all(v.get("status") == "STR_READY" and all(w["ammo"] == 0 for w in v["weapons"])
                                              for v in st.values()), f"{st}; force {fo}")
     icon(r, x, c, open_info(r, x, c, INT, 2), 0)
-    r.ev["poll"] = poll(x, ("I2.0",), lambda b: {"st": craft(b, INT, 2).get("status")})   # R-H16e-T0-3: no client window asserted
+    r.ev["poll"] = poll(x, ("I2.0",), lambda b: {"st": craft(b, INT, 2).get("status")})   # no client window asserted
     e = end(r, x)
     guard(r, x, "client own change", flag(e["client"], "I2.0") is False, f"client I2.0 {flag(e['client'], 'I2.0')}")
     hf, hs, cs = flag(e["host"], "I2.0"), craft(e["host"], INT, 2)["status"], craft(e["client"], INT, 2)["status"]
     r.cell("reCheck", hf is False and hs == "STR_REARMING" and cs == "STR_REARMING",
            f"host I2.0 disabled {hf} (want False), host status {hs} / client status {cs} (want STR_REARMING on both): "
-           "the host never re-checked the craft (T-2)")
+           "the host never re-checked the craft")
     close(r, x, d)
-def row_h16e_7(r, x):
+def row_weapon_while_out(r, x):
     h, c = x.host, x.client
-    d = s0(r, x, {"I2.1": True})
+    d = row_baseline(r, x, {"I2.1": True})
     try:
         ic = open_info(r, x, c, INT, 2)
         fo = r.ev["force out"] = h.cmd({"cmd": "craft_force", "craft_id": 2, "status": "STR_OUT"})
@@ -213,21 +218,21 @@ def row_h16e_7(r, x):
         hs, sl = craft(e["host"], INT, 2)["status"], {n: flag(e[n], "I2.1") for n in e}
         r.cell("outGate", hs == "STR_OUT", f"host status {hs} after the click (want STR_OUT): a craft that is out was re-checked")
         r.cell("bothEnabled", sl == {"host": False, "client": False}, f"slot 1 disabled {sl} (want False on both): "
-               "the client's enable on a craft that is out never reached the host (F6649, R-H16e-R-1)")
+               "the client's enable on a craft that is out never reached the host")
     finally:
         r.ev["force ready"] = pick(h.cmd({"cmd": "craft_force", "craft_id": 2, "status": "STR_READY"}), "ok", "error")
     close(r, x, d)
 def pump(x): geo.skip_realtime(x.host, x.client, 1, speed_idx=0, stuck_timeout=None)  # noqa: E704
 def dfs(gc): return gc.ok({"cmd": "dogfight_state"}).get("dogfights", [])  # noqa: E704
 def df_for(gc, cid, uid): return next((f for f in dfs(gc) if f["craftId"] == cid and f["ufoId"] == uid), None)  # noqa: E704
-def row_h16e_8(r, x):
-    """The test_shared_dogfight_control.py recipe; the disengage wait ends on both dogfight lists empty (R-H16e-T0-1)."""
+def row_dogfight(r, x):
+    """The test_shared_dogfight_control.py recipe; the disengage wait ends on both dogfight lists empty."""
     h, c = x.host, x.client
     guard(r, x, "host option", x.opt is True, f"host {OPT} {x.opt}")
     sc = {gc.name: gc.cmd({"cmd": "spawn_craft", "type": AV, "weapon": "STR_CANNON_UC"}) for gc in (h, c)}
     guard(r, x, "avenger", sc["host"].get("ok") is True and sc["host"].get("craft_id") == sc["client"].get("craft_id"), f"{sc}")
     x.av = sc["host"]["craft_id"]
-    d = s0(r, x, {})
+    d = row_baseline(r, x, {})
     b0 = next(b for b in h.ok({"cmd": "geo_state"})["bases"] if not b.get("coopBase") and not b.get("coopIcon"))
     uid = h.ok({"cmd": "spawn_ufo", "type": "STR_MEDIUM_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
                 "race": "STR_SECTOID", "trajectory": "P0", "state": "flying", "speed": 1, "lon": b0["lon"] + 0.03, "lat": b0["lat"]})["ufo_id"]
@@ -249,10 +254,11 @@ def row_h16e_8(r, x):
         guard(r, x, "host window state", ok, f"host dogfight {df_for(h, x.av, uid)}")
         r.ev["poll"] = poll(x, ("AV.0",))
         e = end(r, x)
-        guard(r, x, "host remembered", flag(e["host"], "AV.0", x) is True, f"host AV.0 {flag(e['host'], 'AV.0', x)} (T-3 write)")
+        guard(r, x, "host remembered", flag(e["host"], "AV.0", x) is True,
+              f"host AV.0 {flag(e['host'], 'AV.0', x)} (the host's own remembered switch)")
         got = flag(e["client"], "AV.0", x)
         r.cell("remembered", got is True, f"client {AV}-{x.av} slot 0 disabled {got} (want True): "
-                                          "the host's remembered weapon switch never reached the client (T-3)")
+                                          "the host's remembered weapon switch never reached the client")
     finally:
         r.ev["disengage"] = pick(c.cmd({"cmd": "dogfight_action", "action": "disengage"}), "ok", "error")
         n = 0
@@ -261,15 +267,15 @@ def row_h16e_8(r, x):
             n += 1
         r.ev["after disengage"] = {"pumps": n, "host": len(dfs(h)), "client": len(dfs(c))}
     now = r.ev["requests"] = {gc.name: rs(gc)["requests"] for gc in (h, c)}
-    r.cell("requests", now == d["R0"], f"requests {now} vs R0 {d['R0']} (STOP-IF 5)")
-def row_h16e_9(r, x):
+    r.cell("requests", now == d["R0"], f"requests {now} vs R0 {d['R0']}")
+def row_separate(r, x):
     """SEPARATE: the client's own mind-shield and weapon switches stay on its machine; no shared command."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, 10.0, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
     s_0, b = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}, tp(c)
     guard(r, x, "own base 0", b[0]["name"] == "ClientBase", f"{[e['name'] for e in b]}")
     fb = c.cmd({"cmd": "fac_build", "facility": FAC, "x": CELLS["A"][0], "y": CELLS["A"][1]})
-    ok, i = wait_until(lambda: fidx(tp(c), "A"), UI_S, 0.05)       # index 9 (TASK 0 (v)), never 0
+    ok, i = wait_until(lambda: fidx(tp(c), "A"), UI_S, 0.05)       # index 9, never 0
     bt = c.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": i if ok else -1, "time": 0})
     r.ev["facility"] = {"fac_build": pick(fb, "ok", "error"), "index": i, "buildTime0": pick(bt, "ok", "type", "buildTime")}
     guard(r, x, "own facility", ok and bt.get("ok") is True and bt.get("buildTime") == 0, f"{r.ev['facility']}")
@@ -300,7 +306,7 @@ def run_one(rid, fn, x, results):
     print(f"EVIDENCE {rid}: {json.dumps(r.ev, sort_keys=True, default=str)}", flush=True)
     results[rid] = not r.fails
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
-def setup_a(x):
+def setup_shared(x):
     """Host fac_build A (0, 3) and B (4, 2); buildTime 0 on the client, then the host; both list A and B built and enabled."""
     h, c = x.host, x.client
     x.opt = h.cmd({"cmd": "option_values", "ids": [OPT]}).get("values", {}).get(OPT)
@@ -318,8 +324,8 @@ def setup_a(x):
     if not ok:
         raise RuntimeError(f"A / B not built + enabled + equal on both: {info}")
     return info
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def boot_separate():
+    tag, (hp, cp, lp) = BOOT_SEPARATE
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
     try:
@@ -351,27 +357,35 @@ def boot(tag, up, setup, rows, results, walls):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h16e] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[shared_toggles] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
-T1, T2 = "the client's mind-shield switch stayed on its machine (T-1)", "the client's weapon switch stayed on its machine (T-2)"
-T3 = "the host's weapon switch never reached the client"
-ROWS_A = (("H16e-1", lambda r, x: row_switch(r, x, x.client, "A", False, "reachedHost", T1, dc=True)),
-          ("H16e-2", lambda r, x: row_switch(r, x, x.client, "A", True, "reachedHost", T1)),
-          ("H16e-3", lambda r, x: row_switch(r, x, x.host, "B", False, "reachedClient", "the host's switch never reached the client")),
-          ("H16e-4", lambda r, x: row_switch(r, x, x.client, "I2.0", False, "reachedHost", T2)),
-          ("H16e-5", row_h16e_5),
-          ("H16e-6", lambda r, x: row_switch(r, x, x.host, "I1.1", False, "reachedClient", T3)),
-          ("H16e-7", row_h16e_7), ("H16e-8", row_h16e_8))
-ROWS_B = (("H16e-9", row_h16e_9),)
+WHY_CLIENT_SHIELD, WHY_CLIENT_WEAPON = ("the client's mind-shield switch stayed on its machine",
+          "the client's weapon switch stayed on its machine")
+WHY_HOST_WEAPON = "the host's weapon switch never reached the client"
+ROWS_SHARED = (
+    ("client_shield_off",
+     lambda r, x: row_switch(r, x, x.client, "A", False, "reachedHost", WHY_CLIENT_SHIELD, dc=True)),
+    ("client_shield_on", lambda r, x: row_switch(r, x, x.client, "A", True, "reachedHost", WHY_CLIENT_SHIELD)),
+    ("host_shield_off",
+     lambda r, x: row_switch(r, x, x.host, "B", False, "reachedClient", "the host's switch never reached the client")),
+    ("client_weapon_off", lambda r, x: row_switch(r, x, x.client, "I2.0", False, "reachedHost", WHY_CLIENT_WEAPON)),
+    ("client_weapon_on_rearms", row_weapon_rearms),
+    ("host_weapon_off", lambda r, x: row_switch(r, x, x.host, "I1.1", False, "reachedClient", WHY_HOST_WEAPON)),
+    ("weapon_on_while_out", row_weapon_while_out),
+    ("dogfight_weapon_remembered", row_dogfight))
+ROWS_SEPARATE = (("separate_stays_local", row_separate),)
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_A[0], lambda: shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,), host_options={OPT: True}),
-         setup_a, ROWS_A, results, walls)
-    boot(BOOT_B[0], boot_b, lambda x: {"bases": {gc.name: [b["name"] for b in tp(gc)] for gc in (x.host, x.client)}},
-         ROWS_B, results, walls)
-    failed, n = [rid for rid, _ in ROWS_A + ROWS_B if not results.get(rid)], len(ROWS_A + ROWS_B)
+    boot(BOOT_SHARED[0],
+         lambda: shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,), host_options={OPT: True}),
+         setup_shared, ROWS_SHARED, results, walls)
+    boot(BOOT_SEPARATE[0], boot_separate,
+         lambda x: {"bases": {gc.name: [b["name"] for b in tp(gc)] for gc in (x.host, x.client)}},
+         ROWS_SEPARATE, results, walls)
+    failed, n = ([rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE if not results.get(rid)],
+                 len(ROWS_SHARED + ROWS_SEPARATE))
     print(f"\ntest_shared_toggles: {n - len(failed)}/{n} passed (fail={failed}) walls {walls} in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
 
