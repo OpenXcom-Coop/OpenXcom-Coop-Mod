@@ -1,66 +1,61 @@
-"""R2-P7 (rewrite spike, SPIKE-RUNBOOK.md R2-P7 packet text, OWNER-1 resolved
-2026-08-31): CLIENT auto-retry on deny("busy") + the four info-cancel user
-options + a LIVE busy deny, made reproducible by a real long blocker (the
-CLIENT's own autoshot, W2-P4 S-F).
+"""CLIENT auto-retry on deny("busy"), the four info-cancel user options and a
+LIVE busy deny, made reproducible by a real long blocker (the CLIENT's own
+autoshot).
 
-WHY THIS FILE EXISTS AT ALL: R3-P2's own burst proof recorded a GAP
-(spike-log "R3-P2 ACCEPTED", GAP paragraph) - deny("busy") had never been
-live-fired, because a full 4-tick UnitTurnBState chain resolves host-side in
-well under one TestServer round trip, so a natural two-seat race cannot land.
-The owner approved (2026-09-02) a test-only STOPGAP lever that held a quiesced
-chain's bt_action_end back for N ms. W2-P4 S-F (V8, F429, AMENDMENT C1 PR-Q6)
-replaces it with a REAL long chain: the CLIENT's OWN autoshot (a `shoot`
-intent, action auto) by the staged actor at the lane-end floor tile, at the
-client's slowest battleFireSpeed. Its action context stays open for the whole
-autoshot, which keeps CoopArbiter::onIntent()'s SS2.5 busy arm true. Measured
-on the S-F.1 base (3 boots): first shot -> bt_action_end 3.71-3.82 s, every
-sequence below lands inside it with >= 2 s to spare, and the target floor tile
-and the terrain bucket are unchanged. Every blocked intent is a kneel on a
-SECOND client unit.
+WHY A REAL BLOCKER: a full 4-tick UnitTurnBState chain resolves host-side in
+well under one TestServer round trip, so a natural two-seat race cannot land a
+deny("busy") (repro_atom_kneel.py's burst proof never got one). This file uses
+a REAL long chain instead: the CLIENT's OWN autoshot (a `shoot` intent, action
+auto) by the staged actor at the lane-end floor tile, at the client's slowest
+battleFireSpeed. Its action context stays open for the whole autoshot, which
+keeps CoopArbiter::onIntent()'s busy check true. Measured over 3 boots: first
+shot -> bt_action_end 3.71-3.82 s, every sequence below lands inside it with
+>= 2 s to spare, and the target floor tile and the terrain bucket are
+unchanged. Every blocked intent is a kneel on a SECOND client unit.
 
 Three sessions:
   test_option_round_trip() - ONE instance at the main menu (no battle needed):
-                             set_option round-trip for all four option names
-                             (packet acceptance (c)). The response echoes the
-                             LIVE Options:: global read back AFTER the write,
-                             so this proves the value landed rather than
-                             bouncing off the request.
+                             set_option round-trip for all four option names.
+                             The response echoes the LIVE Options:: global
+                             read back AFTER the write, so this proves the
+                             value landed rather than bouncing off the
+                             request.
   test_busy_live_fire()    - deny("busy") -> pending banner -> auto-resubmit
                              on the blocker's bt_action_end -> ack + apply,
-                             hash-clean 9/9, queueDepth 0 (packet acceptance
-                             (a)). Plus the SAME-unit variant, which R3-P1's
-                             own IR-2 actor lock suppresses CLIENT-side - see
-                             run_same_unit_variant()'s doc comment (this is a
-                             disclosed packet tension, not a silent skip).
+                             a clean full hash sweep, queueDepth 0. Plus the
+                             SAME-unit variant, which the client's per-actor
+                             input lock suppresses CLIENT-side - see
+                             run_same_unit_variant()'s doc comment (the
+                             variant is asserted as the local suppression it
+                             is, not skipped).
   test_cancel_policy()     - a pending intent + a synthetic `spot` ev injected
                              via inject_ev at default-ON options ->
                              pending CLEARED + STR_COOP_CANCEL banner; the
                              same sequence at all-OFF -> pending SURVIVES and
-                             resubmits at quiescence (packet acceptance (b)).
+                             resubmits at quiescence.
 
-W1-P7 EXTENSIONS (WAVE1-RUNBOOK.md ruling D7 = WV-D13; its own acceptance says
-"extend test_retry_cancel.py"):
+Also covered:
 
-  * the option round-trip now also covers `coopIntentTimeoutSeconds` (WV-D24's
-    10 s intent timeout), which is a real Options.inc.h + Options.cpp OptionInfo
-    like the four cancel toggles and never a connectionTCP static (WR-25);
-  * the busy-live-fire pass now asserts the "order sent" IN-FLIGHT indicator
+  * the option round-trip covers `coopIntentTimeoutSeconds` (the 10 s intent
+    timeout), which is a real Options.inc.h + Options.cpp OptionInfo like the
+    four cancel toggles and never a connectionTCP static;
+  * the busy-live-fire pass asserts the "order sent" IN-FLIGHT indicator
     (STR_COOP_ORDER_SENT) between the send and the host's answer;
-  * ...and it asserts the donor wait driver's SUPPRESSION rule POSITIVELY. The
+  * ...and it asserts the wait banner's SUPPRESSION rule POSITIVELY. The
     blocker in this file is the CLIENT'S OWN admitted autoshot, so the seat that
-    owns the host's execution slot is the client's own - and the donor rule
-    (`cbff7951d:BattlescapeState.cpp:5292-5370`) says a machine must NOT be told
-    to "wait for {someone}" when it is waiting on ITSELF. The generic SS2.6 busy
-    row is therefore the CORRECT text here, and `event_state.busyOwnerSeat` is
-    asserted to be this machine's own seat so that is a proven rule rather than
-    a coincidence. The peer-attributed case (a HOST-local blocker naming the
-    host) lives in test_feedback.py's host_named_wait check.
+    owns the host's execution slot is the client's own - and the wait banner
+    (connectionTCP.cpp waitBannerText) never tells a machine to "wait for
+    {someone}" when it is waiting on ITSELF. The generic busy text is therefore
+    the CORRECT text here, and `event_state.busyOwnerSeat` is asserted to be
+    this machine's own seat so that is a proven rule rather than a coincidence.
+    The peer-attributed case (a HOST-local blocker naming the host) lives in
+    test_feedback.py's host_named_wait check.
 
-FIXTURE: same recipe/precedent as repro_atom_kneel.py (R3-P2) / repro_atom_turn
-.py (R3-P1) - a live 2-player skirmish through the harness lobby flow with the
-REVIEW4 IR-4 SELECTION RULE and a bounded re-roll loop, two client-owned
-soldiers (newbattle_seat_soldier index param) so a blocker and a blocked intent
-can name DIFFERENT units.
+FIXTURE: the repro_atom_kneel.py / repro_atom_turn.py recipe - a live 2-player
+skirmish through the harness lobby flow, the actor staged on open ground and
+checked by the SELECTION RULE (qualifying_actor), and two client-owned soldiers
+(newbattle_seat_soldier's index param) so a blocker and a blocked intent can
+name DIFFERENT units.
 
 Run:  python tools/coop_test/test_retry_cancel.py
 """
@@ -77,14 +72,15 @@ from session import assert_hash_clean
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 
-# W1-P7 (WV-D13 item 2): the in-flight indicator's exact text.
+# The in-flight indicator's exact text (STR_COOP_ORDER_SENT).
 STR_ORDER_SENT_TEXT = "Order sent - waiting for the host"
 
-# SPIKE-RUNBOOK.md sec 2.6, verbatim (bin/common/Language/en-US.yml:65,73).
+# STR_COOP_DENY_BUSY and STR_COOP_CANCEL_ENEMY_SPOTTED, verbatim from
+# bin/common/Language/en-US.yml.
 # Asserted as TEXT, not as an STR_ key: Language::getString() returns the KEY
 # itself when the key is missing, so a key-shaped assert would silently pass
-# against a stale deployed bin/x64/Release/common/Language/en-US.yml - which is
-# exactly the state this packet found the tree in (see its final report).
+# against a stale deployed bin/x64/Release/common/Language/en-US.yml - a state
+# the tree has been found in.
 STR_BUSY_TEXT = "Waiting - another action is in progress"
 STR_CANCEL_SPOTTED_TEXT = "Order cancelled - enemy spotted"
 
@@ -95,11 +91,10 @@ CANCEL_OPTIONS = (
     "coopCancelOnAnyPartnerAction",
 )
 # the fifth co-op battle option, and the only INT one.
-# Its ruled default is 10 s.
+# Its default is 10 s.
 TIMEOUT_OPTION = "coopIntentTimeoutSeconds"
 TIMEOUT_DEFAULT = 10
-# Options.cpp createAdvancedOptionsOTHER() registrations (R2-P7): the packet
-# table's "narrowed scope" defaults.
+# The defaults registered in Options.cpp createAdvancedOptionsOTHER().
 CANCEL_DEFAULTS = {
     "coopCancelOnEnemySpotted": True,
     "coopCancelOnOwnUnitHit": True,
@@ -107,10 +102,10 @@ CANCEL_DEFAULTS = {
     "coopCancelOnAnyPartnerAction": False,
 }
 
-# W2-P4 S-F (V8, F429, C1 PR-Q6): the blocker. The CLIENT's OWN autoshot at its
-# slowest fire dial (SPEC 17's CoopSpeed::fireSpeedFor reads the SHOOTER's seat
-# dial) lasts 3.71-3.82 s on this fixture (S-F.1, 3 boots). BLOCKER_SEED goes to
-# the host right before each order (the W2-P4 action-seed rule).
+# The blocker. The CLIENT's OWN autoshot at its slowest fire dial
+# (CoopSpeed::fireSpeedFor reads the SHOOTER's seat dial) lasts 3.71-3.82 s on
+# this fixture (measured over 3 boots). BLOCKER_SEED goes to the host right
+# before each order, so every autoshot starts from the same seed.
 BLOCKER_FIRE_DIAL = 1
 BLOCKER_SEED = 1
 BLOCKER_WEAPON = "STR_RIFLE"
@@ -139,7 +134,7 @@ def units_by_id(battle_state_resp):
     return {u["id"]: u for u in battle_state_resp.get("units", [])}
 
 
-# ----- fixture bring-up (inline copy, repro_atom_kneel.py precedent) -----
+# ----- fixture bring-up (an inline copy, as in repro_atom_kneel.py) -----
 
 def skirmish_host(host, port, player="HostPlayer"):
     host.ok({"cmd": "open_new_battle"})
@@ -175,8 +170,8 @@ def bring_up_lobby(host, client, port):
     host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
 
 
-# dismiss_battle_start_overlays() MOVED TO session.py by W1-P4 (harness ripple,
-# IR2-1) - see the shared helper's docstring.
+# dismiss_battle_start_overlays() lives in session.py - see the shared helper's
+# docstring.
 
 
 def drive_to_battlescape(host, client, seated_holder, seat_count=2):
@@ -213,21 +208,19 @@ def has_door_within(gc, x, y, z, radius=2):
 
 
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE, reused verbatim from repro_atom_turn.py:
-    (a) nothing spotted yet (an alien in LOS aborts a BA_NONE rotation,
-    UnitTurnBState.cpp:114-118), (b) no door within 2 tiles.
+    """SELECTION RULE, as in repro_atom_turn.py: the staged actor qualifies
+    only with no door within 2 tiles of it (the door rule) and no living
+    non-player unit within max view distance (the contact rule).
 
-    RULE (c) - added by the WV-D5 fixture-pinning sweep (2026-09-03). RB-D15 and
-    WV-D18 require an "open-ground, no-door, NO-ENEMY-LOS" actor, and (a)+(b)
-    cover only the first two: (a) asks whether a hostile is ALREADY spotted at
-    t=0, which is silent on whether this actor's ROTATION will bring one into
-    view. Vanilla aborts a BA_NONE turn mid-chain the moment
+    The actor must be "open-ground, no-door, NO-ENEMY-LOS": whether a hostile
+    is ALREADY spotted at t=0 is silent on whether this actor's ROTATION will
+    bring one into view. Vanilla aborts a BA_NONE turn mid-chain the moment
     getUnitsSpottedThisTurn() grows (UnitTurnBState.cpp:117). The predicate is
     session.actor_is_contact_free() - THE one shared copy (session.py).
 
-    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
-    within view distance, and the lever does not recompute sight, so the
-    visible list may be stale.
+    There is no "already spotted" check: the staging helper leaves nothing
+    within view distance, and the staging test hook does not recompute sight,
+    so the visible list may be stale.
     """
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
@@ -235,9 +228,9 @@ def qualifying_actor(host, soldier_id):
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
-                return None  # rule (b)
+                return None  # the door rule
             if not session.actor_is_contact_free(st, u, "retry_cancel"):
-                return None  # rule (c)
+                return None  # the contact rule
             return u
     return None
 
@@ -245,8 +238,8 @@ def qualifying_actor(host, soldier_id):
 def bring_up_qualifying_battle(tag):
     """Returns (host, client, actor_unit_dict, soldier_ids)."""
     port = str(48236 + 1)
-    host_dir = make_user_dir(f"rw_retry_{tag}_host_1")
-    client_dir = make_user_dir(f"rw_retry_{tag}_client_1")
+    host_dir = make_user_dir(f"retry_{tag}_host_1")
+    client_dir = make_user_dir(f"retry_{tag}_client_1")
     host = GameClient("host", 49080 + 1 * 2, host_dir)
     client = GameClient("client", 49081 + 1 * 2, client_dir)
     seated = {}
@@ -277,10 +270,10 @@ def event_state(gc):
 
 def pending_of(gc):
     """CLIENT's held (busy-denied, awaiting auto-resubmit) intent, or None.
-    battle_state.coopPendingIntent (R2-P7 introspection) - null when the slot
-    is empty, so this makes "pending" an observable state rather than
-    something inferred from banner text (the busy DENY and the PENDING hold
-    deliberately SHARE the SS2.6 busy string)."""
+    battle_state.coopPendingIntent - null when the slot is empty, so this
+    makes "pending" an observable state rather than something inferred from
+    banner text (the busy DENY and the PENDING hold deliberately SHARE the
+    busy string, STR_COOP_DENY_BUSY)."""
     return gc.cmd({"cmd": "battle_state"}).get("coopPendingIntent")
 
 
@@ -308,7 +301,7 @@ def settle_emits(host, client, timeout=30):
 
 
 def both_ok(host, client, req, keys):
-    """A two-machine lever pair, CLIENT first; the named response fields
+    """A two-machine test command pair, CLIENT first; the named response fields
     must agree on both machines."""
     rc = client.ok(dict(req))
     rh = host.ok(dict(req))
@@ -324,7 +317,7 @@ def tile_parts(gc, t):
 
 
 def lane_target(host, unit, occupied):
-    """The blocker's aim point, by a fixed rule (no search, T0a F1114): for each
+    """The blocker's aim point, by a fixed rule (no search): for each
     cardinal direction from the unit, the run of tiles k = 1..LANE_MAX that exist,
     have a floor, carry no wall/object/door part and no unit; the longest run wins
     (ties N, E, S, W) and its end tile is the target. On this fixture the staged
@@ -357,11 +350,11 @@ def lane_target(host, unit, occupied):
 
 
 def stage_blocker(host, client, actor_id):
-    """W2-P4 S-F (V8, F429, C1 PR-Q6): arms `actor_id` for the blocker - a rifle
-    and clip on both machines (ids read from the lever's reply, F1107), the
-    client's fire dial at its slowest (both machines' seat tables must show it:
-    the host paces the shot by the shooter's seat dial), and the lane-end floor
-    tile with its parts as they stand now (the floor-survives census)."""
+    """Arms `actor_id` for the blocker - a rifle and clip on both machines (ids
+    read from the test command's reply), the client's fire dial at its
+    slowest (both machines' seat tables must show it: the host paces the shot
+    by the shooter's seat dial), and the lane-end floor tile with its parts as
+    they stand now (the floor-survives census)."""
     give = both_ok(host, client, {"cmd": "battle_give", "unit": actor_id, "item": BLOCKER_WEAPON,
                                   "ammo": BLOCKER_AMMO, "clear_hands": True}, ("weaponId", "ammoId"))
     my_seat = event_state(client).get("localSeat")
@@ -412,10 +405,9 @@ def start_autoshot_blocker(host, client, blocker):
     client.wait_for(f"the blocker's first shot ev (actionId {aid}) applied on the client",
                     first_shot_applied, timeout=20)
 
-    # THE BLOCKER PROOF (W2-P4 S-F, chain rule A.10: re-pointed from the old
-    # "exactly +1 seq", which an autoshot's many cue evs cannot give). The
-    # client's OWN admitted action owns the host's slot, and the host has not
-    # closed its context.
+    # THE BLOCKER PROOF: the client's OWN admitted action owns the host's slot,
+    # and the host has not closed its context. (No fixed seq count: an
+    # autoshot emits many cue evs.)
     my_seat = event_state(client).get("localSeat")
     owner = event_state(client).get("busyOwnerSeat")
     assert owner == my_seat, (
@@ -472,14 +464,14 @@ def wait_pending_cleared_and_applied(host, client, unit_id, want_kneeled, timeou
                     done, timeout=timeout)
 
 
-# ----- (c) option round-trip -----
+# ----- option round-trip -----
 
 def test_option_round_trip():
-    """Packet acceptance (c): TestServer set_option round-trip for all four
-    option names. Runs on ONE instance at the main menu - the four toggles are
-    plain client-side user options (Options.inc.h + OptionInfo registration,
-    REVIEW4 IR-9), nothing about them needs a live battle."""
-    d = make_user_dir("rw_retry_options")
+    """TestServer set_option round-trip for all four option names. Runs on
+    ONE instance at the main menu - the four toggles are plain client-side
+    user options (Options.inc.h + OptionInfo registration), nothing about them
+    needs a live battle."""
+    d = make_user_dir("retry_options")
     g = GameClient("options", 45997, d)
     g.spawn()
     try:
@@ -489,13 +481,13 @@ def test_option_round_trip():
                        g.cmd({"cmd": "get_state"}).get("states")),
                    timeout=180, interval=2)
 
-        # 1. Registered defaults (the packet's own table).
+        # 1. Registered defaults (CANCEL_DEFAULTS).
         for name, want in CANCEL_DEFAULTS.items():
             resp = g.ok({"cmd": "set_option", "name": name})  # no "value" = pure read
             assert resp.get("value") is want, (
                 f"{name} default should be {want}, got {resp} - the Options.cpp "
-                "OptionInfo registration's default does not match the R2-P7 packet table")
-        print(f"PASS test_option_round_trip: registered defaults match the packet table "
+                "OptionInfo registration's default does not match CANCEL_DEFAULTS")
+        print(f"PASS test_option_round_trip: registered defaults match CANCEL_DEFAULTS "
               f"{CANCEL_DEFAULTS}")
 
         # 2. Full round-trip both ways for every name. The response echoes the
@@ -512,13 +504,12 @@ def test_option_round_trip():
         print(f"PASS test_option_round_trip: all four names round-trip through set_option "
               f"({', '.join(CANCEL_OPTIONS)})")
 
-        # 3. the intent timeout is behind the SAME
-        #    kind of real user option, not a static. WR-25 makes that a hard
-        #    requirement - a static would be unpersisted, invisible to the player
-        #    and untouchable from this lever.
+        # 3. the intent timeout is behind the SAME kind of real user option,
+        #    not a static: a static would be unpersisted, invisible to the
+        #    player and untouchable from this test command.
         d = g.ok({"cmd": "set_option", "name": TIMEOUT_OPTION})
         assert d.get("value") == TIMEOUT_DEFAULT, (
-            f"{TIMEOUT_OPTION} default is {d.get('value')}, expected WV-D24's ruled "
+            f"{TIMEOUT_OPTION} default is {d.get('value')}, expected the default "
             f"{TIMEOUT_DEFAULT} s - check the Options.cpp OptionInfo registration")
         for want in (3, 25, TIMEOUT_DEFAULT):
             resp = g.ok({"cmd": "set_option", "name": TIMEOUT_OPTION, "value": want})
@@ -528,31 +519,25 @@ def test_option_round_trip():
             assert readback.get("value") == want, \
                 f"{TIMEOUT_OPTION} did not stay {want} on a separate read: {readback}"
         print(f"PASS test_option_round_trip: {TIMEOUT_OPTION} defaults to "
-              f"{TIMEOUT_DEFAULT} (WV-D24) and round-trips - a real OptionInfo (WR-25)")
+              f"{TIMEOUT_DEFAULT} and round-trips - a real OptionInfo")
     finally:
         g.shutdown()
 
 
-# ----- (a) busy live-fire -----
+# ----- busy live-fire -----
 
 def run_same_unit_variant(host, client, actor_id):
-    """The packet text's literal "(a) ... intent A + immediate kneel intent B
-    on the SAME unit" case.
+    """Intent A + an immediate kneel intent B on the SAME unit.
 
-    DISCLOSED PACKET TENSION (surfaced to the orchestrator in this packet's
-    final report, NOT silently adapted): a SAME-unit second intent can never
-    reach the host, so it can never produce a wire deny("busy"). R3-P1's own
-    client intent tracker (REVIEW4 IR-2, CoopArbiter.h/sendClientIntent) locks
-    input for THE ACTING UNIT while its intent is outstanding, and drops a
-    second intent for that same actor locally: "while active, input is locked
-    for THE ACTING UNIT ONLY (other own units remain selectable - deny-only
-    serialization means a second unit's intent would just deny 'busy', which
-    is fine to send)". Relaxing that lock would be a design change and this
-    packet makes none, so the SAME-unit case is asserted as what the contract
-    actually produces - a local suppression, no wire traffic, no new deny -
-    and the live busy deny is proven with the SECOND unit's intent (which the
-    packet text itself calls out as the case that "sends and denies busy
-    fine")."""
+    A SAME-unit second intent can never reach the host, so it can never
+    produce a wire deny("busy"). The client intent tracker
+    (CoopArbiter.h/sendClientIntent) locks input for THE ACTING UNIT while its
+    intent is outstanding, and drops a second intent for that same actor
+    locally. Other own units stay selectable: deny-only serialization means a
+    second unit's intent just denies "busy", which is fine to send. So the
+    SAME-unit case is asserted as what the lock actually produces - a local
+    suppression, no wire traffic, no new deny - and the live busy deny is
+    proven with the SECOND unit's intent."""
     deny_before = event_state(client).get("lastDeny")
     a = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
     resp = client.cmd({"cmd": "battle_intent", "kind": "kneel",
@@ -560,7 +545,7 @@ def run_same_unit_variant(host, client, actor_id):
 
     assert not resp.get("ok"), (
         f"a SECOND intent on the acting unit {actor_id} was accepted while its first "
-        f"one is still in flight - R3-P1's IR-2 per-actor input lock is gone: {resp}")
+        f"one is still in flight - the per-actor input lock is gone: {resp}")
     assert "iseq" not in resp, f"suppressed intent still minted an iseq: {resp}"
 
     time.sleep(1.0)  # a wire deny, if one were coming, would have landed by now
@@ -571,14 +556,13 @@ def run_same_unit_variant(host, client, actor_id):
         "the suppressed same-unit intent created a pending slot - only a wire "
         "deny('busy') may do that")
     print(f"PASS run_same_unit_variant: a second intent on the ACTING unit {actor_id} is "
-          "suppressed client-side by R3-P1's IR-2 per-actor input lock (no wire traffic, "
-          "no deny, no pending) - see this function's docstring for the disclosed "
-          "packet tension")
+          "suppressed client-side by the per-actor input lock (no wire traffic, "
+          "no deny, no pending)")
 
 
 def test_busy_live_fire():
-    """Packet acceptance (a). The client's own autoshot A (blocker, W2-P4 S-F) +
-    a kneel intent B on a SECOND client-owned unit -> B deny(busy) observed
+    """The client's own autoshot A (the blocker) + a kneel intent B on a
+    SECOND client-owned unit -> B deny(busy) observed
     via event_state.lastDeny -> pending banner state -> auto-resubmit on A's
     bt_action_end -> B acked + applied, hash-clean 9/9, queueDepth 0."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle("busy")
@@ -590,7 +574,7 @@ def test_busy_live_fire():
         assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-action)")
         blocker = stage_blocker(host, client, actor_a)
 
-        # --- pass 1: the SAME-unit variant (disclosed tension), under its own
+        # --- pass 1: the SAME-unit variant, under its own
         #     blocker so it cannot eat the second pass's busy window ---
         aid1 = start_autoshot_blocker(host, client, blocker)
         print(f"[busy pass 1] blocker engaged: the client's own autoshot (actionId "
@@ -607,18 +591,18 @@ def test_busy_live_fire():
                               "actor": actor_b, "kneel": want_kneeled})
         iseq_b = intent_b["iseq"]
 
-        # W1-P7 (WV-D13 item 2): the IN-FLIGHT indicator. Between the send and
-        # the host's answer the player used to see nothing at all. The blocker
-        # autoshot runs ~3.7 s (S-F.1), so this window is wide and deterministic.
+        # The IN-FLIGHT indicator fills the window between the send and the
+        # host's answer. The blocker autoshot runs ~3.7 s, so this window is
+        # wide and deterministic.
         sent_banner = banner_of(client)
         assert sent_banner in (STR_ORDER_SENT_TEXT, STR_BUSY_TEXT), (
             f"banner right after the send is {sent_banner!r}, expected either the "
             f"in-flight indicator {STR_ORDER_SENT_TEXT!r} or - if the busy deny had "
-            f"already landed - {STR_BUSY_TEXT!r}. A raw STR_ key means the WV-D17 "
-            "robocopy was skipped.")
+            f"already landed - {STR_BUSY_TEXT!r}. A raw STR_ key means bin/common was "
+            "not copied to bin/x64/Release/common.")
         if sent_banner == STR_ORDER_SENT_TEXT:
             print(f"PASS test_busy_live_fire: in-flight indicator {sent_banner!r} shown "
-                  f"while iseq {iseq_b} is unanswered (W1-P7 / WV-D13 item 2)")
+                  f"while iseq {iseq_b} is unanswered")
         else:
             print("NOTE test_busy_live_fire: the busy deny beat the banner read - the "
                   "in-flight indicator is proven deterministically in "
@@ -633,21 +617,21 @@ def test_busy_live_fire():
             f"expected a LIVE deny reason 'busy' for iseq {iseq_b}, got {ld} - the "
             f"blocker autoshot (actionId {aid2}) did not keep the host's action context open")
         print(f"PASS test_busy_live_fire: LIVE deny(busy) observed for iseq {iseq_b} "
-              f"(unit {actor_b}) - closes the R3-P2 GAP")
+              f"(unit {actor_b})")
 
-        # --- pending state + SS2.6 banner (NOT a drop) ---
+        # --- pending state + busy banner (NOT a drop) ---
         pending = pending_of(client)
         assert pending is not None, (
-            "deny(busy) dropped the intent instead of holding it - R2-P7's whole "
+            "deny(busy) dropped the intent instead of holding it - the whole "
             "auto-retry core is not wired")
         assert pending.get("kind") == "kneel" and pending.get("actorId") == actor_b \
             and pending.get("iseq") == iseq_b, \
             f"pending slot holds the wrong plan: {pending}"
-        # W1-P7 (WV-D13 item 4): the donor wait driver's SUPPRESSION rule, proven
-        # positively rather than assumed. The blocker here is the CLIENT'S OWN
-        # admitted turn, so this machine is waiting on ITSELF - the donor
-        # explicitly does not name anybody in that case, and SS2.6's generic busy
-        # row is the correct text. Asserting busyOwnerSeat first makes that a
+        # The wait banner's SUPPRESSION rule, proven positively rather than
+        # assumed. The blocker here is the CLIENT'S OWN admitted turn, so this
+        # machine is waiting on ITSELF - the wait banner (waitBannerText)
+        # names nobody in that case, and the generic busy text is the correct
+        # text. Asserting busyOwnerSeat first makes that a
         # tested rule instead of a coincidence: if the attribution were wrong the
         # banner would read "Please wait for HostPlayer's action to finish".
         my_seat = event_state(client).get("localSeat")
@@ -655,17 +639,17 @@ def test_busy_live_fire():
         assert owner == my_seat, (
             f"client attributes the busy window to seat {owner} but its own seat is "
             f"{my_seat} - the blocker IS this client's own admitted turn, so the "
-            "donor rule must suppress any peer attribution here")
+            "wait banner must suppress any peer attribution here")
         banner = banner_of(client)
         assert banner == STR_BUSY_TEXT, (
-            f"the pending banner is {banner!r}, expected SS2.6's busy row {STR_BUSY_TEXT!r} - "
+            f"the pending banner is {banner!r}, expected the busy text {STR_BUSY_TEXT!r} - "
             "either showPending() did not fire, the seat-attribution suppression rule "
             "regressed (a peer name here would be wrong: the client is waiting on its "
             "OWN action), or the string table did not resolve (a raw STR_ key here means "
             "the deployed bin/x64/Release/common/Language/en-US.yml is stale relative to "
             "bin/common/)")
         print(f"PASS test_busy_live_fire: intent HELD pending (slot={pending}) with the "
-              f"SS2.6 busy banner {banner!r}")
+              f"busy banner {banner!r}")
 
         # --- auto-resubmit on the blocker's bt_action_end, with NO further
         #     client command of any kind ---
@@ -690,7 +674,8 @@ def test_busy_live_fire():
         assert event_state(client).get("queueDepth") == 0, "client queueDepth != 0"
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after the busy/retry cycle (full 9/9)")
-        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        # The full sweep is ten buckets: the 8 BattleHashSet members (synced
+        # included), saveBlob and the dual-set reveal's `revealHostile`.
         assert len(post_h) == 10, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
         print(f"PASS test_busy_live_fire: {len(post_h)}/9 buckets EQUAL and queueDepth 0 on "
               "both machines after the whole busy/retry cycle")
@@ -699,7 +684,7 @@ def test_busy_live_fire():
         client.shutdown()
 
 
-# ----- (b) cancel policy -----
+# ----- cancel policy -----
 
 def set_cancel_options(gc, value_map):
     for name, want in value_map.items():
@@ -721,7 +706,7 @@ def make_pending(host, client, blocker, actor_b):
 
 
 def inject_spot(host, client):
-    """HOST lever: a synthetic bt_ev{kind:"spot"} through the real
+    """HOST test command: a synthetic bt_ev{kind:"spot"} through the real
     CoopEmit::sendEv path with the real next seq. It is legal because the
     CLIENT applies an unknown ev kind as a state-no-op (seq consumed,
     UNSUPPORTED logged): inject_ev's test payloads are state-less. The
@@ -736,9 +721,9 @@ def inject_spot(host, client):
 
 
 def test_cancel_policy():
-    """Packet acceptance (b): pending intent + a synthetic spot ev at
-    default-ON options -> pending CLEARED + STR_COOP_CANCEL banner; the same
-    at all-OFF -> pending SURVIVES and resubmits at quiescence."""
+    """A pending intent + a synthetic spot ev at default-ON options -> pending
+    CLEARED + STR_COOP_CANCEL banner; the same at all-OFF -> pending SURVIVES
+    and resubmits at quiescence."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle("cancel")
     try:
         actor_a = actor["id"]
@@ -756,16 +741,15 @@ def test_cancel_policy():
                         lambda: (pending_of(client) is None) or None, timeout=15)
         banner = banner_of(client)
         assert banner == STR_CANCEL_SPOTTED_TEXT, (
-            f"cancel banner is {banner!r}, expected SS2.6's STR_COOP_CANCEL_ENEMY_SPOTTED "
+            f"cancel banner is {banner!r}, expected the STR_COOP_CANCEL_ENEMY_SPOTTED "
             f"text {STR_CANCEL_SPOTTED_TEXT!r} - the message must NAME the trigger, never "
             "be generic (and must actually resolve through the string table)")
         print(f"PASS test_cancel_policy (default-ON): the synthetic spot ev cleared the "
               f"pending intent and showed {banner!r}")
 
         # ...and it stays cancelled: the blocker's action_end must NOT resurrect
-        # it. W2-P4 S-F (chain rule A.10): the old "base+3" seq floor becomes the
-        # host's closedContexts gaining the blocker's actionId - an autoshot's
-        # cue evs give no fixed seq count.
+        # it. The wait is for the host's closedContexts to gain the blocker's
+        # actionId: an autoshot's cue evs give no fixed seq count.
         b_state = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_b]
         wait_blocker_closed(host, client, blocker, aid_on)
         time.sleep(2.0)
@@ -805,7 +789,8 @@ def test_cancel_policy():
 
         post_h, _ = assert_hash_clean(host, client, full=True,
                                       what="after both cancel-policy passes (full 9/9)")
-        # W1-P8 (WAVE1-RUNBOOK.md SS1 WAVE-1 ADDITIONS / SS2.W4 / WV-D31): the sweep is NINE buckets now - the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        # The full sweep is ten buckets: the 8 BattleHashSet members (synced
+        # included), saveBlob and the dual-set reveal's `revealHostile`.
         assert len(post_h) == 10, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
         print(f"PASS test_cancel_policy: {len(post_h)}/9 buckets EQUAL after both passes")
     finally:
@@ -817,7 +802,7 @@ def main():
     test_option_round_trip()
     test_busy_live_fire()
     test_cancel_policy()
-    print("ALL R2-P7 AUTO-RETRY + CANCEL-POLICY TESTS PASSED")
+    print("ALL AUTO-RETRY + CANCEL-POLICY TESTS PASSED")
 
 
 if __name__ == "__main__":
