@@ -1,38 +1,35 @@
-"""D248-U S-B row R1 (boot RS; owner D248 (b), D235, D240 (a)): a SEPARATE partner's own tank parked on the host's craft
-fights in the host's battle (S-A), the host gives it to the partner (R5-U5's order), it survives, and at the battle's end it
-goes home: the host's stores never take it or its shells, the host's battleEnd lists it (lost false), the partner's parked
-tank stays.
+"""A SEPARATE partner's own tank parked on the host's craft fights in the host's battle (as in test_tank_entry), the
+host gives it to the partner (the in-battle gift order), it survives, and at the battle's end it goes home: the host's
+stores never take it or its shells, the host's battleEnd lists it (lost false), the partner's parked tank stays.
 
-Spec: docs repo rewrite/prompts/d248u_client_tank_host_craft.md section (f) test_tank_return.py, as amended by
-AMENDMENT D248-1 section 4 (SB-1 the ending: the kills, END TURN on both, the host's NextTurnState closed; SB-2 the gift
-through test_battle_gift_keep's gifts_in_order + turn_cell; SB-3 30 shells, S0 {2, 30}) and section 5 (each pin's rule);
-rulings QD248-1 .. QD248-11 (a), R-D248-SA-1, QD248-B1-1 .. -4 (a). Constants: rewrite/d248u-task0/sb/CONSTANTS.md (TASK 0
-boots RSa, RSb, RLa, RLb).
+The ending kills every hostile, presses END TURN on both and closes the host's NextTurnState; the gift goes through
+test_battle_gift_keep's gifts_in_order + turn_cell; each tank takes 30 shells (S0 {2, 30}).
 
-Boot RS (SEPARATE, port 47613, dirs d248u_rs_host / d248u_rs_client): test_tank_entry.bring_up_tank_battle(host,
-client, "47613") with a pre_mission hook reading S0 (the host's storage {STR_TANK_CANNON, STR_HWP_CANNON_SHELLS}) and PARK0
-(the partner's craft_vehicles on its own Skyranger), then pin_ai_neutral. Pins (each boot, from probes): HOST_BASE_COOP,
-HOST_SKY, CLIENT_SKY, TAG = "coop-guest-tank:1:<HOST_BASE_COOP>:<HOST_SKY>:STR_SKYRANGER", T = the one STR_TANK_CANNON unit
-whose guestTank == TAG on both machines. Boot guards: PARK0 is the parked tank (vehicles {STR_TANK_CANNON: 1}, vehicleCoop
-[[HOST_BASE_COOP, HOST_SKY, "STR_SKYRANGER"]], vehicleAmmo [30]); T exists.
-  R1  R1-gift (precondition: the host's battle_gift {T, owner 1} lands on both and the partner's notice is cleared, then the
-      partner's turn of T is admitted: one new host context (intent, turn, T), T faces it on both), R1-common (before the
-      kills), R1-end (precondition: every live hostile killed, chain_settled after each; END TURN on both; the host's
-      NextTurnState closed; the host's DebriefingState; the partner's display-only DebriefingState; the partner's OK through
-      its follow-ups to its GeoscapeState with sepReturn.ownLoaded 1; the host's OK + drain to its GeoscapeState), R1-record
-      (the host's battleEnd.guestTanks == [{ownerSeat 1, baseId HOST_BASE_COOP, craftId HOST_SKY, craftType STR_SKYRANGER,
-      type STR_TANK_CANNON, unitId T, lost false}]), R1-stores (the host's storage == S0), R1-craft (the host's Skyranger
-      holds no tank), R1-home (the partner's Skyranger == PARK0), R1-sep (the partner's sepReturn tanksLost 0, tanksMissing 0).
-Red at B1 (the S-A green build): R1-record (absent), R1-stores (vanilla's credit: +1 tank, +30 shells), R1-sep (absent)
-FAIL; every other cell PASS.
+Boot (SEPARATE, port 47613, dirs tank_return_host / tank_return_client): test_tank_entry.bring_up_tank_battle(host,
+client, "47613") with a pre_mission hook reading S0 (the host's storage {STR_TANK_CANNON, STR_HWP_CANNON_SHELLS}) and
+PARK0 (the partner's craft_vehicles on its own Skyranger), then pin_ai_neutral. Setup values (each boot, from probes):
+HOST_BASE_COOP, HOST_SKY, CLIENT_SKY, TAG = "coop-guest-tank:1:<HOST_BASE_COOP>:<HOST_SKY>:STR_SKYRANGER", T = the one
+STR_TANK_CANNON unit whose guestTank == TAG on both machines. Boot guards: PARK0 is the parked tank (vehicles
+{STR_TANK_CANNON: 1}, vehicleCoop [[HOST_BASE_COOP, HOST_SKY, "STR_SKYRANGER"]], vehicleAmmo [30]); T exists.
+  surviving_tank_returns: host_gives_tank (precondition: the host's battle_gift {T, owner 1} lands on both and the
+  partner's notice is cleared, then the partner's turn of T is admitted: one new host context (intent, turn, T), T faces
+  it on both), return_common (before the kills), battle_ends (precondition: every live hostile killed, chain_settled
+  after each; END TURN on both; the host's NextTurnState closed; the host's DebriefingState; the partner's display-only
+  DebriefingState; the partner's OK through its follow-ups to its GeoscapeState with sepReturn.ownLoaded 1; the host's
+  OK + drain to its GeoscapeState), tank_recorded (the host's battleEnd.guestTanks == [{ownerSeat 1, baseId
+  HOST_BASE_COOP, craftId HOST_SKY, craftType STR_SKYRANGER, type STR_TANK_CANNON, unitId T, lost false}]),
+  host_stores_kept (the host's storage == S0), host_craft_empty (the host's Skyranger holds no tank), tank_home (the
+  partner's Skyranger == PARK0), partner_counts (the partner's sepReturn tanksLost 0, tanksMissing 0).
+Without the fix tank_recorded (absent), host_stores_kept (vanilla's credit: +1 tank, +30 shells), partner_counts
+(absent) FAIL; every other cell PASS.
 
-Shared with test_tank_lost: bring_up (the boot, its pins and guards), ending (SB-1), record_cells, after_cells.
+Shared with test_tank_lost: bring_up (the boot, its setup values and guards), ending, record_cells, after_cells.
 
-One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a cell
-whose precondition failed FAILs "not reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE line and fails
-every row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come from probes
-(S25); a key the build does not write reads as absent. run in the foreground to completion. ONE
-run is the result, no skip path; exit 0 only when every cell passes, else 2.
+One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
+cell whose precondition failed FAILs "not reached (<cell> failed)". A boot step past its bound prints ONE CAPTURE line
+and fails every row "boot". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. Ids come
+from probes; a key the build does not write reads as absent. Run in the foreground to completion. ONE run is the result,
+no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_tank_return.py
 """
@@ -54,14 +51,15 @@ import test_tank_entry as TE  # noqa: E402
 
 PORT = "47613"
 TANK, SKYR = TE.TANK, TE.SKYR
-STEP_S = 30                # every bounded staging wait (TASK 0: the gift lands in 0.1 s, the turn in 0.2 s)
-KILL_S = 45                # SEP chain_settled after each kill (TASK 0: 2.21-2.62 s)
-DEBRIEF_S = 60             # the host's DebriefingState after the NextTurnState close (TASK 0: 0.05 s)
-CLIENT_DEBRIEF_S = 20      # the partner's display-only DebriefingState (SEP's CLIENT_DEBRIEF_S; TASK 0: 0.05 s)
-DRAIN_S = 60               # the host's OK + follow-ups down to its GeoscapeState (TASK 0: no follow-up screen)
+STEP_S = 30                # every bounded staging wait (measured: the gift lands in 0.1 s, the turn in 0.2 s)
+KILL_S = 45                # SEP chain_settled after each kill (measured 2.21-2.62 s)
+DEBRIEF_S = 60             # the host's DebriefingState after the NextTurnState close (measured 0.05 s)
+CLIENT_DEBRIEF_S = 20      # the partner's display-only DebriefingState (SEP's CLIENT_DEBRIEF_S; measured 0.05 s)
+DRAIN_S = 60               # the host's OK + follow-ups down to its GeoscapeState (measured: no follow-up screen)
 STATUS_DEAD = 6
 VKEYS = ("vehicles", "vehicleCoop", "vehicleAmmo")
-ROWS = (("R1", ("R1-gift", "R1-common", "R1-end", "R1-record", "R1-stores", "R1-craft", "R1-home", "R1-sep")),)
+ROWS = (("surviving_tank_returns", ("host_gives_tank", "return_common", "battle_ends", "tank_recorded",
+                                    "host_stores_kept", "host_craft_empty", "tank_home", "partner_counts")),)
 
 units = G3F.units
 not_reached = OWN.not_reached
@@ -71,8 +69,8 @@ not_reached = OWN.not_reached
 
 
 def bring_up(host, client, port, tag):
-    """The boot: bring_up_tank_battle with the pre_mission reads of S0 and PARK0, pin_ai_neutral, the pins TAG / T and the
-    PARK0 guard. Returns (pins, crash0). Every miss: ONE CAPTURE <tag> line, then G3F.Miss."""
+    """The boot: bring_up_tank_battle with the pre_mission reads of S0 and PARK0, pin_ai_neutral, the setup values
+    TAG / T and the PARK0 guard. Returns (pins, crash0). Every miss: ONE CAPTURE <tag> line, then G3F.Miss."""
     m, pre = (host, client), {}
 
     def pre_mission(h, c, pins):
@@ -81,7 +79,7 @@ def bring_up(host, client, port, tag):
 
     crash0 = session._crash_log_snapshot()
     pins = TE.guarded(tag, lambda: TE.bring_up_tank_battle(host, client, port, pre_mission=pre_mission), m)
-    TE.guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="d248u"), m)
+    TE.guarded(tag, lambda: session.pin_ai_neutral(host, client, tag="tank_return"), m)
     pins.update(pre)
     pins["TAG"] = "coop-guest-tank:1:%d:%d:%s" % (pins["HOST_BASE_COOP"], pins["HOST_SKY"], SKYR)
 
@@ -96,13 +94,14 @@ def bring_up(host, client, port, tag):
         pins["T"] = t[0][0]
         session.wait_host_idle(host, client, timeout=STEP_S)
     TE.guarded(tag, pin_t, m)
-    print(f"boot {tag}: pins {dict((k, pins.get(k)) for k in ('HOST_BASE_COOP', 'HOST_SKY', 'CLIENT_SKY', 'T', 'TAG', 'S0'))}",
+    print(f"boot {tag}: setup values "
+          f"{dict((k, pins.get(k)) for k in ('HOST_BASE_COOP', 'HOST_SKY', 'CLIENT_SKY', 'T', 'TAG', 'S0'))}",
           flush=True)
     return pins, crash0
 
 
 def ev0(host, client, pins):
-    """The EVIDENCE start: the pins, both machines' player units and the host's [coop-guest-tank] log lines."""
+    """The EVIDENCE start: the setup values, both machines' player units and the host's [coop-guest-tank] log lines."""
     return {"pins": {k: pins.get(k) for k in ("HOST_BASE_COOP", "HOST_SKY", "CLIENT_SKY", "guest_id", "T", "TAG", "S0",
                                               "PARK0")},
             "units": {"host": TE.unit_view(host), "partner": TE.unit_view(client)},
@@ -114,9 +113,9 @@ def live_hostiles(gc):
 
 
 def ending(host, client, ev):
-    """SB-1: every live faction-1 unit killed (chain_settled after each), END TURN on both, the host's NextTurnState closed,
+    """Every live faction-1 unit killed (chain_settled after each), END TURN on both, the host's NextTurnState closed,
     the host's DebriefingState, the partner's display-only one, the partner's OK through its follow-ups (its GeoscapeState,
-    sepReturn.ownLoaded 1), the host's OK + drain (its GeoscapeState). Returns the <row>-end cell."""
+    sepReturn.ownLoaded 1), the host's OK + drain (its GeoscapeState). Returns the ending cell."""
     bad, hostiles, kills = [], live_hostiles(host), []
     for uid in hostiles:
         r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
@@ -160,7 +159,8 @@ def ending(host, client, ev):
 
 
 def record_cells(host, client, pins, lost, ev):
-    """<row>-record (the host's battleEnd.guestTanks) and <row>-sep (the partner's sepReturn tank counts)."""
+    """The record cell (the host's battleEnd.guestTanks) and the sepReturn cell (the partner's sepReturn tank
+    counts)."""
     want = [{"ownerSeat": 1, "baseId": pins["HOST_BASE_COOP"], "craftId": pins["HOST_SKY"], "craftType": SKYR, "type": TANK,
              "unitId": pins["T"], "lost": lost}]
     gt = SEP.record(host).get("guestTanks")
@@ -172,7 +172,8 @@ def record_cells(host, client, pins, lost, ev):
 
 
 def after_cells(host, client, pins, ev):
-    """After both OKs: <row>-stores (the host's storage == S0), the host's Skyranger cell, and the partner's Skyranger."""
+    """After both OKs: the stores cell (the host's storage == S0), the host's Skyranger cell, and the partner's
+    Skyranger."""
     st = TE.storage(host)[0]
     hc = TE.craft_vehicles(host, pins["HOST_SKY"])
     pc = TE.craft_vehicles(client, pins["CLIENT_SKY"])
@@ -184,44 +185,48 @@ def after_cells(host, client, pins, ev):
     return stores, craft, pc
 
 
-# ===================== boot RS =====================
+# ===================== the boot =====================
 
 
-def row_r1(host, client, pins, crash0):
+def row_surviving_tank_returns(host, client, pins, crash0):
     cells, ev = {}, ev0(host, client, pins)
     T = pins["T"]
     landed, miss = KEEP.gifts_in_order([(host, T, 1)], host, client, ev)
     got = GF.coops(host, client, T)
     g = (ev.get("gifts") or [{}])[0]
     t_ok, t_txt = KEEP.turn_cell(host, client, T, ev) if landed else (False, "the turn not tried (the gift did not land)")
-    cells["R1-gift"] = (landed and t_ok, f"host battle_gift {{{T}, owner 1}}: unit {T} coop host/partner {got} (want [1, 1] "
-                                         f"within {STEP_S} s){'; ' + miss if miss else ''}; partner notices "
-                                         f"{g.get('notices')} cleared {g.get('cleared')}; {t_txt}")
-    cells["R1-common"] = G3F.common(host, client, crash0)
-    cells["R1-end"] = ending(host, client, ev.setdefault("end", {}))
-    cells["R1-record"], cells["R1-sep"] = record_cells(host, client, pins, False, ev)
-    cells["R1-stores"], cells["R1-craft"], pc = after_cells(host, client, pins, ev)
+    cells["host_gives_tank"] = (landed and t_ok, f"host battle_gift {{{T}, owner 1}}: unit {T} coop host/partner "
+                                                 f"{got} (want [1, 1] within {STEP_S} s)"
+                                                 f"{'; ' + miss if miss else ''}; partner notices "
+                                                 f"{g.get('notices')} cleared {g.get('cleared')}; {t_txt}")
+    cells["return_common"] = G3F.common(host, client, crash0)
+    cells["battle_ends"] = ending(host, client, ev.setdefault("end", {}))
+    cells["tank_recorded"], cells["partner_counts"] = record_cells(host, client, pins, False, ev)
+    cells["host_stores_kept"], cells["host_craft_empty"], pc = after_cells(host, client, pins, ev)
     home = {k: pc.get(k) for k in VKEYS}
-    cells["R1-home"] = (home == pins["PARK0"], f"partner craft_vehicles {pins['CLIENT_SKY']} after both OKs {home} (want "
-                                               f"PARK0 {pins['PARK0']}: the surviving tank stays parked)")
-    pre = "R1-gift" if not cells["R1-gift"][0] else "R1-end" if not cells["R1-end"][0] else None
+    cells["tank_home"] = (home == pins["PARK0"], f"partner craft_vehicles {pins['CLIENT_SKY']} after both OKs {home} "
+                                                 f"(want PARK0 {pins['PARK0']}: the surviving tank stays parked)")
+    pre = ("host_gives_tank" if not cells["host_gives_tank"][0]
+           else "battle_ends" if not cells["battle_ends"][0] else None)
     if pre:
-        not_reached(cells, ("R1-record", "R1-stores", "R1-craft", "R1-home", "R1-sep"), f"{pre} failed")
+        not_reached(cells, ("tank_recorded", "host_stores_kept", "host_craft_empty", "tank_home", "partner_counts"),
+                    f"{pre} failed")
     return cells, ev
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", None, make_user_dir("d248u_rs_host"))
-    client = GameClient("client", None, make_user_dir("d248u_rs_client"))
+    host = GameClient("host", None, make_user_dir("tank_return_host"))
+    client = GameClient("client", None, make_user_dir("tank_return_client"))
     fails = 0
     try:
         try:
-            pins, crash0 = bring_up(host, client, PORT, "RS")
+            pins, crash0 = bring_up(host, client, PORT, "return_battle")
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE RS line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE return_battle line)")
         else:
-            fails += G3F.run_row("R1", ROWS[0][1], lambda: row_r1(host, client, pins, crash0))
+            fails += G3F.run_row("surviving_tank_returns", ROWS[0][1],
+                                 lambda: row_surviving_tank_returns(host, client, pins, crash0))
     finally:
         G3F.shut(host, client)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
