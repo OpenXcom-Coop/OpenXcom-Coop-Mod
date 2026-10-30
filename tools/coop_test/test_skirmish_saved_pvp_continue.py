@@ -1,35 +1,33 @@
-"""D246-U S-D2a rows P3 (gm3, the host plays the aliens) and P2 (gm2, the partner plays the aliens): a PvP co-op Custom
-Battle the REWRITE saved mid-battle continues for both players through MG-B's route (load, CO-OP in the pause menu, host,
-a clean partner joins, CONTINUE BATTLE): both machines are back on the same battle in the saved mode, every unit where it
-was and on the seat it had, the battle state equal, and the side to move hands the turn over with END TURN (owner D225 (a);
-MG-B Q6 (a), whose PvP rows this file writes; orchestrator ruling R-D246D2-1: a proof stage, no product change).
+"""Rows host_aliens (gm3, the host plays the aliens) and partner_aliens (gm2, the partner plays the aliens): a PvP co-op
+Custom Battle saved mid-battle by this version continues for both players through the saved Custom Battle route (load,
+CO-OP in the pause menu, host, a clean partner joins, CONTINUE BATTLE): both machines are back on the same battle in the
+saved mode, every unit where it was and on the seat it had, the battle state equal, and the side to move hands the turn
+over with END TURN. The test checks existing behaviour; it needs no product change. Lobby key 49253.
 
-Spec: docs repo rewrite/prompts/d246u_sd2a_pvp_cb_resume_proof.md (this stage, section (f)); the common file
-d246u_sd2_pvp_custom_battle_convert.md (rulings, R3, QD246D2-2 / -3 (a)). Constants: rewrite/d246u-task0/sd2a/CONSTANTS.md
-(TASK 0 boots a = P3, b = P2 at 796ca70ed). Lobby key 49253.
-
-Each row is a seed pair (dirs d246sd2a_<row>_seed_host / _client): the host's set_seed SEED_ROSTER; the PvP lobby (P3: the
-HOST on the Alien team, gamemode 3; P2: the partner, gamemode 2); the W2-P8b battle-entry spine (STR_SMALL_SCOUT, map
-seed 1); pin_ai_neutral; the host idle. Precondition: both in battle in the row's mode, side 0 turn 1, every bucket EQUAL,
-a live soldier and a live alien, equal map fingerprints. The record P (per unit id: coop, faction, isOut, x, y, z); the
-host saves (the battle block carries coopTurnMode and coopItemIdCtr: a REWRITE save). Then a resume pair (dirs
-d246sd2a_<row>_res_host / _client): a fresh host with the save (default options) loads it from the menu; open_pause_coop
-(HostMenu, customBattleResumePending); host_menu_host; a clean partner joins; CONTINUE BATTLE; the partner in battle. The
-cells read SETTLE_S later:
+Each row is a seed pair (dirs saved_pvp_<row>_seed_host / _client): the host's set_seed SEED_ROSTER; the PvP lobby
+(host_aliens: the HOST on the Alien team, gamemode 3; partner_aliens: the partner, gamemode 2); the PvP battle entry
+(PSR.drive_to_gm2_battlescape: STR_SMALL_SCOUT, map seed 1); pin_ai_neutral; the host idle. Precondition: both in battle
+in the row's mode, side 0 turn 1, every bucket EQUAL, a live soldier and a live alien, equal map fingerprints. The
+record P (per unit id: coop, faction, isOut, x, y, z); the host saves (the battle block carries coopTurnMode and
+coopItemIdCtr, as every save from this version does). Then a resume pair (dirs saved_pvp_<row>_res_host / _client): a
+fresh host with the save (default options) loads it from the menu; open_pause_coop (HostMenu,
+customBattleResumePending); host_menu_host; a clean partner joins; CONTINUE BATTLE; the partner in battle. The cells
+read SETTLE_S later:
   <row>-arrive  no CoopState 62 / 68 on either stack, both tops BattlescapeState, no LobbyMenu / BriefingState on the
-                partner, phase Active and desyncSeen false on both, the host's MG-B offer line once
+                partner, phase Active and desyncSeen false on both, the host's CONTINUE BATTLE offer line once
   <row>-mode    get_coop.gamemode and battle_state.coopGamemode the row's mode on both; turnMode == the saved coopTurnMode
-  <row>-seats   per unit host == partner == P; live aliens (faction 1) and X-COM (faction 0) on the mode's seats (P3: aliens
-                seat 0, X-COM seat 1; P2: X-COM seat 0, aliens seat 1), civilians -1
+  <row>-seats   per unit host == partner == P; live aliens (faction 1) and X-COM (faction 0) on the mode's seats
+                (host_aliens: aliens seat 0, X-COM seat 1; partner_aliens: X-COM seat 0, aliens seat 1), civilians -1
   <row>-side    (side, turn) == the seed's on both
-  <row>-turn    the side to move (P3: the partner; P2: the host) presses END TURN: side 1 of the saved turn on both; since
-                the press one side_transition and one side_begin on the host, the partner's seqs equal; both in battle
+  <row>-turn    the side to move (host_aliens: the partner; partner_aliens: the host) presses END TURN: side 1 of the
+                saved turn on both; since the press one side_transition and one side_begin on the host, the partner's
+                seqs equal; both in battle
   <row>-common  every bucket EQUAL right before the press, desyncSeen false on both after it, no new lane crash file
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; every row runs after a failure. A cell that raises
 ends its row (later cells FAIL "not reached (<cell>)"). A boot step past its bound prints ONE CAPTURE <row> line and fails
-every cell of that row "boot". run in the foreground to completion. ONE run is the result, no
-skip path; exit 0 only when every cell passes, else 2.
+every cell of that row "boot". Run it in the foreground to completion. There is no skip path; exit 0 only when every
+cell passes, else 2.
 
 Run:  python tools/coop_test/test_skirmish_saved_pvp_continue.py
 """
@@ -52,16 +50,16 @@ from test_pvp_gm3 import (Miss, stack, top, log_count, bview, hash_now, capture,
                              verdict, shut)
 
 KEY = "49253"
-SEED_ROSTER = 1                   # set_seed on the host before its lobby (test_pvp_gm3 :52; TASK 0 boots a, b)
-LOAD_S, CLIENT_S = 120, 120       # the menu load / the partner in battle after CONTINUE BATTLE (TASK 0: 0.1 s / 0.95 s)
-STEP_S, SETTLE_S = 30, 2          # each lever / side change (TASK 0: <= 3.7 s); the read delay after the arrival
-N_MGB = "[coop] CONTINUE BATTLE offers the loaded Custom Battle"
+SEED_ROSTER = 1                   # set_seed on the host before its lobby, as test_pvp_gm3 does
+LOAD_S, CLIENT_S = 120, 120       # the menu load / the partner in battle after CONTINUE BATTLE (0.1 s / 0.95 s)
+STEP_S, SETTLE_S = 30, 2          # each test command / side change (<= 3.7 s); the read delay after arrival
+N_OFFER = "[coop] CONTINUE BATTLE offers the loaded Custom Battle"
 FACTION_PLAYER, FACTION_HOSTILE, FACTION_NEUTRAL = 0, 1, 2
 SIDE_ALIENS = 1                   # the side END TURN hands to (side 0 = X-COM moves first in both modes)
 KINDS = ("side_transition", "side_begin")
 # row: (the lobby's alien_player, gamemode, END TURN presser, save file, the aliens' seat, X-COM's seat)
-ROWS = {"P3": ("host", 3, "client", "d246sd2a_gm3.sav", 0, 1),
-        "P2": ("client", 2, "host", "d246sd2a_gm2.sav", 1, 0)}
+ROWS = {"host_aliens": ("host", 3, "client", "saved_pvp_gm3.sav", 0, 1),
+        "partner_aliens": ("client", 2, "host", "saved_pvp_gm2.sav", 1, 0)}
 CELLS = ("arrive", "mode", "seats", "side", "turn", "common")
 
 
@@ -85,7 +83,8 @@ def side_turn(gc):
 
 
 def saved_keys(path):
-    """The save's coop battle keys {key: [values]} (a REWRITE save carries coopTurnMode and coopItemIdCtr, F19850)."""
+    """The save's coop battle keys {key: [values]} (a save from this version carries coopTurnMode and
+    coopItemIdCtr)."""
     with open(path, encoding="utf-8", errors="replace") as f:
         lines = [ln.strip() for ln in f]
     return {k: [ln.split(":", 1)[1].strip() for ln in lines if ln.startswith(k + ":")]
@@ -100,8 +99,8 @@ def missed(row, err, machines):
 def seed_pair(row, ev):
     """The row's seed pair: the PvP bring-up, its precondition, the record P, the host's save. Returns (save path, seed)."""
     alien, gm, _presser, save, _sa, _sx = ROWS[row]
-    host = GameClient("host", None, make_user_dir(f"d246sd2a_{row.lower()}_seed_host"))
-    client = GameClient("client", None, make_user_dir(f"d246sd2a_{row.lower()}_seed_client"))
+    host = GameClient("host", None, make_user_dir(f"saved_pvp_{row.lower()}_seed_host"))
+    client = GameClient("client", None, make_user_dir(f"saved_pvp_{row.lower()}_seed_client"))
     m, s = (host, client), {}
     ev["seed"] = s
     try:
@@ -109,7 +108,7 @@ def seed_pair(row, ev):
         guarded(row, lambda: host.ok({"cmd": "set_seed", "seed": SEED_ROSTER}), m)
         s["lobbyGamemode"] = guarded(row, lambda: PF.start_pvp_skirmish_lobby(host, client, KEY, alien_player=alien), m)[0]
         guarded(row, lambda: PSR.drive_to_gm2_battlescape(host, client), m)
-        s["pinned"] = guarded(row, lambda: session.pin_ai_neutral(host, client, tag="d246sd2a"), m)   # 0 is legal
+        s["pinned"] = guarded(row, lambda: session.pin_ai_neutral(host, client, tag="saved_pvp"), m)   # 0 is legal
         guarded(row, lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
         hb, cb, pc = guarded(row, lambda: (bview(host), bview(client), ptable(client)), m)
         s.update(P=guarded(row, lambda: ptable(host), m), sideTurn=[[b.get("side"), b.get("turn")] for b in (hb, cb)],
@@ -186,8 +185,8 @@ def resume_boot(row, host, client, r):
 
 def resume_row(row, save, seed, crash0, ev):
     _alien, gm, presser, _save, seat_a, seat_x = ROWS[row]
-    host = GameClient("host", None, make_user_dir(f"d246sd2a_{row.lower()}_res_host", saves=(save,)))
-    client = GameClient("client", None, make_user_dir(f"d246sd2a_{row.lower()}_res_client"))
+    host = GameClient("host", None, make_user_dir(f"saved_pvp_{row.lower()}_res_host", saves=(save,)))
+    client = GameClient("client", None, make_user_dir(f"saved_pvp_{row.lower()}_res_client"))
     m, r, order = (host, client), {}, [f"{row}-{n}" for n in CELLS]
     ev["resume"] = r
 
@@ -195,13 +194,13 @@ def resume_row(row, save, seed, crash0, ev):
         st = [stack(g) for g in m]
         dl = [[g.cmd({"cmd": "coop_dialog_count", "code": c}).get("count") for c in (62, 68)] for g in m]
         ph = [[event_state(g).get(k) for k in ("phase", "desyncSeen")] for g in m]
-        mgb = log_count(host, N_MGB)
-        r["arrive"] = {"stacks": st, "dialogs62_68": dl, "phaseDesync": ph, "mgb": mgb}
+        offers = log_count(host, N_OFFER)
+        r["arrive"] = {"stacks": st, "dialogs62_68": dl, "phaseDesync": ph, "offers": offers}
         return (dl == [[0, 0], [0, 0]] and st[0][-1:] == st[1][-1:] == ["BattlescapeState"] and "LobbyMenu" not in st[1]
-                and "BriefingState" not in st[1] and ph == [["Active", False]] * 2 and mgb == 1,
+                and "BriefingState" not in st[1] and ph == [["Active", False]] * 2 and offers == 1,
                 f"CoopState 62 / 68 counts host/partner {dl} (want 0 / 0 on both); stacks host {st[0]} partner {st[1]} "
                 f"(want BattlescapeState on top, no LobbyMenu / BriefingState on the partner); phase, desyncSeen "
-                f"host/partner {ph} (want Active, False on both); host '{N_MGB}' lines {mgb} (want 1)")
+                f"host/partner {ph} (want Active, False on both); host '{N_OFFER}' lines {offers} (want 1)")
 
     def mode():
         saved = (seed["saved"]["coopTurnMode"] or [None])[0]
@@ -288,8 +287,8 @@ def run(row):
 
 def main():
     t0 = time.time()
-    fails = run("P3")
-    fails += run("P2")
+    fails = run("host_aliens")
+    fails += run("partner_aliens")
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_skirmish_saved_pvp_continue: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
