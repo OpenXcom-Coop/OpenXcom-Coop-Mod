@@ -1,35 +1,45 @@
-"""W2-H83 S-C RBH (tools/coop_test/test_removed_base_holders.py): geoscape popups that hold a partner base the partner removes, or one of
-that base's crafts, close first, as their CANCEL does (lead L-H81-2, rulings R-LBH3-1 / R-LT18-1, QH83-5 (a), veto line VL-H83-3).
-Spec docs rewrite/prompts/w2h83_removed_base_views.md (common) + rewrite/prompts/w2h83_sc_holders.md (f) RBH with its R-LT18-1 AMENDMENT (Z9);
-TASK 0 values in rewrite/w2h83-task0/sc/CONSTANTS.md. In a SEPARATE campaign the client's delete_base handler erases the partner's mirror (and
-the mirror's crafts) while a globe target list, a craft's window or a destination confirm still holds it (today: the popup stays on top over a
-freed pointer). The green (EC1, W2-H81's coopCloseMirrorHolders) closes those popups right before the delete. Probe popup_mirror_check
-(PMC, read-only pointer compares on the client): holders = states holding a target, dangling = those holding one in no live list, mirror =
-those holding a live co-op mirror.
-ONE boot (key KEY, dirs w2h83_h_*, campaign_mode "coop"): spawn + connect; session.new_campaign; geo_set_speed idx 0 both; the window mapping per
-machine (real INTERCEPT + CANCEL); the host's build_new_base HostBase2 at MT_POS = HB + (0.02, 0), HostBase3 at B3, HostBase4 at B4 (the
-survivor, so losing HB is no game over), each + real GEOSCAPE, each in mir(client).
-  Row MT  client real globe click at MT_POS at zoom ZOOM_MT -> MultipleTargetsState listing HostBase and HostBase2; P0; the host dismantles
-          HostBase2 (real BASES, the key of its index, the BaseView lift cell, DismantleFacilityState OK) + real GEOSCAPE; DEL_SETTLE; P1.
-          Recovery: MultipleTargetsState on top -> its cancel, the real ESC key (it has no Cancel button, F23061).
-  Row GC  host craft_force HB's first craft STR_OUT at GC_POS = HB + (0.30, 0.10), dest a site at GC_POS + (0.6, 0); its mirror under HB's
-          mirror on the client; client real globe click on it -> GeoscapeCraftState; P0; host STRIP (get_soldiers, set_soldier_dead on every HB
-          soldier, host only); spawn_ufo; trigger_base_defense -> BaseDestroyedState within W_BDS; host real OK; DEL_SETTLE; P1.
-          Recovery: GeoscapeCraftState on top -> its real CANCEL.
-  Row CD  (LAST) client real INTERCEPT, the first READY STR_INTERCEPTOR row -> SelectDestinationState, a real globe click on HostBase3 ->
-          ConfirmDestinationState on HostBase3; P0; the host dismantles HostBase3 + real GEOSCAPE; DEL_SETTLE; P1. No press, end of the boot.
-  Cells per row R: R-pre (GUARD) the popup on the client's top holding the doomed object (P0: holders 1, dangling 0, mirror 1); the host's
-          delete step reached (MT / CD: the base gone from own(host) after the DismantleFacilityState OK; GC: BaseDestroyedState, HB gone from
-          own(host) after the OK).  R-dangle (FIX) P1 dangling 0.  R-closed (FIX) MT / GC: P1 top GeoscapeState and holders 0; CD (Z9): P1 no
-          ConfirmDestinationState on the stack, top SelectDestinationState, holders 0.
-  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today: MT-dangle, MT-closed, GC-dangle, GC-closed, CD-dangle, CD-closed FAIL (6 of 10); every other cell PASS. Green (EC1): all 10 PASS.
-Ruling R-H83-7: once GC has lost the host's first base, the host's BASES opens the partner's mirror and its GEOSCAPE reloads a stale
-world; no cell reads the host after CD's removal. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false.
-Every press is a real click_widget or inject_input except the logged levers build_new_base, geo_set_speed, globe_point's centre (staging: the
-player turns the globe), spawn_mission_site, craft_force, set_soldier_dead, spawn_ufo and trigger_base_defense. One EVIDENCE line per row, one
-PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes on;
-a boot miss fails MT-pre with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+"""Geoscape popups that hold a partner base the partner removes, or one of that base's crafts, close first, as their
+CANCEL does.
+In a SEPARATE campaign the client's delete_base handler erases the partner's mirror (and the mirror's crafts) while a
+globe target list, a craft's window or a destination confirm still holds it; without the fix the popup stays on top
+over a freed pointer. The fix (coopCloseMirrorHolders) closes those popups right before the delete. Probe
+popup_mirror_check (PMC, read-only pointer compares on the client): holders = states holding a target, dangling =
+those holding one in no live list, mirror = those holding a live co-op mirror.
+ONE boot (key KEY, dirs removed_base_holders_*, campaign_mode "coop"): spawn + connect; session.new_campaign;
+geo_set_speed idx 0 both; the window mapping per machine (real INTERCEPT + CANCEL); the host's build_new_base HostBase2
+at TARGET_LIST_POS = HB + (0.02, 0), HostBase3 at BASE3_POS, HostBase4 at BASE4_POS (the survivor, so losing HB is no
+game over), each + real GEOSCAPE, each in mir(client). HB = the host's first base.
+  Row target_list
+          client real globe click at TARGET_LIST_POS at zoom ZOOM_TARGET_LIST -> MultipleTargetsState listing HostBase
+          and HostBase2; P0; the host dismantles HostBase2 (real BASES, the key of its index, the BaseView lift cell,
+          DismantleFacilityState OK) + real GEOSCAPE; DEL_SETTLE; P1. Recovery: MultipleTargetsState on top -> its
+          cancel, the real ESC key (it has no Cancel button).
+  Row craft_window
+          host craft_force HB's first craft STR_OUT at CRAFT_POS = HB + (0.30, 0.10), dest a site at CRAFT_POS +
+          (0.6, 0); its mirror under HB's mirror on the client; client real globe click on it -> GeoscapeCraftState; P0;
+          host STRIP (get_soldiers, set_soldier_dead on every HB soldier, host only); spawn_ufo; trigger_base_defense ->
+          BaseDestroyedState within W_BDS; host real OK; DEL_SETTLE; P1. Recovery: GeoscapeCraftState on top -> its
+          real CANCEL.
+  Row destination_confirm
+          (LAST) client real INTERCEPT, the first READY STR_INTERCEPTOR row -> SelectDestinationState, a real globe
+          click on HostBase3 -> ConfirmDestinationState on HostBase3; P0; the host dismantles HostBase3 + real
+          GEOSCAPE; DEL_SETTLE; P1. No press, end of the boot.
+  Cells per row R: R-pre (GUARD) the popup on the client's top holding the doomed object (P0: holders 1, dangling 0,
+          mirror 1); the host's delete step reached (target_list / destination_confirm: the base gone from own(host)
+          after the DismantleFacilityState OK; craft_window: BaseDestroyedState, HB gone from own(host) after the OK).
+          R-dangle (FIX) P1 dangling 0.  R-closed (FIX) target_list / craft_window: P1 top GeoscapeState and holders
+          0; destination_confirm: P1 no ConfirmDestinationState on the stack, top SelectDestinationState, holders 0.
+  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until
+          their shutdown.
+Without the fix: the -dangle and -closed cells of all three rows FAIL (6 of 10); every other cell PASS. With the fix:
+all 10 PASS. P0 = the client's stack and PMC right before the host's delete; P1 = the last read of the DEL_SETTLE watch
+after it. The host has lost HB in craft_window, so no cell reads the host after destination_confirm's dismantle.
+mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false. Every press is a real
+click_widget or inject_input except the logged test commands build_new_base, geo_set_speed, globe_point's centre
+(staging: the player turns the globe), spawn_mission_site, craft_force, set_soldier_dead, spawn_ufo and
+trigger_base_defense. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
+miss ends its row (CAPTURE line, later cells "not reached") and the file goes on; a boot miss fails target_list-pre
+with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_holders.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -37,21 +47,25 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
-KEY = "49559"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 60f182398)
-MT_OFF, GC_OFF, SITE_DLON = (0.02, 0.0), (0.30, 0.10), 0.6   # from HB
-B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land
-B4 = (LAND_LON + 0.09, LAND_LAT + 0.03)     # HostBase4: on land (TASK 0; S-A's B rule)
+KEY = "49559"                               # lobby key (unused by every other test file)
+TARGET_LIST_OFF, CRAFT_OFF, SITE_DLON = (0.02, 0.0), (0.30, 0.10), 0.6   # from HB
+BASE3_POS = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3: on land
+BASE4_POS = (LAND_LON + 0.09, LAND_LAT + 0.03)     # HostBase4: on land
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
-KEY_1, SYM_PLUS, SYM_MINUS, SYM_ESC, ZOOM_MT, ZOOM_MIN = 49, 43, 45, 27, 2, 3
+KEY_1, SYM_PLUS, SYM_MINUS, SYM_ESC, ZOOM_TARGET_LIST, ZOOM_MIN = 49, 43, 45, 27, 2, 3
 DEL_SETTLE, W_BDS, MIRROR_S, BOOT_S = 3.0, 5.0, 30.0, 60.0
 SITE = {"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "race": "STR_SECTOID", "hours": 240}
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",
        "trajectory": "P0", "state": "flying"}
 NEEDLE = "[coop] removed base: id=%s cache="
-LOGN = ("[coop] removed base: ", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop")
-ROWS = (("MT", ("MT-pre", "MT-dangle", "MT-closed")), ("GC", ("GC-pre", "GC-dangle", "GC-closed")), ("CD", ("CD-pre", "CD-dangle", "CD-closed")),
+LOGN = ("[coop] removed base: ", "coopCloseMirrorHolders", "[coop-session]", "coop-ui] push", "coop-ui] pop")
+ROWS = (("target_list", ("target_list-pre", "target_list-dangle", "target_list-closed")),
+        ("craft_window", ("craft_window-pre", "craft_window-dangle", "craft_window-closed")),
+        ("destination_confirm",
+         ("destination_confirm-pre", "destination_confirm-dangle", "destination_confirm-closed")),
         ("END", ("CRASH",)))
-FIX = ("MT-dangle", "MT-closed", "GC-dangle", "GC-closed", "CD-dangle", "CD-closed")
+FIX = ("target_list-dangle", "target_list-closed", "craft_window-dangle", "craft_window-closed",
+       "destination_confirm-dangle", "destination_confirm-closed")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -60,7 +74,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes and real input (copied from docs rewrite/lbh3-cap/cap.py and the W2-H83 / W2-H81 tests, never imported) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -181,8 +195,8 @@ def globe_click(gc, sc, lon, lat, leave, pick=None):
         out["pick"] = real_click(gc, pick, 5)
     return out
 def build_base2(gc, name, pos):
-    """the harness base-build lever (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState -> PlaceLiftState, real states), then a
-    real GEOSCAPE from the new base's BasescapeState"""
+    """the harness base-build test command (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState ->
+    PlaceLiftState, real states), then a real GEOSCAPE from the new base's BasescapeState"""
     r = q(gc, {"cmd": "build_new_base", "lon": pos[0], "lat": pos[1], "name": name})
     if not r.get("ok"):
         raise Stop("build_new_base %s at %s -> %s" % (name, pos, r))
@@ -233,7 +247,7 @@ def settle(c, secs):
         time.sleep(0.05)
     return trace, p1
 def press_through(gc, cap=60.0):
-    """real clicks until GeoscapeState (calm 1 s): an OK screen's 'OK'; a CoopState by its own button (W2-H80 LBU)"""
+    """real clicks until GeoscapeState (calm 1 s): an OK screen's 'OK'; a CoopState by its own button"""
     steps, t1 = [], time.time()
     while time.time() - t1 < cap:
         t = top(gc)
@@ -273,8 +287,8 @@ def capture(b):
 # ----- the boot and the rows -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h83_h_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h83_h_client"))
+        self.host = GameClient("host", None, make_user_dir("removed_base_holders_host"))
+        self.client = GameClient("client", None, make_user_dir("removed_base_holders_client"))
         self.sc = {}
 class Row:
     def __init__(self, x, b, rid):
@@ -317,27 +331,27 @@ def bring_up(b, st):
         raise Stop("boot: stacks %s / %s, host own %s, client own %s, client mirrors %s" % (h["stack"], c["stack"], own(h), own(c), mir(c)))
     hb = own(h)[0]
     st["HB"] = {"id": mir_ids(c)[0], "name": hb[1], "pos": (hb[4], hb[5])}
-    st["MT_POS"] = (hb[4] + MT_OFF[0], hb[5] + MT_OFF[1])
-    st["GC_POS"] = (hb[4] + GC_OFF[0], hb[5] + GC_OFF[1])
+    st["TARGET_LIST_POS"] = (hb[4] + TARGET_LIST_OFF[0], hb[5] + TARGET_LIST_OFF[1])
+    st["CRAFT_POS"] = (hb[4] + CRAFT_OFF[0], hb[5] + CRAFT_OFF[1])
     st["builds"] = {}
-    for name, pos in (("HostBase2", st["MT_POS"]), ("HostBase3", B3), ("HostBase4", B4)):
+    for name, pos in (("HostBase2", st["TARGET_LIST_POS"]), ("HostBase3", BASE3_POS), ("HostBase4", BASE4_POS)):
         st["builds"][name] = [build_base2(b.host, name, pos), other_has(b.client, name)]
     time.sleep(1.0)
     m = {x[1]: x[0] for x in mir(census(b.client))}
     if not all(n in m for n in ("HostBase2", "HostBase3", "HostBase4")):
         raise Stop("the three bases not all in mir(client): %s" % m)
     st["ids"] = m
-def row_mt(b, r, st):
+def row_target_list(b, r, st):
     h, c, ev = b.host, b.client, r.ev
     ev["ids"], ev["boot"] = st["ids"], st.get("boot")
-    globe(c, centerLon=st["MT_POS"][0], centerLat=st["MT_POS"][1])
-    ev["zooms"] = zoom_to(c, ZOOM_MT)
-    ev["click"] = globe_click(c, b.sc["client"], st["MT_POS"][0], st["MT_POS"][1], "GeoscapeState")
+    globe(c, centerLon=st["TARGET_LIST_POS"][0], centerLat=st["TARGET_LIST_POS"][1])
+    ev["zooms"] = zoom_to(c, ZOOM_TARGET_LIST)
+    ev["click"] = globe_click(c, b.sc["client"], st["TARGET_LIST_POS"][0], st["TARGET_LIST_POS"][1], "GeoscapeState")
     time.sleep(0.3)
     p0 = ev["P0"] = {"stack": stk(c), "pmc": pmc(c), "targets": texts(c)}
     r.need(p0["stack"][-1:] == ["MultipleTargetsState"] and {"HostBase", "HostBase2"} <= set(t.strip() for t in p0["targets"]) and
-           pmc3(p0["pmc"]) == [1, 0, 1], "MT P0: client %s, targets %s, PMC %s (want MultipleTargetsState listing HostBase and HostBase2, "
-           "PMC [1, 0, 1])" % (p0["stack"], p0["targets"], pmc3(p0["pmc"])))
+           pmc3(p0["pmc"]) == [1, 0, 1], "target_list P0: client %s, targets %s, PMC %s (want MultipleTargetsState "
+           "listing HostBase and HostBase2, PMC [1, 0, 1])" % (p0["stack"], p0["targets"], pmc3(p0["pmc"])))
     mark = len(logl(c))
     d = ev["dismantle"] = dismantle(h, b.sc["host"], "HostBase2")
     r.need("HostBase2" not in d["ownAfterOk"], "the host's own still holds HostBase2 after its OK: %s" % d["ownAfterOk"])
@@ -345,20 +359,21 @@ def row_mt(b, r, st):
     wait_top(h, "GeoscapeState", 15)
     ev["settle"], p1 = settle(c, DEL_SETTLE)
     ev["P1"], ev["line"] = p1, hits(c, NEEDLE % st["ids"]["HostBase2"], mark)
-    r.cell("MT-pre", True, "client MultipleTargetsState %s, PMC %s; the host's OK reached (own after %s)" % (
+    r.cell("target_list-pre", True, "client MultipleTargetsState %s, PMC %s; the host's OK reached (own after %s)" % (
         p0["targets"], pmc3(p0["pmc"]), d["ownAfterOk"]))
-    r.cell("MT-dangle", p1["pmc"].get("dangling") == 0, "P1 PMC %s (want dangling 0)" % pmc3(p1["pmc"]))
-    r.cell("MT-closed", p1["stack"][-1:] == ["GeoscapeState"] and p1["pmc"].get("holders") == 0,
+    r.cell("target_list-dangle", p1["pmc"].get("dangling") == 0, "P1 PMC %s (want dangling 0)" % pmc3(p1["pmc"]))
+    r.cell("target_list-closed", p1["stack"][-1:] == ["GeoscapeState"] and p1["pmc"].get("holders") == 0,
            "P1 client %s, PMC holders %s (want top GeoscapeState, holders 0)" % (p1["stack"], p1["pmc"].get("holders")))
-    if top(c) == "MultipleTargetsState":  # red recovery: its cancel is keyCancel (ESC) on its first button; it pops only
+    # recovery when it stayed open: its cancel is keyCancel (ESC) on its first button; it pops only
+    if top(c) == "MultipleTargetsState":
         ev["recovery"] = [key(c, SYM_ESC), wait(lambda: top(c) == "GeoscapeState", 5)]
-def row_gc(b, r, st):
+def row_craft_window(b, r, st):
     h, c, ev = b.host, b.client, r.ev
-    r.need(top(c) == "GeoscapeState", "GC: the client not on GeoscapeState: %s" % stk(c))
-    gp = st["GC_POS"]
+    r.need(top(c) == "GeoscapeState", "craft_window: the client not on GeoscapeState: %s" % stk(c))
+    gp = st["CRAFT_POS"]
     site = q(h, dict(SITE, lon=gp[0] + SITE_DLON, lat=gp[1]))
     hc = [k for x in census(h, True)["bases"] if x[1] == st["HB"]["name"] and not x[2] for k in x[6]]
-    r.need(site.get("ok") and hc, "GC: site %s, HB crafts %s" % (site, hc))
+    r.need(site.get("ok") and hc, "craft_window: site %s, HB crafts %s" % (site, hc))
     ev["force"] = q(h, {"cmd": "craft_force", "craft_id": hc[0][1], "status": "STR_OUT", "lon": gp[0], "lat": gp[1],
                         "dest": "site:%s" % site.get("site_id"), "fuel": 999999, "lowFuel": False})
     q(h, {"cmd": "geo_set_speed", "idx": 0})
@@ -368,14 +383,16 @@ def row_gc(b, r, st):
                      if k[3] == "STR_OUT" and abs(k[4] - gp[0]) < 0.02 and abs(k[5] - gp[1]) < 0.02), None)
     mc, ev["mirrorS"] = wait(mirror_craft, MIRROR_S, 0.25)
     ev["craft"], ev["mirrorCraft"] = hc[0], mc
-    r.need(mc, "GC: no STR_OUT craft mirror near GC_POS under HB's mirror on the client within %.0f s" % MIRROR_S)
+    r.need(mc, "craft_window: no STR_OUT craft mirror near CRAFT_POS under HB's mirror on the client within %.0f s"
+           % MIRROR_S)
     globe(c, centerLon=mc[4], centerLat=mc[5])
     ev["zooms"] = zoom_to(c, ZOOM_MIN)
     ev["click"] = globe_click(c, b.sc["client"], mc[4], mc[5], "GeoscapeState", pick=mc[6])
     time.sleep(0.3)
     p0 = ev["P0"] = {"stack": stk(c), "pmc": pmc(c)}
     r.need(p0["stack"][-1:] == ["GeoscapeCraftState"] and pmc3(p0["pmc"]) == [1, 0, 1],
-           "GC P0: client %s, PMC %s (want GeoscapeCraftState, PMC [1, 0, 1])" % (p0["stack"], pmc3(p0["pmc"])))
+           "craft_window P0: client %s, PMC %s (want GeoscapeCraftState, PMC [1, 0, 1])"
+           % (p0["stack"], pmc3(p0["pmc"])))
     s0 = q(h, {"cmd": "get_soldiers"})
     hb0 = [x for x in s0.get("bases", []) if x.get("name") == st["HB"]["name"] and not x.get("coopIcon") and not x.get("coopBaseFlag")]
     sids = [s.get("id") for s in (hb0[0].get("soldiers", []) if len(hb0) == 1 else [])]
@@ -402,18 +419,19 @@ def row_gc(b, r, st):
     r.need(st["HB"]["name"] not in ho and top(h) == "GeoscapeState", "the host after its OK: own %s, %s" % (ho, stk(h)))
     ev["settle"], p1 = settle(c, DEL_SETTLE)
     ev["P1"], ev["line"] = p1, hits(c, NEEDLE % st["HB"]["id"], mark)
-    r.cell("GC-pre", True, "client GeoscapeCraftState on %s, PMC %s; STRIP %d; BaseDestroyedState at +%s s; the host's OK reached (own %s)" % (
-        mc[6], pmc3(p0["pmc"]), len(sids), bds, ho))
-    r.cell("GC-dangle", p1["pmc"].get("dangling") == 0, "P1 PMC %s (want dangling 0)" % pmc3(p1["pmc"]))
-    r.cell("GC-closed", p1["stack"][-1:] == ["GeoscapeState"] and p1["pmc"].get("holders") == 0,
+    r.cell("craft_window-pre", True, "client GeoscapeCraftState on %s, PMC %s; STRIP %d; BaseDestroyedState at +%s s; "
+           "the host's OK reached (own %s)" % (mc[6], pmc3(p0["pmc"]), len(sids), bds, ho))
+    r.cell("craft_window-dangle", p1["pmc"].get("dangling") == 0, "P1 PMC %s (want dangling 0)" % pmc3(p1["pmc"]))
+    r.cell("craft_window-closed", p1["stack"][-1:] == ["GeoscapeState"] and p1["pmc"].get("holders") == 0,
            "P1 client %s, PMC holders %s (want top GeoscapeState, holders 0)" % (p1["stack"], p1["pmc"].get("holders")))
-    if top(c) == "GeoscapeCraftState":  # red recovery: its CANCEL pops only (no waypoint)
+    if top(c) == "GeoscapeCraftState":  # recovery when it stayed open: its CANCEL pops only (no waypoint)
         ev["recovery"] = [real_click(c, "CANCEL", 5)["ok"], wait(lambda: top(c) == "GeoscapeState", 5)]
-def row_cd(b, r, st):
+def row_destination_confirm(b, r, st):
     h, c, ev = b.host, b.client, r.ev
     cc = census(c)
     hb3 = next((m for m in mir(cc) if m[1] == "HostBase3"), None)
-    r.need(hb3 and cc["stack"] == ["GeoscapeState"], "CD: client %s, HostBase3 mirror %s" % (cc["stack"], hb3))
+    r.need(hb3 and cc["stack"] == ["GeoscapeState"], "destination_confirm: client %s, HostBase3 mirror %s"
+           % (cc["stack"], hb3))
     globe(c, centerLon=hb3[4], centerLat=hb3[5])
     ev["zooms"] = zoom_to(c, ZOOM_MIN)
     must_click(c, "INTERCEPT", 10)
@@ -423,28 +441,32 @@ def row_cd(b, r, st):
     idx = next((i for i, x in enumerate(rows) if x.get("type") == "STR_INTERCEPTOR" and x.get("status") == "STR_READY"), None)
     tl = [w for w in q(c, {"cmd": "list_widgets"}).get("widgets", []) if (w.get("type") or "").endswith("::TextList")]
     ev["rows"], ev["idx"] = [[x.get("craft"), x.get("status")] for x in rows], idx
-    r.need(idx is not None and len(tl) == 1, "CD: no READY interceptor row %s or TextLists %d" % (ev["rows"], len(tl)))
+    r.need(idx is not None and len(tl) == 1, "destination_confirm: no READY interceptor row %s or TextLists %d"
+           % (ev["rows"], len(tl)))
     inject(c, b.sc["client"], tl[0]["x"] + 30, tl[0]["y"] + 8 * idx + 4)
-    r.need(wait(lambda: top(c) == "SelectDestinationState", 5)[0], "CD: no SelectDestinationState after the row click: %s" % stk(c))
+    r.need(wait(lambda: top(c) == "SelectDestinationState", 5)[0], "destination_confirm: no SelectDestinationState "
+           "after the row click: %s" % stk(c))
     ev["click"] = globe_click(c, b.sc["client"], hb3[4], hb3[5], "SelectDestinationState", pick="HostBase3")
     time.sleep(0.3)
     p0 = ev["P0"] = {"stack": stk(c), "pmc": pmc(c), "texts": texts(c)[:6]}
     r.need(p0["stack"][-2:] == ["SelectDestinationState", "ConfirmDestinationState"] and "TARGET: HostBase3" in p0["texts"] and
-           pmc3(p0["pmc"]) == [1, 0, 1], "CD P0: client %s %s, PMC %s (want ConfirmDestinationState on HostBase3, PMC [1, 0, 1])" % (
-               p0["stack"], p0["texts"], pmc3(p0["pmc"])))
+           pmc3(p0["pmc"]) == [1, 0, 1], "destination_confirm P0: client %s %s, PMC %s (want ConfirmDestinationState "
+           "on HostBase3, PMC [1, 0, 1])" % (p0["stack"], p0["texts"], pmc3(p0["pmc"])))
     mark = len(logl(c))
     d = ev["dismantle"] = dismantle(h, b.sc["host"], "HostBase3")
     r.need("HostBase3" not in d["ownAfterOk"], "the host's own still holds HostBase3 after its OK: %s" % d["ownAfterOk"])
-    must_click(h, "GEOSCAPE", 10)  # the host reloads a stale world here (HB lost in GC); no cell reads the host after it
+    must_click(h, "GEOSCAPE", 10)  # the host lost HB in craft_window; no cell reads the host after this
     wait_top(h, "GeoscapeState", 15)
     ev["settle"], p1 = settle(c, DEL_SETTLE)
     ev["P1"], ev["line"] = p1, hits(c, NEEDLE % st["ids"]["HostBase3"], mark)
-    r.cell("CD-pre", True, "client %s %s, PMC %s; the host's OK reached (own after %s)" % (p0["stack"], p0["texts"][-1:], pmc3(p0["pmc"]),
-                                                                                          d["ownAfterOk"]))
-    r.cell("CD-dangle", p1["pmc"].get("dangling") == 0, "P1 PMC %s (want dangling 0)" % pmc3(p1["pmc"]))
-    r.cell("CD-closed", "ConfirmDestinationState" not in p1["stack"] and p1["stack"][-1:] == ["SelectDestinationState"] and
-           p1["pmc"].get("holders") == 0, "P1 client %s, PMC holders %s (want no ConfirmDestinationState, top SelectDestinationState, "
-           "holders 0)" % (p1["stack"], p1["pmc"].get("holders")))
+    r.cell("destination_confirm-pre", True, "client %s %s, PMC %s; the host's OK reached (own after %s)"
+           % (p0["stack"], p0["texts"][-1:], pmc3(p0["pmc"]), d["ownAfterOk"]))
+    r.cell("destination_confirm-dangle", p1["pmc"].get("dangling") == 0,
+           "P1 PMC %s (want dangling 0)" % pmc3(p1["pmc"]))
+    r.cell("destination_confirm-closed", "ConfirmDestinationState" not in p1["stack"] and
+           p1["stack"][-1:] == ["SelectDestinationState"] and p1["pmc"].get("holders") == 0,
+           "P1 client %s, PMC holders %s (want no ConfirmDestinationState, top SelectDestinationState, holders 0)"
+           % (p1["stack"], p1["pmc"].get("holders")))
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
 def run_row(x, b, rid, fn, st):
@@ -463,16 +485,16 @@ def main():
         b = Boot()
         try:
             bring_up(b, st)
-        except Exception as e:  # noqa: BLE001 - a boot miss fails MT-pre with ONE CAPTURE line
-            r = Row(x, b, "MT")
+        except Exception as e:  # noqa: BLE001 - a boot miss fails target_list-pre with ONE CAPTURE line
+            r = Row(x, b, "target_list")
             r.ev["boot"] = st.get("boot")
             r.finish("boot miss: %s: %s" % (type(e).__name__, str(e)[:300]))
-            for rid in ("GC", "CD"):
+            for rid in ("craft_window", "destination_confirm"):
                 Row(x, None, rid).finish("boot miss", capture_it=False)
         else:
-            run_row(x, b, "MT", row_mt, st)
-            run_row(x, b, "GC", row_gc, st)
-            run_row(x, b, "CD", row_cd, st)
+            run_row(x, b, "target_list", row_target_list, st)
+            run_row(x, b, "craft_window", row_craft_window, st)
+            run_row(x, b, "destination_confirm", row_destination_confirm, st)
     finally:
         for gc in ((b.client, b.host) if b else ()):
             x.alive.append([gc.name, alive(gc)])
@@ -488,8 +510,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H83 S-C RBH: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                               sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_removed_base_holders: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
