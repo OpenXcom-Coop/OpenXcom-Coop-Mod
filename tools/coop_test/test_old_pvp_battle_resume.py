@@ -21,8 +21,9 @@ alien killed by a test command, END TURN, both debriefings, both OKs).
   gm2_common  0 new crash files, both processes alive, client2 zero-disk; desyncSeen false and hash_now full EQUAL once
               in battle
 Boot pve2_refused (key 48246, after gm2_resumes; dirs old_pvp_pve2_host / old_pvp_pve2_client2): the save is
-separate_battle.sav with its ONE body coop_gamemode line 1 -> 4 (CRLF-aware split), then refusal_test.to_lobby and
-refusal_test.refused_row.
+separate_battle.sav with its ONE body coop_gamemode line 1 -> 4 (CRLF-aware split); the save upgrade on it
+(test_old_battle_resume.upgrade_save: upgrade_run, the step the load's upgrade dialog runs), then
+refusal_test.to_lobby on the upgraded save and refusal_test.refused_row.
   pve2_refusal  the resume lobby reached; ONE PVE2_LINE and no refusal line in the host log; every sub-cell of
                 refusal_test.refused_row (pve2_refused-dialog, -held, -client, -ok, -common) passed
 Without the fix: exit 2, 1/7 - FAIL gm2_load, pve2_refusal; gm2_resume, gm2_mode, gm2_seats, gm2_win not reached (the
@@ -49,7 +50,7 @@ from session import battle_state, event_state  # noqa: E402
 import test_campaign_resume_gm2 as resume_gm2  # noqa: E402  (row helpers: snap, win_cell)
 import test_campaign_resume_roles as RR  # noqa: E402  (pure helpers: capture, stack, top, crash_set, wait, alive)
 import test_pve2_resume_refused as refusal_test  # noqa: E402  (to_lobby, refused_row)
-import test_old_battle_resume as OB  # noqa: E402  (CONVERT, CONVERT_RE, REFUSAL)
+import test_old_battle_resume as OB  # noqa: E402  (CONVERT, CONVERT_RE, REFUSAL, upgrade_save)
 
 # ----- fixture values -----
 KEY = "48246"
@@ -270,6 +271,9 @@ def row_pve2_refused(x, ev):
     ev["fx"] = {"file": PVE2_SAVE, "bytes": len(data), "crlf": data.count(b"\r\n")}
     host, c2 = x["host"], x["client2"]
     spawn("pve2_refused", host, c2)
+    up, save, why = OB.upgrade_save(host, PVE2_SAVE, ev, "pve2")
+    if not up:
+        capture_boot("pve2_refused", why, host, c2)
 
     def sub(name, ok, detail):
         SUB[name] = (bool(ok), detail)
@@ -279,7 +283,7 @@ def row_pve2_refused(x, ev):
     refusal_test.BOOT.update(tag="pve2_refused", captured=False)
     bad = []
     try:
-        refusal_test.to_lobby(host, c2, PVE2_SAVE, ev)
+        refusal_test.to_lobby(host, c2, save, ev)
     except refusal_test.FixtureMiss as e:
         bad.append(f"refusal_test.FixtureMiss {str(e)[:200]!r}")
     else:
