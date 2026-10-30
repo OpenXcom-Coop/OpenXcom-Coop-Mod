@@ -2854,6 +2854,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     # host's alert reaches it; it holds the shared clock until it is closed.
     client.wait_for("the guest's arrival notice on the client",
                     lambda: has_state(client, "ItemsArrivingState") or None, timeout=30, interval=0.1)
+    drain_host_coop_notice_staged(client)
 
     def guest_at_host_base(gc):
         for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
@@ -2876,7 +2877,7 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
         pre_mission_start(host, client)
 
     # One world: a popup on either machine holds the shared clock, so both are
-    # cleared (the client's holds the guest's arrival notice).
+    # cleared.
     for gc in (host, client):
         if staged:
             drain_host_coop_notice_staged(gc)
