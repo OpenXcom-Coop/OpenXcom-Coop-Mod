@@ -1,24 +1,26 @@
-"""R4-L2 stage S-B (spec rewrite/prompts/r4l2_campaign_rejoin.md (f) row RL, QL2-2 a, AMENDMENT R4-L2-1; TASK 0
-rewrite/r4l2-task0/sb/CONSTANTS.md): a rejoiner lost during its rejoin leaves the paused battle with no co-op state. A skirmish client leaves
-(drop_client_mid_battle), a fresh client2 rejoins with hold_battle_ready armed (its battle_ready stashed, so the host stays in phase Handshake
-under offerRejoinBattle()), and client2 is killed there. disconnectTCP()'s SPEC 16 spare needs phase Active, so the host takes the full reset:
-phase Idle, battleId 0, peerAbsent false, dialog 62 kept; offerRejoinBattle()'s guard then refuses every later rejoin
-(GUARD +1, client3 on 52 for good). TASK 0 T0-L measured it 2/2, the kill on the -2 path both times.
-  Boot L (key "48601", w2r4l2_l_host / _client / _client2 / _client3): row RL. Cells: RL-1 GUARD PAUSE; RL-2 GUARD the rejoin in flight (host
-  phase Handshake, client2 held, OFFER +1 reading battleId=B0, client2 CLIENT_ACTIVE +1); RL-3 FIX the pause kept at W (phase Active, peerAbsent
-  true, battleId B0, inBattle true, dialog 62 backVisible false, LOST +1; EVIDENCE names the loss path); RL-4 FIX client3's rejoin (OFFER +1
-  more, GUARD +0, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both); RL-5 FIX SPLIT(host) ==
-  SPLIT(client3) == SPLIT0 and HASH(host, client3); RL-6 GUARD CRASH 0.
-Definitions (spec (f)): POLL 0.25 s; W 15 s (the host observed at 0.2 s); W_ACK = WATCH_CAP_S (RV-U13 S-D; was 30 s); PAUSE(host)
-within 30 s of the leave: phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState,
-CoopState]; SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both;
-REJOIN(client3) = a fresh client3 on its own dir, rejoin_skirmish, wait <= W_ACK for the host's resumeAck true AND peerAbsent false (profile_ok
-on any host Profile on top), press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s. battle_state is probed only with a
-BattlescapeState on the stack or no battle in the world; the killed client2 is never probed. Needles = host log since the row's
-baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's resumeAck wait: RL-4 is
-evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; ONE run; exit 0 iff
-every cell passes, else 2.
-Red (S-B commit 1): RL FAIL on RL-3, RL-4 and RL-5 "not reached" (RL-1, RL-2, RL-6 PASS).
+"""A rejoiner lost during its rejoin leaves the paused battle with no co-op state. A skirmish client leaves
+(drop_client_mid_battle), a fresh client2 rejoins with hold_battle_ready armed (its battle_ready stashed, so the host
+stays in phase Handshake under offerRejoinBattle()), and client2 is killed there. disconnectTCP()'s pause-on-leave path
+needs phase Active, so without the fix the host takes the full reset: phase Idle, battleId 0, peerAbsent false, dialog
+62 kept; offerRejoinBattle()'s guard then refuses every later rejoin (GUARD +1, client3 on 52 for good). Measured on two
+boots, the kill on the -2 path (onClientDrop) both times.
+  One boot (key "48601", dirs rejoin_lost_restream_host / _client / _client2 / _client3): row lost_rejoiner. Cells:
+  lost_rejoiner-1 GUARD PAUSE; -2 GUARD the rejoin in flight (host phase Handshake, client2 held, OFFER +1 reading
+  battleId=B0, client2 CLIENT_ACTIVE +1); -3 FIX the pause kept at W (phase Active, peerAbsent true, battleId B0,
+  inBattle true, dialog 62 backVisible false, LOST +1; EVIDENCE names the loss path); -4 FIX client3's rejoin (OFFER +1
+  more, GUARD +0, RESUME within W_ACK, both tops BattlescapeState, phase Active, peerAbsent false, battleId B0 on both);
+  -5 FIX SPLIT(host) == SPLIT(client3) == SPLIT0 and HASH(host, client3); -6 GUARD CRASH 0.
+Definitions: POLL 0.25 s; W 15 s (the host observed at 0.2 s); W_ACK = WATCH_CAP_S; PAUSE(host) within 30 s of the
+leave: phase Active, peerAbsent true, battleId B0, inBattle true, dialog 62 backVisible false, stack [...,
+BattlescapeState, CoopState]; SPLIT = sorted (unit id, coop) of faction 0, not isOut; HASH = wait_host_idle +
+assert_hash_clean(full) + desyncSeen false on both; REJOIN(client3) = a fresh client3 on its own dir, rejoin_skirmish,
+wait <= W_ACK for the host's resumeAck true AND peerAbsent false (profile_ok on any host Profile on top),
+press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s. battle_state is probed only with a
+BattlescapeState on the stack or no battle in the world; the killed client2 is never probed. Needles = host log since
+the row's baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except
+REJOIN's resumeAck wait: lost_rejoiner-4 is evaluated with the values at the timeout. EVIDENCE before each verdict; a
+failed row prints ONE CAPTURE line; ONE run; exit 0 iff every cell passes, else 2.
+Without the fix: lost_rejoiner-3 and -4 FAIL and -5 is "not reached" (-1, -2 and -6 PASS).
 """
 import json
 import os
@@ -30,9 +32,9 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 from test_skirmish_rejoin_battle import drop_client_mid_battle, rejoin_skirmish, start_skirmish_battle  # noqa: E402
 
-WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin), F11192
+WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin)
 POLL, W, W_POLL, W_ACK, W_PAUSE, W_FLIGHT = 0.25, 15.0, 0.2, WATCH_CAP_S, 30.0, 60.0
-KEY, TAG = "48601", "w2r4l2_l"
+KEY, TAG = "48601", "rejoin_lost_restream"
 BS, CS, PROFILE = "BattlescapeState", "CoopState", "Profile"
 OFFER, GUARD = "rejoin battle_offer sent (battleId=", "offerRejoinBattle() called while the battle is not "
 LOST = "the rejoiner was lost during the rejoin - the pause is kept"
@@ -81,7 +83,7 @@ def bs_raw(gc):
 def auth(gc):
     r = bs_raw(gc)
     if not r:
-        return {"skipped": "no BattlescapeState, a battle in the world (F10980)"}
+        return {"skipped": "no BattlescapeState, a battle in the world"}
     return dict(pick(r, ("phase", "inBattle", "turn", "error")), **pick(r.get("authority") or {}, ("battleId", "peerAbsent", "peerLeftByChoice")))
 
 def split(gc):
@@ -107,7 +109,7 @@ def wait(desc, pred, timeout, interval=POLL):
     raise Stop("WAIT %s: timed out after %.0f s" % (desc, timeout))
 
 def hash_ok(host, other, what):
-    """spec (f) HASH(host, other) -> (ok, evidence)"""
+    """HASH(host, other) -> (ok, evidence)"""
     ev = {}
     try:
         session.wait_host_idle(host, other)
@@ -139,8 +141,8 @@ class Row:
         """the CRASH cell (every case), ONE CAPTURE line when a cell failed, the row verdict"""
         if crash_cid:
             new = sorted(session._crash_log_snapshot() - self.cr0)
-            self.cell(crash_cid, "GUARD", "CRASH 0 (no new crash_*.log in this lane's crash folder since the row's baseline)", not new,
-                      {"crash": new})
+            self.cell(crash_cid, "GUARD", "CRASH 0 (no new crash_*.log in this harness slot's own crash folder since "
+                      "the row's baseline)", not new, {"crash": new})
         x, walls[self.rid] = self.x, round(time.time() - self.t0, 1)
         if self.fails:
             live = [(n, gc) for n, gc in (("host", x.host), ("client", x.client), ("client2", x.client2), ("client3", x.client3)) if alive(gc)]
@@ -187,7 +189,7 @@ def pause(x):
 
 def in_flight(r, x):
     """client2 spawn, connect, hold_battle_ready {on: true}, rejoin_skirmish; wait <= W_FLIGHT for the host's phase Handshake, client2 held,
-    OFFER +1; cell RL-2"""
+    OFFER +1; cell lost_rejoiner-2"""
     h = x.host
     x.client2 = c2 = GameClient("client2", 3, make_user_dir(TAG + "_client2"))
     c2.spawn(); c2.connect()
@@ -206,12 +208,14 @@ def in_flight(r, x):
     ev["in flight s"] = wait("host phase Handshake, client2 held, OFFER +1", flying, W_FLIGHT)
     act = [ln.split("\t")[-1][:160] for ln in log(c2) if CLIENT_ACTIVE in ln]
     ev.update(seen, CLIENT_ACTIVE=act, client2=[stack(c2), dlg(c2)], host=[stack(h), dlg(h), coop(h)])
-    r.cell("RL-2", "GUARD", "the rejoin was in flight: host phase Handshake, client2 held, OFFER +1 reading battleId=%s, client2 CLIENT_ACTIVE "
-           "+1" % x.b0, seen["phase"] == "Handshake" and seen["hold"].get("held") is True and len(seen["OFFER"]) == 1
+    r.cell("lost_rejoiner-2", "GUARD", "the rejoin was in flight: host phase Handshake, client2 held, OFFER +1 "
+           "reading battleId=%s, client2 CLIENT_ACTIVE +1" % x.b0,
+           seen["phase"] == "Handshake" and seen["hold"].get("held") is True and len(seen["OFFER"]) == 1
            and ("battleId=%s," % x.b0) in seen["OFFER"][0] and len(act) == 1, ev)
 
 def lost(r, x):
-    """client2.kill(), the host observed for W at W_POLL; cell RL-3 (EVIDENCE: the loss path) -> the host log size at the kill"""
+    """client2.kill(), the host observed for W at W_POLL; cell lost_rejoiner-3 (EVIDENCE: the loss path) -> the host
+    log size at the kill"""
     h, c2 = x.host, x.client2
     n_k, kev = len(log(h)), {}
     try:
@@ -232,8 +236,9 @@ def lost(r, x):
     path = "-2" if n["DROP"] >= 1 and n["FREEZE"] == 0 else ("-3" if n["FREEZE"] >= 1 and n["DROP"] == 0 else "unclear")
     ev = {"loss path": "%s (first poll phase %s; onClientDrop +%d, freeze +%d)" % (path, first, n["DROP"], n["FREEZE"]), "kill": kev,
           "needles since the kill": n, "LOST": since(h, n_k, LOST), "at W": {"battle": b, "dialog": d, "stack": stack(h)}, "timeline": tl}
-    r.cell("RL-3", "FIX", "the pause is kept: at W host phase Active, peerAbsent true, battleId %s, inBattle true, dialog 62 backVisible false, "
-           "LOST +1 (red today: Idle, battleId 0, peerAbsent false, LOST +0, T0-L)" % x.b0,
+    r.cell("lost_rejoiner-3", "FIX", "the pause is kept: at W host phase Active, peerAbsent true, battleId %s, "
+           "inBattle true, dialog 62 backVisible false, LOST +1 (without the fix: Idle, battleId 0, peerAbsent "
+           "false, LOST +0)" % x.b0,
            b.get("phase") == "Active" and b.get("peerAbsent") is True and b.get("battleId") == x.b0 and b.get("inBattle") is True
            and d.get("code") == 62 and d.get("backVisible") is False and n["LOST"] == 1, ev)
     return n_k
@@ -281,8 +286,8 @@ def resume(x, ev):
         ev["RESUME"] = {"error": short(e, 300)}
     return (ev.get("RESUME") or {}).get("ok") is True
 
-def row_rl(x, results, walls):
-    r = Row("RL", ["RL-%d" % i for i in range(1, 6)], x)
+def row_lost_rejoiner(x, results, walls):
+    r = Row("lost_rejoiner", ["lost_rejoiner-%d" % i for i in range(1, 6)], x)
     if x.err:
         return r.boot_miss(results, walls)
     h = x.host
@@ -291,7 +296,7 @@ def row_rl(x, results, walls):
         r.n_h = len(log(h))
         drop_client_mid_battle(h, x.client)
         ok, pv = pause(x)
-        r.cell("RL-1", "GUARD", "PAUSE(host) within %.0f s of the leave" % W_PAUSE, ok, pv)
+        r.cell("lost_rejoiner-1", "GUARD", "PAUSE(host) within %.0f s of the leave" % W_PAUSE, ok, pv)
         if not ok:
             raise Stop("PAUSE(host) not reached within %.0f s" % W_PAUSE)
         in_flight(r, x)
@@ -308,22 +313,23 @@ def row_rl(x, results, walls):
             ev["tops wait"] = str(e)
         hb, cb = auth(h), auth(c3)
         ev.update(OFFER=since(h, n_k, OFFER), GUARD=since(h, n_k, GUARD), needles=n, host=hb, client3=cb, tops=[top(h), top(c3)])
-        r.cell("RL-4", "FIX", "client3's rejoin: OFFER +1 more, GUARD +0, RESUME within W_ACK %.0f s, both tops BattlescapeState, phase Active, "
-               "peerAbsent false, battleId %s on both (red today: GUARD +1, client3 on 52, the wait times out, T0-L)" % (W_ACK, x.b0),
+        r.cell("lost_rejoiner-4", "FIX", "client3's rejoin: OFFER +1 more, GUARD +0, RESUME within W_ACK %.0f s, "
+               "both tops BattlescapeState, phase Active, peerAbsent false, battleId %s on both (without the fix: "
+               "GUARD +1, client3 on 52, the wait times out)" % (W_ACK, x.b0),
                n["OFFER"] == 1 and n["GUARD"] == 0 and resumed and tops and hb.get("phase") == cb.get("phase") == "Active"
                and hb.get("peerAbsent") is False and cb.get("peerAbsent") is False and hb.get("battleId") == cb.get("battleId") == x.b0, ev)
         if not (resumed and tops):
             raise Stop("REJOIN: no RESUME or the tops wait failed (resumeAck wait: %s)" % ev.get("ack wait", "passed"))
         sh, sc = split(h), split(c3)
-        hok, hev = hash_ok(h, c3, "RL after RESUME")
-        r.cell("RL-5", "FIX", "SPLIT(host) == SPLIT(client3) == SPLIT0 and HASH(host, client3)", sh == sc == x.split0 and hok,
-               {"host": sh, "client3": sc, "SPLIT0": x.split0, "HASH": hev})
+        hok, hev = hash_ok(h, c3, "lost_rejoiner after RESUME")
+        r.cell("lost_rejoiner-5", "FIX", "SPLIT(host) == SPLIT(client3) == SPLIT0 and HASH(host, client3)",
+               sh == sc == x.split0 and hok, {"host": sh, "client3": sc, "SPLIT0": x.split0, "HASH": hev})
     except Exception as e:  # Stop, or a probe / spawn that raised: the row ends here
         r.stop(e)
-    r.end("RL-6", results, walls)
+    r.end("lost_rejoiner-6", results, walls)
 
 def boot(tag):
-    """boot L: host and client spawn, connect, start_skirmish_battle(host, client, KEY) (both on BattlescapeState)"""
+    """The boot: host and client spawn, connect, start_skirmish_battle(host, client, KEY) (both on BattlescapeState)"""
     x = SimpleNamespace(tag=tag, host=None, client=None, client2=None, client3=None, err=None, b0=None, split0=None)
     try:
         x.host, x.client = GameClient("host", 1, make_user_dir(tag + "_host")), GameClient("client", 2, make_user_dir(tag + "_client"))
@@ -348,8 +354,8 @@ def shut(x):
 def main():
     t0, results, walls, x = time.time(), {}, {}, boot(TAG)
     walls[TAG + " boot"] = round(time.time() - t0, 1)
-    row_rl(x, results, walls)
-    failed = shut(x) + [rid for rid in ("RL",) if not results.get(rid)]
+    row_lost_rejoiner(x, results, walls)
+    failed = shut(x) + [rid for rid in ("lost_rejoiner",) if not results.get(rid)]
     walls[TAG] = round(time.time() - t0, 1)
     print("\ntest_rejoin_lost_restream: %d/1 rows passed (fail=%s) walls %s in %.1fs" % (sum(1 for v in results.values() if v), failed,
                                                                                          json.dumps(walls), time.time() - t0), flush=True)
