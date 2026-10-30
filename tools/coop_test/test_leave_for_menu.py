@@ -1,34 +1,33 @@
-"""test_leave_for_menu.py: the partner leaving while this machine is already leaving for the main menu opens
-nothing over that exit (issue #79, D156 (a), D239 (a); trace F10500-F10512). Spec docs
-rewrite/prompts/w2h25_gameover_lobby_race.md (f); TASK 0 constants docs rewrite/w2h25-task0/CONSTANTS.md.
+"""test_leave_for_menu.py: the partner leaving while this machine is already leaving for the main menu opens nothing
+over that exit (issue #79).
 
 Every row boots its own pair with test_cydonia_ending's helpers, imported unchanged: boot_custom (custom battle,
 Cydonia landing, seed 1, pinned), row_stage_offer_stash into stage 2 (a precondition miss is a setup failure), then
 abort_ok (AbortMissionState "0 Units in Target Exit" -> loseGame, the game-ending slideshow on both machines). A
-SlideshowState on both within
-SLIDESHOW_S is a guard. Both stacks are polled every POLL_S from the OK to the row's end ("no LobbyMenu at any poll").
-A main-menu cell is a bare ['MainMenuState'] read that is still bare SETTLE_S later (every poll between, F10505). A
-keyCancel is a real SDL key (inject_input key 27 -> SlideshowState::screenSkip).
+SlideshowState on both within SLIDESHOW_S is a guard. Both stacks are polled every POLL_S from the OK to the row's end
+("no LobbyMenu at any poll"). A main-menu cell is a bare ['MainMenuState'] read that is still bare SETTLE_S later
+(every poll between). A keyCancel is a real SDL key (inject_input key 27 -> SlideshowState::screenSkip). The
+partner-left line is the host log's PARTNER_LEFT_LINE, which names the state the host is leaving through.
 
-  LM1  the partner leaves during the host's ending. +SKIP_AT_S after the OK: client keyCancel. Cells: the
-       client on a bare main menu; at +CHECK_AT_S the host's top is SlideshowState; no LobbyMenu on the host at any
-       poll; the host log has the W2-H25 line naming GoToMainMenuState; then host keyCancel -> the host on a bare
-       main menu; no new crash file; both alive.
-  LM2  the frame before the host's MainMenuState::init (C1, F10502 = Integration 19's red). +SKIP_AT_S: host
-       slow_top {type MainMenuState, ms 100, timeoutMs 20000}; host keyCancel; client keyCancel DELTA_S after the
-       host's reply. Window-proof GUARD (setup failure if missed): the host log's W2-H25 line names MainMenuState, or
-       (unfixed build) `push ... LobbyMenu depth=2` right after `push ... MainMenuState depth=1` with no
-       `[coop-session] setRole -> None` between. Cells: no LobbyMenu on the host at any poll; host and client on a
-       bare main menu; no new crash file; both alive. slow_top {off} at the row's end.
-  LM3  control: the host leaves first. +SKIP_AT_S host keyCancel, +CLIENT_SKIP_S client keyCancel. Cells:
-       both on a bare main menu; no LobbyMenu on either at any poll; the client log has no CoopState push.
+  partner_leaves_in_ending  the partner leaves during the host's ending. +SKIP_AT_S after the OK: client keyCancel.
+       Cells: the client on a bare main menu; at +CHECK_AT_S the host's top is SlideshowState; no LobbyMenu on the
+       host at any poll; the host log has the partner-left line naming GoToMainMenuState; then host keyCancel -> the
+       host on a bare main menu; no new crash file; both alive.
+  leave_before_menu_init  the frame before the host's MainMenuState::init. +SKIP_AT_S: host slow_top {type
+       MainMenuState, ms 100, timeoutMs 20000}; host keyCancel; client keyCancel DELTA_S after the host's reply.
+       Window-proof GUARD (setup failure if missed): the host log's partner-left line names MainMenuState, or (unfixed
+       build) `push ... LobbyMenu depth=2` right after `push ... MainMenuState depth=1` with no `[coop-session]
+       setRole -> None` between. Cells: no LobbyMenu on the host at any poll; host and client on a bare main menu; no
+       new crash file; both alive. slow_top {off} at the row's end.
+  host_leaves_first  control: the host leaves first. +SKIP_AT_S host keyCancel, +CLIENT_SKIP_S client keyCancel.
+       Cells: both on a bare main menu; no LobbyMenu on either at any poll; the client log has no CoopState push.
 
-RED on the unfixed build: LM1 (the host on [GoToMainMenuState, SlideshowState, LobbyMenu]) and LM2 (the host
-on ['MainMenuState', 'LobbyMenu']) FAIL; LM3 PASSES.
+On the unfixed build partner_leaves_in_ending (the host on [GoToMainMenuState, SlideshowState, LobbyMenu]) and
+leave_before_menu_init (the host on ['MainMenuState', 'LobbyMenu']) FAIL; host_leaves_first PASSES.
 
 Each row prints ONE "EVIDENCE <id>:" line before its verdict, then "PASS <id>" or "FAIL <id>: <cells>" and, on a FAIL,
-ONE "CAPTURE <id>:" line. Every row runs after a failure. ONE foreground run, no skip
-path; exit 0 only when every row passes, 2 otherwise.
+ONE "CAPTURE <id>:" line. Every row runs after a failure. ONE foreground run, no skip path; exit 0 only when every row
+passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_leave_for_menu.py
 """
@@ -46,17 +45,18 @@ from test_multistage import FixtureMiss, short, rc, stack, evidence, wait_until
 
 KEY_CANCEL = 27          # Options::keyCancel default (SDLK_ESCAPE)
 SKIP_AT_S = 5.0          # the first keyCancel, s after the abort OK
-CHECK_AT_S = 10.0        # LM1: the host's top read, s after the OK
-CLIENT_SKIP_S = 10.0     # LM3: the client's keyCancel, s after the OK
-DELTA_S = 0.125          # LM2: the client's keyCancel this long after the host's reply
+CHECK_AT_S = 10.0        # partner_leaves_in_ending: the host's top read, s after the OK
+CLIENT_SKIP_S = 10.0     # host_leaves_first: the client's keyCancel, s after the OK
+DELTA_S = 0.125          # leave_before_menu_init: the client's keyCancel this long after the host's reply
 SLIDE_MS, SLIDE_TIMEOUT_MS = 100, 20000
 SLIDESHOW_S = 15         # the OK -> a SlideshowState on both (guard)
 MENU_BOUND_S = 15        # the last keyCancel -> both settled on a bare main menu
 SETTLE_S = 2.0
 POLL_S = 0.1
 BARE = ["MainMenuState"]
-E3_LINE = "[coop] partner left while the host is leaving for the main menu ("
-ROW_PORTS = {"LM1": (49686, 49687), "LM2": (49688, 49689), "LM3": (49690, 49691)}
+PARTNER_LEFT_LINE = "[coop] partner left while the host is leaving for the main menu ("
+ROW_PORTS = {"partner_leaves_in_ending": (49686, 49687), "leave_before_menu_init": (49688, 49689),
+             "host_leaves_first": (49690, 49691)}
 
 
 def log_msgs(gc, since=0):
@@ -133,9 +133,9 @@ def to_ending(host, client, rid, crash0):
         ctx["boot"] = ce.boot_custom(host, client)
     except FixtureMiss as e:
         raise FixtureMiss(f"boot custom: {e}") from None
-    f8 = ce.row_stage_offer_stash(host, client, ctx, crash0)
-    if f8:
-        raise FixtureMiss(f"stage_offer_stash into stage 2: {f8}")
+    stash_fails = ce.row_stage_offer_stash(host, client, ctx, crash0)
+    if stash_fails:
+        raise FixtureMiss(f"stage_offer_stash into stage 2: {stash_fails}")
     for name, gc in (("host", host), ("client", client)):
         st = stack(gc)
         if not (isinstance(st, list) and st and st[-1] == "BattlescapeState"):
@@ -170,8 +170,8 @@ def common_cells(host, client, w, crash0, ctx, names_settled):
     return f
 
 
-def lm1(host, client, crash0):
-    ctx = to_ending(host, client, "LM1", crash0)
+def partner_leaves_in_ending(host, client, crash0):
+    ctx = to_ending(host, client, "partner_leaves_in_ending", crash0)
     w = Watch(host, client, ctx["t_ok"])
     f = []
     w.until(SKIP_AT_S)
@@ -183,25 +183,26 @@ def lm1(host, client, crash0):
     if not (isinstance(hst, list) and hst and hst[-1] == "SlideshowState"):
         f.append(f"host top at +{CHECK_AT_S}s is not SlideshowState: {hst}")
     hlog = log_msgs(host, ctx["marks"]["host"])
-    e3 = [ln for ln in hlog if E3_LINE in ln]
-    ctx["e3"] = e3
-    if not any(E3_LINE + "GoToMainMenuState)" in ln for ln in e3):
-        f.append(f"host log has no W2-H25 line naming GoToMainMenuState: {e3}")
+    left_lines = [ln for ln in hlog if PARTNER_LEFT_LINE in ln]
+    ctx["partnerLeft"] = left_lines
+    if not any(PARTNER_LEFT_LINE + "GoToMainMenuState)" in ln for ln in left_lines):
+        f.append(f"host log has no partner-left line naming GoToMainMenuState: {left_lines}")
     ctx["hostSkip"] = {"t": w.t(), "resp": key_cancel(host)}
     w.until_settled(["host", "client"], ctx["hostSkip"]["t"] + MENU_BOUND_S)
     if "host" in w.lobby:
         f.append(f"a LobbyMenu was on the host's stack at +{w.lobby['host']}s")
     f += common_cells(host, client, w, crash0, ctx, ["client", "host"])
-    evidence("LM1", {"boot": ctx.get("boot"), "slideshowBothS": ctx.get("slideshowBothS"),
-                     "clientSkip": ctx.get("clientSkip"), "hostAtCheck": ctx.get("hostAtCheck"), "e3": e3,
-                     "hostSkip": ctx.get("hostSkip"), "watch": w.view(), "newCrashFiles": ctx.get("newCrashFiles"),
-                     "hostLog": keep(log_msgs(host, ctx["marks"]["host"])),
-                     "clientLog": keep(log_msgs(client, ctx["marks"]["client"]))})
+    evidence("partner_leaves_in_ending", {
+        "boot": ctx.get("boot"), "slideshowBothS": ctx.get("slideshowBothS"), "clientSkip": ctx.get("clientSkip"),
+        "hostAtCheck": ctx.get("hostAtCheck"), "partnerLeft": left_lines, "hostSkip": ctx.get("hostSkip"),
+        "watch": w.view(), "newCrashFiles": ctx.get("newCrashFiles"),
+        "hostLog": keep(log_msgs(host, ctx["marks"]["host"])),
+        "clientLog": keep(log_msgs(client, ctx["marks"]["client"]))})
     return f
 
 
-def red_window_sig(lines):
-    """The unfixed build's LM2 shape: `push ... LobbyMenu depth=2` whose previous push/pop line is
+def unfixed_window_sig(lines):
+    """The unfixed build's leave_before_menu_init shape: `push ... LobbyMenu depth=2` whose previous push/pop line is
     `push ... MainMenuState depth=1`, with no `[coop-session] setRole -> None` between them."""
     for i, ln in enumerate(lines):
         if not ln.startswith("[coop-ui] push class OpenXcom::LobbyMenu depth=2"):
@@ -216,8 +217,8 @@ def red_window_sig(lines):
     return False
 
 
-def lm2(host, client, crash0):
-    ctx = to_ending(host, client, "LM2", crash0)
+def leave_before_menu_init(host, client, crash0):
+    ctx = to_ending(host, client, "leave_before_menu_init", crash0)
     w = Watch(host, client, ctx["t_ok"])
     f = []
     try:
@@ -235,12 +236,13 @@ def lm2(host, client, crash0):
                        "deltaS": round(tc - th, 3), "resp": [rh, rcl]}
         w.until_settled(["host", "client"], tc - ctx["t_ok"] + MENU_BOUND_S)
         hlog = log_msgs(host, ctx["marks"]["host"])
-        e3 = [ln for ln in hlog if E3_LINE in ln]
-        green_win = any(E3_LINE + "MainMenuState)" in ln for ln in e3)
-        red_win = red_window_sig(hlog)
-        ctx["window"] = {"e3": e3, "greenNamesMainMenuState": green_win, "redSignature": red_win}
-        if not (green_win or red_win):
-            f.append("SETUP-FAILURE window-proof guard missed: no W2-H25 line naming MainMenuState and no "
+        left_lines = [ln for ln in hlog if PARTNER_LEFT_LINE in ln]
+        fixed_win = any(PARTNER_LEFT_LINE + "MainMenuState)" in ln for ln in left_lines)
+        unfixed_win = unfixed_window_sig(hlog)
+        ctx["window"] = {"partnerLeft": left_lines, "fixedNamesMainMenuState": fixed_win,
+                         "unfixedSignature": unfixed_win}
+        if not (fixed_win or unfixed_win):
+            f.append("SETUP-FAILURE window-proof guard missed: no partner-left line naming MainMenuState and no "
                      "LobbyMenu push right after the un-init'd MainMenuState push")
         if "host" in w.lobby:
             f.append(f"a LobbyMenu was on the host's stack at +{w.lobby['host']}s")
@@ -250,16 +252,17 @@ def lm2(host, client, crash0):
             ctx["slowOff"] = host.cmd({"cmd": "slow_top", "off": True}).get("slow")
         except Exception as e:
             ctx["slowOff"] = short(e)
-    evidence("LM2", {"boot": ctx.get("boot"), "slideshowBothS": ctx.get("slideshowBothS"), "slow": ctx.get("slow"),
-                     "skip": ctx.get("skip"), "window": ctx.get("window"), "slowOff": ctx.get("slowOff"),
-                     "watch": w.view(), "newCrashFiles": ctx.get("newCrashFiles"),
-                     "hostLog": keep(log_msgs(host, ctx["marks"]["host"])),
-                     "clientLog": keep(log_msgs(client, ctx["marks"]["client"]))})
+    evidence("leave_before_menu_init", {
+        "boot": ctx.get("boot"), "slideshowBothS": ctx.get("slideshowBothS"), "slow": ctx.get("slow"),
+        "skip": ctx.get("skip"), "window": ctx.get("window"), "slowOff": ctx.get("slowOff"),
+        "watch": w.view(), "newCrashFiles": ctx.get("newCrashFiles"),
+        "hostLog": keep(log_msgs(host, ctx["marks"]["host"])),
+        "clientLog": keep(log_msgs(client, ctx["marks"]["client"]))})
     return f
 
 
-def lm3(host, client, crash0):
-    ctx = to_ending(host, client, "LM3", crash0)
+def host_leaves_first(host, client, crash0):
+    ctx = to_ending(host, client, "host_leaves_first", crash0)
     w = Watch(host, client, ctx["t_ok"])
     f = []
     w.until(SKIP_AT_S)
@@ -275,14 +278,16 @@ def lm3(host, client, crash0):
     if pushes:
         f.append(f"the client log has CoopState push(es): {pushes}")
     f += common_cells(host, client, w, crash0, ctx, ["host", "client"])
-    evidence("LM3", {"boot": ctx.get("boot"), "slideshowBothS": ctx.get("slideshowBothS"),
-                     "hostSkip": ctx.get("hostSkip"), "clientSkip": ctx.get("clientSkip"),
-                     "clientCoopStatePushes": pushes, "watch": w.view(), "newCrashFiles": ctx.get("newCrashFiles"),
-                     "hostLog": keep(log_msgs(host, ctx["marks"]["host"])), "clientLog": keep(clog)})
+    evidence("host_leaves_first", {
+        "boot": ctx.get("boot"), "slideshowBothS": ctx.get("slideshowBothS"), "hostSkip": ctx.get("hostSkip"),
+        "clientSkip": ctx.get("clientSkip"), "clientCoopStatePushes": pushes, "watch": w.view(),
+        "newCrashFiles": ctx.get("newCrashFiles"), "hostLog": keep(log_msgs(host, ctx["marks"]["host"])),
+        "clientLog": keep(clog)})
     return f
 
 
-ROWS = (("LM1", lm1), ("LM2", lm2), ("LM3", lm3))
+ROWS = (("partner_leaves_in_ending", partner_leaves_in_ending), ("leave_before_menu_init", leave_before_menu_init),
+        ("host_leaves_first", host_leaves_first))
 
 
 def capture(rid, machines, why):
@@ -295,8 +300,8 @@ def capture(rid, machines, why):
 def run_row(rid, fn):
     """One row on its own pair. True when it passes."""
     ports = ROW_PORTS[rid]
-    host = GameClient("host", ports[0], make_user_dir(f"w2h25_{rid.lower()}_host"))
-    client = GameClient("client", ports[1], make_user_dir(f"w2h25_{rid.lower()}_client"))
+    host = GameClient("host", ports[0], make_user_dir(f"leave_for_menu_{rid.lower()}_host"))
+    client = GameClient("client", ports[1], make_user_dir(f"leave_for_menu_{rid.lower()}_client"))
     crash0 = session._crash_log_snapshot()
     try:
         try:
@@ -318,7 +323,7 @@ def run_row(rid, fn):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h25] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[leave_for_menu] shutdown {gc.name}: {short(e)}", flush=True)
 
 
 def main():
