@@ -426,6 +426,10 @@ void ConfirmLandingState::startCoopMission()
 	// battle already exists, this is a re-entry - do nothing.
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getSavedGame()
 		&& _game->getSavedGame()->getSavedBattle())
+	{
+		return;
+	}
+
 	// Also reachable asynchronously from
 	// connectionTCP::setClientSoldiers() on the coop host after a changeHost
 	// round-trip - the quarantine covers this entry path too.
