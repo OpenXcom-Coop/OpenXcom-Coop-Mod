@@ -1,73 +1,73 @@
 """test_shared_selection_presence.py: on a SHARED Sell screen each player sees "Also on this screen:
 <the other player>" while both have it open, the rows the other player changed last are drawn in the screen's second
-button colour, a confirm whose confirmer sees none of the list's rows (the other player's soldier row, MR7) still
-applies the list, a player who disconnects leaves the list, and the forced Alien Containment screen is shared by both
-players after a battle (owner D184 (a), D203: "as if both players were sitting at the same computer looking at the
-same screen"; D175, MR7, MR9; V-E3, V-E4) (docs rewrite/prompts/w2p7_sc_design.md section 4, AMENDMENT P7-8 sections
-3-4: PR-47..PR-51; the E1 green rulings: F6341 folded into S-C-E2). D243 (owner 2026-10-05): the label sits just above
-the OK/Cancel buttons while another player has the same screen open; in a SHARED campaign the Sell list is ALWAYS one
-text row shorter (the label's row), with or without the other player - row E2-gs (commit S-C-E2.1b).
+button colour, a confirm whose confirmer sees none of the list's rows (the other player's soldier row, which the
+host's list hides) still applies the list, a player who disconnects leaves the list, and the forced Alien
+Containment screen is shared by both players after a battle (both players act as if they sat at the same computer
+looking at the same screen). The label sits just above the OK/Cancel buttons while another player has the same
+screen open; in a SHARED campaign the Sell list is ALWAYS one text row shorter (the label's row), with or without
+the other player - row sell_list_geometry.
 
-Before S-C-E2 (design section 4, F6110, F6341): no label is drawn and a row's colour is vanilla's (secondary while its
-amount is above 0, whoever set it); a Sell confirm is built from the confirmer's VISIBLE rows (SellState :725), so a
-list holding only the other player's soldier row submits nothing; the host keeps a disconnected client among a
-list's viewers (its close never leaves: disconnect_to_menu drops the transport first, F6110); the forced containment
-screens keep each machine's own amounts.
+Without these changes no label is drawn and a row's colour is vanilla's (secondary while its amount is above 0,
+whoever set it); a Sell confirm is built from the confirmer's VISIBLE rows (SellState :725), so a list holding only
+the other player's soldier row submits nothing; the host keeps a disconnected client among a list's viewers (its
+close never leaves: disconnect_to_menu drops the transport first); the forced containment screens keep each
+machine's own amounts.
 
-Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
-FAILs "pre-cell"):
-  PRES = SEL (test_shared_selection.sel_pre on shared_fixture.bring_up(tag, (0, 0, "47265")): the first base-0
-         soldier owned by seat 1, off its craft on both) + the roster names (save_markers.coopPlayers); rows restage
-         X = STR_RIFLE and Y = STR_PISTOL with give_items on both (client first, S25) and open the REAL Sell screens
-         (open_screen {sell}, host first) through test_shared_selection.row_start.
-  CT2  = FX-CT (test_shared_forced_containment: {storageLimitsEnforced} on BOTH user dirs, STR_ALIEN_CONTAINMENT
-         at (0, 3) built on both, STR_SECTOID_SOLDIER x 10 on both = the capacity) with TWO stuns: host
-         battle_action {kill_unit_real, unit, stun: true} on units 1000000 and 1000001 (each chain settled: isBusy
-         false and pendingStates 0, F4665; each unconscious, status 7, on both; then the queues drained and hash_now
-         full equal), test_shared_forced_storage.stage_x with kill_expect = the 13 other hostiles; pre-cell: the host
-         debriefing's "LIVE ALIENS RECOVERED" 2, the client's adoption, both stunned units of type L (used 12, free -2).
-  Labels: "Also on this screen: <the other seat's roster name>" (STR_COOP_ALSO_ON_SCREEN, D203, PR-50 (iii)).
-  Colours: screen_rows rows[i].color (column 0's colour, TextList::harnessCellColor, PR-51), secondaryColor (the
-  list's), highlightColor (the top screen's interface button2, F6112, V-E4).
+Fixtures (a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot FAILs "pre-cell"):
+  presence = test_shared_selection's sell_screen boot (test_shared_selection.sel_pre on
+         shared_fixture.bring_up(tag, (0, 0, "47265")): the first base-0 soldier owned by seat 1, off its craft on
+         both) + the roster names (save_markers.coopPlayers); rows restage X = STR_RIFLE and Y = STR_PISTOL with
+         give_items on both (client first) and open the REAL Sell screens (open_screen {sell}, host first) through
+         test_shared_selection.row_start.
+  stunned_containment = the containment fixture of test_shared_forced_containment ({storageLimitsEnforced} on BOTH
+         user dirs, STR_ALIEN_CONTAINMENT at (0, 3) built on both, STR_SECTOID_SOLDIER x 10 on both = the capacity)
+         with TWO stuns: host battle_action {kill_unit_real, unit, stun: true} on units 1000000 and 1000001 (each
+         chain settled: isBusy false and pendingStates 0; each unconscious, status 7, on both; then the queues
+         drained and hash_now full equal), test_shared_forced_storage.stage_x with kill_expect = the 13 other
+         hostiles; pre-cell: the host debriefing's "LIVE ALIENS RECOVERED" 2, the client's adoption, both stunned
+         units of type L (used 12, free -2).
+  Labels: "Also on this screen: <the other seat's roster name>" (STR_COOP_ALSO_ON_SCREEN).
+  Colours: screen_rows rows[i].color (column 0's colour, TextList::harnessCellColor), secondaryColor (the
+  list's), highlightColor (the top screen's interface button2).
 
-Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot PRES (port 47265): E-h, E2-se, E2-gs, E-g (last: the client disconnects).
-  E-h  (1) both Sell screens: the host's textItems hold "Also on this screen: ClientPlayer" visible, the client's
-           "Also on this screen: HostPlayer" visible, within SEL_S.
+Rows (cells checked in order; a failed cell ends its row and the rest are reported "not reached"):
+  Boot presence (port 47265): label_and_highlight, unseen_row_confirm, sell_list_geometry, disconnect_leaves_list
+  (last: the client disconnects).
+  label_and_highlight (1) both Sell screens: the host's textItems hold "Also on this screen: ClientPlayer" visible,
+           the client's "Also on this screen: HostPlayer" visible, within SEL_S.
        (2) client X = 2: on the host X's color == highlightColor (within SEL_S); on the client X's color ==
            secondaryColor.
        (3) host Y = 1: on the client Y's color == highlightColor (within SEL_S).
        (4) client Sell/Sack: its SellState gone within PAGE_S; the host's top stays SellState (rebuilt: X lists the new
            stock), and within SEL_S no row in highlightColor, every amount 0, the label hidden.
-  E2-se (1) (F6341, MR7, V-E3) the client sets ONLY its own soldier's row to 1; the host's screen_rows lists no row
-           named after that soldier (MR7); the host's sel_state sell|n|0| rows == {s:<id>: 1} within SEL_S.
+  unseen_row_confirm (1) the client sets ONLY its own soldier's row to 1; the host's screen_rows lists no row named
+           after that soldier; the host's sel_state sell|n|0| rows == {s:<id>: 1} within SEL_S.
        (2) host Sell/Sack: its SellState gone within PAGE_S; that soldier gone from base 0 on both within EQUAL_S
            (sacked); the client's top stays SellState (rebuilt), every amount 0; no CoopState.
-  E2-gs (D243; geometry = list_widgets on the top state: the first TextList's rect, the Cancel button's rect, every
-           Text starting with the label's head; test_shared_selection_screens.geo_cell)
+  sell_list_geometry (geometry = list_widgets on the top state: the first TextList's rect, the Cancel button's
+           rect, every Text starting with the label's head; test_shared_selection_screens.geo_cell)
        (1) the host alone opens Sell: its list height == SHARED_LIST_H (120 - 8 = 112: one text row shorter than
            vanilla's 120) and no label visible, within SEL_S.
        (2) the client opens Sell too: on both the list height stays 112 and a VISIBLE label names the other player, its
            rect between the list's bottom and the Cancel button's top, within SEL_S.
        (3) the host Cancels: the client's list height stays 112, its label hidden, within SEL_S.
-  E-g  (1) host open_screen sell, then client open_screen sell: the host's sel_state sell|n|0| viewers [0, 1] within
-           SEL_S (R-E2-2, F6449: no label clause here - E-h (1) asserts the label).
+  disconnect_leaves_list (1) host open_screen sell, then client open_screen sell: the host's sel_state sell|n|0|
+           viewers [0, 1] within SEL_S (no label clause here - label_and_highlight (1) asserts the label).
        (2) client disconnect_to_menu: within DROP_S the host's sel_state sell|n|0| viewers [0].
-  Boot CT2 (port 47264): E2-cf.
-  E2-cf (1) both OKs (test_shared_forced_storage.both_oks_forced, class ManageAlienContainmentState, mark "ALIEN
-           CONTAINMENT LIMITS EXCEEDED"); both boxes dismissed: both forced screens up.
+  Boot stunned_containment (port 47264): containment_shared.
+  containment_shared (1) both OKs (test_shared_forced_storage.both_oks_forced, class ManageAlienContainmentState,
+           mark "ALIEN CONTAINMENT LIMITS EXCEEDED"); both boxes dismissed: both forced screens up.
        (2) client L = 1 (its Remove Selected stays hidden) -> the host's L amount 1 within SEL_S, Remove Selected
            hidden on both.
        (3) host L = 2: Remove Selected visible on both; client Remove Selected: both forced screens close themselves
            within SCREEN_S (tops GeoscapeState); prisoners (L stock) 10 on both; world_diff empty; no CoopState.
-Guard on every row: no new crash log; CT2 also host event_state.fatalVote.armed 0; the client zero-disk at each
-boot's end.
+Guard on every row: no new crash log; stunned_containment also host event_state.fatalVote.armed 0; the client
+zero-disk at each boot's end.
 
-RED (commit S-C-E2.1: screen_push, the row colours and textItems, these rows; product untouched): E-h fails on cell 1
-(no label), E2-se on cell 2 (the soldier stays in base 0 on both: the host's confirm submitted nothing, F6341), E-g on
-cell 2 (the host's viewers stay [0, 1], F6110), E2-cf on cell 2 (the host's L amount stays 0). RED (commit
-S-C-E2.1b, D243, test only): E2-gs fails on cell 1 (the list keeps vanilla's 120). GREEN (commit S-C-E2.2): every row
-passes.
+Without these changes: label_and_highlight fails on cell 1 (no label), unseen_row_confirm on cell 2 (the soldier
+stays in base 0 on both: the host's confirm submitted nothing), disconnect_leaves_list on cell 2 (the host's viewers
+stay [0, 1]), containment_shared on cell 2 (the host's L amount stays 0), sell_list_geometry on cell 1 (the list
+keeps vanilla's 120).
 Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <message>". ONE foreground
 run, no skip path; exit 0 only when every row passes, 2 otherwise.
 
@@ -83,25 +83,26 @@ import session
 from session import battle_state
 import test_shared_forced_storage as fst
 import test_shared_forced_containment as fct
-import test_shared_selection as e1
+import test_shared_selection as selection
 import test_shared_selection_screens as scr
 
-# ----- pins (AMENDMENT P7-8 section 4 / 4.2) -----
-X, Y = e1.X, e1.Y                        # STR_RIFLE, STR_PISTOL (SEL's X and Y, looked up by type, S25)
-SEL_KEY = e1.SEL_KEY                     # "sell|n|0|"
-E_H_X, E_H_Y = 2, 1                      # P7-8 section 4.2 E-h's amounts
-SELL_OK, CANCEL = e1.SELL_OK, e1.CANCEL  # "Sell/Sack", "Cancel"
-L = fct.L                                # STR_SECTOID_SOLDIER (FX-CT's live alien)
-STUN_UNITS = (1000000, 1000001)          # CT2: two of the live-recoverable sectoids 1000000-1000009 (CONSTANTS F5438)
-LIVE_FILL = fct.LIVE_FILL                # 10 = the containment's capacity (FX-CT)
-LIVE_RECOVERED = 2                       # CT2 pre-cell: the host debriefing's LIVE ALIENS RECOVERED
-PRISONERS_AFTER = LIVE_FILL + LIVE_RECOVERED - 2   # E2-cf (3): "prisoners 10 on both"
-E2CF_CLIENT, E2CF_HOST = 1, 2            # P7-8 section 4.2 E2-cf's amounts
+# ----- fixture values -----
+X, Y = selection.X, selection.Y          # STR_RIFLE, STR_PISTOL (looked up by type)
+SEL_KEY = selection.SEL_KEY              # "sell|n|0|"
+HIGHLIGHT_X, HIGHLIGHT_Y = 2, 1          # label_and_highlight's amounts
+SELL_OK, CANCEL = selection.SELL_OK, selection.CANCEL  # "Sell/Sack", "Cancel"
+L = fct.L                                # STR_SECTOID_SOLDIER (the containment fixture's live alien)
+STUN_UNITS = (1000000, 1000001)          # stunned_containment: two of the live-recoverable sectoids
+                                         # 1000000-1000009
+LIVE_FILL = fct.LIVE_FILL                # 10 = the containment's capacity
+LIVE_RECOVERED = 2                       # stunned_containment pre-cell: the host debriefing's LIVE ALIENS RECOVERED
+PRISONERS_AFTER = LIVE_FILL + LIVE_RECOVERED - 2   # containment_shared (3): "prisoners 10 on both"
+CONTAIN_CLIENT, CONTAIN_HOST = 1, 2      # containment_shared's amounts
 MACS, CONT_OK, CONT_MARK = fct.MACS, fct.CONT_OK, fct.CONT_MARK
-BOOT_PORT = {"PRES": "47265", "CT2": "47264"}    # AMENDMENT P7-8 section 4: E2 = 47264 (CT2), 47265 (PRES)
-SEL_S, PAGE_S, SCREEN_S, EQUAL_S = e1.SEL_S, e1.PAGE_S, e1.SCREEN_S, e1.EQUAL_S
-DROP_S = 10                              # P7-8 section 4.2 E-g (2): "within 10 s"
-BUSY_S, UNIT_S = fct.BUSY_S, fct.UNIT_S  # 30 s / 10 s (F4665; status 7 on both)
+BOOT_PORT = {"presence": "47265", "stunned_containment": "47264"}    # session keys
+SEL_S, PAGE_S, SCREEN_S, EQUAL_S = selection.SEL_S, selection.PAGE_S, selection.SCREEN_S, selection.EQUAL_S
+DROP_S = 10                              # disconnect_leaves_list (2): "within 10 s"
+BUSY_S, UNIT_S = fct.BUSY_S, fct.UNIT_S  # 30 s (chain settled) / 10 s (status 7 on both)
 
 MISSES = scr.MISSES
 
@@ -155,16 +156,17 @@ def sel(gc, key):
 # ===================== fixtures =====================
 
 
-def pres_pre(js, ctx):
-    """PRES pre-cell: SEL's soldier off its craft, the roster names."""
-    e1.sel_pre(js, ctx)
+def presence_pre(js, ctx):
+    """presence pre-cell: the sell_screen soldier off its craft, the roster names."""
+    selection.sel_pre(js, ctx)
     ctx["names"] = scr.roster_names(js.host)
     if len(ctx["names"]) != 2:
-        e1.capture("PRES names", f"coopPlayers {ctx['names']} (want 2 names)", (js.host, js.client))
+        selection.capture("presence names", f"coopPlayers {ctx['names']} (want 2 names)", (js.host, js.client))
 
 
 def stun_two(js, ctx):
-    """CT2's two stuns (PR-35's lever, FX-CT's settle and mirror checks per unit), then one full hash check."""
+    """stunned_containment's two stuns (the kill_unit_real test command with stun, then the containment fixture's
+    settle and mirror checks per unit), then one full hash check."""
     host, client = js.host, js.client
     m = (host, client)
     ctx["stun"] = {"units": {}}
@@ -173,13 +175,13 @@ def stun_two(js, ctx):
         rec = {"resp": {k: r.get(k) for k in ("ok", "killed", "error")}}
         ctx["stun"]["units"][uid] = rec
         if not (r.get("ok") and r.get("killed") == [uid]):
-            fst.capture("CT2 stun", f"kill_unit_real {{unit {uid}, stun}} answered {rec['resp']}", m)
+            fst.capture("stunned_containment stun", f"kill_unit_real {{unit {uid}, stun}} answered {rec['resp']}", m)
         ok, secs = wait_until(lambda: (lambda b: b.get("isBusy") is False and b.get("pendingStates") == 0)(
             battle_state(host)), BUSY_S)
         rec["settled"] = {"ok": ok, "secs": secs}
         if not ok:
-            fst.capture("CT2 stun settle", f"host isBusy / pendingStates not settled within {BUSY_S}s after unit {uid} "
-                        f"(F4665)", m)
+            fst.capture("stunned_containment stun settle",
+                        f"host isBusy / pendingStates not settled within {BUSY_S}s after unit {uid}", m)
         ok, secs = wait_until(lambda: fct.unit_of(host, uid).get("status") == 7
                               and fct.unit_of(client, uid).get("status") == 7, UNIT_S)
         hu, cu = fct.unit_of(host, uid), fct.unit_of(client, uid)
@@ -187,70 +189,73 @@ def stun_two(js, ctx):
         rec["unit"] = {"host": {k: hu.get(k) for k in keys}, "client": {k: cu.get(k) for k in keys}, "secs": secs}
         rec["type"] = hu.get("type")
         if not ok:
-            fst.capture("CT2 unconscious", f"unit {uid} {rec['unit']} (want status 7 on both)", m)
+            fst.capture("stunned_containment unconscious", f"unit {uid} {rec['unit']} (want status 7 on both)", m)
     try:
         session.wait_host_idle(host, client, timeout=20)
-        hh, _ch = session.assert_hash_clean(host, client, full=True, what="after the CT2 stuns")
+        hh, _ch = session.assert_hash_clean(host, client, full=True, what="after the stunned_containment stuns")
         ctx["stun"]["hash"] = sorted(hh)
     except Exception as e:
-        fst.capture("CT2 stun mirror", f"{type(e).__name__}: {str(e)[:700]} (F5575: the client mirror of the stuns)", m)
+        fst.capture("stunned_containment stun mirror",
+                    f"{type(e).__name__}: {str(e)[:700]} (the client mirror of the stuns)", m)
 
 
-def ct2_pre(js, ctx):
-    """CT2 pre-cell: FX-CT's geoscape half (the facility, LIVE x LIVE_FILL on both), the two-stun ending, the live-alien
-    row 2, the adoption, both stunned units of type L."""
+def containment_pre(js, ctx):
+    """stunned_containment pre-cell: the containment fixture's geoscape half (the facility, LIVE x LIVE_FILL on both),
+    the two-stun ending, the live-alien row 2, the adoption, both stunned units of type L."""
     host, client = js.host, js.client
     m = (host, client)
     fb = host.cmd({"cmd": "fac_build", "facility": fct.CONTAINMENT, "x": fct.CT_X, "y": fct.CT_Y})
     ok, secs = wait_until(lambda: fct.facility_index(host) is not None and fct.facility_index(client) is not None, 45,
                           0.5)
     idx = {gc.name: fct.facility_index(gc) for gc in m}
-    ctx["fxCT"] = {"facBuild": {k: fb.get(k) for k in ("ok", "error")}, "index": idx, "secs": secs}
+    ctx["containmentFixture"] = {"facBuild": {k: fb.get(k) for k in ("ok", "error")}, "index": idx, "secs": secs}
     if not (fb.get("ok") and ok and idx["host"] == idx["client"] == fct.CT_INDEX):
-        fst.capture("CT2 facility", f"fac_build {ctx['fxCT']['facBuild']}, index {idx} (want {fct.CT_INDEX} on both)", m)
+        fst.capture("stunned_containment facility",
+                    f"fac_build {ctx['containmentFixture']['facBuild']}, index {idx} (want {fct.CT_INDEX} on both)", m)
     sets = {}
     for gc in (client, host):   # client first
         r = gc.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": fct.CT_INDEX, "time": 0})
         sets[gc.name] = {k: r.get(k) for k in ("ok", "type", "x", "y", "buildTime", "error")}
-    ctx["fxCT"]["buildTime0"] = sets
+    ctx["containmentFixture"]["buildTime0"] = sets
     if not all(s.get("ok") and s.get("type") == fct.CONTAINMENT and s.get("buildTime") == 0 for s in sets.values()):
-        fst.capture("CT2 buildTime", f"set_facility_build_time answered {sets}", m)
+        fst.capture("stunned_containment buildTime", f"set_facility_build_time answered {sets}", m)
     give = {}
     for gc in (client, host):
         r = gc.cmd({"cmd": "give_items", "item": fct.LIVE, "count": LIVE_FILL})
         give[gc.name] = {k: r.get(k) for k in ("ok", "stored", "error")}
-    ctx["fxCT"]["give"] = give
+    ctx["containmentFixture"]["give"] = give
     if not (give["host"].get("ok") and give["client"].get("ok") and give["host"].get("stored") == LIVE_FILL
             and give["client"].get("stored") == LIVE_FILL):
-        fst.capture("CT2 give_items", f"answered {give} (want {LIVE_FILL} stored on both)", m)
+        fst.capture("stunned_containment give_items", f"answered {give} (want {LIVE_FILL} stored on both)", m)
     fst.stage_x(js, ctx, pre_kill=stun_two, kill_expect=[u for u in fst.HOSTILES if u not in STUN_UNITS])
     live = [r for r in (ctx["hostDebrief"].get("rows") or []) if r.get("item") == fct.LIVE_ROW]
-    ctx["fxCT"]["liveRow"] = live
+    ctx["containmentFixture"]["liveRow"] = live
     if not (len(live) == 1 and live[0].get("qty") == LIVE_RECOVERED):
-        fst.capture("CT2 live aliens recovered", f"host debriefing rows {ctx['hostDebrief'].get('rows')} (want "
+        fst.capture("stunned_containment live aliens recovered",
+                    f"host debriefing rows {ctx['hostDebrief'].get('rows')} (want "
                     f"{fct.LIVE_ROW!r} {LIVE_RECOVERED})", m)
     fst.client_adopted(js, ctx)
     types = {uid: u.get("type") for uid, u in ctx["stun"]["units"].items()}
     if any(t != L for t in types.values()):
-        fst.capture("CT2 L", f"the stunned units' types {types} (want the pinned L {L!r})", m)
+        fst.capture("stunned_containment L", f"the stunned units' types {types} (want L {L!r})", m)
 
 
-# ===================== PRES rows =====================
+# ===================== presence rows =====================
 
 
 def boot_of(ctx):
     return scr.boot_of(ctx)
 
 
-def e_h_cells(host, client, ctx):
+def label_and_highlight_cells(host, client, ctx):
     names = boot_of(ctx)["names"]
 
     def c1():
-        e1.row_start(host, client, ctx)
+        selection.row_start(host, client, ctx)
         return scr.labels_cell(host, client, names, ctx, "c1labels")
 
     def c2():
-        f = e1.set_ok(client, E_H_X, ctx, "c2set", item=X)
+        f = selection.set_ok(client, HIGHLIGHT_X, ctx, "c2set", item=X)
         if f:
             return f
         last = {}
@@ -258,12 +263,14 @@ def e_h_cells(host, client, ctx):
         def host_hl():
             r = rows(host)
             last.update({"row": row_color(r, X), "highlightColor": r.get("highlightColor")})
-            return last["row"] == (E_H_X, r.get("highlightColor")) and r.get("highlightColor") is not None, dict(last)
+            return (last["row"] == (HIGHLIGHT_X, r.get("highlightColor"))
+                    and r.get("highlightColor") is not None), dict(last)
         ok, got, secs = poll(host_hl, SEL_S)
         ctx["c2host"] = {"ok": ok, "seen": got, "secs": secs}
         if not ok:
-            return [f"the host's {X} (amount, color) {got.get('row')} {SEL_S}s after the client's edit (want ({E_H_X}, "
-                    f"highlightColor {got.get('highlightColor')}): a row another player set is highlighted, D203)"]
+            return [f"the host's {X} (amount, color) {got.get('row')} {SEL_S}s after the client's edit (want "
+                    f"({HIGHLIGHT_X}, highlightColor {got.get('highlightColor')}): a row another player set is "
+                    f"highlighted)"]
         rc = rows(client)
         ctx["c2client"] = {"row": row_color(rc, X), "secondaryColor": rc.get("secondaryColor")}
         if row_color(rc, X)[1] != rc.get("secondaryColor"):
@@ -272,34 +279,34 @@ def e_h_cells(host, client, ctx):
         return []
 
     def c3():
-        f = e1.set_ok(host, E_H_Y, ctx, "c3set", item=Y)
+        f = selection.set_ok(host, HIGHLIGHT_Y, ctx, "c3set", item=Y)
         if f:
             return f
 
         def client_hl():
             r = rows(client)
-            return row_color(r, Y) == (E_H_Y, r.get("highlightColor")) and r.get("highlightColor") is not None, {
+            return row_color(r, Y) == (HIGHLIGHT_Y, r.get("highlightColor")) and r.get("highlightColor") is not None, {
                 "row": row_color(r, Y), "highlightColor": r.get("highlightColor")}
         ok, got, secs = poll(client_hl, SEL_S)
         ctx["c3client"] = {"ok": ok, "seen": got, "secs": secs}
         return [] if ok else [f"the client's {Y} (amount, color) {got.get('row')} {SEL_S}s after the host's edit (want "
-                              f"({E_H_Y}, highlightColor {got.get('highlightColor')}))"]
+                              f"({HIGHLIGHT_Y}, highlightColor {got.get('highlightColor')}))"]
 
     def c4():
         s0 = ctx["stock0"]["host"][X]
-        ctx["c4click"] = e1.click(client, SELL_OK)
-        f = e1.gone(client, ctx, "c4clientGone")
+        ctx["c4click"] = selection.click(client, SELL_OK)
+        f = selection.gone(client, ctx, "c4clientGone")
         if f:
             return f
-        f = e1.stays_rebuilt(host, X, s0 - E_H_X, ctx, "c4hostRebuilt")
+        f = selection.stays_rebuilt(host, X, s0 - HIGHLIGHT_X, ctx, "c4hostRebuilt")
         if f:
             return f
 
         def cleared():
             r = rows(host)
-            v = {"highlighted": highlighted(r), "nonZero": {k: a for k, a in e1.amounts(r).items() if a},
+            v = {"highlighted": highlighted(r), "nonZero": {k: a for k, a in selection.amounts(r).items() if a},
                  "labels": scr.label_items(r), "top": r.get("state")}
-            return (r.get("state") == "SellState" and not v["highlighted"] and e1.all_zero(r)
+            return (r.get("state") == "SellState" and not v["highlighted"] and selection.all_zero(r)
                     and scr.label_hidden(r)), v
         ok, got, secs = poll(cleared, SEL_S)
         ctx["c4host"] = {"ok": ok, "seen": got, "secs": secs}
@@ -313,67 +320,68 @@ def e_h_cells(host, client, ctx):
     ]
 
 
-def e2_se_cells(host, client, ctx):
+def unseen_row_confirm_cells(host, client, ctx):
     sold = scr.soldier_of(ctx)
 
     def c1():
-        e1.row_start(host, client, ctx)
-        idx = e1.soldier_row(rows(client), sold["name"])
+        selection.row_start(host, client, ctx)
+        idx = selection.soldier_row(rows(client), sold["name"])
         ctx["c1soldierRow"] = idx
         if idx is None:
             return [f"the client's SellState lists no row for its soldier {sold['name']!r} (id {sold['id']})"]
-        f = e1.set_ok(client, 1, ctx, "c1s", row=idx)
+        f = selection.set_ok(client, 1, ctx, "c1s", row=idx)
         if f:
             return f
-        hidx = e1.soldier_row(rows(host), sold["name"])
+        hidx = selection.soldier_row(rows(host), sold["name"])
         ctx["c1hostRow"] = hidx
         if hidx is not None:
-            return [f"the host's SellState lists the client's soldier {sold['name']!r} (row {hidx}; want none, MR7)"]
+            return [f"the host's SellState lists the client's soldier {sold['name']!r} (row {hidx}; want none)"]
         want = {f"s:{sold['id']}": 1}
-        ok, got, secs = poll(lambda: (lambda r: (r == want, r))(e1.sel_rows(host, SEL_KEY)), SEL_S)
+        ok, got, secs = poll(lambda: (lambda r: (r == want, r))(selection.sel_rows(host, SEL_KEY)), SEL_S)
         ctx["c1hostSel"] = {"ok": ok, "rows": got, "secs": secs}
         return [] if ok else [f"the host's sel_state {SEL_KEY} rows {got} (want {want})"]
 
     def c2():
-        ctx["c2click"] = e1.click(host, SELL_OK)
-        f = e1.gone(host, ctx, "c2hostGone")
+        ctx["c2click"] = selection.click(host, SELL_OK)
+        f = selection.gone(host, ctx, "c2hostGone")
         if f:
             return f
         ok, v, secs = poll(lambda: (lambda h, c: (not h and not c, {"host": h, "client": c}))(
-            [s.get("id") for s in e1.roster(host) if s.get("id") == sold["id"]],
-            [s.get("id") for s in e1.roster(client) if s.get("id") == sold["id"]]), EQUAL_S)
+            [s.get("id") for s in selection.roster(host) if s.get("id") == sold["id"]],
+            [s.get("id") for s in selection.roster(client) if s.get("id") == sold["id"]]), EQUAL_S)
         ctx["c2soldier"] = {"ok": ok, "inBase0": v, "secs": secs}
         if not ok:
             return [f"soldier {sold['id']} still in base 0 {v} {EQUAL_S}s after the host's Sell/Sack (want sacked on "
-                    f"both: the host's confirm applies the shared list although the host sees none of its rows, F6341, "
-                    f"V-E3)"]
-        ok, secs = wait_until(lambda: e1.screen_ready(client), SCREEN_S)
+                    f"both: the host's confirm applies the shared list although the host sees none of its rows)"]
+        ok, secs = wait_until(lambda: selection.screen_ready(client), SCREEN_S)
         ctx["c2clientTop"] = {"ok": ok, "secs": secs, "stack": stack(client)}
         if not ok:
             return [f"the client's top {top(client)!r} after the host's sale (want its SellState, rebuilt)"]
-        ok, a, secs = poll(lambda: (lambda r: (e1.all_zero(r), {k: v2 for k, v2 in e1.amounts(r).items() if v2}))(
+        ok, a, secs = poll(lambda: (lambda r: (selection.all_zero(r),
+                                               {k: v2 for k, v2 in selection.amounts(r).items() if v2}))(
             rows(client)), SEL_S)
         ctx["c2clientAmounts"] = {"ok": ok, "nonZero": a, "secs": secs}
         if not ok:
-            return [f"the client's rebuilt amounts {a} (want every amount 0, D204)"]
-        return e1.no_box(host, client, ctx, "c2stacks")
+            return [f"the client's rebuilt amounts {a} (want every amount 0)"]
+        return selection.no_box(host, client, ctx, "c2stacks")
     return [
-        ("1 only the client's own soldier row is on the shared list; the host's list hides it (MR7)", c1),
-        ("2 the host's Sell/Sack applies the list it cannot see (F6341, V-E3)", c2),
+        ("1 only the client's own soldier row is on the shared list; the host's list hides it", c1),
+        ("2 the host's Sell/Sack applies the list it cannot see", c2),
     ]
 
 
-def e2_gs_cells(host, client, ctx):
-    """D243 on Sell: the SHARED list is one row shorter with or without the other player; the label sits between the
+def sell_list_geometry_cells(host, client, ctx):
+    """On Sell: the SHARED list is one row shorter with or without the other player; the label sits between the
     list and the buttons while both are on the screen."""
     names = boot_of(ctx)["names"]
 
     def open_sell(gc, key):
         r = gc.cmd({"cmd": "open_screen", "screen": "sell"})
-        ok, secs = wait_until(lambda: e1.screen_ready(gc), PAGE_S)
+        ok, secs = wait_until(lambda: selection.screen_ready(gc), PAGE_S)
         ctx[key] = {"resp": {k: r.get(k) for k in ("ok", "error")}, "ready": ok, "secs": secs}
         if not ok:
-            e1.capture(f"E2-gs open_screen sell ({gc.name})", f"SellState not ready ({ctx[key]})", (host, client))
+            selection.capture(f"sell_list_geometry open_screen sell ({gc.name})", f"SellState not ready ({ctx[key]})",
+                              (host, client))
 
     def c1():
         scr.hygiene(host, client, ctx)
@@ -385,27 +393,28 @@ def e2_gs_cells(host, client, ctx):
         return scr.geo_cell((host, client), "SellState", ctx, "c2geo", names=names)
 
     def c3():
-        ctx["c3cancel"] = e1.click(host, CANCEL)
-        f = e1.gone(host, ctx, "c3hostGone")
+        ctx["c3cancel"] = selection.click(host, CANCEL)
+        f = selection.gone(host, ctx, "c3hostGone")
         return f or scr.geo_cell((client,), "SellState", ctx, "c3geo")
     return [
-        ("1 the host alone: its Sell list is one row shorter, no label (D243)", c1),
+        ("1 the host alone: its Sell list is one row shorter, no label", c1),
         ("2 the client joins: both lists one row shorter, each label between the list and the buttons", c2),
         ("3 the host leaves: the client's list stays one row shorter, its label hidden", c3),
     ]
 
 
-def e_g_cells(host, client, ctx):
+def disconnect_leaves_list_cells(host, client, ctx):
     def c1():
         scr.hygiene(host, client, ctx)
         opened = {}
         for gc in (host, client):   # host first: the client joins a screen the host already shows
             r = gc.cmd({"cmd": "open_screen", "screen": "sell"})
-            ok, secs = wait_until(lambda gc=gc: e1.screen_ready(gc), PAGE_S)
+            ok, secs = wait_until(lambda gc=gc: selection.screen_ready(gc), PAGE_S)
             opened[gc.name] = {"resp": {k: r.get(k) for k in ("ok", "error")}, "ready": ok, "secs": secs}
         ctx["c1open"] = opened
         if not all(v["ready"] for v in opened.values()):
-            e1.capture("E-g open_screen sell", f"both SellStates not ready ({opened})", (host, client))
+            selection.capture("disconnect_leaves_list open_screen sell", f"both SellStates not ready ({opened})",
+                              (host, client))
         ok, got, secs = poll(lambda: (lambda e: (isinstance(e, dict) and e.get("viewers") == [0, 1], e))(
             sel(host, SEL_KEY)), SEL_S)
         ctx["c1hostSel"] = {"ok": ok, "sel": got, "secs": secs}
@@ -418,17 +427,17 @@ def e_g_cells(host, client, ctx):
             sel(host, SEL_KEY)), DROP_S, 0.5)
         ctx["c2hostSel"] = {"ok": ok, "sel": got, "secs": secs, "hostStack": stack(host)}
         return [] if ok else [f"the host's sel_state {SEL_KEY} {got} {DROP_S}s after the client's disconnect (want "
-                              f"viewers [0]: the dropped seat leaves every shared screen, PR-48)"]
+                              f"viewers [0]: the dropped seat leaves every shared screen)"]
     return [
         ("1 both on one Sell screen: the host's store lists both viewers", c1),
         ("2 the client disconnects: the host drops its seat from the list", c2),
     ]
 
 
-# ===================== CT2 row =====================
+# ===================== stunned_containment row =====================
 
 
-def e2_cf_cells(host, client, ctx):
+def containment_shared_cells(host, client, ctx):
     def c1():
         f = fst.both_oks_forced(host, client, ctx, "c1", MACS, CONT_MARK)
         if f:
@@ -436,30 +445,30 @@ def e2_cf_cells(host, client, ctx):
         return fst.boxes_to_screens(host, client, ctx, "c1boxes", MACS)
 
     def c2():
-        f = e1.set_ok(client, E2CF_CLIENT, ctx, "c2set", item=L)
+        f = selection.set_ok(client, CONTAIN_CLIENT, ctx, "c2set", item=L)
         if f:
             return f
         if ctx["c2set"].get("okVisible") is not False:
-            return [f"the client's {CONT_OK} visible={ctx['c2set'].get('okVisible')!r} at L {E2CF_CLIENT} (want False: "
-                    f"still over the limit)"]
-        f = scr.cross(host, L, E2CF_CLIENT, ctx, "c2host", mac=True)
+            return [f"the client's {CONT_OK} visible={ctx['c2set'].get('okVisible')!r} at L {CONTAIN_CLIENT} "
+                    f"(want False: still over the limit)"]
+        f = scr.cross(host, L, CONTAIN_CLIENT, ctx, "c2host", mac=True)
         if f:
             return f
         v = scr.ok_visible(rows(host), CONT_OK)
         ctx["c2hostOk"] = v
-        return [] if v is False else [f"the host's {CONT_OK} visible={v!r} at L {E2CF_CLIENT} (want False)"]
+        return [] if v is False else [f"the host's {CONT_OK} visible={v!r} at L {CONTAIN_CLIENT} (want False)"]
 
     def c3():
-        f = e1.set_ok(host, E2CF_HOST, ctx, "c3set", item=L)
+        f = selection.set_ok(host, CONTAIN_HOST, ctx, "c3set", item=L)
         if f:
             return f
         if ctx["c3set"].get("okVisible") is not True:
-            return [f"the host's {CONT_OK} visible={ctx['c3set'].get('okVisible')!r} at L {E2CF_HOST} (want True)"]
+            return [f"the host's {CONT_OK} visible={ctx['c3set'].get('okVisible')!r} at L {CONTAIN_HOST} (want True)"]
         ok, v, secs = poll(lambda: (lambda x: (x is True, x))(scr.ok_visible(rows(client), CONT_OK)), SEL_S)
         ctx["c3clientOk"] = {"ok": ok, "visible": v, "secs": secs}
         if not ok:
-            return [f"the client's {CONT_OK} visible={v!r} {SEL_S}s after the host's L {E2CF_HOST} (want True)"]
-        ctx["c3click"] = e1.click(client, CONT_OK)
+            return [f"the client's {CONT_OK} visible={v!r} {SEL_S}s after the host's L {CONTAIN_HOST} (want True)"]
+        ctx["c3click"] = selection.click(client, CONT_OK)
         ok, secs = wait_until(lambda: top(host) == "GeoscapeState" and top(client) == "GeoscapeState", SCREEN_S)
         ctx["c3closed"] = {"ok": ok, "secs": secs, "stacks": {gc.name: stack(gc) for gc in (host, client)}}
         if not ok:
@@ -470,7 +479,7 @@ def e2_cf_cells(host, client, ctx):
         ctx["c3prisoners"] = {"ok": ok, "stock": got, "secs": secs}
         if not ok:
             return [f"{L} stock {got} (want {PRISONERS_AFTER} on both)"]
-        return scr.world_same(host, client, ctx, "c3world") + e1.no_box(host, client, ctx, "c3stacks")
+        return scr.world_same(host, client, ctx, "c3world") + selection.no_box(host, client, ctx, "c3stacks")
     return [
         ("1 both OKs: both forced containment screens up", c1),
         ("2 the client's L 1 reaches the host's forced screen; still over on both", c2),
@@ -481,13 +490,16 @@ def e2_cf_cells(host, client, ctx):
 # ===================== boots =====================
 
 
-def bring_up_ct2(tag, port):
+def bring_up_containment(tag, port):
     return fst.bring_up(tag, port, fct.OPTS_CT)
 
 
-BOOTS = (("PRES", "w2p7sce2_pres", scr.bring_up_sel, pres_pre,
-          (("E-h", e_h_cells), ("E2-se", e2_se_cells), ("E2-gs", e2_gs_cells), ("E-g", e_g_cells)), False),
-         ("CT2", "w2p7sce2_ct2", bring_up_ct2, ct2_pre, (("E2-cf", e2_cf_cells),), True))
+BOOTS = (("presence", "shared_selection_presence", scr.bring_up_sel, presence_pre,
+          (("label_and_highlight", label_and_highlight_cells), ("unseen_row_confirm", unseen_row_confirm_cells),
+           ("sell_list_geometry", sell_list_geometry_cells), ("disconnect_leaves_list", disconnect_leaves_list_cells)),
+          False),
+         ("stunned_containment", "shared_selection_containment", bring_up_containment, containment_pre,
+          (("containment_shared", containment_shared_cells),), True))
 
 
 def main():
