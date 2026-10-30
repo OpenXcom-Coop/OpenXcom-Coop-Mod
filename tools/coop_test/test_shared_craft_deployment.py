@@ -1,31 +1,41 @@
-"""W2-H20d (F8551; owner D226 a; spec rewrite/prompts/w2h20d_shared_craft_deployment.md (f), QD1 a .. QD8 a, AMENDMENT H20d-1; TASK 0
-rewrite/w2h20d-task0/CONSTANTS.md): in SHARED, a craft type's soldier deployment saved or deleted from the Ufopaedia's craft preview (the
-craft article, INFO, "Preview", the abort icon, OK; Ctrl+OK deletes) stays on the machine that pressed OK: no command carries it and the
-world checksum does not count it, so only a world copy moves the host's entry to the second player.
-D(gc) = base_screen_op {op: craft_deployment, craft_type: STR_SKYRANGER} (saved, positions, crafts); Dsky = D's crafts entry with id SKY
-(customDeployment); EQ = both D equal in saved and positions. SKY, seats and HostBase from sbe.setup (S25); keys from read_key.
-PV(gc, erase) = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing, battle_action abort,
-[modstate ctrl], OK, [modstate none], end_turn_button, close_screens (<= 2 s per probe, SETTLE 0.3 s before a key or click, F2888; never
-close_screens or a copy over an open preview, F8883). COPY = client force_resync, then both stacks [GeoscapeState] and EQ <= 30 s.
-SET(want) = host PV(erase = not want) when the host's saved != want, COPY when not EQ, client shared_reset_resync_stats; guard saved ==
-want on both and EQ. MARK = W2-H20c deploy_mark {HostBase, SKY} on both, then Dsky true on both. reqs / fails = the client's
-shared_resync_stats.requests / shared_stats.failCount. W = 6 s at 0.25 s polls; N = 14 positions.
-  Boot A bring_up("w2h20da", (49503, 49504, 47957)):
-    HD-0 (guard) the craft soldier screen's "Preview" is hidden on both (the per-craft save W1, F8873); D unsaved on both.
-    HD-1 SET(false); MARK; host PV(save). Non-vacuity: the host's D saved, N positions, Dsky false at once. RED: the client's D unsaved
-        after W. Green: the client's D == the host's and its Dsky false within W; reqs and fails unchanged.
-    HD-2 SET(true); host PV(erase). Non-vacuity: the host's D unsaved at once. RED: the client's D saved after W. Green: reqs unchanged.
-    HD-3 SET(false); MARK; client PV(save). Non-vacuity: the client's D saved, N, Dsky false. RED: the host's D unsaved after W.
-    HD-4 SET(true); client PV(erase). Non-vacuity: the client's D unsaved. RED: the host's D saved after W.
-    HD-5 SET(false); client shared_cmd craft_deployment {STR_SKYRANGER, saved, [[1, 2, 0, 3]]}, baseId -1. RED: fails +1, lastFail
-        "unknown command: craft_deployment" within W (cleanup: ONE close_screens on the client). Green: both D saved [[1, 2, 0, 3]] within
-        W, fails unchanged 1 s later; negative control STR_NO_SUCH_CRAFT: fails +1, "rejected", D unchanged, ONE close_screens.
-    HD-6 (guard, last in Boot A) js.finish(): world equality, the replica's zero disk.
-  Boot S (SEPARATE, tag w2h20ds, labels 49505 / 49506, lobby "47958"): HD-S (guard) client PV(save): the client's D saved, the host's not;
-    both shared_stats cmd / applyCount / failCount unchanged 1 s later.
-A row whose named RED cell fails evaluates no later cell. EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE
-line (both machines' D, stacks, pedia_state, shared_stats, shared_resync_stats); a boot miss fails its rows "boot". Every row runs after a
-failure. ONE run; exit 0 iff everything passes, else 2.
+"""In SHARED, a craft type's soldier deployment saved or deleted from the Ufopaedia's craft preview (the craft article,
+INFO, "Preview", the abort icon, OK; Ctrl+OK deletes) reaches the partner. Without the fix it stays on the machine that
+pressed OK: no command carries it and the world checksum does not count it, so only a world copy moves the host's entry
+to the second player.
+D(gc) = base_screen_op {op: craft_deployment, craft_type: STR_SKYRANGER} (saved, positions, crafts); Dsky = D's crafts
+entry with id SKY (customDeployment); EQ = both D equal in saved and positions. SKY, seats and HostBase from sbe.setup;
+keys from read_key.
+PV(gc, erase) = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing,
+battle_action abort, [modstate ctrl], OK, [modstate none], end_turn_button, close_screens (<= 2 s per probe, SETTLE
+0.3 s before a key or click; never close_screens or a copy over an open preview). COPY = client force_resync, then both
+stacks [GeoscapeState] and EQ <= 30 s.
+SET(want) = host PV(erase = not want) when the host's saved != want, COPY when not EQ, client
+shared_reset_resync_stats; guard saved == want on both and EQ. MARK = base_screen_op deploy_mark {HostBase, SKY} on
+both, then Dsky true on both. reqs / fails = the client's shared_resync_stats.requests / shared_stats.failCount.
+W = 6 s at 0.25 s polls; N = 14 positions.
+  SHARED boot bring_up("craft_deployment_shared", (49503, 49504, 47957)):
+    craft_deploy_0 (guard) the craft soldier screen's "Preview" (the per-craft save, which nothing carries) is hidden on
+        both; D unsaved on both.
+    craft_deploy_1 SET(false); MARK; host PV(save). Non-vacuity: the host's D saved, N positions, Dsky false at once.
+        Without the fix the client's D is unsaved after W; with it the client's D == the host's and its Dsky is false
+        within W; reqs and fails unchanged.
+    craft_deploy_2 SET(true); host PV(erase). Non-vacuity: the host's D unsaved at once. Without the fix the client's D
+        is saved after W. With it reqs are unchanged.
+    craft_deploy_3 SET(false); MARK; client PV(save). Non-vacuity: the client's D saved, N, Dsky false. Without the fix
+        the host's D is unsaved after W.
+    craft_deploy_4 SET(true); client PV(erase). Non-vacuity: the client's D unsaved. Without the fix the host's D is
+        saved after W.
+    craft_deploy_5 SET(false); client shared_cmd craft_deployment {STR_SKYRANGER, saved, [[1, 2, 0, 3]]}, baseId -1.
+        Without the fix: fails +1, lastFail "unknown command: craft_deployment" within W (cleanup: ONE close_screens on
+        the client). With it: both D saved [[1, 2, 0, 3]] within W, fails unchanged 1 s later; negative control
+        STR_NO_SUCH_CRAFT: fails +1, "rejected", D unchanged, ONE close_screens.
+    craft_deploy_6 (guard, last in the SHARED boot) js.finish(): world equality, the replica's zero disk.
+  SEPARATE boot (labels 49505 / 49506, lobby "47958"): craft_deploy_separate (guard) client PV(save): the client's D
+    saved, the host's not; both shared_stats cmd / applyCount / failCount unchanged 1 s later.
+A row whose main cell (the one that fails without the fix) fails evaluates no later cell. EVIDENCE line per row before
+its verdict; a failed row prints ONE CAPTURE line (both machines' D, stacks, pedia_state, shared_stats,
+shared_resync_stats); a boot miss fails its rows "boot". Every row runs after a failure. ONE run; exit 0 iff everything
+passes, else 2.
 """
 
 import json
@@ -41,14 +51,14 @@ import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: X, Row, setup
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_inventory_held import read_key  # noqa: E402  (main-guarded)
 
-TAG_A, PORTS_A = "w2h20da", (49503, 49504, 47957)
-TAG_S, LABELS_S, LOBBY_S = "w2h20ds", (49505, 49506), "47958"
+TAG_SHARED, PORTS_SHARED = "craft_deployment_shared", (49503, 49504, 47957)
+TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "craft_deployment_separate", (49505, 49506), "47958"
 HB, CB, SKYR, GEO = "HostBase", "ClientBase", "STR_SKYRANGER", "GeoscapeState"
 BS, SFN, BRF, AMS = "BattlescapeState", "StatsForNerdsState", "BriefingState", "AbortMissionState"
 W, POLL, STEP, SETTLE, CONV, N = 6.0, 0.25, 2.0, 0.3, 30.0, 14  # N = the Skyranger's 14 stand-in soldiers
 RAW, UNKNOWN, NO_SUCH = [[1, 2, 0, 3]], "unknown command: craft_deployment", "STR_NO_SUCH_CRAFT"
-ROWS_A, ROWS_S = ["HD-%d" % n for n in range(7)], ["HD-S"]
-ORDER = ROWS_A + ROWS_S
+ROWS_SHARED, ROWS_SEPARATE = ["craft_deploy_%d" % n for n in range(7)], ["craft_deploy_separate"]
+ORDER = ROWS_SHARED + ROWS_SEPARATE
 q, stack, wait_until, short = sbe.q, sbe.stack, sbe.wait_until, sbe.short
 
 
@@ -97,7 +107,7 @@ def is_dead(s):  # sbe.stack's reply for a machine whose socket is gone
     return any(str(e).startswith("<get_state") for e in s)
 
 
-# ---- PV: the Ufopaedia craft preview drive (TASK 0's values; the test_client_research pd_* shapes) -----------------------------------
+# ---- PV: the Ufopaedia craft preview drive (measured values; test_client_research's pd_* shapes) ---------------------
 def pd(gc):
     return q(gc, {"cmd": "pedia_state"})
 
@@ -113,7 +123,7 @@ def caption(gc):
 
 
 def pv(gc, keys, erase=False):
-    """PV(gc, erase) P1..P12 -> (the first missed step or None, {step: probe})"""
+    """PV(gc, erase) step by step, on_geoscape .. geoscape_back -> (the first missed step or None, {step: probe})"""
     ev, key = {}, {"cmd": "inject_input", "kind": "key", "key": keys["ufo"]}
     kind = lambda k: wait_until(lambda: pd(gc).get("kind") == k, STEP, 0.05)  # noqa: E731
     on = lambda name: wait_until(lambda: stack(gc)[-1:] == [name], STEP, 0.05)  # noqa: E731
@@ -127,16 +137,18 @@ def pv(gc, keys, erase=False):
         x = (lr[0] + lr[2] // 2) * s + sec["winX"] - sec["baseX"] * s
         y = (p["rowY"][i] + p["rowH"][i] // 2) * s + sec["winY"] - sec["baseY"] * s
         return act(gc, {"cmd": "inject_input", "kind": "click", "x": x, "y": y}).get("ok") and kind("article")
-    m = miss("P1", stack(gc) == [GEO], stack(gc)) or miss("P2", act(gc, key).get("ok") and kind("start"), pd(gc).get("kind"))
+    m = (miss("on_geoscape", stack(gc) == [GEO], stack(gc))
+         or miss("pedia_open", act(gc, key).get("ok") and kind("start"), pd(gc).get("kind")))
     if m:
         return m, ev
     sec = act(gc, {"cmd": "click_widget", "match": "X-COM CRAFT"})
     kind("select")
     p = pd(gc)
-    m = (miss("P3", sec.get("ok") and p.get("kind") == "select" and "SKYRANGER" in (p.get("rows") or []), [sec.get("text"), p.get("rows")])
-         or miss("P4", row(p, sec, "SKYRANGER") and pd(gc).get("article") == SKYR, pd(gc).get("article"))
-         or miss("P5", act(gc, key).get("ok") and kind("nerds") and len(caption(gc)) == 1, caption(gc))
-         or miss("P6", act(gc, {"cmd": "click_widget", "match": "preview"}).get("ok") and on(BRF), stack(gc)))
+    m = (miss("craft_section", sec.get("ok") and p.get("kind") == "select" and "SKYRANGER" in (p.get("rows") or []),
+              [sec.get("text"), p.get("rows")])
+         or miss("skyranger_article", row(p, sec, "SKYRANGER") and pd(gc).get("article") == SKYR, pd(gc).get("article"))
+         or miss("info_screen", act(gc, key).get("ok") and kind("nerds") and len(caption(gc)) == 1, caption(gc))
+         or miss("preview_open", act(gc, {"cmd": "click_widget", "match": "preview"}).get("ok") and on(BRF), stack(gc)))
     if m:
         return m, ev
     cb, dis = q(gc, {"cmd": "close_briefing"}), 0
@@ -144,33 +156,34 @@ def pv(gc, keys, erase=False):
         dis += 1
         q(gc, {"cmd": "dismiss_popup"})
     pre = q(gc, {"cmd": "battle_state"}).get("isPreview")
-    m = (miss("P7", cb.get("ok") and stack(gc)[-1:] == [BS] and pre is True, [stack(gc), pre, dis])
-         or miss("P8", act(gc, {"cmd": "battle_action", "action": "abort"}).get("ok") and on(AMS), stack(gc))
-         or (erase and miss("P9", act(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "ctrl"}).get("modState") == "ctrl", "ctrl")))
+    m = (miss("preview_battle", cb.get("ok") and stack(gc)[-1:] == [BS] and pre is True, [stack(gc), pre, dis])
+         or miss("abort_box", act(gc, {"cmd": "battle_action", "action": "abort"}).get("ok") and on(AMS), stack(gc))
+         or (erase and miss("ctrl_latched", act(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "ctrl"})
+                            .get("modState") == "ctrl", "ctrl")))
     if m:
         return m, ev
     o = act(gc, {"cmd": "click_widget", "match": "ok"})
     back = on(BS)
     if erase:  # clear the latch once the click is consumed (a cleared latch pushes no key)
         q(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "none"})
-    if miss("P10", o.get("text") == "OK" and back, [o.get("text"), stack(gc)]):
-        return "P10", ev
+    if miss("ok_back", o.get("text") == "OK" and back, [o.get("text"), stack(gc)]):
+        return "ok_back", ev
     act(gc, {"cmd": "battle_action", "action": "end_turn_button"})
     done, dis = (lambda: stack(gc)[-1:] == [SFN] and q(gc, {"cmd": "world_state"}).get("has_battle") is False), 0
     while not wait_until(done, 1.0, 0.05) and dis < 3:
         dis += 1
         if stack(gc)[-1:] not in ([BS], [SFN]):  # dismiss only a top other than the preview / the INFO screen that stays 1 s
             q(gc, {"cmd": "dismiss_popup"})
-    ev["P11 caption"] = c11 = caption(gc)
-    if miss("P11", done() and len(c11) == 1, [stack(gc), dis]):
-        return "P11", ev
+    ev["info_back caption"] = c11 = caption(gc)
+    if miss("info_back", done() and len(c11) == 1, [stack(gc), dis]):
+        return "info_back", ev
     q(gc, {"cmd": "close_screens"})
-    return miss("P12", wait_until(lambda: stack(gc) == [GEO], STEP, 0.05), stack(gc)), ev
+    return miss("geoscape_back", wait_until(lambda: stack(gc) == [GEO], STEP, 0.05), stack(gc)), ev
 # ----------------------------------------------------------------------------------------------------------------------------------------
 
 
 def leave(gc):
-    """a stopped row's screens: an open preview is ended through its own buttons (never close_screens over it, F8883)"""
+    """a stopped row's screens: an open preview is ended through its own buttons (never close_screens over it)"""
     q(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "none"})
     for _ in range(5):
         s = stack(gc)
@@ -196,7 +209,8 @@ def copy(x):
 
 
 def set_(r, x, want):
-    """SET(want): every row's start is equal on the red and the green build (S2 is not in the checksum: no re-copy repairs it)"""
+    """SET(want): every row starts from the same state with or without the fix (the craft deployment is not in the
+    checksum, so no automatic re-copy repairs it)"""
     ev = r.ev["SET(%s)" % want] = {}
     if D(x.host).get("saved") is not want:
         m, ev["host PV"] = pv(x.host, x.keys["host"], erase=not want)
@@ -228,8 +242,8 @@ def closebox(c):
     return out
 
 
-def save_row(x, r, presser, other, red):
-    """HD-1 (host) / HD-3 (client): SET(false); MARK; the presser's PV(save)."""
+def save_row(x, r, presser, other, main_cell):
+    """craft_deploy_1 (host) / craft_deploy_3 (client): SET(false); MARK; the presser's PV(save)."""
     if not (set_(r, x, False) and mark(r, x)):
         return r.evidence()
     r0, f0 = reqs(x), fails(x)[0]
@@ -243,15 +257,15 @@ def save_row(x, r, presser, other, red):
     if not (r.cell(f"preview drive {m} ({presser.name})", m is None, r.ev["PV " + presser.name])
             and r.cell(f"non-vacuity: the {presser.name}'s D saved, {N} positions, Dsky false at once", me.get("saved") is True
                        and len(me.get("positions") or []) == N and dsky(me, x.sky) is False, me)
-            and r.cell(red, e[other.name].get("saved") is True, {other.name + " D after W": e[other.name]})):
+            and r.cell(main_cell, e[other.name].get("saved") is True, {other.name + " D after W": e[other.name]})):
         return
     r.cell(f"the {other.name}'s D != the {presser.name}'s or its Dsky not false within W", got, e)
     r.cell("the client asked for a world re-copy (reqs changed)", r.ev["reqs"][0] == r.ev["reqs"][1], r.ev["reqs"])
     r.cell("the client's failCount changed", r.ev["fails"][0] == r.ev["fails"][1], r.ev["fails"])
 
 
-def delete_row(x, r, presser, other, red):
-    """HD-2 (host) / HD-4 (client): SET(true); the presser's PV(erase) (Ctrl held on OK)."""
+def delete_row(x, r, presser, other, main_cell):
+    """craft_deploy_2 (host) / craft_deploy_4 (client): SET(true); the presser's PV(erase) (Ctrl held on OK)."""
     if not set_(r, x, True):
         return r.evidence()
     r0 = reqs(x)
@@ -262,7 +276,8 @@ def delete_row(x, r, presser, other, red):
     r.evidence()
     if not (r.cell(f"preview drive {m} ({presser.name})", m is None, r.ev["PV " + presser.name])
             and r.cell(f"non-vacuity: the {presser.name}'s D unsaved at once", d1[presser.name].get("saved") is False, d1[presser.name])
-            and r.cell(red, got and r.ev["end"][other.name].get("saved") is False, {other.name + " D after W": r.ev["end"][other.name]})):
+            and r.cell(main_cell, got and r.ev["end"][other.name].get("saved") is False,
+                       {other.name + " D after W": r.ev["end"][other.name]})):
         return
     r.cell("the client asked for a world re-copy (reqs changed)", r.ev["reqs"][0] == r.ev["reqs"][1], r.ev["reqs"])
 
@@ -279,7 +294,8 @@ def raw(x, craft_type):
     f0, a0, t0, out = fails(x)[0], answers(x), time.time(), {}
     out["shared_cmd"] = q(x.client, {"cmd": "shared_cmd", "jcmd": "craft_deployment", "baseId": -1,
                                      "payload": {"craftType": craft_type, "saved": True, "positions": RAW}})
-    # the negative control's D already holds RAW (the green command's), so settled() reads only after the host's answer
+    # the negative control's D already holds RAW (the first command's, applied with the fix), so settled() reads only
+    # after the host's answer
     out["answered s"] = round(time.time() - t0, 2) if wait_until(lambda: answers(x) > a0, W, POLL) else None
 
     def settled():
@@ -297,7 +313,7 @@ def raw(x, craft_type):
     return out
 
 
-def hd_0(x, r):
+def row_preview_hidden(x, r):
     out = {}
     for g in (x.host, x.client):
         rep = q(g, {"cmd": "open_screen", "screen": "craft_soldiers", "base": HB, "craft_id": x.sky})
@@ -312,17 +328,17 @@ def hd_0(x, r):
     for g in (x.host, x.client):
         e = out[g.name]
         if r.cell(f"guard: {g.name} open_screen craft_soldiers {HB} {x.sky}", e["open_screen"].get("ok") is True and e["stack"] == [GEO], e):
-            r.cell(f"the {g.name}'s craft soldier screen shows its per-craft Preview (W1 has no carrier)",
+            r.cell(f"the {g.name}'s craft soldier screen shows its per-craft Preview (nothing carries that save)",
                    e["Preview buttons"] == [{"text": "Preview", "visible": False}], e["Preview buttons"])
         r.cell(f"the {g.name}'s D saved at boot", e["D"].get("saved") is False and e["D"].get("positions") == [], e["D"])
 
 
-def hd_5(x, r):
+def row_raw_command(x, r):
     if not set_(r, x, False):
         return r.evidence()
     r.ev["raw"] = a = raw(x, SKYR)
     ref = a.get("refused [s, lastFail]")
-    if not ref and "applied s" in a:  # green: the settle, then the negative control
+    if not ref and "applied s" in a:  # with the fix: the settle, then the negative control
         time.sleep(1.0)
         r.ev["fails 1 s after"] = fails(x)[0]
         r.ev["negative control"] = raw(x, NO_SUCH)
@@ -339,7 +355,7 @@ def hd_5(x, r):
            nref is not None and nref[1] == "rejected" and n["D"] == a["D"], n)
 
 
-def hd_6(x, r):
+def row_world_equal(x, r):
     r.ev.update({"D": both(x), "world_diff now": shared_fixture.world_diff(x.host, x.client),
                  "client save files now": session.save_files(x.js.client_dir)})
     r.evidence()
@@ -349,7 +365,7 @@ def hd_6(x, r):
         r.cell("js.finish", False, short(e, 1500))
 
 
-def hd_s(x, r):
+def row_separate_stays_local(x, r):
     h, c = x.host, x.client
     d0 = both(x)
     if not r.cell("guard: D unsaved on both at boot (SEPARATE)", all(e.get("saved") is False for e in d0.values()), d0):
@@ -413,52 +429,57 @@ def down(tag, results, fn):
         print(f"FAIL shutdown {tag}: {short(e, 800)}", flush=True)
 
 
-def boot_a(results, walls):
+def boot_shared(results, walls):
     t0, js, x = time.time(), None, None
     try:
         try:
-            js = shared_fixture.bring_up(TAG_A, PORTS_A)
+            js = shared_fixture.bring_up(TAG_SHARED, PORTS_SHARED)
             x = sbe.X(js.host, js.client, js)
             sbe.setup(x)  # option OFF on both, seats differ, the SKYRANGER, the HostBase index (raises on a miss)
             x.keys = keys(x)
-            walls["boot " + TAG_A] = round(time.time() - t0, 1)
+            walls["boot " + TAG_SHARED] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails every row of this boot "boot" with ONE CAPTURE line
-            return sbe.boot_miss(TAG_A, e, ROWS_A, results, x)
-        run_rows(x, (("HD-0", hd_0),
-                     ("HD-1", lambda x, r: save_row(x, r, x.host, x.client, "the host's saved craft deployment never reached the client")),
-                     ("HD-2", lambda x, r: delete_row(x, r, x.host, x.client, "the host's deleted craft deployment stayed on the client")),
-                     ("HD-3", lambda x, r: save_row(x, r, x.client, x.host, "the client's saved craft deployment never reached the host")),
-                     ("HD-4", lambda x, r: delete_row(x, r, x.client, x.host, "the client's deleted craft deployment stayed on the client")),
-                     ("HD-5", hd_5), ("HD-6", hd_6)), results, walls)
+            return sbe.boot_miss(TAG_SHARED, e, ROWS_SHARED, results, x)
+        run_rows(x, (
+            ("craft_deploy_0", row_preview_hidden),
+            ("craft_deploy_1", lambda x, r: save_row(
+                x, r, x.host, x.client, "the host's saved craft deployment never reached the client")),
+            ("craft_deploy_2", lambda x, r: delete_row(
+                x, r, x.host, x.client, "the host's deleted craft deployment stayed on the client")),
+            ("craft_deploy_3", lambda x, r: save_row(
+                x, r, x.client, x.host, "the client's saved craft deployment never reached the host")),
+            ("craft_deploy_4", lambda x, r: delete_row(
+                x, r, x.client, x.host, "the client's deleted craft deployment stayed on the client")),
+            ("craft_deploy_5", row_raw_command), ("craft_deploy_6", row_world_equal)), results, walls)
     finally:
         if js is not None:
-            down(TAG_A, results, js.shutdown)
+            down(TAG_SHARED, results, js.shutdown)
 
 
-def boot_s(results, walls):
+def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_S[0], make_user_dir(TAG_S + "_host"))
-    c = GameClient("client", LABELS_S[1], make_user_dir(TAG_S + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
     x = sbe.X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_S, campaign_mode="coop")
+            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
             geo.wait_both_ready(h, c)
             x.seats = {g.name: q(g, {"cmd": "get_coop"}).get("localSeat") for g in (h, c)}
             x.keys = keys(x)
-            walls["boot " + TAG_S] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails HD-S "boot" with ONE CAPTURE line
-            return sbe.boot_miss(TAG_S, e, ROWS_S, results, x)
-        run_rows(x, (("HD-S", hd_s),), results, walls)
+            walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails craft_deploy_separate "boot" with ONE CAPTURE line
+            return sbe.boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
+        run_rows(x, (("craft_deploy_separate", row_separate_stays_local),), results, walls)
     finally:
-        down(TAG_S, results, lambda: shutdown_clients(h, c))
+        down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot_a(results, walls)
-    boot_s(results, walls)
+    boot_shared(results, walls)
+    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     downs = sorted(k for k, v in results.items() if k.startswith("shutdown") and not v)
     print(f"\ntest_shared_craft_deployment: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed + downs}) "
