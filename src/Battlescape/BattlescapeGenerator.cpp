@@ -1331,7 +1331,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 			{
 				for (int count = 0; count < pair.second; count++)
 				{
-					_save->createItemForTile(pair.first, _craftInventoryTile);
+					_save->createItemForTile(pair.first, poolTile(pair.first));
 				}
 			}
 		}
@@ -1370,7 +1370,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 				{
 					for (int count = 0; count < i->second; count++)
 					{
-						_save->createItemForTile(i->first, _craftInventoryTile);
+						_save->createItemForTile(i->first, poolTile(i->first));
 					}
 					auto tmp = i; // copy
 					++i;
@@ -1394,7 +1394,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 			{
 				for (int count = 0; count < pair.second; count++)
 				{
-					_save->createItemForTile(pair.first, _craftInventoryTile);
+					_save->createItemForTile(pair.first, poolTile(pair.first));
 				}
 			}
 		}
