@@ -1,22 +1,30 @@
-"""W2-H20c (owner D255 a, D226 a; W2-H20b A17 / F8261; spec rewrite/prompts/w2h20c_shared_hwp_loads.md (f), QC1 a .. QC8 a, AMENDMENT H20c-1,
-R-H20c-T0-1; TASK 0 rewrite/w2h20c-task0/CONSTANTS.md): in SHARED, a tank (HWP) loaded onto or unloaded from a craft on the craft equipment
-screen - by the arrows, the clear key or a craft loadout template - ends as a host-applied craft_equip end-state on both machines; today it
-stays on the clicking machine until a world re-copy reverts the client (the only carrier of the host's move).
-SKY / HostBase index / option OFF / seats from sbe.setup (S25). V(gc) = base_screen_op {op: craft_vehicles, base: HostBase, craft_id: SKY,
-craft_type: STR_SKYRANGER} (vehicles, order, vehicleAmmo, spaceUsed, customDeployment); ST(gc) = geo_state HostBase items; SKYI(gc) =
-base_report HostBase SKY items; reqs = the client's shared_resync_stats.requests. move(gc, item, n) = the craft_equip lever (the real CES
-move; its `moved` only says the item is on the screen's list, so verdicts read V and ST). W = 10 s at 0.25 s; RW 5 s; AP 30.
-park = host open_soldiers (no heartbeat), release = unpark + reqs over RW + converge (stage B's helpers); every row starts with converge +
-client shared_reset_resync_stats, again after a setup that moved a tank. strip = host move -n for every type in the host's V.
-Boot A (SHARED, 49441 / 49442 / 47935; stock TC 2, shells 60, TLC 1 on both): HC-1 parked client TC +1 (deploy_mark on both first). RED: the
-  host's V {} after W. HC-2 parked client TC -1. RED: the host's V {TC: 1} after W. HC-3 host TLC +1 (deploy_mark on both). RED: reqs +1
-  within W or V unequal. HC-4 host TLC -1. RED: as HC-3. HC-5 parked client template load (SKYI + TC 1). RED: the host's V {} after W.
-  HC-6 client raw craft_equip {TC, 2}. RED: "vehicles not routed" within W (cleanup: ONE close_screens on the client). HC-7 js.finish().
-Boot S (SEPARATE, tag w2h20cs, labels 49443 / 49444, lobby 47936): HC-8 (guard) R-H20c-T0-1: 4 of the client's SKY crew off by craft_assign
-  (spaceAvailable >= 4, EVIDENCE), client TC +1 -> its V {TC: 1}, stores TC -1 / shells -AP; both shared_stats unchanged 1 s later.
-A row whose named RED cell fails evaluates no later cell. EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE
-line (both machines' V, SKYI, ST, shared_stats, shared_resync_stats, stacks); a boot miss fails its rows "boot". Every row runs after a
-failure. ONE run; exit 0 iff everything passes, else 2.
+"""In SHARED, a tank (HWP) loaded onto or unloaded from a craft on the craft equipment screen - by the arrows, the
+clear key or a craft loadout template - ends as a host-applied craft_equip end-state on both machines; without the fix
+it stays on the clicking machine until a world re-copy reverts the client (the only carrier of the host's move).
+SKY / HostBase index / option OFF / seats from sbe.setup. V(gc) = base_screen_op {op: craft_vehicles, base: HostBase,
+craft_id: SKY, craft_type: STR_SKYRANGER} (vehicles, order, vehicleAmmo, spaceUsed, customDeployment); ST(gc) =
+geo_state HostBase items; SKYI(gc) = base_report HostBase SKY items; reqs = the client's
+shared_resync_stats.requests. move(gc, item, n) = the craft_equip test command (the real CES move; its `moved` only
+says the item is on the screen's list, so verdicts read V and ST). W = 10 s at 0.25 s; RW 5 s; AP 30.
+park = host open_soldiers (no heartbeat), release = unpark + reqs over RW + converge (test_shared_craft_loads'
+helpers); every row starts with converge + client shared_reset_resync_stats, again after a setup that moved a tank.
+strip = host move -n for every type in the host's V.
+Each row's main cell fails without the fix:
+Boot shared (SHARED, 49441 / 49442 / 47935; stock TC 2, shells 60, TLC 1 on both):
+  hwp_load_1 parked client TC +1 (deploy_mark on both first); main cell: the host's V {} after W.
+  hwp_load_2 parked client TC -1; main cell: the host's V {TC: 1} after W.
+  hwp_load_3 host TLC +1 (deploy_mark on both); main cell: reqs +1 within W or V unequal.
+  hwp_load_4 host TLC -1; main cell: as hwp_load_3.
+  hwp_load_5 parked client template load (SKYI + TC 1); main cell: the host's V {} after W.
+  hwp_load_6 client raw craft_equip {TC, 2}; main cell: "vehicles not routed" within W (cleanup: ONE close_screens on
+  the client).
+  hwp_load_7 js.finish().
+Boot separate (SEPARATE, tag hwp_loads_separate, labels 49443 / 49444, lobby 47936): hwp_load_8 (guard): 4 of the
+  client's SKY crew off by craft_assign to make room for a tank (spaceAvailable >= 4, EVIDENCE), client TC +1 -> its
+  V {TC: 1}, stores TC -1 / shells -AP; both shared_stats unchanged 1 s later.
+A row whose main cell fails evaluates no later cell. EVIDENCE line per row before its verdict; a failed row prints ONE
+CAPTURE line (both machines' V, SKYI, ST, shared_stats, shared_resync_stats, stacks); a boot miss fails its rows
+"boot". Every row runs after a failure. ONE run; exit 0 iff everything passes, else 2.
 """
 
 import json
@@ -34,14 +42,14 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until  # noqa: E402
 from test_shared_base_writes import bso  # noqa: E402
 
-TAG_A, PORTS_A = "w2h20ca", (49441, 49442, 47935)
-TAG_S, LABELS_S, LOBBY_S = "w2h20cs", (49443, 49444), "47936"
+TAG_SHARED, PORTS_SHARED = "hwp_loads_shared", (49441, 49442, 47935)
+TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "hwp_loads_separate", (49443, 49444), "47936"
 HB, CB, GEO, SKYR = "HostBase", "ClientBase", "GeoscapeState", "STR_SKYRANGER"
 TC, TLC, SH = "STR_TANK_CANNON", "STR_TANK_LASER_CANNON", "STR_HWP_CANNON_SHELLS"
 AP, W, POLL, RW, SETTLE, SPACE0 = 30, 10.0, 0.25, cl.RW, 1.0, 6  # AP 30, RW 5 s, spaceAvailable 6 with no tank
 NOT_ROUTED = "vehicles not routed"
-ROWS_A, ROWS_S = ["HC-%d" % n for n in range(1, 8)], ["HC-8"]
-ORDER = ROWS_A + ROWS_S
+ROWS_SHARED, ROWS_SEPARATE = ["hwp_load_%d" % n for n in range(1, 8)], ["hwp_load_8"]
+ORDER = ROWS_SHARED + ROWS_SEPARATE
 
 
 def V(gc, x, base=HB, cid=None):
@@ -99,7 +107,7 @@ def guard_v(r, x, want, tag):
 
 
 def strip(r, x):
-    """host move -n for every type in the host's V, then converge (red: by the re-copy) + reset."""
+    """host move -n for every type in the host's V, then converge (without the fix: by the re-copy) + reset."""
     v = V(x.host, x).get("vehicles") or {}
     mv = [move(x.host, x, t, -n) for t, n in sorted(v.items())]
     r.ev["strip"] = {"host V": v, "moves": mv}
@@ -121,17 +129,18 @@ def parked(r, x, act, cd=None):
     return a, w, rel
 
 
-def greens(r, w, rel):
+def check_sync(r, w, rel):
     if r.cell("V / SKYI / ST not equal on both within W", w["equal"], w):
         r.cell("the client asked for a world re-copy over RW after the unpark", rel["over RW"]["reqs"] == 0, rel["over RW"])
 
 
-def client_move(x, r, n, rid_red):
-    """HC-1 (n = +1, deploy_mark on both first) / HC-2 (n = -1): the parked client moves one TC."""
+def client_move(x, r, n, reach_cell):
+    """hwp_load_1 (n = +1, deploy_mark on both first) / hwp_load_2 (n = -1): the parked client moves one TC."""
     h, c = x.host, x.client
     if not cl.guard(r, x):
         return
-    if n < 0 and (V(h, x).get("vehicles") or {}).get(TC) != 1:  # HC-2's setup: the host loads it (client on its geoscape)
+    # hwp_load_2's setup: the host loads it (client on its geoscape)
+    if n < 0 and (V(h, x).get("vehicles") or {}).get(TC) != 1:
         r.ev["setup move"] = move(h, x, TC, 1)
         if not cl.guard(r, x, "after the setup"):
             return r.evidence()
@@ -157,13 +166,14 @@ def client_move(x, r, n, rid_red):
                   and (n < 0 or a["client V at once"].get("customDeployment") is False) and a["client ST diff"] == {TC: -n, SH: -AP * n}, a):
         return
     host_v = w["V"]["host"].get("vehicles")
-    if not r.cell(rid_red, host_v == ({TC: 1} if n > 0 else {}), {"host V after W": w["V"]["host"]}):
+    if not r.cell(reach_cell, host_v == ({TC: 1} if n > 0 else {}), {"host V after W": w["V"]["host"]}):
         return
-    greens(r, w, rel)
+    check_sync(r, w, rel)
 
 
-def host_move(x, r, n, red):
-    """HC-3 (n = +1, deploy_mark on both first; strip first) / HC-4 (n = -1): the host moves the TLC, the client on its geoscape."""
+def host_move(x, r, n, recopy_cell):
+    """hwp_load_3 (n = +1, deploy_mark on both first; strip first) / hwp_load_4 (n = -1): the host moves the TLC,
+    the client on its geoscape."""
     h, c = x.host, x.client
     if not cl.guard(r, x):
         return
@@ -189,7 +199,7 @@ def host_move(x, r, n, red):
         time.sleep(POLL)
     vv = both_v(x)
     over = cl.watch(x, RW)
-    cv = cl.converge(x)  # the red cleanup (the re-copy lands on the client's geoscape)
+    cv = cl.converge(x)  # the cleanup without the fix (the re-copy lands on the client's geoscape)
     r.ev.update({"move": mv, "host V at once": v1, "host ST diff": sd, "first req s": first, "equal s": eq, "V after": vv, "over RW": over,
                  "converge": [cv["ok"], cv["s"]]})
     r.evidence()
@@ -199,13 +209,14 @@ def host_move(x, r, n, red):
                   and v1.get("vehicles") == ({TLC: 1} if n > 0 else {}) and (n < 0 or v1.get("customDeployment") is False)
                   and sd == {TLC: -n}, [mv, v1, sd]):
         return
-    if not r.cell(red, first is None and vk(vv["host"]) == vk(vv["client"]), {"first req s": first, "V after": vv}):
+    if not r.cell(recopy_cell, first is None and vk(vv["host"]) == vk(vv["client"]),
+                  {"first req s": first, "V after": vv}):
         return
     r.cell("V / SKYI / ST not equal on both within W", eq is not None, eq)
     r.cell("the client asked for a world re-copy over RW", over["reqs"] == 0, over)
 
 
-def hc_5(x, r):
+def row_template_load(x, r):
     h, c = x.host, x.client
     if not (cl.guard(r, x) and guard_v(r, x, {}, "start")):
         return r.evidence()
@@ -215,7 +226,7 @@ def hc_5(x, r):
                 "payload": {"kind": "loadout", "index": 1, "name": "", "items": items}})
     got, s = cl.timed(lambda: all(bso(g, op="read", index=1).get("loadout") == items for g in (h, c)), W)
     r.ev["template"] = {"items": items, "shared_cmd": rep, "read 1 equal s": s}
-    if not r.cell("guard: template 1 (SKYI + TC 1) on both within W (stage A)", rep.get("ok") and got, r.ev["template"]):
+    if not r.cell("guard: template 1 (SKYI + TC 1) on both within W", rep.get("ok") and got, r.ev["template"]):
         return r.evidence()
 
     def act():
@@ -238,10 +249,10 @@ def hc_5(x, r):
     if not r.cell("the client's craft loadout template load left its tank on the client",
                   w["V"]["host"].get("vehicles") == {TC: 1}, {"host V after W": w["V"]["host"]}):
         return
-    greens(r, w, rel)
+    check_sync(r, w, rel)
 
 
-def hc_6(x, r):
+def row_raw_command(x, r):
     h, c = x.host, x.client
     if not (cl.guard(r, x) and strip(r, x)):
         return r.evidence()
@@ -264,13 +275,13 @@ def hc_6(x, r):
             break
         time.sleep(POLL)
     box = None
-    if refused:  # the red cleanup: ONE close_screens on the client (the refusal box)
+    if refused:  # the cleanup without the fix: ONE close_screens on the client (the refusal box)
         wait_until(lambda: any("CoopState" in e for e in stack(c)), 3.0)
         box = {"stack": stack(c), "close_screens": q(c, {"cmd": "close_screens"})}
         wait_until(lambda: stack(c)[-1:] == [GEO], 5.0)
         box["after"] = stack(c)
     time.sleep(SETTLE)
-    f1, over = stats3(c), (cl.watch(x, RW) if refused is None else None)  # RW is a green cell's window only
+    f1, over = stats3(c), (cl.watch(x, RW) if refused is None else None)  # RW is a with-fix cell's window only
     v1, s1 = both_v(x), {g.name: cl.diff(s0[g.name], cl.st(g)) for g in (h, c)}
     r.ev.update({"shared_cmd": rep, "failCount before": f0, "refused": refused, "applied s": applied, "box": box, "V after": v1,
                  "ST diff": s1, "client stats after 1 s": f1, "over RW": over})
@@ -283,8 +294,9 @@ def hc_6(x, r):
     r.cell("the client asked for a world re-copy over RW", over["reqs"] == 0, over)
 
 
-def hc_8(x, r):
-    """SEPARATE (guard; R-H20c-T0-1): 4 of the client's SKY crew off by craft_assign, then its TC load stays local and sends nothing."""
+def row_separate_stays_local(x, r):
+    """SEPARATE (guard): 4 of the client's SKY crew off by craft_assign to make room, then its TC load stays local and
+    sends nothing."""
     h, c = x.host, x.client
     rep = q(c, {"cmd": "base_report", "base": CB})
     x.sky_s = sid = next((e.get("id") for e in rep.get("crafts") or [] if e.get("type") == SKYR), None)
@@ -293,7 +305,7 @@ def hc_8(x, r):
     off = [q(c, {"cmd": "craft_assign", "soldier_id": i, "craft_id": sid, "base": CB, "on": False}) for i in crew[:4]]
     v0 = V(c, x, CB, sid)
     stg = {"ClientBase SKY": sid, "crew": crew, "give_items": gv, "craft_assign off": off, "client V after the staging": v0}
-    print(f"EVIDENCE HC-8 (staging, R-H20c-T0-1): {json.dumps(stg, sort_keys=True, default=str)}", flush=True)
+    print(f"EVIDENCE hwp_load_8 (staging): {json.dumps(stg, sort_keys=True, default=str)}", flush=True)
     r.ev["staging"] = stg
     if not (r.cell("guard: a ClientBase SKYRANGER with >= 4 crew, stock given", sid is not None and len(crew) >= 4 and all(g.get("ok") for g in gv), stg)
             and r.cell("guard: craft_assign took 4 crew off (spaceAvailable >= 4)", all(o.get("seated") is False for o in off) and len(off) == 4
@@ -317,14 +329,15 @@ def finish(x, r):
 
 
 def stock(x):
-    """Boot A stock (guard): give_items TC 2, shells 2 x AP, TLC 1 on both (client first); ST and chkItems equal. Raises on a miss."""
+    """The SHARED boot's stock (guard): give_items TC 2, shells 2 x AP, TLC 1 on both (client first); ST and chkItems
+    equal. Raises on a miss."""
     gv = {g.name: [q(g, {"cmd": "give_items", "item": it, "count": n, "base": HB}) for it, n in ((TC, 2), (SH, 2 * AP), (TLC, 1))]
           for g in (x.client, x.host)}
     eq, s = cl.timed(lambda: cl.st(x.host) == cl.st(x.client), W)
     chk = [q(g, {"cmd": "shared_checksum"}).get("chkItems") for g in (x.host, x.client)]
     x.setup = {"give_items": gv, "ST equal s": s, "chkItems": chk, "V": both_v(x)}
     if not (all(e.get("ok") for v in gv.values() for e in v) and eq and chk[0] == chk[1]):
-        raise RuntimeError(f"Boot A stock: {json.dumps(x.setup, default=str)}")
+        raise RuntimeError(f"SHARED boot stock: {json.dumps(x.setup, default=str)}")
 
 
 def run_rows(x, rows, results, walls):
@@ -349,50 +362,56 @@ def run_rows(x, rows, results, walls):
         r.report(results)
 
 
-def boot_a(results, walls):
+def boot_shared(results, walls):
     t0, js, x = time.time(), None, None
     try:
         try:
-            js = shared_fixture.bring_up(TAG_A, PORTS_A)
+            js = shared_fixture.bring_up(TAG_SHARED, PORTS_SHARED)
             x = sbe.X(js.host, js.client, js)
             sbe.setup(x)  # option OFF on both, seats differ, the SKYRANGER, the HostBase index (raises on a miss)
             stock(x)
-            walls["boot " + TAG_A] = round(time.time() - t0, 1)
+            walls["boot " + TAG_SHARED] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails every row of this boot "boot" with ONE CAPTURE line
-            return cl.boot_miss(TAG_A, e, ROWS_A, results, x)
-        run_rows(x, (("HC-1", lambda x, r: client_move(x, r, 1, "the client's tank load never reached the host")),
-                     ("HC-2", lambda x, r: client_move(x, r, -1, "the client's tank unload never reached the host")),
-                     ("HC-3", lambda x, r: host_move(x, r, 1, "the host's tank load reached the client only through a world re-copy")),
-                     ("HC-4", lambda x, r: host_move(x, r, -1, "the host's tank unload reached the client only through a world re-copy")),
-                     ("HC-5", hc_5), ("HC-6", hc_6), ("HC-7", finish)), results, walls)
+            return cl.boot_miss(TAG_SHARED, e, ROWS_SHARED, results, x)
+        run_rows(x, (("hwp_load_1", lambda x, r: client_move(x, r, 1, "the client's tank load never reached the host")),
+                     ("hwp_load_2",
+                      lambda x, r: client_move(x, r, -1, "the client's tank unload never reached the host")),
+                     ("hwp_load_3",
+                      lambda x, r: host_move(x, r, 1, "the host's tank load reached the client only through a "
+                                                      "world re-copy")),
+                     ("hwp_load_4",
+                      lambda x, r: host_move(x, r, -1, "the host's tank unload reached the client only through a "
+                                                       "world re-copy")),
+                     ("hwp_load_5", row_template_load), ("hwp_load_6", row_raw_command), ("hwp_load_7", finish)),
+                 results, walls)
     finally:
         if js is not None:
-            cl.down(TAG_A, results, js.shutdown)
+            cl.down(TAG_SHARED, results, js.shutdown)
 
 
-def boot_s(results, walls):
+def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_S[0], make_user_dir(TAG_S + "_host"))
-    c = GameClient("client", LABELS_S[1], make_user_dir(TAG_S + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
     x = sbe.X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_S, campaign_mode="coop")
+            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
             geo.wait_both_ready(h, c)
             x.seats = {g.name: q(g, {"cmd": "get_coop"}).get("localSeat") for g in (h, c)}
-            walls["boot " + TAG_S] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails HC-8 "boot" with ONE CAPTURE line
-            return cl.boot_miss(TAG_S, e, ROWS_S, results, x)
-        run_rows(x, (("HC-8", hc_8),), results, walls)
+            walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails hwp_load_8 "boot" with ONE CAPTURE line
+            return cl.boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
+        run_rows(x, (("hwp_load_8", row_separate_stays_local),), results, walls)
     finally:
-        cl.down(TAG_S, results, lambda: shutdown_clients(h, c))
+        cl.down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot_a(results, walls)
-    boot_s(results, walls)
+    boot_shared(results, walls)
+    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     downs = sorted(k for k, v in results.items() if k.startswith("shutdown") and not v)
     print(f"\ntest_shared_hwp_loads: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed + downs}) "
