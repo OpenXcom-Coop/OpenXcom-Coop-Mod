@@ -1,22 +1,27 @@
-"""test_ironman_save_paths.py: co-op ironman save paths (leads L-H49-1, L-H49-2, L-H49-3).
+"""test_ironman_save_paths.py: co-op ironman save paths.
 
-R-H53-0 (O1 for L-H49-1 and L-H49-2, L-H49-3 in scope), R-H49-0 = O1 (ironman holds for the save's owner; one campaign file),
-aud-E1-05 (ironman is host-only; the client never saves): a new SHARED ironman campaign asks the host for a save name twice, as solo and
-every other mode (vanilla's two prompts kept), and never asks the second player (no code-123 "desync problems" popup); a named ironman
-campaign's wait-dialog SAVE & QUIT saves the campaign's own file and goes to the main menu (no free-name list); an ironman alien host's
-SAVE AND ABANDON GAME in a gm3 borrowed battle saves its campaign file (with the battle) before the session ends.
-Spec: docs rewrite/prompts/w2h53_ironman_save_paths.md ((f); QH53-1 .. QH53-7 (a)); pins: docs rewrite/w2h53-task0/sa/CONSTANTS.md.
-Findings F17980-F17993 (spec), F17860-F17869 (capture), F17782, F18080-F18099.
-Real inputs only: the IRONMAN toggle, every save list answered by list_save_confirm, the 62 dialog's SAVE & QUIT by click_widget (after its
-window popup ends: a hidden button ignores a click, F18080), ESC (27) + click_widget abandon + click_widget yes, client.kill().
-Boot S (dirs w2h53_s_*; solo; the vanilla control): S-count, S-files.
-Boot H (SHARED, gamemode 1): H-count, H-client, H-123, H-files, H-common.
-Boot G (SEPARATE ironman; the client dropped on the geoscape, then SAVE & QUIT): G-count, G-nolist, G-file, G-only, G-menu, G-common.
-Boot A (gm3 ironman, the host plays the aliens; SAVE AND ABANDON GAME at (1, 0) in the borrowed battle): A-c0, A-save, A-only, A-menu,
-A-client, A-common.  Key 49148; one row per boot.
-RED (the unchanged build): H-count, H-client, H-123, H-files, G-nolist, G-file, G-only, A-save (8 of 19). GREEN (E1-E9): 19/19.
-A boot miss FAILs every cell of that boot "boot" with ONE "CAPTURE <boot>:" line; a row precondition miss FAILs its later cells
-"blocked: <why>". ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+Ironman holds for the save's owner, with one campaign file; ironman is a host-only setting and the client never saves.
+A new SHARED ironman campaign asks the host for a save name twice, as solo and every other mode do (vanilla's two
+prompts kept), and never asks the second player (no code-123 "desync problems" popup); a named ironman campaign's
+wait-dialog SAVE & QUIT saves the campaign's own file and goes to the main menu (no free-name list); an ironman alien
+host's SAVE AND ABANDON GAME in a gm3 borrowed battle saves its campaign file (with the battle) before the session
+ends.
+Real inputs only: the IRONMAN toggle, every save list answered by list_save_confirm, the 62 dialog's SAVE & QUIT by
+click_widget (after its window popup ends: a hidden button ignores a click), ESC (27) + click_widget abandon +
+click_widget yes, client.kill().
+Boot solo (dirs ironman_save_paths_solo_*; the vanilla control): solo_two_save_lists, solo_save_files.
+Boot shared (SHARED, gamemode 1): shared_two_host_lists, shared_no_client_list, shared_no_desync_popup,
+shared_save_files, shared_common.
+Boot separate (SEPARATE ironman; the client dropped on the geoscape, then SAVE & QUIT): separate_start_saves,
+save_quit_no_list, save_quit_rewrites_file, save_quit_only_campaign_file, save_quit_main_menu, separate_common.
+Boot alien_host (gm3 ironman, the host plays the aliens; SAVE AND ABANDON GAME at (1, 0) in the borrowed battle):
+alien_host_start, abandon_saves_campaign, abandon_only_campaign_file, abandon_main_menu, abandon_client_lost,
+alien_host_common. Key 49148; one row per boot.
+Without the fix the FIX cells fail: shared_two_host_lists, shared_no_client_list, shared_no_desync_popup,
+shared_save_files, save_quit_no_list, save_quit_rewrites_file, save_quit_only_campaign_file, abandon_saves_campaign (8
+of 19); with it all 19 pass.
+A boot miss FAILs every cell of that boot "boot" with ONE "CAPTURE <boot>:" line; a row precondition miss FAILs its
+later cells "blocked: <why>". ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_ironman_save_paths.py
 """
 
@@ -36,21 +41,28 @@ import test_campaign_battle_gm3 as G3B  # noqa: E402
 import test_campaign_battle_resume as BR  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/w2h53-task0/sa/CONSTANTS.md) -----
+# ----- fixture values -----
 KEY = "49148"
-NAMES = {"S": "IronSOLO", "H": "IronSH", "G": "IronG1", "A": "IronAlien"}   # every start list of the boot answered with it
-QUITNAME = "QuitSave"                 # boot G's red list only (the unchanged build opens one after SAVE & QUIT)
-SEED = 1                              # the client's set_seed before its confirm_landing (IB)
+NAMES = {"solo": "IronSOLO", "shared": "IronSH", "separate": "IronSEP",
+         "alien_host": "IronAlien"}   # every start list of the boot answered with it
+QUITNAME = "QuitSave"                 # a list after the separate boot's SAVE & QUIT (only when broken: it opens one)
+SEED = 1                              # the client's set_seed before its confirm_landing (as test_ironman_borrow)
 ESC = 27
-QUIET_S = 8.0                         # both machines on GeoscapeState, no stack change (T0: last start event <= 3.8 s, longest gap 1.6 s)
+QUIET_S = 8.0                         # both machines on GeoscapeState, no stack change (measured: last start event
+                                      # <= 3.8 s, longest gap 1.6 s)
 NGS_SETTLE = 0.2
 SAVE_AND_ABANDON = "SAVE AND ABANDON GAME"
 DRIVE_S, DROP_S, SQ_S, ENTRY_S, SETTLE_S, PAUSE_S, ABANDON_S, LOST_S, FILE_S = 150, 60, 30, 60, 30, 10, 30, 30, 1.0
-ROWS = {"S": ["S-count", "S-files"], "H": ["H-count", "H-client", "H-123", "H-files", "H-common"],
-        "G": ["G-count", "G-nolist", "G-file", "G-only", "G-menu", "G-common"],
-        "A": ["A-c0", "A-save", "A-only", "A-menu", "A-client", "A-common"]}
-FIX = {"H-count", "H-client", "H-123", "H-files", "G-nolist", "G-file", "G-only", "A-save"}
-BOOT = {"tag": "S"}
+ROWS = {"solo": ["solo_two_save_lists", "solo_save_files"],
+        "shared": ["shared_two_host_lists", "shared_no_client_list", "shared_no_desync_popup", "shared_save_files",
+                   "shared_common"],
+        "separate": ["separate_start_saves", "save_quit_no_list", "save_quit_rewrites_file",
+                     "save_quit_only_campaign_file", "save_quit_main_menu", "separate_common"],
+        "alien_host": ["alien_host_start", "abandon_saves_campaign", "abandon_only_campaign_file", "abandon_main_menu",
+                       "abandon_client_lost", "alien_host_common"]}
+FIX = {"shared_two_host_lists", "shared_no_client_list", "shared_no_desync_popup", "shared_save_files",
+       "save_quit_no_list", "save_quit_rewrites_file", "save_quit_only_campaign_file", "abandon_saves_campaign"}
+BOOT = {"tag": "solo"}
 
 
 class FixtureMiss(Exception):
@@ -87,7 +99,7 @@ def capture_boot(err, *machines):
     raise FixtureMiss(err)
 
 
-# ----- CAP's flow helpers (docs rewrite/lh49-cap/lh49.py; TASK 0 t0_h53.py), copied -----
+# ----- flow helpers: stacks, widgets, save files -----
 def stk(gc):
     try:
         return session.states_stripped(gc)
@@ -158,8 +170,10 @@ def idle(gc):
 
 
 def start(host, client, boot, ev):
-    """(1)-(5): open_new_game, IRONMAN after NewGameState's widgets settle, newgame_ok; co-op: host_tcp, join, profiles, START."""
-    host.ok({"cmd": "open_new_game", "mode": {"S": "solo", "H": "shared", "G": "coop", "A": "coop"}[boot]})
+    """open_new_game, IRONMAN after NewGameState's widgets settle, newgame_ok; co-op: host_tcp, join, profiles,
+    START."""
+    host.ok({"cmd": "open_new_game",
+             "mode": {"solo": "solo", "shared": "shared", "separate": "coop", "alien_host": "coop"}[boot]})
     host.wait_for("difficulty", lambda: PF._has(host, "NewGameState"))
     if not settled(host, "NewGameState", 10):
         capture_boot("NewGameState widgets never settled", host, *([client] if client else []))
@@ -171,7 +185,7 @@ def start(host, client, boot, ev):
     if not ev["ironmanClick"] or not ev["ironmanToggle"]:
         capture_boot(f"IRONMAN click {ev['ironmanClick']} toggle {ev['ironmanToggle']}", host, *([client] if client else []))
     host.ok({"cmd": "newgame_ok"})
-    if boot == "S":
+    if boot == "solo":
         return {"host": "HostBase", "client": None, "begin": False}
     host.wait_for("host window", lambda: PF._has(host, "HostMenu"))
     host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": KEY, "player": "HostPlayer"})
@@ -183,17 +197,18 @@ def start(host, client, boot, ev):
         gc.ok({"cmd": "profile_ok"})
     host.wait_for("start eligible", lambda: PF._lobby(host).get("startEligible") or None)
     host.wait_for("START CAMPAIGN shown", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
-    if boot == "A":
+    if boot == "alien_host":
         ev["gamemode"] = host.ok({"cmd": "lobby_set_team", "row": PF.row_for(host, "HostPlayer"), "team": "Alien"}).get("gamemode")
     ev["shared"] = host.cmd({"cmd": "get_coop"}).get("shared")
     session.start_campaign_via_button(host)
-    return {"host": "HostBase" if boot in ("H", "G") else None, "client": {"G": "ClientBase", "A": "XcomBase"}.get(boot), "begin": True}
+    return {"host": "HostBase" if boot in ("shared", "separate") else None,
+            "client": {"separate": "ClientBase", "alien_host": "XcomBase"}.get(boot), "begin": True}
 
 
 def drive(host, client, ev, plan, name):
-    """(6)-(9): place bases; answer every ListSaveState at once with `name`, counted per machine; dismiss a client 123 (counted; the
-    client's "Saving..." 53 is never touched, F17875); BEGIN on the host's 60 / 62; done when both tops are GeoscapeState with no
-    stack change for QUIET_S."""
+    """Place bases; answer every ListSaveState at once with `name`, counted per machine; dismiss a client 123
+    (counted; the client's "Saving..." 53 is never touched); BEGIN on the host's 60 / 62; done when both tops are
+    GeoscapeState with no stack change for QUIET_S."""
     t0, last = time.time(), time.time()
     rec = ev["drive"] = {"stacks": {"host": [], "client": []}, "lists": [], "coop": [], "actions": []}
     placed = {w: not plan[w] for w in ("host", "client")}
@@ -258,36 +273,40 @@ def common(name, client, crash0, extra=()):
 
 
 # ----- the boots -----
-def boot_s(host, _client, ev, crash0):
-    ls = drive(host, None, ev, start(host, None, "S", ev), NAMES["S"])
+def boot_solo(host, _client, ev, crash0):
+    ls = drive(host, None, ev, start(host, None, "solo", ev), NAMES["solo"])
     hs = ev["files"] = headers(host)
     n, hidden = len(ls["host"]), all(x[3] is False for x in ls["host"])
-    cell("S-count", n == 2 and hidden, f"host ListSaveStates {n}, Cancel hidden on each {hidden} (want 2, true)")
-    bad = names_bad(hs, {NAMES["S"] + ".sav", NAMES["S"] + "_.sav"}, NAMES["S"])
-    cell("S-files", not bad, "; ".join(bad) or f"{sorted(hs)}, each name {NAMES['S']}, ironman true")
+    cell("solo_two_save_lists", n == 2 and hidden,
+         f"host ListSaveStates {n}, Cancel hidden on each {hidden} (want 2, true)")
+    bad = names_bad(hs, {NAMES["solo"] + ".sav", NAMES["solo"] + "_.sav"}, NAMES["solo"])
+    cell("solo_save_files", not bad, "; ".join(bad) or f"{sorted(hs)}, each name {NAMES['solo']}, ironman true")
 
 
-def boot_h(host, client, ev, crash0):
-    ls = drive(host, client, ev, start(host, client, "H", ev), NAMES["H"])
+def boot_shared(host, client, ev, crash0):
+    ls = drive(host, client, ev, start(host, client, "shared", ev), NAMES["shared"])
     hs = ev["files"] = headers(host)
     n123 = [x for x in ev["drive"]["coop"] if x[0] == "client" and x[1] == 123]
-    cell("H-count", len(ls["host"]) == 2, f"host ListSaveStates {len(ls['host'])} (want 2)")
-    cell("H-client", not ls["client"], f"client ListSaveStates {len(ls['client'])} (want 0)")
-    cell("H-123", not n123, f"client CoopState 123 seen {len(n123)} {[x[2] for x in n123]} (want none)")
-    bad = names_bad(hs, {NAMES["H"] + ".sav", NAMES["H"] + "_.sav", "_autogeo_.asav"}, NAMES["H"])
-    cell("H-files", not bad, "; ".join(bad) or f"{sorted(hs)}; {NAMES['H']}.sav name {NAMES['H']}, ironman true")
+    cell("shared_two_host_lists", len(ls["host"]) == 2, f"host ListSaveStates {len(ls['host'])} (want 2)")
+    cell("shared_no_client_list", not ls["client"], f"client ListSaveStates {len(ls['client'])} (want 0)")
+    cell("shared_no_desync_popup", not n123,
+         f"client CoopState 123 seen {len(n123)} {[x[2] for x in n123]} (want none)")
+    bad = names_bad(hs, {NAMES["shared"] + ".sav", NAMES["shared"] + "_.sav", "_autogeo_.asav"}, NAMES["shared"])
+    cell("shared_save_files", not bad,
+         "; ".join(bad) or f"{sorted(hs)}; {NAMES['shared']}.sav name {NAMES['shared']}, ironman true")
     tops = [top(host), top(client)]
-    common("H-common", client, crash0, [f"tops {tops} (want GeoscapeState on both)"] if tops != ["GeoscapeState"] * 2 else [])
+    common("shared_common", client, crash0,
+           [f"tops {tops} (want GeoscapeState on both)"] if tops != ["GeoscapeState"] * 2 else [])
 
 
-def boot_g(host, client, ev, crash0):
-    ls = drive(host, client, ev, start(host, client, "G", ev), NAMES["G"])
+def boot_separate(host, client, ev, crash0):
+    ls = drive(host, client, ev, start(host, client, "separate", ev), NAMES["separate"])
     hs = ev["files"] = headers(host)
     bad = ([f"host ListSaveStates {len(ls['host'])} (want 2)"] if len(ls["host"]) != 2 else [])
     bad += [f"client ListSaveStates {len(ls['client'])} (want 0)"] if ls["client"] else []
-    bad += names_bad(hs, {NAMES["G"] + ".sav", NAMES["G"] + "_.sav", "_autogeo_.asav"}, NAMES["G"])
-    cell("G-count", not bad, "; ".join(bad) or f"host 2 lists, client 0; {sorted(hs)}")
-    later = ROWS["G"][1:]
+    bad += names_bad(hs, {NAMES["separate"] + ".sav", NAMES["separate"] + "_.sav", "_autogeo_.asav"}, NAMES["separate"])
+    cell("separate_start_saves", not bad, "; ".join(bad) or f"host 2 lists, client 0; {sorted(hs)}")
+    later = ROWS["separate"][1:]
     client.kill()
     ok, s = wait(lambda: (lambda d: d.get("present") and d.get("code") == 62 and d.get("saveQuitVisible"))(coop_info(host)), DROP_S, 0.2)
     ev["dialog"] = {k: v for k, v in coop_info(host).items() if k in ("code", "title", "saveQuitVisible", "saveQuitText")}
@@ -315,19 +334,22 @@ def boot_g(host, client, ev, crash0):
     ch, ws = ev["changed"], ev["world"] = changed(host, before), host.cmd({"cmd": "world_state"})
     ev.update(filesAfter=headers(host), data=files(host, True))
     ls_seen = [x for x in seen if "ListSaveState" in x[1]]
-    cell("G-nolist", not ls_seen, f"host stacks with a ListSaveState after the click: {ls_seen[:2]} (want none)")
-    want = {"name": NAMES["G"], "ironman": True}
-    g = ch.get(NAMES["G"] + ".sav")
-    cell("G-file", g is not None and all(g.get(k) == v for k, v in want.items()),
-         f"{NAMES['G']}.sav since the click: {g} (want rewritten, {want})")
-    cell("G-only", set(ch) <= {NAMES["G"] + ".sav"}, f"save files new or changed since the click: {sorted(ch)} (want none but {NAMES['G']}.sav)")
-    cell("G-menu", ok and ws.get("has_save") is False and top(host) == "MainMenuState",
+    cell("save_quit_no_list", not ls_seen,
+         f"host stacks with a ListSaveState after the click: {ls_seen[:2]} (want none)")
+    want = {"name": NAMES["separate"], "ironman": True}
+    g = ch.get(NAMES["separate"] + ".sav")
+    cell("save_quit_rewrites_file", g is not None and all(g.get(k) == v for k, v in want.items()),
+         f"{NAMES['separate']}.sav since the click: {g} (want rewritten, {want})")
+    cell("save_quit_only_campaign_file", set(ch) <= {NAMES["separate"] + ".sav"},
+         f"save files new or changed since the click: {sorted(ch)} (want none but {NAMES['separate']}.sav)")
+    cell("save_quit_main_menu", ok and ws.get("has_save") is False and top(host) == "MainMenuState",
          f"mainMenu {ok} in {s} s, top {top(host)}, has_save {ws.get('has_save')} (want true in {SQ_S} s, MainMenuState, false)")
-    common("G-common", client, crash0)
+    common("separate_common", client, crash0)
 
 
 def land(host, client, ev):
-    """IB's land: BR stage_to_prompt; client set_seed + confirm_landing; briefings; equip; host NTS OK -> host (1, 0), no Save / CoopState."""
+    """test_ironman_borrow's land: BR stage_to_prompt; client set_seed + confirm_landing; briefings; equip; host NTS
+    OK -> host (1, 0), no Save / CoopState."""
     xb = next((b for b in client.ok({"cmd": "geo_state"}).get("bases", []) if not b.get("coopBase") and not b.get("coopIcon")), None)
     sky = next((cr for cr in (xb or {}).get("crafts", []) if "SKYRANGER" in cr.get("type", "") and not cr.get("coop")), None)
     if not sky:
@@ -360,15 +382,15 @@ def land(host, client, ev):
     time.sleep(1.0)
 
 
-def boot_a(host, client, ev, crash0):
-    ls = drive(host, client, ev, start(host, client, "A", ev), NAMES["A"])
+def boot_alien_host(host, client, ev, crash0):
+    ls = drive(host, client, ev, start(host, client, "alien_host", ev), NAMES["alien_host"])
     f0 = ev["files"] = headers(host)
-    h0 = (f0.get(NAMES["A"] + ".sav") or {}).get("header")
+    h0 = (f0.get(NAMES["alien_host"] + ".sav") or {}).get("header")
     geo.slow_clock(host, client)
     land(host, client, ev)
-    later = ROWS["A"][1:]
+    later = ROWS["alien_host"][1:]
     if not wait(lambda: idle(host), SETTLE_S)[0]:
-        block(ROWS["A"], f"host never idle at (1, 0): {stk(host)} {battle(host)}")
+        block(ROWS["alien_host"], f"host never idle at (1, 0): {stk(host)} {battle(host)}")
         return
     ev["at"], active = battle(host), (host.cmd({"cmd": "get_coop"}).get("pvpBorrow") or {}).get("active")
     before = ev["filesBeforeEsc"] = files(host)
@@ -376,10 +398,13 @@ def boot_a(host, client, ev, crash0):
     pause = wait(lambda: "PauseState" in (top(host) or ""), PAUSE_S, 0.2)[0] and settled(host, "PauseState", 5)
     btn = ev["pause"] = buttons(host) if pause else None
     bad = [f"host ListSaveStates {len(ls['host'])} (want 2)"] if len(ls["host"]) != 2 else []
-    bad += [] if h0 and (h0["name"], h0["ironman"], h0["borrow"]) == (NAMES["A"], True, False) else [f"{NAMES['A']}.sav header {h0}"]
+    bad += [] if h0 and (h0["name"], h0["ironman"], h0["borrow"]) == (NAMES["alien_host"], True, False) \
+        else [f"{NAMES['alien_host']}.sav header {h0}"]
     bad += [] if active is True else [f"pvpBorrow.active {active} at {ev['at']}"]
     bad += [] if btn and (btn.get(SAVE_AND_ABANDON), btn.get("SAVE GAME")) == (True, False) else [f"host pause buttons {btn}"]
-    cell("A-c0", not bad, "; ".join(bad) or f"2 lists; {NAMES['A']}.sav {h0}; borrow active at (1, 0); pause {SAVE_AND_ABANDON!r} shown, SAVE hidden")
+    cell("alien_host_start", not bad,
+         "; ".join(bad) or f"2 lists; {NAMES['alien_host']}.sav {h0}; borrow active at (1, 0); "
+                           f"pause {SAVE_AND_ABANDON!r} shown, SAVE hidden")
     if not pause:
         return block(later, f"no settled PauseState {PAUSE_S} s after ESC ({stk(host)})")
     ev["clickAbandon"] = r = host.cmd({"cmd": "click_widget", "match": "abandon"})
@@ -403,21 +428,24 @@ def boot_a(host, client, ev, crash0):
     lost = ev["clientLost"] = wait(lambda: top(client) == "CoopState" and coop_info(client).get("code") == 21, LOST_S, 0.2)
     ev.update(filesAfter=headers(host), data=files(host, True),
               clientDialog={k: v for k, v in coop_info(client).items() if k in ("code", "title")})
-    want = {"name": NAMES["A"], "ironman": True, "borrow": True, "kind": "landing", "turn": 1}
-    a = ch.get(NAMES["A"] + ".sav")
-    cell("A-save", a is not None and all(a.get(k) == v for k, v in want.items()),
-         f"{NAMES['A']}.sav since ESC: {a} (want rewritten, {want})")
-    cell("A-only", set(ch) <= {NAMES["A"] + ".sav"}, f"save files new or changed since ESC: {sorted(ch)} (want none but {NAMES['A']}.sav)")
-    cell("A-menu", ok and ws.get("has_save") is False, f"host MainMenuState {ok} in {s} s, has_save {ws.get('has_save')} (want true in {ABANDON_S} s, false)")
-    cell("A-client", lost[0], f"client top {top(client)} {ev['clientDialog']} (want CoopState 21 in {LOST_S} s; {lost[1]} s)")
-    common("A-common", client, crash0)
+    want = {"name": NAMES["alien_host"], "ironman": True, "borrow": True, "kind": "landing", "turn": 1}
+    a = ch.get(NAMES["alien_host"] + ".sav")
+    cell("abandon_saves_campaign", a is not None and all(a.get(k) == v for k, v in want.items()),
+         f"{NAMES['alien_host']}.sav since ESC: {a} (want rewritten, {want})")
+    cell("abandon_only_campaign_file", set(ch) <= {NAMES["alien_host"] + ".sav"},
+         f"save files new or changed since ESC: {sorted(ch)} (want none but {NAMES['alien_host']}.sav)")
+    cell("abandon_main_menu", ok and ws.get("has_save") is False,
+         f"host MainMenuState {ok} in {s} s, has_save {ws.get('has_save')} (want true in {ABANDON_S} s, false)")
+    cell("abandon_client_lost", lost[0],
+         f"client top {top(client)} {ev['clientDialog']} (want CoopState 21 in {LOST_S} s; {lost[1]} s)")
+    common("alien_host_common", client, crash0)
 
 
 def run_boot(tag, fn):
     BOOT["tag"] = tag
-    x = {"host": GameClient("host", None, make_user_dir(f"w2h53_{tag.lower()}_host"))}
-    if tag != "S":
-        x["client"] = GameClient("client", None, make_user_dir(f"w2h53_{tag.lower()}_client"))
+    x = {"host": GameClient("host", None, make_user_dir(f"ironman_save_paths_{tag.lower()}_host"))}
+    if tag != "solo":
+        x["client"] = GameClient("client", None, make_user_dir(f"ironman_save_paths_{tag.lower()}_client"))
     ev, t0, crash0 = {}, time.time(), RR.crash_set()
     try:
         for gc in x.values():
@@ -446,12 +474,13 @@ def run_boot(tag, fn):
 
 def main():
     t0 = time.time()
-    for tag, fn in (("S", boot_s), ("H", boot_h), ("G", boot_g), ("A", boot_a)):
+    for tag, fn in (("solo", boot_solo), ("shared", boot_shared), ("separate", boot_separate),
+                    ("alien_host", boot_alien_host)):
         run_boot(tag, fn)
     allc = [c for v in ROWS.values() for c in v]
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== W2-H53 co-op ironman save paths: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, wall {time.time() - t0:.1f} s ====",
-          flush=True)
+    print(f"\n==== co-op ironman save paths: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
+          f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails and len(RESULTS) == len(allc) else 2)
