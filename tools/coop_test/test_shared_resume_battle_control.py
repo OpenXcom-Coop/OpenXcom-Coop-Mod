@@ -1,6 +1,6 @@
 """SHARED mid-battle save / resume: the SHARED twin of test_coop_resume_battle_control.py.
 
-Same invariant, same Lightning-roof mid-walk fixture, on a SHARED
+Same invariant, same craft-roof mid-walk fixture, on a SHARED
 campaign: seat 0 (host-owned, coop==0) + seat 1 (client-owned, coop==1) on
 the SAME shared craft - no two-world merge, so the seat-1 soldier is the
 CLIENT's own roster entry directly rather than a merged battle copy. The
@@ -9,7 +9,7 @@ scenario proves reaches the SAME disk-resume fork as SEPARATE.
 
 Reuses test_coop_resume_battle_control's split_report/assert_split/
 settle_and_assert and its stage_alien_and_walk/_sav_status_pos helpers
-(the Lightning-roof recipe is identical once a live battle exists - only the
+(the craft-roof recipe is identical once a live battle exists - only the
 BRING-UP differs between SEPARATE and SHARED).
 
 Run:  python tools/coop_test/test_shared_resume_battle_control.py
@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import shared_fixture
 import session
-# reuse the split probe/assertion + the Lightning-roof staging helpers
+# reuse the split probe/assertion + the craft-roof staging helpers
 # from the SEPARATE test (SAME invariant, same fixture recipe).
 import test_coop_resume_battle_control as rc
 
@@ -39,10 +39,10 @@ def _roster(gc):
     return out
 
 
-def bring_up_lightning_roof_shared(js):
-    """SHARED twin of test_coop_resume_battle_control.bring_up_lightning_roof_separate
+def bring_up_craft_roof_shared(js):
+    """SHARED twin of test_coop_resume_battle_control.bring_up_craft_roof_separate
     (the SHARED bring-up hits the same clustered-spawn problem on a rolled
-    map - the same Lightning + landed-UFO recipe fixes it here).
+    map - the same Skyranger + landed-UFO recipe fixes it here).
 
     Returns (host_squad_id, client_seat_id, name_by_squad): the shared craft's
     seat-0 (host) and seat-1 (client) soldier ids, and {name: seat} for
@@ -50,8 +50,7 @@ def bring_up_lightning_roof_shared(js):
     own roster entry, identified the same way by name)."""
     host, client = js.host, js.client
     b0 = session._campaign_base0(host)
-    sc = host.ok({"cmd": "spawn_craft", "type": "STR_LIGHTNING", "weapon": "STR_NONE"})
-    lightning_id = sc["craft_id"]
+    craft_id = session._campaign_skyranger(host)["id"]
 
     name_by_id = {s["id"]: s["name"] for s in _roster(host)}
     rh = sorted(name_by_id)
@@ -61,17 +60,20 @@ def bring_up_lightning_roof_shared(js):
         for slot, sid in enumerate(squad):
             gc.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": owners[slot]})
     for sid in rh:
-        host.ok({"cmd": "craft_assign", "craft_id": lightning_id, "soldier_id": sid, "on": False})
+        host.ok({"cmd": "craft_assign", "craft_id": craft_id, "craft_type": "STR_SKYRANGER",
+                 "soldier_id": sid, "on": False})
     for sid in squad:
-        host.ok({"cmd": "craft_assign", "craft_id": lightning_id, "soldier_id": sid, "on": True})
+        host.ok({"cmd": "craft_assign", "craft_id": craft_id, "craft_type": "STR_SKYRANGER",
+                 "soldier_id": sid, "on": True})
 
     def _aboard(gc):
-        return sorted(s["id"] for s in _roster(gc) if s["craftId"] == lightning_id)
+        return sorted(s["id"] for s in _roster(gc)
+                      if s["craftId"] == craft_id and s["craft"] == "STR_SKYRANGER")
 
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} squad aboard",
                     lambda gc=gc: (_aboard(gc) == sorted(squad)) or None, timeout=40, interval=0.5)
-    print(f"shared squad {squad} aboard Lightning {lightning_id} "
+    print(f"shared squad {squad} aboard Skyranger {craft_id} "
           f"(seat0->host coop0, seat1->client coop1)")
 
     ufo = host.cmd({"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH",
@@ -79,7 +81,7 @@ def bring_up_lightning_roof_shared(js):
                     "state": "landed", "lon": b0["lon"] + 0.30, "lat": b0["lat"] + 0.10, "hours": 240})
     assert ufo.get("ok") and ufo.get("ufo_id") is not None, f"spawn_ufo failed: {ufo}"
     ufo_id = ufo["ufo_id"]
-    host.ok({"cmd": "craft_force", "craft_id": lightning_id, "status": "STR_OUT",
+    host.ok({"cmd": "craft_force", "craft_id": craft_id, "craft_type": "STR_SKYRANGER", "status": "STR_OUT",
              "lon": b0["lon"] + 0.29, "lat": b0["lat"] + 0.10, "dest": f"ufo:{ufo_id}",
              "fuel": 999999, "lowFuel": False})
 
@@ -98,7 +100,7 @@ def bring_up_lightning_roof_shared(js):
     assert session.drive_both_to_tactical(host, client), (
         f"drive_both_to_tactical timed out host={session.states(host)[-3:]} "
         f"client={session.states(client)[-3:]}")
-    print("both machines reached the battlescape (live SHARED Lightning-roof battle)")
+    print("both machines reached the battlescape (live SHARED craft-roof battle)")
 
     name_by_squad = {name_by_id[squad[0]]: 0, name_by_id[squad[1]]: 1}
     return squad[0], squad[1], name_by_squad
@@ -111,7 +113,7 @@ def main():
     fail = None
     host2 = client2 = None
     try:
-        host_seat_id, client_seat_id, expected_names = bring_up_lightning_roof_shared(js)
+        host_seat_id, client_seat_id, expected_names = bring_up_craft_roof_shared(js)
 
         expected_seats = {host_seat_id: 0, client_seat_id: 1}
         session.assert_control_split(host, client, expected_seats, what="shared_resume pre-save live split")

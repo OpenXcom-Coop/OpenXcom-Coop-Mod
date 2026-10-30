@@ -1,8 +1,8 @@
-"""SEPARATE mid-battle save / resume, DRAIN-FIRST, on a Lightning-roof mid-walk
+"""SEPARATE mid-battle save / resume, DRAIN-FIRST, on a craft-roof mid-walk
 fixture.
 
 The canonical mid-battle-resume proof: a SEPARATE campaign co-op battle
-(host's own squad + a CLIENT guest merged in via the two-world merge) is saved
+(host's own squad + a CLIENT guest transferred to the host's base) is saved
 WHILE the host's own soldier has a multi-step walk in flight (>=2 steps
 pending) - the save must DEFER until the walk drains (mid_walk_save), so the
 file holds the POST-walk state, never a mid-tile WALKING snapshot.
@@ -18,11 +18,10 @@ guest one step (admitted) and is refused on a host soldier
 
 Fixture: the rolled campaign map clusters the host squad beside the Skyranger,
 so no long HOST real-click walk exists there. The test controls the map
-instead - the host's campaign base gets a LIGHTNING (a large flat
-walkable roof), the mission is a landed SMALL-SCOUT UFO (a deterministic
+instead - the mission is a landed SMALL-SCOUT UFO (a deterministic
 small map), the sole alien is teleported into the UFO at the ACCESS_LIFT tile
 (LOS wall-blocked - no spot-halt), and the host walks a long corner-to-corner
-run on the Lightning's roof.
+run on the Skyranger's roof.
 
 test_shared_resume_battle_control.py and test_old_battle_resume.py import
 split_report / assert_split / settle_and_assert from here (`import ... as rc`).
@@ -180,7 +179,7 @@ def settle_and_assert(host, client, phase, expected, timeout=60):
     raise last_err
 
 
-# ---- the Lightning-roof mid-walk fixture ----------------------------
+# ---- the craft-roof mid-walk fixture ----------------------------
 
 def _sav_unit_block(path, uid):
     """The raw YAML lines for battle unit `uid` in the .sav at `path` - a
@@ -215,11 +214,29 @@ def _sav_status_pos(path, uid):
     return status, pos, blk
 
 
-def bring_up_lightning_roof_separate(host, client, port=PORT):
-    """The Lightning-roof fixture: a SEPARATE campaign whose host
-    base carries a LIGHTNING (not the default Skyranger) seating 3 host
-    soldiers + the client's guest, flown to a landed STR_SMALL_SCOUT UFO and
-    entered live via coop_mission_start.
+def _soldiers_at(gc, base_name):
+    return next(b["soldiers"] for b in gc.ok({"cmd": "get_soldiers"})["bases"]
+                if b["name"] == base_name)
+
+
+def _seat(gc, base_name, craft_id, sid, on):
+    """Separate craft_assign is a host command (async on both machines): send it
+    from the soldier's owner, then wait for that machine to show the result.
+    Craft ids repeat across craft types at one base, so the type is named."""
+    r = gc.ok({"cmd": "craft_assign", "base": base_name, "craft_id": craft_id,
+               "craft_type": "STR_SKYRANGER", "soldier_id": sid, "on": on})
+    gc.wait_for(
+        f"soldier {sid} {'seated on' if on else 'off'} craft {craft_id} at {base_name}",
+        lambda: any(s["id"] == sid and (s["craftId"] == craft_id and s["craft"] == "STR_SKYRANGER") == on
+                    for s in _soldiers_at(gc, base_name)) or None,
+        timeout=30, interval=0.3)
+    return r
+
+
+def bring_up_craft_roof_separate(host, client, port=PORT):
+    """The craft-roof fixture: a SEPARATE campaign whose host base's Skyranger
+    seats 3 host soldiers + the client's guest, flown to a landed STR_SMALL_SCOUT
+    UFO and entered live via coop_mission_start.
 
     Returns (host_squad, guest_local_id, name_by_squad) where `name_by_squad`
     is {name: 0 for the 3 host soldiers} + {"Guest Zzz": 1} - the (name,coop)
@@ -227,68 +244,76 @@ def bring_up_lightning_roof_separate(host, client, port=PORT):
     """
     session.new_campaign(host, client, port=port)
 
-    # ---- (i) give the host base a LIGHTNING; seat 3 host soldiers on it ----
-    sc = host.ok({"cmd": "spawn_craft", "type": "STR_LIGHTNING", "weapon": "STR_NONE"})
-    lightning_id = sc["craft_id"]
-
+    # ---- (i) seat 3 host soldiers on the host base's Skyranger ----
     hb = session._campaign_own_roster_base(host)
     host_base_name = hb["name"]
+    craft_id = session._campaign_skyranger(host)["id"]
     name_by_id = {s["id"]: s["name"] for s in hb["soldiers"]}
     rh = sorted(name_by_id)
     for sid in rh:
-        host.cmd({"cmd": "craft_assign", "craft_id": lightning_id, "soldier_id": sid, "on": False})
+        _seat(host, host_base_name, craft_id, sid, False)
     host_squad = rh[:3]
     for sid in host_squad:
-        r = host.cmd({"cmd": "craft_assign", "craft_id": lightning_id, "soldier_id": sid, "on": True})
-        assert r.get("seated"), f"host soldier {sid} not seated on Lightning: {r}"
+        _seat(host, host_base_name, craft_id, sid, True)
 
-    # ---- the client's guest, transferred + seated on the host LIGHTNING ----
+    # ---- the client's guest: one shared world, so the transfer is a real timed transfer the
+    # host delivers, and the client seats its own soldier on the host's Skyranger ----
     cb = session._campaign_own_roster_base(client)
-    spare = next(s for s in cb["soldiers"] if not s.get("craft"))["name"]
-    client.ok({"cmd": "rename_soldier", "name": spare, "newName": "Guest Zzz"})
-    tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest", "toBase": host_base_name})
+    spare = next(s for s in cb["soldiers"] if s.get("craftId", -1) == -1)
+    client.ok({"cmd": "soldier_rename", "soldierId": spare["id"], "name": "Guest Zzz",
+               "base": cb["name"]})
+    host.wait_for("guest rename reaches the host",
+                  lambda: any(s["id"] == spare["id"] and s["name"] == "Guest Zzz"
+                              for s in _soldiers_at(host, cb["name"])) or None,
+                  timeout=30, interval=0.3)
+    tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest Zzz", "toBase": host_base_name})
     assert tr.get("transferred"), f"guest transfer failed: {tr}"
-    client.ok({"cmd": "visit_coop_base", "base": host_base_name})
-    client.wait_for("client inside host base",
-                    lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-    rep = client.wait_for(
-        "guest visible at host base",
-        lambda: (lambda r: r if any("Guest" in s["name"] for s in r["soldiers"]) else None)(
-            client.ok({"cmd": "base_report", "coop": True})), timeout=40)
-    guest_local_id = next(s for s in rep["soldiers"] if "Guest" in s["name"])["id"]
-    lightning_peer = next((c for c in rep["crafts"] if "LIGHTNING" in c["type"]), None)
-    assert lightning_peer, f"no LIGHTNING in client base_report crafts: {[c['type'] for c in rep['crafts']]}"
-    client.ok({"cmd": "craft_assign", "soldier_id": guest_local_id, "craft_id": lightning_peer["id"],
-               "coop": True, "on": True})
-    client.ok({"cmd": "open_soldiers", "base": host_base_name})
-    client.wait_for("client soldiers screen", lambda: has(client, "SoldiersState") or None, timeout=30)
-    client.ok({"cmd": "soldiers_ok"})
-    client.ok({"cmd": "leave_base"})
-    session.wait_back_on_geoscape(client, "client back on geoscape")
+    host.wait_for("guest transfer en route",
+                  lambda: (host.ok({"cmd": "incoming_transfers",
+                                    "base": host_base_name})["soldiers"] == 1) or None,
+                  timeout=30, interval=0.3)
+    arrived = host.ok({"cmd": "force_transfer_arrivals", "base": host_base_name})
+    assert arrived["advanced"] > 0 and arrived["remaining"] == 0, \
+        f"guest transfer did not arrive: {arrived}"
+    for gc in (host, client):
+        gc.wait_for(f"guest at host base on {gc.name}",
+                    lambda gc=gc: any(s["name"] == "Guest Zzz"
+                                      for s in _soldiers_at(gc, host_base_name)) or None,
+                    timeout=30, interval=0.3)
+    guest_local_id = next(s for s in _soldiers_at(host, host_base_name) if s["name"] == "Guest Zzz")["id"]
+    _seat(client, host_base_name, craft_id, guest_local_id, True)
+    host.wait_for("guest seated in the host world",
+                  lambda: any(s["id"] == guest_local_id and s["craftId"] == craft_id
+                              for s in _soldiers_at(host, host_base_name)) or None,
+                  timeout=30, interval=0.3)
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest "
-          f"{guest_local_id} 'Guest Zzz' (coop==1), on the Lightning")
+          f"{guest_local_id} 'Guest Zzz' (coop==1), on the Skyranger")
 
     session.drain_host_coop_notice(host)
 
-    # ---- (ii) a landed SMALL-SCOUT UFO; fly the Lightning to it ------------
+    # ---- (ii) a landed SMALL-SCOUT UFO; fly the Skyranger to it ------------
     b0 = session._campaign_base0(host)
     ufo = host.cmd({"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH",
                     "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID", "trajectory": "P0",
                     "state": "landed", "lon": b0["lon"] + 0.30, "lat": b0["lat"] + 0.10, "hours": 240})
     assert ufo.get("ok") and ufo.get("ufo_id") is not None, f"spawn_ufo failed: {ufo}"
     ufo_id = ufo["ufo_id"]
-    host.ok({"cmd": "craft_force", "craft_id": lightning_id, "status": "STR_OUT",
+    host.ok({"cmd": "craft_force", "base": host_base_name, "craft_id": craft_id,
+             "craft_type": "STR_SKYRANGER", "status": "STR_OUT",
              "lon": b0["lon"] + 0.29, "lat": b0["lat"] + 0.10, "dest": f"ufo:{ufo_id}",
              "fuel": 999999, "lowFuel": False})
 
     def landing_prompt():
         if has(host, "ConfirmLandingState"):
             return True
-        t = states(host)[-1]
-        if "CoopState" in t:
-            host.cmd({"cmd": "coop_dialog_back"})
-        elif "GeoscapeState" not in t:
-            host.cmd({"cmd": "dismiss_popup"})
+        # Separate time runs only while both players are on the geoscape, so the
+        # client's guest-arrival notice is closed too.
+        for gc in (host, client):
+            t = states(gc)[-1]
+            if "CoopState" in t:
+                gc.cmd({"cmd": "coop_dialog_back"})
+            elif "GeoscapeState" not in t:
+                gc.cmd({"cmd": "dismiss_popup"})
         host.cmd({"cmd": "geo_set_speed", "idx": 2})
         return None
 
@@ -298,7 +323,7 @@ def bring_up_lightning_roof_separate(host, client, port=PORT):
     host.wait_for("host briefing", lambda: has(host, "BriefingState"), timeout=60, interval=0.5)
     assert session.drive_both_to_tactical(host, client), (
         f"drive_both_to_tactical timed out host={states(host)[-3:]} client={states(client)[-3:]}")
-    print("both machines reached the battlescape (live SEPARATE Lightning-roof battle)")
+    print("both machines reached the battlescape (live SEPARATE craft-roof battle)")
 
     name_by_squad = {name_by_id[sid]: 0 for sid in host_squad}
     name_by_squad["Guest Zzz"] = 1
@@ -330,8 +355,8 @@ def _floor_of(r):
     return bool(r.get("ok")) and ((r.get("parts") or {}).get("floor") or {}).get("mapDataID", -1) >= 0
 
 
-def _lightning_roof(host, walker):
-    """The roof is the LIGHTNING's TOP
+def _craft_roof(host, walker):
+    """The roof is the craft's TOP
     surface. The walker starts inside the craft, so the roof level is the
     highest level above the walker's tile whose tile in the walker's column
     has a floor part (read per boot from tile_census, tile_info's getters, never hard-coded).
@@ -437,7 +462,7 @@ def _walker_to(host, client, walker_id, tile, what):
 def stage_alien_and_walk(host, client, walker_id):
     """test_pause_on_leave.py's staging: park the sole
     alien on the UFO's own ACCESS_LIFT column (LOS wall-blocked - no
-    spot-halt). Then the walker walks the LIGHTNING's roof (the craft's top level) from one
+    spot-halt). Then the walker walks the craft's roof (its top level) from one
     corner (the standable roof tile nearest a bbox corner) to the opposite
     corner with the camera centred on the roof, so the whole walk is
     on-screen and vanilla paces every step at battleXcomSpeed - the
@@ -460,7 +485,7 @@ def stage_alien_and_walk(host, client, walker_id):
 
     # (1) the roof: the craft's top level, its floor tiles and bbox; the corners
     # are the standable roof tiles nearest the bbox corners
-    top, roof, bbox = _lightning_roof(host, walker)
+    top, roof, bbox = _craft_roof(host, walker)
     centre = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2, top)
     print(f"[stage] roof: level z={top} tiles={len(roof)} bbox(minx,miny,maxx,maxy)={bbox} centre={centre}")
     print(f"[stage] roof tiles: {sorted(roof)}")
@@ -561,7 +586,7 @@ def main():
         host.spawn(); client.spawn()
         host.connect(); client.connect()
 
-        host_squad, guest_local_id, expected_names = bring_up_lightning_roof_separate(host, client, port=PORT)
+        host_squad, guest_local_id, expected_names = bring_up_craft_roof_separate(host, client, port=PORT)
 
         guest_battle_id = _guest_battle_id(host)
         assert _guest_battle_id(client) == guest_battle_id, (
