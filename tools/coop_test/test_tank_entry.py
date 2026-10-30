@@ -1,35 +1,36 @@
-"""D248-U S-A rows T1 and T2 (boot E; owner D248 (b), D235-VL2): a SEPARATE partner's own tank parked on the host's craft
-enters the host's battle, tagged as the partner's, and the HOST commands it (R5-U4's seat pass, no new rule).
+"""A SEPARATE partner's own tank parked on the host's craft enters the host's battle, tagged as the partner's, and the
+HOST commands it (the existing seat rules, no new rule).
 
-Spec: docs repo rewrite/prompts/d248u_client_tank_host_craft.md section (f) test_tank_entry.py (QD248-1 .. QD248-11 (a);
-ORCHESTRATOR RULING R-D248-SA-1: 30 shells per parked tank, HOST_BASE_COOP read each boot, the craft's vehicle list asserted
-after every craft_equip). Constants: rewrite/d248u-task0/sa/CONSTANTS.md (TASK 0 boots Ea, Eb, Da, Db).
+bring_up_tank_battle (imported by test_tank_gate / _return / _lost): a copy of session.bring_up_separate_guest_battle
+with its host squad cut to `host_soldiers`, plus (i) the host's give_items STR_TANK_CANNON (1 when `host_tank_on_craft`,
+else 2) and 30 STR_HWP_CANNON_SHELLS right after its squad is seated, and with `host_tank_on_craft` the host's
+craft_equip of one tank onto its Skyranger (its craft list then holds the tank); (ii) inside the partner's visit, after
+the guest's craft_assign: the partner's craft_equip of one tank onto the host's Skyranger in the visited base (the
+view's stores lose one tank and 30 shells and the view craft's SPACE USED grows by the tank's size: no probe reads a
+visited craft's vehicle list); (iii) a `pre_mission` callback after leave_base, before the mission spawn. Each missed
+step is a setup failure. Each parked tank takes 30 shells, HOST_BASE_COOP is read on every boot, and the craft's vehicle
+list is asserted after every craft_equip.
 
-bring_up_tank_battle (imported by test_tank_gate / _return / _lost): a copy of session.bring_up_separate_guest_battle with
-its host squad cut to `host_soldiers`, plus (i) the host's give_items STR_TANK_CANNON (1 when `host_tank_on_craft`, else 2) and
-30 STR_HWP_CANNON_SHELLS right after its squad is seated, and with `host_tank_on_craft` the host's craft_equip of one tank onto
-its Skyranger (its craft list then holds the tank); (ii) inside the partner's visit, after the guest's craft_assign: the
-partner's craft_equip of one tank onto the host's Skyranger in the visited base (the view's stores lose one tank and 30 shells
-and the view craft's SPACE USED grows by the tank's size: no probe reads a visited craft's vehicle list); (iii) a `pre_mission`
-callback after leave_base, before the mission spawn. Each missed step is a setup failure.
+Boot (SEPARATE, port 47611, dirs tank_entry_host / tank_entry_client): bring_up_tank_battle(host, client, "47611");
+pin_ai_neutral. TAG = "coop-guest-tank:1:<HOST_BASE_COOP>:<HOST_SKY>:STR_SKYRANGER" (HOST_BASE_COOP from this boot's
+base_report).
+  parked_tank_enters: the partner's parked tank enters the host's battle: parked_on_craft (pre_mission: the partner's
+  Skyranger holds the parked tank, tagged; the host's stores 2 tanks / 30 shells), partner_sent (the partner's
+  guestContrib.vehSent 1), host_stored (the host's guestContrib.vehicles[1] 1), tank_unit (one STR_TANK_CANNON unit on
+  both, faction 0, soldierId -1, the same id: T), tank_tag (T's guestTank == TAG on both), tank_seat (T's coop 0 on
+  both), host_craft_empty (the host's Skyranger holds no tank in the battle), host_stores_kept (the host's stores 2 / 30
+  in the battle), enters_common.
+  host_commands_tank: the host commands it, the partner does not: host_selects (the host's TAB selects T),
+  partner_refused (the partner's turn intent on T is refused not_your_unit, no new host context, T's direction unchanged
+  on both), commands_common.
+Without the fix partner_sent, host_stored, tank_unit, tank_tag, tank_seat, host_selects, partner_refused FAIL; every
+other cell PASS.
 
-Boot E (SEPARATE, port 47611, dirs d248u_e_host / d248u_e_client): bring_up_tank_battle(host, client, "47611"); pin_ai_neutral.
-TAG = "coop-guest-tank:1:<HOST_BASE_COOP>:<HOST_SKY>:STR_SKYRANGER" (HOST_BASE_COOP from this boot's base_report).
-  T1  the partner's parked tank enters the host's battle: T1-park (pre_mission: the partner's Skyranger holds the parked tank,
-      tagged; the host's stores 2 tanks / 30 shells), T1-sent (the partner's guestContrib.vehSent 1), T1-store (the host's
-      guestContrib.vehicles[1] 1), T1-unit (one STR_TANK_CANNON unit on both, faction 0, soldierId -1, the same id: T), T1-tag
-      (T's guestTank == TAG on both), T1-seat (T's coop 0 on both), T1-craft (the host's Skyranger holds no tank in the battle),
-      T1-stores (the host's stores 2 / 30 in the battle), T1-common.
-  T2  the host commands it, the partner does not: T2-host (the host's TAB selects T), T2-client (the partner's turn intent on T
-      is refused not_your_unit, no new host context, T's direction unchanged on both), T2-common.
-Red at A1 (the unchanged product + T1-T3): T1-sent, T1-store, T1-unit, T1-tag, T1-seat, T2-host, T2-client FAIL; every other
-cell PASS.
-
-One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A boot step
-past its bound prints ONE CAPTURE line and fails every row "boot"; a cell whose precondition failed FAILs "not reached". Common
-cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. A key the build does not write reads as absent.
-run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every cell
-passes, else 2.
+One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure. A
+boot step past its bound prints ONE CAPTURE line and fails every row "boot"; a cell whose precondition failed FAILs "not
+reached". Common cell: every hash bucket EQUAL, desyncSeen false on both, no new crash file. A key the build does not
+write reads as absent. Run in the foreground to completion. ONE run is the result, no skip path; exit 0 only when every
+cell passes, else 2.
 
 Run:  python tools/coop_test/test_tank_entry.py
 """
@@ -51,15 +52,17 @@ from test_battle_end_rules import wait_until  # noqa: E402
 
 PORT = "47611"
 TANK, SHELLS, SKYR = "STR_TANK_CANNON", "STR_HWP_CANNON_SHELLS", "STR_SKYRANGER"
-SHELLS_GIVEN = 30         # one STR_TANK_CANNON load takes 30 (TASK 0: CLIPS 30 on Ea, Eb, Da, Db)
-CLIPS = 30                # the view's shells taken by the partner's load (Ea, Eb, Da, Db)
-TANK_AMMO = 30            # the parked tank's vehicleAmmo (Ea, Eb, Da, Db)
-TANK_SIZE = 4             # the 2x2 tank's SPACE USED on the view craft (1 -> 5 on Ea, Eb, Da, Db)
+SHELLS_GIVEN = 30         # one STR_TANK_CANNON load takes 30 (on four boots)
+CLIPS = 30                # the view's shells taken by the partner's load
+TANK_AMMO = 30            # the parked tank's vehicleAmmo
+TANK_SIZE = 4             # the 2x2 tank's SPACE USED on the view craft (1 -> 5)
 GUEST = "Guest Zzz"
 STEP_S = 30
 GT_LOG = "[coop-guest-tank]"
-ROWS = (("T1", ("T1-park", "T1-sent", "T1-store", "T1-unit", "T1-tag", "T1-seat", "T1-craft", "T1-stores", "T1-common")),
-        ("T2", ("T2-host", "T2-client", "T2-common")))
+ROWS = (("parked_tank_enters",
+         ("parked_on_craft", "partner_sent", "host_stored", "tank_unit", "tank_tag", "tank_seat", "host_craft_empty",
+          "host_stores_kept", "enters_common")),
+        ("host_commands_tank", ("host_selects", "partner_refused", "commands_common")))
 
 units, es = G3F.units, G3F.es
 
@@ -147,7 +150,8 @@ def parked_cell(client, pins, label):
 
 
 def bring_up_tank_battle(host, client, port, host_soldiers=3, host_tank_on_craft=False, pre_mission=None):
-    """session.bring_up_separate_guest_battle's body (SES :2486-:2598) with the spec's (f) steps; returns the pins.
+    """session.bring_up_separate_guest_battle's body with the module docstring's steps (i)-(iii); returns the setup
+    values.
     Every assert is a construction step (the caller wraps it in guarded(): one CAPTURE line, the rows fail "boot")."""
     host.spawn(); client.spawn(); host.connect(); client.connect()
     session.new_campaign(host, client, port=port)
@@ -184,7 +188,7 @@ def bring_up_tank_battle(host, client, port, host_soldiers=3, host_tank_on_craft
     guest_id = next(s for s in rep["soldiers"] if "Guest" in s["name"])["id"]
     peer_craft = next(c for c in rep["crafts"] if "SKYRANGER" in c["type"])["id"]
     client.ok({"cmd": "craft_assign", "soldier_id": guest_id, "craft_id": peer_craft, "coop": True, "on": True})
-    # (ii) the partner parks one tank on the host's Skyranger in the visited base (R-D248-SA-1 (4): the load is asserted)
+    # (ii) the partner parks one tank on the host's Skyranger in the visited base (the load is asserted)
     v0, used0 = storage(client, coop=True)[0], view_space_used(client, peer_craft)
     ce = client.cmd({"cmd": "craft_equip", "base": host_base_name, "craft_id": peer_craft, "item": TANK, "count": 1})
     v1, used1 = storage(client, coop=True)[0], view_space_used(client, peer_craft)
@@ -200,7 +204,8 @@ def bring_up_tank_battle(host, client, port, host_soldiers=3, host_tank_on_craft
     pins = {"host_squad": host_squad, "guest_id": guest_id, "HOST_BASE_COOP": hbc, "HOST_SKY": cid,
             "CLIENT_SKY": session._campaign_skyranger(client)["id"], "host_base_name": host_base_name, "peer_craft": peer_craft,
             "viewStores": [v0, v1], "viewSpaceUsed": [used0, used1]}
-    print(f"squad assembled: host soldiers {host_squad} + guest {guest_id}; partner tank parked; pins {pins}", flush=True)
+    print(f"squad assembled: host soldiers {host_squad} + guest {guest_id}; partner tank parked; setup values {pins}",
+          flush=True)
     # (iii)
     if pre_mission is not None:
         pre_mission(host, client, pins)
@@ -250,27 +255,27 @@ def boot_common(host, client, crash0):
     return G3F.common(host, client, crash0)
 
 
-# ===================== boot E =====================
+# ===================== the boot =====================
 
 
-def pre_e(out):
+def pre_tank_entry(out):
     def pre(host, client, pins):
         ev, cells = out.setdefault("ev", {}), out.setdefault("cells", {})
         try:
             p_ok, p_txt = parked_cell(client, pins, "the partner's")
             st = storage(host)[0]
-            cells["T1-park"] = (p_ok and st == {TANK: 2, SHELLS: SHELLS_GIVEN},
+            cells["parked_on_craft"] = (p_ok and st == {TANK: 2, SHELLS: SHELLS_GIVEN},
                                 f"{p_txt}; host storage {st} (want {{{TANK}: 2, {SHELLS}: {SHELLS_GIVEN}}})")
         except Exception as e:
-            cells["T1-park"] = (False, f"probe failed: {type(e).__name__}: {str(e)[:300]}")
+            cells["parked_on_craft"] = (False, f"probe failed: {type(e).__name__}: {str(e)[:300]}")
         try:
-            cells["T1-sent"], cells["T1-store"] = census_wait(host, client, ev)
+            cells["partner_sent"], cells["host_stored"] = census_wait(host, client, ev)
         except Exception as e:
-            cells["T1-sent"] = cells["T1-store"] = (False, f"probe failed: {type(e).__name__}: {str(e)[:300]}")
+            cells["partner_sent"] = cells["host_stored"] = (False, f"probe failed: {type(e).__name__}: {str(e)[:300]}")
     return pre
 
 
-def row_t1(host, client, pins, pre, crash0, out):
+def row_parked_tank_enters(host, client, pins, pre, crash0, out):
     cells, ev = dict(pre.get("cells") or {}), dict(pre.get("ev") or {})
     tag = "coop-guest-tank:1:%d:%d:%s" % (pins["HOST_BASE_COOP"], pins["HOST_SKY"], SKYR)
     ev.update(tag=tag, pins={k: pins[k] for k in ("HOST_BASE_COOP", "HOST_SKY", "CLIENT_SKY", "guest_id", "viewStores",
@@ -282,60 +287,65 @@ def row_t1(host, client, pins, pre, crash0, out):
     tv = [{k: (g.get(t[0]) or {}).get(k) for k in ("faction", "soldierId")} if len(t) == 1 else None
           for g, t in ((uh, th), (uc, tc))]
     ok = len(th) == 1 and th == tc and tv == [{"faction": 0, "soldierId": -1}] * 2
-    cells["T1-unit"] = (ok, f"{TANK} units host/partner {th}/{tc} (want exactly one, the same id); faction / soldierId "
-                            f"host/partner {tv} (want 0 / -1)")
+    cells["tank_unit"] = (ok, f"{TANK} units host/partner {th}/{tc} (want exactly one, the same id); faction / "
+                              f"soldierId host/partner {tv} (want 0 / -1)")
     if ok:
         T = th[0]
         out["T"] = T
         gt = [(g.get(T) or {}).get("guestTank", "") for g in (uh, uc)]
-        cells["T1-tag"] = (gt == [tag, tag], f"unit {T} guestTank host/partner {gt} (want {tag!r} on both)")
-        cells["T1-seat"] = OWN.both_fields(host, client, T, "coop", 0)
+        cells["tank_tag"] = (gt == [tag, tag], f"unit {T} guestTank host/partner {gt} (want {tag!r} on both)")
+        cells["tank_seat"] = OWN.both_fields(host, client, T, "coop", 0)
     else:
-        OWN.not_reached(cells, ("T1-tag", "T1-seat"), "T1-unit failed")
+        OWN.not_reached(cells, ("tank_tag", "tank_seat"), "tank_unit failed")
     cv = craft_vehicles(host, pins["HOST_SKY"])
-    cells["T1-craft"] = (cv.get("error") is None and TANK not in (cv.get("vehicles") or {}),
+    cells["host_craft_empty"] = (cv.get("error") is None and TANK not in (cv.get("vehicles") or {}),
                          f"host craft_vehicles {pins['HOST_SKY']} in the battle {cv} (want no {TANK})")
     st = storage(host)[0]
-    cells["T1-stores"] = (st == {TANK: 2, SHELLS: SHELLS_GIVEN},
+    cells["host_stores_kept"] = (st == {TANK: 2, SHELLS: SHELLS_GIVEN},
                           f"host storage in the battle {st} (want {{{TANK}: 2, {SHELLS}: {SHELLS_GIVEN}}})")
-    cells["T1-common"] = boot_common(host, client, crash0)
+    cells["enters_common"] = boot_common(host, client, crash0)
     return cells, ev
 
 
-def row_t2(host, client, crash0, out):
+def row_host_commands_tank(host, client, crash0, out):
     cells, ev = {}, {"T": out.get("T")}
     T = out.get("T")
     if T is None:
-        OWN.not_reached(cells, ("T2-host", "T2-client"), "T1-unit failed: no partner tank unit")
+        OWN.not_reached(cells, ("host_selects", "partner_refused"), "tank_unit failed: no partner tank unit")
     else:
         ev["tab"] = tab_select(host, T)
-        cells["T2-host"] = (ev["tab"], f"tab_select(host, {T}) {ev['tab']}, selectedId {battle_state(host).get('selectedId')} "
-                                       f"(want {T})")
+        cells["host_selects"] = (ev["tab"], f"tab_select(host, {T}) {ev['tab']}, selectedId "
+                                            f"{battle_state(host).get('selectedId')} (want {T})")
         d0 = [(units(gc).get(T) or {}).get("direction") for gc in (host, client)]
         to = ((d0[0] or 0) + 1) % 8
         tev = OWN.partner_turn(host, client, T, to, ev.setdefault("turn", {"toDir": to, "dir0": d0}))
         d_ok, d_txt = OWN.deny_cell(tev, T)
-        cells["T2-client"] = (d_ok and tev["dirs"] == d0, f"{d_txt}; directions before {d0} (want unchanged on both)")
-    cells["T2-common"] = boot_common(host, client, crash0)
+        cells["partner_refused"] = (d_ok and tev["dirs"] == d0,
+                                    f"{d_txt}; directions before {d0} (want unchanged on both)")
+    cells["commands_common"] = boot_common(host, client, crash0)
     return cells, ev
 
 
 def main():
     t0 = time.time()
-    host = GameClient("host", None, make_user_dir("d248u_e_host"))
-    client = GameClient("client", None, make_user_dir("d248u_e_client"))
+    host = GameClient("host", None, make_user_dir("tank_entry_host"))
+    client = GameClient("client", None, make_user_dir("tank_entry_client"))
     rows, fails, pre = dict(ROWS), 0, {}
     try:
         try:
             crash0 = session._crash_log_snapshot()
-            pins = guarded("E", lambda: bring_up_tank_battle(host, client, PORT, pre_mission=pre_e(pre)), (host, client))
-            guarded("E", lambda: session.pin_ai_neutral(host, client, tag="d248u"), (host, client))
+            pins = guarded("tank_battle",
+                           lambda: bring_up_tank_battle(host, client, PORT, pre_mission=pre_tank_entry(pre)),
+                           (host, client))
+            guarded("tank_battle", lambda: session.pin_ai_neutral(host, client, tag="tank_entry"), (host, client))
         except G3F.Miss:
-            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE E line)")
+            fails = G3F.fail_all(ROWS, "boot (setup failure, see the CAPTURE tank_battle line)")
         else:
             out = {}
-            fails += G3F.run_row("T1", rows["T1"], lambda: row_t1(host, client, pins, pre, crash0, out))
-            fails += G3F.run_row("T2", rows["T2"], lambda: row_t2(host, client, crash0, out))
+            fails += G3F.run_row("parked_tank_enters", rows["parked_tank_enters"],
+                                 lambda: row_parked_tank_enters(host, client, pins, pre, crash0, out))
+            fails += G3F.run_row("host_commands_tank", rows["host_commands_tank"],
+                                 lambda: row_host_commands_tank(host, client, crash0, out))
     finally:
         G3F.shut(host, client)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
