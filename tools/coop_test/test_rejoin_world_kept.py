@@ -1,26 +1,34 @@
-"""W2-H58 S-A KEPT (tools/coop_test/test_rejoin_world_kept.py): a partner who drops during the host's quick save rejoins into its own
-campaign (L-LH54-2-1, ruling R-H58-0). Spec docs rewrite/prompts/w2h58_sa_rekey.md (f) (stage S-A) and the common file
-rewrite/prompts/w2h58_rejoin_world_kept.md (section F: the shared fixture drop_fixture.py); TASK 0 values in
-rewrite/w2h58-task0/sa/CONSTANTS.md. A host quick or manual save gives the campaign a new saveID before the partner's fresh world arrives;
-the host's copy of the partner's world is stored under host_<saveID>_<name>.data. A partner that drops during "Saving..." (54) leaves the
-copy under the OLD id only; the rejoin looks up the NEW id, misses, and starts the partner on a fresh world.
-ONE boot (SEPARATE new_campaign on lobby key K1, both geoscapes stable), the controls first and the red row last:
-  Row C0   (GUARD) C0-blob: the host stores the client's world under the campaign's id0 (present, bytes > 0).
-  Row K2i  (control: the blob lands before the drop, F18422) a quick save with the client running, kill, client2 rejoins, RESUME.
-           K2i-key: the save written, id1 != id0, key(id1) present, key(id0) pruned. K2i-world: client2 never BuildNewBaseState, its
-           [GeoscapeState, CoopState] code 68 within JOIN_S, own(client2) holds (CB_NAME, CB).
-  Row K2ii (control: an autosave drop, F18423) client2 dropped at the host's first sight of its 54, client3 rejoins, RESUME, the stale 54
-           CANCELLED when it is on top. K2ii-id: at the 54 saveID == id1, key(id1) with K2i's end fnv.
-           K2ii-world: as K2i-world for client3.
-  Row RK1  (the red, LAST) a quick save, client3 dropped at its 54 (id2 = the re-minted id), client4 rejoins. RK1-key (FIX): key(id2)
-           present at the 54 with key(id1)'s bytes and fnv1a64. RK1-world (FIX): client4 never BuildNewBaseState and its 68 within JOIN_S.
-           RK1-bases (FIX): own(client4) holds (CB_NAME, CB). RK1-store (GUARD): key(id1) present at the join with its at-54 fnv.
-  END      CRASH (GUARD, evaluated at the end of every run): no crash file new since the boot start; the host alive.
-Red today: RK1-key, RK1-world, RK1-bases FAIL (the fresh world); every other cell PASS. Green (EA1-EA3): all PASS.
-own(gc) = geo_state bases with coopIcon false as [name, coopBaseId]; key(id) = coop_file_info {key: host_<id>_ClientPlayer.data}. Every
-rejoiner is a NEW GameClient on its own dir joining K1 by the name ClientPlayer. Never dismiss_popup, coop_dialog_back or a base placement:
-a fresh world is evidence, never built on. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
-miss ends its row (CAPTURE line) and every later row (cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
+"""A partner who drops during the host's quick save rejoins into its own campaign. A host quick or manual save gives
+the campaign a new saveID before the partner's fresh world arrives; the host's copy of the partner's world is stored
+under host_<saveID>_<name>.data. Without the fix a partner that drops during "Saving..." (54) leaves the copy under the
+OLD id only; the rejoin looks up the NEW id, misses, and starts the partner on a fresh world. The shared drop steps
+live in drop_fixture.py.
+ONE boot (SEPARATE new_campaign on LOBBY_KEY, both geoscapes stable), the controls first and the row that fails without
+the fix last:
+  Row start_blob        (GUARD) start_blob-stored: the host stores the client's world under the campaign's id0
+                        (present, bytes > 0).
+  Row save_before_drop  (control: the blob lands before the drop) a quick save with the client running, kill, client2
+                        rejoins, RESUME. save_before_drop-key: the save written, id1 != id0, key(id1) present, key(id0)
+                        pruned. save_before_drop-world: client2 never BuildNewBaseState, its [GeoscapeState, CoopState]
+                        code 68 within JOIN_S, own(client2) holds (CB_NAME, CB).
+  Row autosave_drop     (control: an autosave drop) client2 dropped at the host's first sight of its 54, client3
+                        rejoins, RESUME, the stale 54 CANCELLED when it is on top. autosave_drop-id: at the 54 saveID
+                        == id1, key(id1) with save_before_drop's end fnv. autosave_drop-world: as save_before_drop-world
+                        for client3.
+  Row quick_save_drop   (LAST) a quick save, client3 dropped at its 54 (id2 = the re-minted id), client4 rejoins.
+                        quick_save_drop-key (FIX): key(id2) present at the 54 with key(id1)'s bytes and fnv1a64.
+                        quick_save_drop-world (FIX): client4 never BuildNewBaseState and its 68 within JOIN_S.
+                        quick_save_drop-bases (FIX): own(client4) holds (CB_NAME, CB). quick_save_drop-store (GUARD):
+                        key(id1) present at the join with its at-54 fnv.
+  END                   CRASH (GUARD, evaluated at the end of every run): no crash file new since the boot start; the
+                        host alive.
+Without the fix: quick_save_drop-key, -world and -bases FAIL (the fresh world); every other cell PASS. With the fix: all
+PASS.
+own(gc) = geo_state bases with coopIcon false as [name, coopBaseId]; key(id) = coop_file_info {key:
+host_<id>_ClientPlayer.data}. Every rejoiner is a NEW GameClient on its own dir joining LOBBY_KEY by the name
+ClientPlayer. Never dismiss_popup, coop_dialog_back or a base placement: a fresh world is evidence, never built on. One
+EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE
+line) and every later row (cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
 ONE foreground run, no SKIP; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_rejoin_world_kept.py   (OXC_HARNESS_SLOT selects the lane)"""
 import json
@@ -33,13 +41,17 @@ import session  # noqa: E402
 import drop_fixture as F  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-K1 = "49193"
-K2 = "49194"  # reserved for the BOOT replacement rule (two boots, PINNED SETUP VALUES); unused while the one boot holds
+LOBBY_KEY = "49193"
+SPARE_LOBBY_KEY = "49194"  # reserved for a second boot, should one boot stop holding every row; unused
 NAME = "ClientPlayer"
 STABLE_S, SEEN_S, DROP_S, JOIN_S, ACK_S, SAVE_S = 5.0, 10.0, 5.0, 10.0, 30.0, 20.0
-ROWS = (("C0", ("C0-blob",)), ("K2i", ("K2i-key", "K2i-world")), ("K2ii", ("K2ii-id", "K2ii-world")),
-        ("RK1", ("RK1-key", "RK1-world", "RK1-bases", "RK1-store")), ("END", ("CRASH",)))
-FIX = ("RK1-key", "RK1-world", "RK1-bases")
+ROWS = (("start_blob", ("start_blob-stored",)),
+        ("save_before_drop", ("save_before_drop-key", "save_before_drop-world")),
+        ("autosave_drop", ("autosave_drop-id", "autosave_drop-world")),
+        ("quick_save_drop",
+         ("quick_save_drop-key", "quick_save_drop-world", "quick_save_drop-bases", "quick_save_drop-store")),
+        ("END", ("CRASH",)))
+FIX = ("quick_save_drop-key", "quick_save_drop-world", "quick_save_drop-bases")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 
 
@@ -87,8 +99,8 @@ def capture(x):
 class X:
     def __init__(self):
         self.t0 = time.time()
-        self.host = GameClient("host", None, make_user_dir("w2h58a_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h58a_client"))
+        self.host = GameClient("host", None, make_user_dir("rejoin_world_kept_host"))
+        self.client = GameClient("client", None, make_user_dir("rejoin_world_kept_client"))
         self.c2 = self.c3 = self.c4 = None
         self.fails, self.dead, self.cb = [], None, None
 
@@ -96,7 +108,7 @@ class X:
         return [g for g in (self.host, self.client, self.c2, self.c3, self.c4) if g is not None]
 
     def rejoiner(self, n):
-        return GameClient("client%d" % n, None, make_user_dir("w2h58a_client%d" % n))
+        return GameClient("client%d" % n, None, make_user_dir("rejoin_world_kept_client%d" % n))
 
 
 class Row:
@@ -137,22 +149,24 @@ def world(x, rj, ow):
             % ("never" if rj["buildNewBase"] is None else "at %s s" % rj["buildNewBase"], rj["t68"], ow["own"], list(x.cb)))
 
 
-def row_c0(x, r):
+def row_start_blob(x, r):
     r.ev["ownHost"] = own(x.host)
     r.ev["ownClient"] = oc = own(x.client)
     r.need(len(oc["own"]) == 1, "the client's own base not read from geo_state: %s" % oc)
-    x.cb = tuple(oc["own"][0])  # (CB_NAME, CB), read at run time (S25)
+    x.cb = tuple(oc["own"][0])  # (CB_NAME, CB), read at run time, never pinned
     x.id0 = r.ev["id0"] = F.sid(x.host)
     r.ev["blob0"] = b = kk(x.host, x.id0)
-    r.cell("C0-blob", b.get("present") is True and (b.get("bytes") or 0) > 0, "key(id0 %s) %s" % (x.id0, kstr(b)))
+    r.cell("start_blob-stored", b.get("present") is True and (b.get("bytes") or 0) > 0,
+           "key(id0 %s) %s" % (x.id0, kstr(b)))
 
 
-def row_k2i(x, r):
+def row_save_before_drop(x, r):
     r.ev["save"] = s = F.quick_save(x.host, F.QUICK, SAVE_S)
     x.id1 = r.ev["id1"] = F.sid(x.host)
     k0, k1 = kk(x.host, x.id0), kk(x.host, x.id1)
     r.ev["keys"] = {"id0": k0, "id1": k1}
-    r.cell("K2i-key", s["ok"] and x.id1 != x.id0 and k1.get("present") is True and k0.get("present") is False,
+    r.cell("save_before_drop-key", s["ok"] and x.id1 != x.id0 and k1.get("present") is True
+           and k0.get("present") is False,
            "quick save ok %s (54 seen %s, written %s); id0 %s -> id1 %s; key(id1) %s; key(id0) %s"
            % (s["ok"], s["seen54"], s["written"], x.id0, x.id1, kstr(k1), kstr(k0)))
     x.client.proc.kill()
@@ -161,9 +175,11 @@ def row_k2i(x, r):
     r.need(w["ok"], "no host 62 within %.0f s of the kill" % DROP_S)
     x.c2 = x.rejoiner(2)
     r.ev["tJoin"] = F.now(x.t0)
-    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c2, K1, NAME, JOIN_S, ACK_S, at_join=lambda h: {"id0": kk(h, x.id0), "id1": kk(h, x.id1)})
+    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c2, LOBBY_KEY, NAME, JOIN_S, ACK_S,
+                                   at_join=lambda h: {"id0": kk(h, x.id0), "id1": kk(h, x.id1)})
     r.ev["own2"] = ow = own(x.c2)
-    r.cell("K2i-world", rj["buildNewBase"] is None and rj["t68"] is not None and list(x.cb) in ow["own"], "client2: " + world(x, rj, ow))
+    r.cell("save_before_drop-world", rj["buildNewBase"] is None and rj["t68"] is not None and list(x.cb) in ow["own"],
+           "client2: " + world(x, rj, ow))
     r.need(rj["ack"] is not None, "no host 62 with resumeAck true within %.0f s of join_tcp" % (JOIN_S + ACK_S))
     r.ev["resume"] = rc = F.resume_and_clear(x.host)
     r.need(rc["ok"] and "cancel" not in rc, "RESUME / host GeoscapeState within 5 s: %s" % js(rc.get("end")))
@@ -171,19 +187,22 @@ def row_k2i(x, r):
     r.ev["files"] = F.files(x.host)
 
 
-def row_k2ii(x, r):
+def row_autosave_drop(x, r):
     r.ev["drop"] = d = F.drop_at_54(x.host, x.c2, "auto_geoscape", 0, lambda h: {"saveID": F.sid(h), "id1": kk(h, x.id1)}, SEEN_S, DROP_S)
     r.need("probe" in d, d.get("why"))
     p = d["probe"]
-    r.cell("K2ii-id", p["saveID"] == x.id1 and p["id1"].get("present") is True and x.end1.get("present") is True
-           and p["id1"].get("fnv1a64") == x.end1.get("fnv1a64"),
-           "at the 54 saveID %s (id1 %s); key(id1) %s; K2i's end fnv %s" % (p["saveID"], x.id1, kstr(p["id1"]), x.end1.get("fnv1a64")))
+    r.cell("autosave_drop-id", p["saveID"] == x.id1 and p["id1"].get("present") is True
+           and x.end1.get("present") is True and p["id1"].get("fnv1a64") == x.end1.get("fnv1a64"),
+           "at the 54 saveID %s (id1 %s); key(id1) %s; save_before_drop's end fnv %s"
+           % (p["saveID"], x.id1, kstr(p["id1"]), x.end1.get("fnv1a64")))
     r.need(d["ok"], d.get("why"))
     x.c3 = x.rejoiner(3)
     r.ev["tJoin"] = F.now(x.t0)
-    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c3, K1, NAME, JOIN_S, ACK_S, at_join=lambda h: {"id1": kk(h, x.id1)})
+    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c3, LOBBY_KEY, NAME, JOIN_S, ACK_S,
+                                   at_join=lambda h: {"id1": kk(h, x.id1)})
     r.ev["own3"] = ow = own(x.c3)
-    r.cell("K2ii-world", rj["buildNewBase"] is None and rj["t68"] is not None and list(x.cb) in ow["own"], "client3: " + world(x, rj, ow))
+    r.cell("autosave_drop-world", rj["buildNewBase"] is None and rj["t68"] is not None and list(x.cb) in ow["own"],
+           "client3: " + world(x, rj, ow))
     r.need(rj["ack"] is not None, "no host 62 with resumeAck true within %.0f s of join_tcp" % (JOIN_S + ACK_S))
     r.ev["resume"] = rc = F.resume_and_clear(x.host)
     r.need(rc["ok"], "RESUME (+ CANCEL of a stale 54) / host GeoscapeState within 5 s: %s" % js(rc.get("end")))
@@ -191,7 +210,7 @@ def row_k2ii(x, r):
     r.ev["files"] = F.files(x.host)
 
 
-def row_rk1(x, r):
+def row_quick_save_drop(x, r):
     def probe(h):
         i2 = F.sid(h)
         return {"id2": i2, "id1": kk(h, x.id1), "id2key": kk(h, i2)}
@@ -201,21 +220,26 @@ def row_rk1(x, r):
     x.id2 = p["id2"]
     r.need(isinstance(x.id2, int) and x.id2 != x.id1, "the re-mint did not run: id2 %s, id1 %s" % (x.id2, x.id1))
     k1, k2 = p["id1"], p["id2key"]
-    r.cell("RK1-key", k2.get("present") is True and k1.get("present") is True and k2.get("bytes") == k1.get("bytes")
-           and k2.get("fnv1a64") == k1.get("fnv1a64"), "at the 54 (id1 %s -> id2 %s): key(id2) %s; key(id1) %s" % (x.id1, x.id2, kstr(k2), kstr(k1)))
+    r.cell("quick_save_drop-key", k2.get("present") is True and k1.get("present") is True
+           and k2.get("bytes") == k1.get("bytes") and k2.get("fnv1a64") == k1.get("fnv1a64"),
+           "at the 54 (id1 %s -> id2 %s): key(id2) %s; key(id1) %s" % (x.id1, x.id2, kstr(k2), kstr(k1)))
     r.need(d["ok"], d.get("why"))
     x.c4 = x.rejoiner(4)
     r.ev["tJoin"] = F.now(x.t0)
-    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c4, K1, NAME, JOIN_S, ACK_S, at_join=lambda h: {"id1": kk(h, x.id1), "id2": kk(h, x.id2)})
+    r.ev["rejoin"] = rj = F.rejoin(x.host, x.c4, LOBBY_KEY, NAME, JOIN_S, ACK_S,
+                                   at_join=lambda h: {"id1": kk(h, x.id1), "id2": kk(h, x.id2)})
     r.need(rj["join_tcp"].get("ok"), "client4 join_tcp failed: %s" % rj["join_tcp"])
     r.ev["own4"] = ow = own(x.c4)
-    r.cell("RK1-world", rj["buildNewBase"] is None and rj["t68"] is not None, "client4: " + world(x, rj, ow))
-    r.cell("RK1-bases", list(x.cb) in ow["own"], "own(client4) %s (want %s); all %s" % (ow["own"], list(x.cb), ow["all"]))
+    r.cell("quick_save_drop-world", rj["buildNewBase"] is None and rj["t68"] is not None,
+           "client4: " + world(x, rj, ow))
+    r.cell("quick_save_drop-bases", list(x.cb) in ow["own"],
+           "own(client4) %s (want %s); all %s" % (ow["own"], list(x.cb), ow["all"]))
     j1 = rj["atJoin"]["id1"]
-    r.cell("RK1-store", j1.get("present") is True and j1.get("fnv1a64") == k1.get("fnv1a64"),
+    r.cell("quick_save_drop-store", j1.get("present") is True and j1.get("fnv1a64") == k1.get("fnv1a64"),
            "key(id1) at the join %s; at the 54 %s" % (kstr(j1), kstr(k1)))
     r.ev["afterJoinKeys"] = {"id1": kk(x.host, x.id1), "id2": kk(x.host, x.id2)}
-    if rj["ack"] is not None:  # END (EVIDENCE only, green): RESUME, then the host's top (the stale 54 is W2-H59's, F18497)
+    # EVIDENCE only: RESUME, then the host's top (a stale 54 after a drop is test_host_save_on_drop's subject)
+    if rj["ack"] is not None:
         r.ev["end"] = F.resume_and_clear(x.host)
     r.ev["files"] = F.files(x.host)
 
@@ -225,7 +249,7 @@ def end_row(x, crash0):
     new = sorted(F.crashes() - crash0)
     r.ev["newCrash"] = [os.path.basename(p) for p in new]
     r.ev["alive"] = {gc.name: alive(gc) for gc in x.procs()}
-    r.ev["w2h58Lines"] = [ln.split("\t")[-1] for ln in F.logl(x.host) if "partner world(s) copied" in ln]
+    r.ev["worldCopyLines"] = [ln.split("\t")[-1] for ln in F.logl(x.host) if "partner world(s) copied" in ln]
     r.cell("CRASH", not new and alive(x.host), "new crash files %d %s; host alive %s" % (len(new), r.ev["newCrash"][:3], alive(x.host)))
     r.finish()
 
@@ -237,7 +261,7 @@ def boot(x):
         x.host.connect()
         x.client.spawn()
         x.client.connect()
-        session.new_campaign(x.host, x.client, port=K1)
+        session.new_campaign(x.host, x.client, port=LOBBY_KEY)
         ev["tCampaign"] = F.now(x.t0)
         ev["stable"] = F.stable_geo(x.host, x.client, STABLE_S, 90.0)
         ok = ev["stable"]["ok"]
@@ -258,7 +282,8 @@ def main():
     crash0 = F.crashes()
     try:
         if boot(x):
-            for rid, fn in (("C0", row_c0), ("K2i", row_k2i), ("K2ii", row_k2ii), ("RK1", row_rk1)):
+            for rid, fn in (("start_blob", row_start_blob), ("save_before_drop", row_save_before_drop),
+                            ("autosave_drop", row_autosave_drop), ("quick_save_drop", row_quick_save_drop)):
                 r = Row(x, rid)
                 if x.dead:
                     r.finish(x.dead, reached=False)
@@ -281,8 +306,8 @@ def main():
                 print("FAIL shutdown %s: %s" % (gc.name, str(e)[:300]), flush=True)
     wall = F.now(x.t0)
     cells = [c for _r, cs in ROWS for c in cs]
-    print("SUMMARY W2-H58 S-A KEPT: %d/%d cells pass; failing %s; wall %.1f s" % (len(cells) - len(set(x.fails)), len(cells),
-                                                                                sorted(set(x.fails)) or "none", wall), flush=True)
+    print("SUMMARY test_rejoin_world_kept: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cells) - len(set(x.fails)), len(cells), sorted(set(x.fails)) or "none", wall), flush=True)
     return 0 if not x.fails else 2
 
 
