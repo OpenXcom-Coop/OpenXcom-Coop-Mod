@@ -185,7 +185,7 @@ void GoToMainMenuState::init()
 	_game->getScreen()->resetDisplay(false);
 	_game->setState(new MainMenuState(_updateCheck));
 
-	// coop, ported from `main` :185-:195: the next-launch crash reporter. Fires only on the fresh-boot transition
+	// coop: the next-launch crash reporter. Fires only on the fresh-boot transition
 	// (StartState -> GoToMainMenuState(true)), i.e. once per launch, at the main-menu
 	// altitude (world already torn down by setSavedGame(0) above) - the same
 	// "before the main menu" altitude the save-upgrade flow lives at. Best-effort

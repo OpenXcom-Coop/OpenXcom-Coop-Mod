@@ -7072,12 +7072,10 @@ void resetResyncStats()
 }
 
 // ===== battle hash buckets =====
-// A minimal port of donor cbff7951d's battle-hash region -
-// DEFINITIONS ONLY: mechanism (the FNV mixer, the tile-inclusion
-// test, the saveBlob node-tree walk + FOW bin-tiles masking) is reproduced
-// from the donor as a format reference; none of its ring/compare/side-gate/
-// promotion-table/boundary-persistence machinery is ported - there is
-// no host-side ring to compare against (the host never compares).
+// DEFINITIONS ONLY: the FNV mixer, the tile-inclusion test and the saveBlob
+// node-tree walk + FOW bin-tiles masking. No ring, compare, side-gate,
+// promotion-table or boundary-persistence machinery: there is no host-side
+// ring to compare against (the host never compares).
 
 namespace
 {
@@ -7101,7 +7099,7 @@ std::uint64_t fnv1a(const std::string& s)
 	return h;
 }
 
-// donor SharedEcon.cpp's unitLiveness(): STANDING/WALKING/FLYING/... are
+// As in older versions' unitLiveness(): STANDING/WALKING/FLYING/... are
 // animation phases the two machines are never on the same frame of - what
 // must agree is on-feet / dead / unconscious / ignored.
 int unitLiveness(const BattleUnit* unit)
@@ -7683,8 +7681,8 @@ std::string readLogTail(size_t maxBytes)
 	return out;
 }
 
-// One zip from in-memory members (donor cbff7951d's writeZipArchive, format
-// reference only). Heap writer only.
+// One zip from in-memory members (the writeZipArchive format of older
+// versions). Heap writer only.
 bool writeZipArchive(const std::string& path,
 	const std::vector<std::pair<std::string, std::string>>& members)
 {
@@ -7811,11 +7809,9 @@ std::string writeDesyncText(const std::string& suffix, const std::string& text)
 	}
 }
 
-// ===== coop: `main`'s next-launch crash reporter (Pattern A),
-// ported from `main` 651ae44ba SharedEcon.cpp :4025-:4065, :4067-:4103, :4272-:4308, :4332-:4570 and :4690-:4858.
-// Unchanged except: main's formatted desyncTimeString(const char*) is crashTimeString(const char*) here (this file's
-// anonymous namespace already holds a no-argument desyncTimeString()), and the zip goes through this file's
-// writeZipArchive() (the same miniz heap writer, the same signature). =====
+// ===== coop: the next-launch crash reporter. The formatted time string is crashTimeString(const char*) here (this
+// file's anonymous namespace already holds a no-argument desyncTimeString()), and the zip goes through this file's
+// writeZipArchive() (the miniz heap writer). =====
 namespace {
 
 // SAFETY / bounded work: the log is the only member that can grow without limit,
@@ -7937,7 +7933,7 @@ std::string desyncUrlEncode(const std::string& s)
 }
 
 /// the crash bundle's system-info json. Mirrors buildDesyncInfo's build +
-/// mods block (the I4 json builder the PRD asks us to reuse), plus the marker echo
+/// mods block (the same json builder), plus the marker echo
 /// (crash timestamp, exception code, the version recorded AT crash time, and the
 /// dump/log the crash wrote). 'build.version' is the version NOW; 'crash.crash_version'
 /// is the version the crash was written under - normally identical, but distinct if
@@ -7999,7 +7995,7 @@ bool parseCrashMarker(const std::string& markerPath, std::string& dump, std::str
 	return true;
 }
 
-// ---- PRD-I5 dual-source discovery: crashlogs scan + seen-ledger -------------
+// ---- dual-source discovery: crashlogs scan + seen-ledger --------------------
 // The crashed process ALREADY writes crash_<ts>_<seq>.{dmp,log} + mod list to
 // <exe>/crashlogs (issue #124 CrashHandler VEH - the robust catch-all that fires
 // even when the fault unwinds through a noexcept frame into std::terminate and so
@@ -8178,7 +8174,7 @@ bool emitCrashBundle(Game* game, const std::vector<std::pair<std::string, std::s
 
 } // namespace
 
-// ---- next-launch crash reporter (Pattern A) -------------------------
+// ---- next-launch crash reporter --------------------------------------
 // The dying process wrote only a marker (CrossPlatform::crashDump). These run at
 // the NEXT launch from the main-menu altitude. Best-effort by contract: every
 // path logs and continues, and only a SUCCESSFUL bundle deletes the marker.
@@ -8202,7 +8198,7 @@ void markCrashlogSeenPath(const std::string& dmpPath)
 // newest crash_*.dmp, written microseconds earlier by the first-chance handler)
 // seen, so the scan does not re-offer the same crash next launch. Single-crash-
 // since-launch assumption; a rare stale-marker + newer-VEH-crash edge could
-// suppress one prompt - acceptable, documented in prd-i5.
+// suppress one prompt - acceptable.
 void declineCrashMarker(const std::string& markerPath)
 {
 	try

@@ -582,7 +582,7 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
-	// main's option, row text and position (main Options.cpp :581); default OFF here.
+	// The option, row text and position of older versions; default OFF here.
 	_info.push_back(OptionInfo(OPTION_OTHER, "coopFollowPeerActions", &coopFollowPeerActions, false, "Follow Teammate Actions with Camera", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));

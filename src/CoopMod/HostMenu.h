@@ -82,8 +82,8 @@ class HostMenu : public State
 {
   private:
 	TextButton *_btnCancel, *_tcpButtonHost;
-	// coop: the HOST/lobby TURN MODE toggle, restoring the donor's shape
-	// (`cbff7951d:HostMenu.cpp:812-834`). Flips Options::CoopTurnMode between
+	// coop: the HOST/lobby TURN MODE toggle, in the shape older
+	// versions use. Flips Options::CoopTurnMode between
 	// "parallel" and "traditional"; the label reflects it; visible only while the
 	// rest of the hosting controls are.
 	TextButton *_btnTurnMode;

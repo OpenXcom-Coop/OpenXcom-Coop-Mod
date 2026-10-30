@@ -116,7 +116,7 @@ public:
 	/// shared_cmd; @a sell chooses sell-vs-execute). Returns false if no matching
 	/// alien row. Main thread only.
 	bool harnessRemovePrisoner(const std::string& alienType, int count, bool sell);
-	void harnessSelectRow(size_t row) { _sel = row; } // coop: test lever row select
+	void harnessSelectRow(size_t row) { _sel = row; } // coop: test hook row select
 };
 
 }

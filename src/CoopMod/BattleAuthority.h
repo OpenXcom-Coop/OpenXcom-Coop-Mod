@@ -165,14 +165,14 @@ void coopSaveBuiltValues(YAML::YamlNodeWriter& writer, const BattleUnit* unit);
 void coopLoadBuiltValues(const YAML::YamlNodeReader& reader, BattleUnit* unit);
 
 /// coop: a mid-battle co-op
-/// save made by an OLDER version (no coopBattleProtocol in its header: the release line never writes one) resumes on this
+/// save made by an OLDER version (no coopBattleProtocol in its header: older versions never write one) resumes on this
 /// build. coopOlderBattleConvertible() is SavedGame::load()'s gate: true for the game modes the load accepts - classic and
 /// SHARED co-op (0 / 1) and PvP gm2 (2) are converted, a PvE2 (4) campaign save loads unconverted (its RESUME is refused);
 /// every other unstamped battle save is refused. coopConvertOlderBattleSave()
 /// runs on the HOST's menu load right after the battle block loads (@a body = the save's body document):
 ///  (0) every partner world the load restored (coopFilesHost "host_" entries): its battle snapshot stripped and its mirrors
-///      of the host's soldiers dropped, as the release line's save upgrader treats a legacy partner world (SchemaStep1to2);
-///  (1) seat tags - the release line writes `coop` 0 / 1 on EVERY unit, the key this build reads as the seat tag: a unit of
+///      of the host's soldiers dropped, as older versions' save upgrader treats a legacy partner world (SchemaStep1to2);
+///  (1) seat tags - older versions write `coop` 0 / 1 on EVERY unit, the key this build reads as the seat tag: a unit of
 ///      another original faction is unseated, a player-side unit with a soldier keeps seat 0 / 1, any other player-side
 ///      unit is the host's;
 ///      a PvP gm2 save: the X-COM side on seat 0, the alien side on seat 1 without its AI module, others unseated;
@@ -187,7 +187,7 @@ void coopConvertOlderBattleSave(SavedGame* save, Mod* mod, const YAML::YamlNodeR
 /// coop: true when @a body (a save's body
 /// document) is a classic co-op Custom Battle saved mid-battle by an OLDER version - a battle block without the keys this build
 /// writes in every co-op battle (coopTurnMode, coopItemIdCtr), game mode 0 / 1, a unit of another original faction carrying the
-/// `coop` key (the release line writes it on EVERY unit, this build only on a seated one) and a unit tagged 1 (the second
+/// `coop` key (older versions write it on EVERY unit, this build only on a seated one) and a unit tagged 1 (the second
 /// player's). A Custom Battle save has no header `coop`, so SavedGame::load()'s campaign gate never sees it; the load then runs
 /// coopConvertOlderBattleSave() on it. A release single-player save loads as saved. The game mode may be 0-4: PvP (2 / 3)
 /// and PvE2 (4) saves convert by their mode's arm.
@@ -298,7 +298,7 @@ struct BattleAuthority
 
 	/// coop: the ON/OFF switch for the
 	/// own-side visibility rule, behind the test-only `battle_visibility_rule`
-	/// lever. coopUnitVisibleHere() is its ONLY reader - it exists so a test can
+	/// hook. coopUnitVisibleHere() is its ONLY reader - it exists so a test can
 	/// prove the rule is hash-free by comparing every bucket with it ON and OFF.
 	/// Default TRUE (the rule is live in a real game); reset to TRUE by
 	/// resetBattleAuthority(). std::atomic for the same cross-thread reason as
@@ -477,7 +477,7 @@ int coopResyncTitleState();
 /// from SaveGameState::think() the moment it observes isCoopBattle() &&
 /// !coopBattleQuiescent() - i.e. every mid-battle coop save funnels through
 /// this ONE chokepoint (quick-save/insta-save keys, the pause-menu Save,
-/// ListSave SAVE & QUIT, the harness lever `save_game_ui type:
+/// ListSave SAVE & QUIT, the test command `save_game_ui type:
 /// "quick_battle"`), regardless of how busy-gated each trigger's own UI
 /// happens to be. `origin` is OptionsOrigin and `saveType` is SaveType
 /// (Menu/SaveGameState.h), both passed as their own underlying int so this
@@ -487,7 +487,7 @@ int coopResyncTitleState();
 /// selects which SaveGameState constructor the consumer re-invokes: false =
 /// the filename-form ctor (origin, filename, palette, quitAfterSave) - used
 /// by ListSave SAVE & QUIT; true = the type-form ctor (origin, SaveType,
-/// palette) - used by the quick-save/insta-save keys and the harness lever. The
+/// palette) - used by the quick-save/insta-save keys and the test command. The
 /// palette is deliberately NOT stored (a stale SDL_Color* would dangle
 /// across the deferral): the consumer re-sources it from the live
 /// BattlescapeState at quiescence.
@@ -987,7 +987,7 @@ bool coopIsManaUnlockedFor(Game* game, const BattleUnit* unit, Mod* mod);
 bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefinition* article);
 
 /// the in-battle Ufopaedia's article check for the VIEWER (localSeat), never
-/// a unit's seat: the seat donor above while this machine's live battle
+/// a unit's seat: coopSeatArticleAvailable() above while this machine's live battle
 /// screen holds @a save, vanilla Ufopaedia::isArticleAvailable otherwise.
 /// Called by the five guarded vanilla reads in src/Ufopaedia.
 bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article);

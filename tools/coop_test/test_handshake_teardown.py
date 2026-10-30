@@ -27,7 +27,7 @@ import test_handshake as handshake  # noqa: E402
 REFUSED_KEY, KILLED_KEY = "48560", "48561"
 POLL_S = 0.2             # client_never_active: the client poll interval
 WINDOW_S = 15.0          # the capture window after newbattle_ok (both machines settle within about 1.5 s)
-N_CORRUPT = "corrupt_next_blob lever fired: flipped byte 0 of"
+N_CORRUPT = "corrupt_next_blob hook fired: flipped byte 0 of"
 N_MISMATCH = "battle blob sha MISMATCH (battleId="
 N_REFUSE = "battle_refuse received (battleId="
 N_CLIENT_ACTIVE = "CLIENT phase Active (battleId="

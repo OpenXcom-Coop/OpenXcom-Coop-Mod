@@ -101,8 +101,8 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
-// main's "Follow Teammate
-// Actions with Camera" (main Options.inc.h :104-107). On: this machine's camera follows the co-op partner's units
+// The "Follow Teammate
+// Actions with Camera" (as in older versions). On: this machine's camera follows the co-op partner's units
 // as it follows an alien on its own side's turn (coopCameraFollowsPartner(), CoopMod/CoopDelta.h). DEFAULT false
 // here (main: true), so by default the partner's actions never move your camera. Per player: read
 // only on this machine, never on the wire, not in the synced table (CoopMod/CoopSyncedOptions.h); its row is on the
@@ -139,7 +139,7 @@ OPT int coopIntentTimeoutSeconds;
 //
 // HOST-ONLY by design: a client's own setting is irrelevant - the host stamps the
 // session's mode onto every battle_offer and the client MIRRORS it, the
-// donor's session-decided-once shape. Its user-facing control is the HOST/lobby
+// session-decided-once shape of older versions. Its user-facing control is the HOST/lobby
 // toggle, NOT the advanced-options list, which is why the registration
 // below carries no description or category.
 OPT std::string CoopTurnMode;

@@ -99,8 +99,8 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 		// mission-confirm entry points (NewBattleState::btnOkClick,
 		// ConfirmLandingState::btnYesClick) - vanilla generates the battle exactly
 		// like SP below, then CoopHandshake::offerBattle() ships it. The
-		// per-soldier/vehicle seat-tag pass this branch runs (from
-		// cbff7951d:96-102, the SHARED path) keeps Soldier::getCoop() carrying
+		// per-soldier/vehicle seat-tag pass this branch runs (as older
+		// versions do on the SHARED path) keeps Soldier::getCoop() carrying
 		// fresh ownership before generation; startCoopMission() below reads it
 		// back off each generated BattleUnit's geoscape soldier to stamp the
 		// battle-time seat tag (BattleUnit::setCoopSeat()) offerBattle()/the

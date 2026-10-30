@@ -683,7 +683,7 @@ void LobbyMenu::resumeCampaign()
 {
 
 	// coop: there are no PvE2 (game mode 4) campaigns, so a co-op campaign save
-	// played in PvE2 - only the release line could write one - is not resumed: the team-refused dialog, nothing sent, the session and both
+	// played in PvE2 - only older versions could write one - is not resumed: the team-refused dialog, nothing sent, the session and both
 	// lobbies as they were. The mode is the save's own (SavedGame::getCoopLoadedGamemode): the host window set the live one to 1. A
 	// Custom Battle save has no countries, so it is never a campaign context and PvE2 stays legal there.
 	if (_game->getCoopMod()->inCoopCampaignContext() && _game->getSavedGame()->getCoopLoadedGamemode() == 4)

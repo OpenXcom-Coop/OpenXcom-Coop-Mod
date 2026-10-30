@@ -889,7 +889,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// SEPARATE function and never reaches this gate - same discipline as the
 	// schema gate immediately below, which is menu-load-only too).
 	// coop: an UNSTAMPED mid-battle co-op save
-	// was made by an older version (the release line never writes coopBattleProtocol). One whose game mode the conversion
+	// was made by an older version (older versions never write coopBattleProtocol). One whose game mode the conversion
 	// handles loads on and is converted once its battle is loaded (the hook after the battleGame block below); any other
 	// unstamped one, and every stamp other than 1, still refuses.
 	bool coopOlderBattle = false;
@@ -906,7 +906,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		else if (!coopStamped || coopBattleProtocol != 1)
 		{
 			// coop: an UNSTAMPED gm3 PvP campaign
-			// battle save (the release line's: it holds no world of the alien player, so it is never converted) refuses with where to ask
+			// battle save (an older version's: it holds no world of the alien player, so it is never converted) refuses with where to ask
 			// for a repair. Every other refusal here keeps the text below.
 			if (!coopStamped && coopOlderGamemode == 3)
 			{

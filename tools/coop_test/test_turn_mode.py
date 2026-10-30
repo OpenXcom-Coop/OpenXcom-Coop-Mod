@@ -441,7 +441,7 @@ def test_wire_default_and_absent():
         "omit", host_options={OPTION: TRADITIONAL}, pre_offer=arm_omit)
     try:
         log = log_lines(host)
-        assert any("omit_turn_mode lever" in l and "WITHOUT turnMode" in l for l in log), (
+        assert any("omit_turn_mode hook" in l and "WITHOUT turnMode" in l for l in log), (
             "the omit_turn_mode test command did not fire - the offer still carried "
             "the key, so the parallel degrade below would be asserted against nothing")
         clog = log_lines(client)

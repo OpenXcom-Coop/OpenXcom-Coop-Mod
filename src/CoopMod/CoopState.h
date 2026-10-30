@@ -156,9 +156,9 @@ class CoopState : public State
 
 /**
  * coop: the caught-and-repaired notice,
- * ported from `main`'s CoopDesyncNoticeState (OK / OPEN FOLDER / REPORT ON GITHUB). Raised on each machine after the
+ * shaped like the CoopDesyncNoticeState of older versions (OK / OPEN FOLDER / REPORT ON GITHUB). Raised on each machine after the
  * automatic desync repair, naming that machine's own report zip. Its own class rather than a CoopState code: it sits
- * over a live battle, and it holds a full path plus a "where to send it" sentence. Palette handling as `main`: in battle
+ * over a live battle, and it holds a full path plus a "where to send it" sentence. Palette handling as in older versions: in battle
  * the co-op lobby's geoscape / saveMenus combination under the battle palette. Nothing is captured here - the report is
  * on disk before this is pushed.
  */
@@ -200,7 +200,7 @@ class CoopDesyncNoticeState : public State
 	static int s_raiseCount;
 };
 
-// coop: ported unchanged from `main` CoopState.h :209-:249.
+// coop: the next-launch crash reporter's consent dialog.
 /**
  * PRD-I5: next-launch crash-report consent dialog. Raised once over the main menu
  * when crash-pending.json names a dump + log that still exist. Three outcomes:

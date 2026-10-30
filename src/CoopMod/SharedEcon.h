@@ -675,19 +675,17 @@ void resetStats();
 int applyQueueDepth();
 
 /**
- * The battle hash buckets: a minimal port of donor cbff7951d's battle-hash
- * region (SharedEcon.h ~473-504's BattleHashSet/battleHashBucketValue/
- * computeBattleHashes + the sweep/saveBlob-hash-tree bodies in the donor
- * .cpp) - DEFINITIONS ONLY: none of the donor's ring/compare/
- * side-gate/promotion-table/boundary-persistence machinery is ported (the
- * host never compares; the CLIENT hashes post-apply and compares - there is
- * no host-side ring to compare against).
+ * The battle hash buckets (BattleHashSet / battleHashBucketValue /
+ * computeBattleHashes + the sweep / saveBlob-hash-tree bodies in the .cpp) -
+ * DEFINITIONS ONLY: no ring / compare / side-gate / promotion-table /
+ * boundary-persistence machinery (the host never compares; the CLIENT hashes
+ * post-apply and compares - there is no host-side ring to compare against).
  *
- * The bucket set is NOT donor's 9: unitsCombat/unitsRegen are RE-MERGED back
- * into a single unitsStats, which also gains motionPoints (OFF the saveBlob
- * exclusion list), and `synced` covers the remaining delta fields.
- * saveBlob is its OWN function (computeSaveBlobHash) exactly like the donor's
- * own split - a whole-battle-document hash, not a BattleHashSet member.
+ * unitsStats is ONE bucket (combat and regen stats together), which also
+ * gains motionPoints (OFF the saveBlob exclusion list), and `synced` covers
+ * the remaining delta fields. saveBlob is its OWN function
+ * (computeSaveBlobHash) - a whole-battle-document hash, not a BattleHashSet
+ * member.
  */
 struct BattleHashSet
 {
@@ -745,11 +743,9 @@ int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& reco
 /// Minimal desync diagnostic bundle - a zip with
 /// desync-info.json (bucket/expect/got/seq/kind + timestamp) and a best-
 /// effort tail of openxcom.log, written to
-/// <user folder>/desync-reports/desync-<timestamp>.zip. REBUILT SMALL from
-/// donor cbff7951d's emitCrashBundle/writeZipArchive/captureDesyncReport as
-/// a FORMAT reference only (SharedEcon is not cherry-picked
-/// wholesale) - none of the donor's GitHub-issue-prefill UI, next-launch
-/// crash-marker machinery, or forced-save capture is ported. Best-effort:
+/// <user folder>/desync-reports/desync-<timestamp>.zip. Small by design: this
+/// writer holds no GitHub-issue-prefill UI, crash-marker handling or forced-save
+/// capture. Best-effort:
 /// never throws, returns an empty string on any failure (a full disk, a
 /// read-only user folder) rather than compounding the desync with a second
 /// failure. A non-empty @a saveBlobYaml (the reporting
@@ -768,13 +764,12 @@ std::string writeDesyncBundle(const std::string& bucket, const std::string& expe
 /// never throws, returns the path or an empty string.
 std::string writeDesyncText(const std::string& suffix, const std::string& text);
 
-/// coop: ported unchanged from `main` SharedEcon.h :647-:674.
-/// next-launch crash reporter (Pattern A). The dying process only writes a
+/// coop: next-launch crash reporter. The dying process only writes a
 /// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
 /// these run at the NEXT launch, from the main-menu altitude, to offer a one-click
 /// bundle of the previous crash. All best-effort: a broken reporter must never
-/// block startup, so every failure logs and continues. Reuses the I4 bundle
-/// plumbing (miniz heap zip writer, log tail reader, CoopDesyncNoticeState).
+/// block startup, so every failure logs and continues. Reuses the desync report's
+/// bundle plumbing (miniz heap zip writer, log tail reader, CoopDesyncNoticeState).
 ///
 /// Reads <user folder>/crash-pending.json and, if it names a dump + log that both
 /// still exist, pushes the consent dialog over the main menu. A missing, corrupt,
@@ -787,7 +782,7 @@ void maybeReportPreviousCrash(Game* game);
 bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath);
 /// NEVER (this crash) handler: delete the marker so this crash is never raised again.
 void deleteCrashMarkerFile(const std::string& markerPath);
-/// Option (b) dual-source discovery: the crashed process already writes
+/// Dual-source discovery: the crashed process already writes
 /// crash_<ts>_<seq>.{dmp,log} to <exe>/crashlogs (issue #124 VEH, the robust
 /// catch-all crashDump misses). maybeReportPreviousCrash also scans that dir for
 /// an unseen entry (per-user crash-seen.json ledger dedups). These are the

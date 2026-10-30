@@ -388,7 +388,7 @@ public:
 	/// the same path BattleUnit::load uses for the "tags" key. Runs no script
 	/// and draws no RNG.
 	void coopSetScriptValues(const std::vector<std::pair<std::string, int>>& tags, const ScriptGlobal* shared);
-	/// absolute special-ability set - TEST LEVER ONLY
+	/// absolute special-ability set - TEST HOOK ONLY
 	/// (TestServer battle_set_unit_state {specab}). _specab is otherwise
 	/// derived from the armor/unit rules and has no setter. Plain assignment.
 	void coopSetSpecialAbility(int specab);

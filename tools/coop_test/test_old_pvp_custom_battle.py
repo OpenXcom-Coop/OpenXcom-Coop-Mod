@@ -80,7 +80,7 @@ N_CUSTOM, N_GAME_MODE = ("[coop-convert] an older version's co-op Custom Battle 
 N_SUM = "[coop-convert] an older version's mid-battle co-op save converted"
 N_ANY = "[coop-convert]"
 SUM_RE = re.compile(r"seats 0/1 (\d+)/(\d+), unseated (\d+); turnMode (\w+); deployment \"([^\"]*)\"")
-GAME_MODE_RE = re.compile(r"game mode (\d+) - the release gm3 swap undone on (\d+) unit")
+GAME_MODE_RE = re.compile(r"game mode (\d+) - the older version's gm3 swap undone on (\d+) unit")
 CELLS = ("load", "continue", "seats", "mode", "deployment", "end_turn")
 stack, bs, es = session.states_stripped, session.battle_state, session.event_state
 

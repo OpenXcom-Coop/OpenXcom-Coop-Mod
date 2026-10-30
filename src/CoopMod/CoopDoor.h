@@ -31,7 +31,7 @@ class BattleUnit;
  * transitions.
  *
  * WHAT A DOOR ACTUALLY CHANGES, and therefore why this atom exists at all
- * (all four anchors read at 78b20c5ea):
+ * (all four anchors):
  *   * a NORMAL (swinging) door open REPLACES the tile's MapData for the part -
  *     `Tile::openDoor` does `setMapData(altMCD...)` + `setMapData(0,-1,-1,part)`
  *     (Tile.cpp:388-390), and `mapDataID`/`mapDataSetID` are exactly what the
@@ -111,7 +111,7 @@ int coopUnitOpensDoor(TileEngine* te, BattleUnit* unit, bool rClick, int dir);
 /// "close"`, NO `unit` and NO `tuAfter`, and rides `actionId 0`.
 ///
 /// The vanilla call site is `BattlescapeGame.cpp:549`; the
-/// `battle_close_ufo_doors` test lever also calls it, so "boundary-callable"
+/// `battle_close_ufo_doors` test command also calls it, so "boundary-callable"
 /// is a TESTED property.
 int coopCloseUfoDoors(TileEngine* te);
 

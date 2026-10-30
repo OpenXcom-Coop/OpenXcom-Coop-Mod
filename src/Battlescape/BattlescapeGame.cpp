@@ -1923,7 +1923,7 @@ bool BattlescapeGame::isBusy() const
  * action this is. Scans front-to-back for the first non-consequence state with a
  * player actor.
  *
- * DONOR RESTORE, byte-for-byte from `cbff7951d:BattlescapeGame.cpp:4272`. It is a
+ * The same accessor as in older versions, byte for byte. It is a
  * read-only accessor, not a hook: it mints nothing, changes no state and is never
  * called outside a co-op battle. The one caller is the seat-attributed
  * "Please wait for {0}'s action to finish" driver, whose logic lives in

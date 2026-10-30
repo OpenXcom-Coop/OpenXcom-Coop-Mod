@@ -45,7 +45,7 @@ class SavedBattleGame;
  *
  * MAPS: one stash holds the explored map of the player who is not at the keyboard (the vanilla
  * per-tile discovered bits, CoopFog.h's 3-bit byte); each hand-over swaps it with the live bits. Player
- * 2's first turn starts from an unexplored map, as main's does.
+ * 2's first turn starts from an unexplored map, as in older versions.
  *
  * Local only: no wire, no hash. Every function is a no-op unless coopHotseatBattle(), so single player
  * without the toggle and every co-op battle are byte-identical.
@@ -73,7 +73,7 @@ void coopHotseatOnEndTurn(SavedBattleGame* s);
 /// gets its real factions and X-COM's explored map back before the debriefing reads them.
 void coopHotseatOnFinishBattle(SavedBattleGame* s);
 
-/// DebriefingState's constructor: hotseat is scoped to one skirmish (main DebriefingState :300-:314) -
+/// DebriefingState's constructor: hotseat is scoped to one skirmish (as in older versions' DebriefingState) -
 /// clear the state and disarm the toggle.
 void coopHotseatOnDebriefing();
 
@@ -86,7 +86,7 @@ bool coopHotseatHidesMap(const SavedBattleGame* s);
 bool coopHotseatArmsPanic(const SavedBattleGame* s);
 
 /// UnitWalkBState's walk-step reaction check - true = no reaction fire on a walk step, i.e. a
-/// hotseat battle whose REACT FIRE toggle is off (main UnitWalkBState :465; the other triggers stay).
+/// hotseat battle whose REACT FIRE toggle is off (as in older versions' UnitWalkBState; the other triggers stay).
 bool coopHotseatWalkReactionOff();
 
 /// coopFactionHumanCommanded() outside a co-op battle - in a hotseat battle a human commands

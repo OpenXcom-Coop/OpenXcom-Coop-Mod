@@ -40,7 +40,7 @@ struct RuleDamageType;
  * attached at the one host emit choke (CoopEmit::sendEv), and the client writes
  * those values with plain setters, never by re-running the simulation.
  *
- * Below: the delta probes' read accessors, the `delta_drop_next` lever's
+ * Below: the delta probes' read accessors, the `delta_drop_next` hook's
  * one-shot request, and the snapshot, diff, attach, seed, reset, absorb and
  * `sync` flush (the client applier is CoopApply::applyDelta, inside
  * connectionTCP.cpp's CoopApply region). The storage lives in connectionTCP.cpp
@@ -68,7 +68,7 @@ struct Probes
 	int addExisting = 0;     ///< [deltaAddExisting] an itemsAdded id that already existed
 	int removeMissing = 0;   ///< [deltaRemoveMissing] an itemsRemoved id that did not exist
 	int unsupported = 0;     ///< [deltaUnsupported] a change the delta does not carry (logged)
-	int absorbed = 0;        ///< [deltaAbsorbed] host: test-lever writes absorbed into the snapshot
+	int absorbed = 0;        ///< [deltaAbsorbed] host: test-hook writes absorbed into the snapshot
 	int dropped = 0;         ///< [deltaDropped] host: deltas withheld by `delta_drop_next`
 	int diffUsLast = 0;      ///< [deltaDiffUsLast] host: last diff+attach, microseconds
 	int diffUsMax = 0;       ///< [deltaDiffUsMax]
@@ -88,7 +88,7 @@ struct Probes
 	int hostCombatContexts = 0; ///< [hostCombatContexts] host: host-local combat contexts begun
 	// The arming guard's deferrals - an
 	// onChainQuiesced() that fired INSIDE an armed push pair (the battle_fire
-	// lever's turn-then-shot pushes) and was deferred instead of closing the
+	// hook's turn-then-shot pushes) and was deferred instead of closing the
 	// context before the shot state existed.
 	int armingDeferrals = 0;    ///< [armingDeferrals] host: quiescences deferred while arming
 	// The action-context counters.
@@ -128,7 +128,7 @@ Json::Value deltaRing();
 /// has been none this battle.
 Json::Value lastLight();
 
-/// `light_probe_reset` (test lever): zero this machine's
+/// `light_probe_reset` (test hook): zero this machine's
 /// `lightUsMax` and `deltaApplyUsMax` windows. Nothing else changes.
 void resetLightWindow();
 
@@ -225,7 +225,7 @@ void noteHostInventoryChange(const char* site);
 /// runs (`flushes` when it sent a `sync`, `emptyFlushes` when the delta was empty).
 void flushHostInventoryLatch();
 
-/// HOST, armed only: a TEST LEVER wrote this object directly;
+/// HOST, armed only: a TEST HOOK wrote this object directly;
 /// copy its live values into the snapshot so the write never rides a delta
 /// (a one-machine poke keeps proving detection; a both-machine write stays
 /// equal without a mint race). Bumps `absorbed`. Never called by product code.
@@ -240,11 +240,11 @@ void absorbBattle(SavedBattleGame* battle);
 // `itemsAdded` (the host's BattleItem::save() YAML, materialized on the client
 // with the host's id through the load path) and `itemsRemoved`.
 
-/// HOST, armed only: a TEST LEVER created or wrote @a item;
+/// HOST, armed only: a TEST HOOK created or wrote @a item;
 /// copy its live values into the snapshot (a new id is added), so the write
 /// never rides a delta. Bumps `absorbed`. Never called by product code.
 void absorbItem(const BattleItem* item);
-/// HOST, armed only: a TEST LEVER removed item @a id (and each
+/// HOST, armed only: a TEST HOOK removed item @a id (and each
 /// of its ammo ids, one call each); drop it from the snapshot so the removal
 /// never rides a delta. Bumps `absorbed`. Never called by product code.
 void absorbItemRemoved(int id);

@@ -95,7 +95,7 @@ enum UnitFaction : int; // Mod/Unit.h; forward-declared here the same way Mod/Ru
  * in @a seats (stale/out-of-roster ownership) falls back to coopSeatForUnownedUnit()'s seat
  * rather than mis-seating a unit to a seat nobody occupies this battle.
  *
- * `Soldier::_cooptype` re-skin (donor BriefingState.cpp's alien-looking-unit
+ * `Soldier::_cooptype` re-skin (older versions' BriefingState.cpp alien-looking-unit
  * swap for a squad-vs-squad PvP hostile side) is NOT implemented here. This pass
  * only tags seat
  * + faction; it never touches BattleUnit::getUnitRules()/setUnitRulesCoop().

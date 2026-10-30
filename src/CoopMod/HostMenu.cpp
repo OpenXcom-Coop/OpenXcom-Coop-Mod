@@ -52,8 +52,8 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	int x = 20;
 	
 	// Create objects
-	// coop: DONOR GEOMETRY, byte-for-byte from
-	// `cbff7951d:HostMenu.cpp:54-71` - the window is 18px taller than stock, the
+	// coop: the geometry of older versions, byte for byte:
+	// the window is 18px taller than stock, the
 	// TURN MODE toggle takes the old button row (152) and START HOST / CANCEL
 	// move down to 172.
 	_window = new Window(this, 260, 178, x, 20, POPUP_BOTH);
@@ -166,7 +166,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	// coop: the TURN MODE toggle. Label + visibility
 	// are driven by updateTurnModeButton() - called here and after every one of
 	// the three places that flip the hosting controls' visibility, the same four
-	// call points the donor used.
+	// call points older versions used.
 	_btnTurnMode->onMouseClick((ActionHandler)&HostMenu::btnTurnModeClick);
 	updateTurnModeButton();
 
@@ -572,7 +572,7 @@ void HostMenu::hostTCPGame(Action* action)
 	}
 
 	// coop: a co-op campaign RESUME (lobbyMode 2, derived above from the save's locked roster) keeps the PvP mode the save was
-	// played in - PVP (2) or PVP2 (3) - so the lobby, the world service and every battle read it (`main`'s preserveLoadedMode
+	// played in - PVP (2) or PVP2 (3) - so the lobby, the world service and every battle read it (older versions' preserveLoadedMode
 	// shape). The kept PvP mode is the save's own (SavedGame::getCoopLoadedGamemode, written only by SavedGame::load), not the
 	// live one: the host's own DISCONNECT in the resume lobby zeroes the live mode (disconnectTCP), so a second START HOST in
 	// the same session would read 0 and resume the PvP campaign as PVE (1) on both machines. Every other host starts as PVE (1)
@@ -584,7 +584,7 @@ void HostMenu::hostTCPGame(Action* action)
 	{
 		connectionTCP::_coopGamemode = coopLoadedMode;
 	}
-	// coop: `main` #181 also keeps the loaded mode for a saved Custom Battle co-op resume.
+	// coop: as #181 does, also keep the loaded mode for a saved Custom Battle co-op resume.
 	if (!(coopKeepLoadedPvpMode || connectionTCP::session.customBattleResumePending))
 	{
 		connectionTCP::_coopGamemode = 1;
@@ -733,7 +733,7 @@ void HostMenu::testHostWithFields(int comboIndex, const std::string& server,
  * models; the value is shipped to the client on every battle_offer,
  * so only the host's setting matters and only before a battle starts.
  *
- * Donor shape, `cbff7951d:HostMenu.cpp:812-834` (which flipped the old boolean
+ * The shape of older versions (which flipped the old boolean
  * Options::EnableCoopParallelTurns). The shape is kept and the value changed:
  * the option is a STRING carrying the wire spelling, so there
  * is no bool->enum->string translation anywhere in the path.
@@ -753,8 +753,8 @@ void HostMenu::btnTurnModeClick(Action*)
 /**
  * coop: keeps the toggle's label in sync with the
  * option and its visibility in sync with the rest of the hosting controls -
- * hidden once a session is live, exactly like START HOST. Donor shape
- * (`cbff7951d:HostMenu.cpp:826-834`).
+ * hidden once a session is live, exactly like START HOST, as in older
+ * versions.
  *
  * The label is read back through coopSessionTurnModeFromOptions() rather than
  * from the raw string, so a hand-edited options.cfg shows what the game will

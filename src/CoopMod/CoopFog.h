@@ -174,7 +174,7 @@ void census(int& floor, int& west, int& north);
 /// must then OMIT the bucket entirely (key absent, never zero).
 bool computeHash(std::uint64_t& out);
 
-/// Test lever behind `corrupt_bucket {name:"revealHostile"}`: a minimal
+/// Test hook behind `corrupt_bucket {name:"revealHostile"}`: a minimal
 /// DETERMINISTIC poke straight into the bitmap, bypassing the emit path
 /// entirely. Returns false when there is nothing allocated to corrupt.
 bool corrupt();
@@ -197,7 +197,7 @@ void reset();
 /// Tile, BattleUnit, or any TileEngine member.
 int authorHostilePass(SavedBattleGame* battle, bool force);
 
-/// Test lever: arm a FORCED hostile pass to be run by the NEXT emit
+/// Test hook: arm a FORCED hostile pass to be run by the NEXT emit
 /// (consumeArmedPass() below, called from CoopEmit::sendEv). This exists so a
 /// test - which never runs an alien turn - can arrange the
 /// premise "an action reveals for BOTH sides" DETERMINISTICALLY: arm, then act,
@@ -267,7 +267,7 @@ bool coopTileDiscoveredHere(const Tile* tile, TilePart part);
 
 /// The side-relative
 /// replacement for `Tile::getVisible()` at Map::draw's projectile / explosion field-of-view tests. Vanilla's X-COM
-/// tile-sight count outside an active co-op battle, with the visibility rule lever off and on a player-side seat (so
+/// tile-sight count outside an active co-op battle, with the visibility rule test hook off and on a player-side seat (so
 /// single player and co-op are byte-identical); for a seat commanding a non-player side, one of its side's live units
 /// sees the tile now by vanilla's tile-sight geometry for that one tile. PRESENTATION-ONLY: reads positions, facings
 /// and the terrain-blockage cache, writes nothing, never authors discovered bits.

@@ -166,7 +166,7 @@ void onSeatSetChanged(SavedBattleGame* save);
 void onQuiescentPass(SavedBattleGame* save, bool quiescent);
 
 /// PvE2 (gamemode 4) opens with
-/// the AI-run X-COM side, as the release line plays it (main BattlescapeState::think's one-time pve2_init
+/// the AI-run X-COM side, as older versions play it (their BattlescapeState::think's one-time pve2_init
 /// hand-off). HOST-ONLY: armed once per battle start by the pre-battle equip barrier (a resumed or rejoined
 /// battle has no equip phase, so it never arms); onQuiescentPass() then ends the players' turn-1 side by
 /// itself through requestEndTurn(false) once the host's battle screen is on top. Cleared by the next side
@@ -199,7 +199,7 @@ void onReadyReceived(const Json::Value& msg);
 /// applies the same snapshot directly instead of round-tripping.
 void onTallyReceived(const Json::Value& msg);
 
-/// The test-only `battle_end_turn_ready {turn, ready}` lever. Ships the
+/// The test-only `battle_end_turn_ready {turn, ready}` test command. Ships the
 /// bt_end_turn_ready message with THIS machine's own seat and the GIVEN
 /// `turn`, touching no local state - so the harness can CONSTRUCT a stale
 /// press deterministically instead of racing for one. Never

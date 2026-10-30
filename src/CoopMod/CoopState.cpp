@@ -2070,8 +2070,8 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 	if (gamemode == 4)
 	{
 		// PvE2 - both
-		// seats command the generated ALIENS against an AI-run X-COM squad, as the release line plays it
-		// (main BriefingState::setupCoop's gm4 block), done ONCE here, host-side, before the blob snapshot
+		// seats command the generated ALIENS against an AI-run X-COM squad, as older versions play it
+		// (their BriefingState::setupCoop's gm4 block), done ONCE here, host-side, before the blob snapshot
 		// (one canonical assignment, identical on both machines). Every generated hostile
 		// unit becomes FACTION_PLAYER with no AI module, seated in v2.0.6's order: the first
 		// floor(N/2) aliens in unit-list order to the client seat, the rest to
@@ -2119,7 +2119,7 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			{
 				unit->setOriginalFaction(FACTION_HOSTILE); // funnel
 				unit->convertToFaction(FACTION_HOSTILE);
-				// The release line's re-skin (main BattlescapeGenerator :1189-:1204): an
+				// The re-skin of older versions (their BattlescapeGenerator): an
 				// AI-side X-COM soldier is re-typed MALE_CIVILIAN / FEMALE_CIVILIAN by its gender - no rank on the
 				// unit-info screen, a blank name where an enemy's name shows (a soldier unit has no race), no fatal
 				// wounds unless the Alien Bleeding option is on (BattleUnit::isWoundable). Sprites (the armor) and
@@ -2400,7 +2400,7 @@ bool coopRefuseSeparateClientCydonia(Game* game, Craft* craft)
 	return true;
 }
 
-// ---- coop: CoopDesyncNoticeState, ported from `main` (CoopState.cpp :1883-:2027) ----------------
+// ---- coop: CoopDesyncNoticeState ----------------------------------------------------------------
 
 std::string CoopDesyncNoticeState::s_lastHeadline;
 std::string CoopDesyncNoticeState::s_lastMessage;
@@ -2535,7 +2535,7 @@ void CoopDesyncNoticeState::btnReportClick(Action *)
 }
 
 // ---- CoopCrashPromptState (PRD-I5) ------------------------------------------
-// coop: ported unchanged from `main` CoopState.cpp :2027-:2125.
+// coop: the next-launch crash reporter's consent dialog.
 
 int CoopCrashPromptState::s_raiseCount = 0;
 std::string CoopCrashPromptState::s_lastChoice;

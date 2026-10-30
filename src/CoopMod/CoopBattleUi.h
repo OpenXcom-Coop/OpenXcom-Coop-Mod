@@ -183,7 +183,7 @@ void showControlRefused(Control c);
 /// (Game.cpp:325-423), so every keystroke a player types into chat also
 /// reaches BattlescapeState as a hotkey. Legacy closed that by returning false
 /// from allowButtons() while the chat was up
-/// (`1e0f9276f:BattlescapeState.cpp:6132-6141`); this is that guard, as one
+/// (older versions' BattlescapeState.cpp); this is that guard, as one
 /// call. Takes the Game rather than reaching for connectionTCP's private
 /// _staticGame, and is false whenever no chat menu exists (SP, and any
 /// non-co-op session).
@@ -353,14 +353,14 @@ bool refuseSelectUnitClick(const BattleUnit* target);
 
 /// the SPECTATOR notice - this machine's seat
 /// commands no unit in this battle, so battle entry could not auto-select one
-/// for it (STR_COOP_SPECTATOR_MODE). Legacy raised the same notice from its own
-/// client unit selector (`1e0f9276f:BattlescapeState.cpp:1627-1631`, "You are
+/// for it (STR_COOP_SPECTATOR_MODE). Older versions raised the same notice from their own
+/// client unit selector (BattlescapeState.cpp, "You are
 /// in spectator mode"); this is that message, on this presenter.
 ///
 /// Raised once per battle by CoopHandshake::selectOwnUnitAtEntry(). It is a
 /// real path, not defensive framing: a plain classic "NEW BATTLE > COOP"
 /// skirmish never calls Soldier::setCoop(), so without the harness's
-/// newbattle_seat_soldier lever the joining client owns ZERO battle units.
+/// newbattle_seat_soldier test command the joining client owns ZERO battle units.
 /// Like showEquipFrozen() it is an ENTRY notice, not sticky - the first
 /// deny/pending/cancel replaces it.
 void showSpectatorMode();
@@ -422,9 +422,9 @@ void showIntentTimeout();
 ///      the map strip until the player's next successful action), and is still
 ///      replaced early by the next message or cleared by the player's own next
 ///      successful action.
-///   3. the seat-attributed WAIT banner - the donor's
+///   3. the seat-attributed WAIT banner - the
 ///      "Please wait for {0}'s action to finish" driver
-///      (`cbff7951d:BattlescapeState.cpp:5292-5370`), re-homed from a vanilla
+///      of older versions' BattlescapeState, moved from a vanilla
 ///      per-frame method into CoopMod and fed by CoopArbiter::busyOwnerSeat().
 /// right after the live-state check, the CLIENT's
 /// battle-message drain (onMessageEvApplied() below decides, this shows).

@@ -359,7 +359,7 @@ def host_reveal_drops(host):
     fired (it stays armed through every action that reveals nothing)."""
     try:
         with open(os.path.join(host.user_dir, "openxcom.log"), "r", errors="replace") as f:
-            return sum(1 for ln in f if "reveal_drop lever fired" in ln)
+            return sum(1 for ln in f if "reveal_drop hook fired" in ln)
     except OSError:
         return 0
 

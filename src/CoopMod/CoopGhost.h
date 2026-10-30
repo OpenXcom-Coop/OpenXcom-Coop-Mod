@@ -324,7 +324,7 @@ void onOwnCombatEnd(SavedBattleGame* save, const Json::Value& ev, int actorId, c
 /// waits until the unit's collapse has ended. Main thread only; reads only.
 bool deathGhostActive(int unitId);
 
-/// TEST-ONLY - the `death_apply_hold` lever (TestServer battle_action,
+/// TEST-ONLY - the `death_apply_hold` hook (TestServer battle_action,
 /// sent to the coop client). While on, an applied `death` first runs ONE death-queue advance when the queue head is
 /// enqueued but not started (the head starts before the later death is enqueued; never a deferred apply). Off in
 /// every game; battle-scoped (cleared with the combat probe storage). Returns the value now held. Main thread only.

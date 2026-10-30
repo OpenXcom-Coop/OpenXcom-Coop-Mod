@@ -116,7 +116,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	_txtPosition = new Text(70, 9, 65, 95);
 	_txtNameStatic = new Text(210, 17, 28, 6);
 	_txtName = new TextEdit(this, 210, 17, 28, 6);
-	_txtCoopOwner = new Text(210, 17, 28, 18); // coop: the release line's owner line (its rect)
+	_txtCoopOwner = new Text(210, 17, 28, 18); // coop: the owner line of older versions (its rect)
 	_txtTus = new Text(40, 9, 245, 24);
 	_txtWeight = new Text(70, 9, 245, 24);
 	_txtStatLine1 = new Text(70, 9, 245, 32);
@@ -160,7 +160,7 @@ InventoryState::InventoryState(bool tu, BattlescapeState *parent, Base *base, bo
 	add(_btnQuickSearch, "textItem", "inventory");
 	add(_txtNameStatic, "textName", "inventory", _bg);
 	add(_txtName, "textName", "inventory", _bg);
-	add(_txtCoopOwner, "textCoopOwner", "inventory", _bg); // coop: the release line's interface id (no ruleset element)
+	add(_txtCoopOwner, "textCoopOwner", "inventory", _bg); // coop: the interface id of older versions (no ruleset element)
 	add(_txtTus, "textTUs", "inventory", _bg);
 	add(_txtWeight, "textWeight", "inventory", _bg);
 	add(_txtStatLine1, "textStatLine1", "inventory", _bg);

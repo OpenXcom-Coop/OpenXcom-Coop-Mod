@@ -537,8 +537,8 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	// coop: see the matching call in
 	// load() above. Self-guarded - it writes NOTHING outside an active co-op
 	// battle, so an SP save is byte-identical and the key is simply ABSENT there.
-	// The CAMPAIGN save block is deliberately untouched (the donor's
-	// SavedGame.cpp:1334/:1814 shape is NOT ported), and the key is on
+	// The CAMPAIGN save block is deliberately untouched (the
+	// SavedGame.cpp shape of older versions is NOT used), and the key is on
 	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
 	coopSaveTurnMode(writer);
 	// the mission deployment

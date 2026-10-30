@@ -2242,7 +2242,7 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "desync_dialog")
 	{
-		// coop (the reply shape of `main`'s desync_dialog, kept for test_crash_reporter): the notice on top (live) and
+		// coop (the reply shape of older versions' desync_dialog, kept for test_crash_reporter): the notice on top (live) and
 		// the statics of the last one raised (they survive its dismissal).
 		resp["ok"] = true;
 		State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
@@ -4699,7 +4699,7 @@ static std::vector<int> coopLeverRemovalIds(BattleItem* item)
 	return ids;
 }
 
-// a TEST LEVER removed these item ids on THIS machine.
+// a TEST HOOK removed these item ids on THIS machine.
 // HOST: dropped from the delta snapshot (the removal never rides a delta).
 // BOTH: forgotten by CoopIdMaps (the id is gone).
 static void coopLeverItemsRemoved(const std::vector<int>& ids)
@@ -7271,7 +7271,7 @@ static void coopSyncedAdvancedView(Game* game, Json::Value& out)
 // (the UNLOAD button). The Inventory surface is found through the state's own surface list (getSurfaces() +
 // dynamic_cast), never a vanilla accessor. One machine only: never forwarded, never read by game logic, no co-op
 // battle exists on these screens. A screen whose battle has a BattlescapeState is refused: a battle's inventory
-// uses inventory_click. Contract = main's (1aa4806e2):
+// uses inventory_click. Contract = as in older versions:
 //   inventory_move {name?, item, slot = right|left|belt|backpack|back|ground (default right), from = ground|unit
 //     (default ground)} -> {ok = moved, moved, landedSlot, landedOnUnit, warning?, path = quickDrop|fitItem}
 static void coopTestBaseInventoryMove(Game* game, const Json::Value& req, Json::Value& resp)
@@ -9716,8 +9716,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	{
 		// TEST command - write THIS machine's
 		// connectionTCP::_enable_research_sync (the session flag the host sends
-		// at COOP_READY). It stands in for main's in-session writer (#185,
-		// not at this tip). Sent to BOTH machines, client first. Reply
+		// at COOP_READY). It stands in for #185's in-session writer.
+		// Sent to BOTH machines, client first. Reply
 		// {ok, sync}.
 		connectionTCP* coopRS = _game->getCoopMod();
 		if (!req.isMember("enabled"))
@@ -13546,7 +13546,7 @@ std::string TestServer::execute(const std::string& line)
 				{
 					BattlescapeState* bsForBanner = bsLive;
 					resp["coopWaitText"] = bsForBanner ? bsForBanner->getCoopWaitText() : "";
-					// The DONOR END-TURN surface; the readiness tally drives it. Hidden
+					// The END-TURN surface of older versions; the readiness tally drives it. Hidden
 					// (empty) means no stray widget on the map strip.
 					resp["coopEndTurnText"] = bsForBanner ? bsForBanner->getCoopEndTurnText() : "";
 					// The button-inversion
@@ -14461,7 +14461,7 @@ std::string TestServer::execute(const std::string& line)
 				// optional "button" (default "left") - "right"
 				// drives SDL_BUTTON_RIGHT, needed by the secondaryAction
 				// intercept's faithful-UI repro variant (right-click = turn/door
-				// in vanilla battlescape input). The surviving @1e0f9276f body
+				// in vanilla battlescape input). The older versions' body
 				// this extends was left-only.
 				// "middle" added (additively) - the NEXT-STOP button's
 				// by-DISTANCE variant (BattlescapeState::btnNextStopMClick ->

@@ -475,7 +475,7 @@ void requestOmitTurnMode(bool on);
 
 /// Battle-entry SEAT-RELATIVE
 /// selection - "the client auto-selects its first owned unit at entry"
-/// (legacy shape `1e0f9276f:BattlescapeState.cpp:1606-1653`), generalized to
+/// (as older versions' BattlescapeState.cpp does it), generalized to
 /// BOTH machines because the rule (a seat never STARTS on a unit it cannot
 /// command) is seat-relative, not client-specific: with a seat-1 soldier in the
 /// craft the HOST's own initial selection is minted at battle-generation time,

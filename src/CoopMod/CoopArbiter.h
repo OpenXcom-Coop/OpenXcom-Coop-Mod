@@ -61,7 +61,7 @@ class Text;             // coop: coopEquipApplyViewLook()'s owner line
  * truncation ships a shorter prefix, and the wire's `dest`
  * then names that prefix's own endpoint so the plan stays self-consistent.
  * `pathOverride`, when non-empty, REPLACES the client's own previewed path -
- * it exists only for the `battle_intent` lever's `path` argument, which is how
+ * it exists only for the `battle_intent` test command's `path` argument, which is how
  * a test ships a deliberately-blocked plan for the `path_changed`
  * deny. Nothing in the game ever sets it.
  */
@@ -539,21 +539,21 @@ Json::Value pendingIntent();
 ///
 /// HOST arm: the busy predicate - `BattlescapeGame::isBusy()` OR an open
 /// action context (`currentActionId() != 0`). The owner is LATCHED once per busy window,
-/// donor semantics (`cbff7951d:BattlescapeState.cpp:5310-5327`): consequence
+/// as in older versions: consequence
 /// states (death/fall/explosion) are pushed to the FRONT of the queue mid-chain,
 /// so re-deriving the owner every tick would mis-attribute a kill to the victim's
-/// side. Resolved from `BattlescapeGame::getPrimaryBusyActor()` (the donor call
+/// side. Resolved from `BattlescapeGame::getPrimaryBusyActor()` (the older versions' call
 /// site) and, when the chain has already unwound but its
 /// action context is still open, from the arbiter's own pending-chain actor.
 ///
 /// CLIENT arm: a thin client pushes NO BStates (BattlePump.h: "appliers set flags
-/// only"), so `isBusy()` is always false there and the donor predicate cannot be
+/// only"), so `isBusy()` is always false there and the host's predicate cannot be
 /// used as-is. The client's equivalent knowledge is its own intent bookkeeping:
 /// its OWN admitted-and-unfinished action (a bt_ack recorded, its bt_action_end
 /// not yet applied) means the blocker is ITSELF; otherwise, while a busy-denied
 /// intent is held, the blocker is the only OTHER seat there can be. The
 /// other-seat branch is deliberately gated on `seatCount() == 2` - the same
-/// 2-player bridge the donor's own name fallback carries, and for the same
+/// 2-player bridge older versions' own name fallback carries, and for the same
 /// reason: there is no wire field that names a busy owner, so with 3+ seats this
 /// returns -1 and the presenter falls back to the generic busy row rather
 /// than guessing. NO new wire field is added for this.
@@ -672,7 +672,7 @@ bool coopEquipOpen();
 bool coopEquipLocalReady();
 
 /// TEST-ONLY `hold_battle_ready`, CLIENT.
-/// Armed, the client's handshake stashes its battle_ready instead of sending it; the TestServer lever's release
+/// Armed, the client's handshake stashes its battle_ready instead of sending it; the TestServer command's release
 /// takes the stash (coopTestHoldBattleReadyTake) and sends it. Inert unless armed. Never called by game logic.
 void coopTestHoldBattleReadyArm(bool on);
 bool coopTestHoldBattleReadyArmed();
@@ -681,14 +681,14 @@ bool coopTestHoldBattleReadyTake(Json::Value& out);
 
 /// TEST-ONLY `hold_blob_ack`, CLIENT. Armed, the client withholds its
 /// per-chunk WAIT_MAP_SENDER ack while a battle-handshake blob is awaited, so the host's streamer waits.
-/// Arm(false) disarms it and returns the count of withheld acks it cleared (the TestServer lever then sends ONE ack).
+/// Arm(false) disarms it and returns the count of withheld acks it cleared (the TestServer command then sends ONE ack).
 /// Inert unless armed. Never called by game logic.
 int coopTestHoldBlobAckArm(bool on);
 bool coopTestHoldBlobAckArmed();
 int coopTestHoldBlobAckHeld();
 
 /// coop: TEST-ONLY `hold_save_reply`, HOST. Armed, the host keeps its
-/// SEND_FILE_HOST_SAVE_PROGRESS go-ahead; Arm(false) disarms it and returns whether one was held (the TestServer lever then sends it).
+/// SEND_FILE_HOST_SAVE_PROGRESS go-ahead; Arm(false) disarms it and returns whether one was held (the TestServer command then sends it).
 /// Inert unless armed. Never called by game logic.
 bool coopTestHoldSaveReplyArm(bool on);
 bool coopTestHoldSaveReplyArmed();
@@ -696,12 +696,12 @@ bool coopTestHoldSaveReplyHeld();
 
 /// coop: TEST-ONLY `hold_blob_ack` scope: 0 "blob", 1 "base"
 /// (also while a CoopState 50 is on this machine's stack), 2 "save" (also while the host's save waits for the partner's world). Set by the
-/// TestServer lever only. Never called by game logic.
+/// TestServer command only. Never called by game logic.
 /// coop: scope 3 "upload" (on the host, every world chunk while armed).
 void coopTestHoldBlobAckSetScope(int scope);
 int coopTestHoldBlobAckScope();
 
-/// coop: TEST-ONLY `hold_battle_accept`, CLIENT. Armed, onOffer stashes its battle_accept; the TestServer lever's release takes
+/// coop: TEST-ONLY `hold_battle_accept`, CLIENT. Armed, onOffer stashes its battle_accept; the TestServer command's release takes
 /// the stash (coopTestHoldBattleAcceptTake) and sends it. Inert unless armed. Never called by game logic.
 void coopTestHoldBattleAcceptArm(bool on);
 bool coopTestHoldBattleAcceptArmed();
@@ -748,7 +748,7 @@ bool coopEquipCycleOwnUnit(SavedBattleGame* save, int dir);
 /// coop: TRUE when @a u is
 /// a PARTNER's soldier on the pre-battle equip screen - the equip phase is open, this seat is on the player side, and @a u is
 /// a live player-side unit with an inventory that this seat does not command and another player-side seat does. The screen
-/// shows it READ-ONLY (the release line's view): every inventory click, tool and rename on it does nothing. FALSE everywhere
+/// shows it READ-ONLY (as older versions show it): every inventory click, tool and rename on it does nothing. FALSE everywhere
 /// else (single player, mid-battle inventories, own units, PvP opponents). Also TRUE for a
 /// partner's soldier on a SHARED base inventory screen (see coopBaseInvScreen()); the same gates make it read-only there.
 bool coopEquipPartnerView(const BattleUnit* u);
@@ -775,7 +775,7 @@ bool coopTestBaseHeldDeferred();
 
 /// coop: the pre-battle screen's PREV / NEXT for a player-side seat - the second guarded statement of
 /// InventoryState::btnPrevClick / btnNextClick, after coopEquipCycleOwnUnit(). Runs vanilla's own
-/// BattlescapeState::selectPrevious / NextPlayerUnit with the partner's soldiers admitted (the release line's cycle: every
+/// BattlescapeState::selectPrevious / NextPlayerUnit with the partner's soldiers admitted (the cycle of older versions: every
 /// player-side soldier with an inventory, in unit order) and returns TRUE (the caller re-inits). FALSE (vanilla) elsewhere.
 bool coopEquipCycleView(BattlescapeState* parent, bool tu, int dir);
 
@@ -844,7 +844,7 @@ int coopFatalVoteOpen();
 Json::Value coopAbortVoteProbe();
 
 /// AbortMissionState's unit count. A co-op CLIENT
-/// counts through the read-only donor (its dialog is display-only: no tallyUnits(); the probe's dialogDonor); every
+/// counts through the read-only reproduction (its dialog is display-only: no tallyUnits(); the probe's dialogDonor); every
 /// other machine runs vanilla's tallyUnits(). Body: connectionTCP.cpp.
 BattlescapeTally coopAbortDialogTally(SavedBattleGame* save);
 
@@ -1378,17 +1378,17 @@ bool coopInterceptRename(BattleUnit* unit, const std::string& text);
 /// completed, released, failed, notices; last {bucket, seq, kind, battleId}; lastSkip / lastFail / lastOfferSide; bundle
 /// (this machine's last report zip); holdArmed; frozen (this machine's live desyncFrozen). Never read by game logic.
 Json::Value coopResyncRecord();
-/// coop: TEST-ONLY `resync_hold` lever (HOST). Armed, a desync report is logged with no repair offered. Inert unless
+/// coop: TEST-ONLY `resync_hold` hook (HOST). Armed, a desync report is logged with no repair offered. Inert unless
 /// armed. Returns the armed state.
 bool coopResyncHoldArm(bool on);
-/// coop: TEST-ONLY `resync_ready_mismatch` lever (HOST, one-shot): the next automatic repair offer expects a wrong
+/// coop: TEST-ONLY `resync_ready_mismatch` hook (HOST, one-shot): the next automatic repair offer expects a wrong
 /// copy hash, so onReady() takes its resumed mismatch branch. Inert unless armed.
 void coopTestResyncReadyMismatchArm();
 
 /// "Enable Reaction Fire in PvP". TRUE on the co-op
 /// HOST in a PvP battle (gamemode 2 / 3) whose host had the option off when the battle started (initBattleAuthority()
 /// takes Options::EnableReactionFirePvp into connectionTCP::_enable_reaction_shoot): UnitWalkBState then skips its
-/// walk-step reaction check - the release line's one gated site (main UnitWalkBState.cpp :465). A client's own setting
+/// walk-step reaction check - the one site older versions gate (their UnitWalkBState.cpp). A client's own setting
 /// never applies; every other reaction trigger (kneel, shot, melee, fall) stays vanilla. FALSE in single
 /// player, on a client, in classic / SHARED / SEPARATE co-op and in PvE2.
 bool coopPvpWalkReactionOff();

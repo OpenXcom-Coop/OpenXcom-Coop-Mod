@@ -223,8 +223,8 @@ public:
 	/// Determines whether there is an action currently going on.
 	bool isBusy() const;
 	/// coop: the OWNER unit of the
-	/// action chain currently running, ignoring consequence states. Donor
-	/// restore, `cbff7951d:BattlescapeGame.cpp:4272`; its only caller is the
+	/// action chain currently running, ignoring consequence states. The same
+	/// accessor as in older versions; its only caller is the
 	/// seat-attributed wait-banner driver in src/CoopMod (CoopBattleUi).
 	BattleUnit *getPrimaryBusyActor() const;
 	/// Activates primary action (left click).

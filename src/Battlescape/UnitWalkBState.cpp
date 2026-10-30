@@ -273,7 +273,7 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop: the hotseat REACT FIRE toggle (main UnitWalkBState :465) */ && !coopPvpWalkReactionOff()) // coop: the host's PvP option
+			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop: the hotseat REACT FIRE toggle, as in older versions */ && !coopPvpWalkReactionOff()) // coop: the host's PvP option
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
