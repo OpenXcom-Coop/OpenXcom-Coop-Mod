@@ -1,34 +1,40 @@
-"""W2-H71 (spec rewrite/prompts/w2h71_visit_window_pops.md (f); TASK 0 rewrite/w2h71-task0/sa/CONSTANTS.md; leads L-H64-1, L-LT8-1;
-rulings R-H71-0 (fix (c)), R-H71-1 (QH71-1 .. -6 (a)), R-H71-2 (the lift cells, R3-pre's log clock)): a partner world landing at a co-op
-base visit's end closes only the save window it answers. Today the host's MAP_RESULT_SAVE_PROGRESS handler and the client's
-close_save_progress handler pop WHATEVER co-op window is on top: the host's "Items received" (150) vanishes unread (R1), and a visit's
-"Synchronizing bases." (50) is popped so the base view (CoopState 55) pops the GeoscapeState and runs alone over a deleted globe (R2 host,
-R3 client); a lift click there reads the freed globe (TASK 0: a client crash, F20147).
-Three rows, one fresh boot pair each (key "49257", dirs w2h71_r1_* / _r2_* / _r3_*; new_campaign at HOST_POS, slow_clock, both tops Geo
-unchanged STABLE_S within BOOT_S; the picker (CAP); the visit: the client's real click on the host base marker). Real presses only, except
-the levers save_game_ui (the save trigger) and hold_base_result (TEST-ONLY, commit R0), R2's harness gift and R3's TEST-ONLY
-force_stream_key_miss (W2-H66; both S45, below) and the probes.
-  R1 (host, L-H64-1; no hold): B; save_game_ui quick (the host's 54, the client's 67); the client's OK, PURCHASE/RECRUIT, ONE arrow click on
-    ITEM's row, OK (the host's 150 over the 54); HOLD_PRE; read P; the client's GEOSCAPE; QUICK written (W_SAVE); read W after WAIT_W; the
-    host's real OK on a 150. Cells: R1-pre GUARD, R1-notice FIX, R1-items GUARD, R1-written GUARD, R1-ok FIX, R1-client GUARD, R1-common GUARD.
-  S45 (vwp-gap, F20480-F20486): W2-H70 pushes the visitor's own world at a gift made during a visit, so the leave's push carries the same
-    bytes and no longer moves the host fnv inside the held 50. R2 makes the gift inside the host's held 50 (the harness gift: the host's
-    screens are under its modal 50); R3 holds the gift's push on the client's lever until the client's 50 is up.
-  R2 (host, L-LT8-1; host hold): B (H0 = host coop_file_info host_copy_of_client fnv1a64); host hold_base_result HOLD_MS; the host's real
-    click on the client's marker; HOLD (W_HOLD); at once the host's soldier gift to the visiting client (hold_gift) and the client's OK on its
-    notice; the client's GEOSCAPE; watch until the host's top is BasescapeState for 1 s; read V. Cells: R2-pre GUARD, R2-stack FIX,
-    R2-geo FIX, R2-lift FIX, R2-leave GUARD.
-  R3 (client, L-LT8-1; client hold, QH71-2 (a)): the client's lever on; the gift; its push held (held: one W2-H70 line, one logged miss);
-    B; client hold_base_result; the client's GEOSCAPE, back on [GeoscapeState]; at once its real click on the host's marker; with the
-    client's 50 on top the lever off; watch until its top is BasescapeState for 1 s; read V. Cells: R3-pre GUARD (R-H71-2: the start of
-    the last host fnv == H0 read is later than the client's logged 50 push, the first changed read ends before its logged BasescapeState
-    push), R3-stack FIX, R3-geo FIX, R3-lift FIX, R3-leave GUARD.
-  -lift cells: clicked ONLY on [GeoscapeState, BasescapeState] (else FAIL "not reached (red stack)", no click): the real click on
-    the visited base's lift tile -> BriefingState over GeoscapeState within W_UI; the briefing's OK, then end_turn_button -> [GeoscapeState,
-    BasescapeState] within W_UI (TASK 0's way back); both alive.
-Red (commit R1, the R0 build): exit 2, RED exactly R1-notice, R1-ok, R2-stack, R2-geo, R2-lift, R3-stack, R3-geo, R3-lift (8 of 17).
-A precondition miss ends its row ("not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE EVIDENCE line per row,
-one PASS / FAIL line per cell, the verdict; every row runs; exit 0 only when every cell passes, else 2. WV-D95.
+"""test_visit_window_pops.py: a partner world landing at a co-op base visit's end closes only the save window it
+answers. When broken, the host's MAP_RESULT_SAVE_PROGRESS handler and the client's close_save_progress handler pop
+WHATEVER co-op window is on top: the host's "Items received" (150) vanishes unread (host_notice_kept), and a visit's
+"Synchronizing bases." (50) is popped so the base view (CoopState 55) pops the GeoscapeState and runs alone over a
+deleted globe (host_visit_landing on the host, client_visit_landing on the client); a lift click there reads the freed
+globe (a client crash).
+Three rows, one fresh boot pair each (key "49257", dirs window_pops_<row>_*; new_campaign at HOST_POS, slow_clock,
+both tops Geo unchanged STABLE_S within BOOT_S; the picker; the visit: the client's real click on the host base
+marker). Real presses only, except the test commands save_game_ui (the save trigger) and hold_base_result,
+host_visit_landing's harness gift and client_visit_landing's force_stream_key_miss (both below) and the probes.
+  host_notice_kept (host; no hold): B; save_game_ui quick (the host's 54, the client's 67); the client's OK,
+    PURCHASE/RECRUIT, ONE arrow click on ITEM's row, OK (the host's 150 over the 54); HOLD_PRE; read P; the client's
+    GEOSCAPE; QUICK written (W_SAVE); read W after WAIT_W; the host's real OK on a 150. Cells: host_notice_kept-pre
+    GUARD, -notice FIX, -items GUARD, -written GUARD, -ok FIX, -client GUARD, -common GUARD.
+  The gift: the client pushes its own world at a gift made during a visit, so the leave's push carries the same bytes
+    and no longer moves the host fnv inside the held 50. host_visit_landing makes the gift inside the host's held 50
+    (the harness gift: the host's screens are under its modal 50); client_visit_landing holds the gift's push with
+    force_stream_key_miss until the client's 50 is up.
+  host_visit_landing (host hold): B (H0 = host coop_file_info host_copy_of_client fnv1a64); host hold_base_result
+    HOLD_MS; the host's real click on the client's marker; HOLD (W_HOLD); at once the host's soldier gift to the
+    visiting client (hold_gift) and the client's OK on its notice; the client's GEOSCAPE; watch until the host's top
+    is BasescapeState for 1 s; read V. Cells: host_visit_landing-pre GUARD, -stack FIX, -geo FIX, -lift FIX, -leave
+    GUARD.
+  client_visit_landing (client hold): force_stream_key_miss on; the gift; its push held (held: one stored-world push
+    line, one logged miss); B; client hold_base_result; the client's GEOSCAPE, back on [GeoscapeState]; at once its
+    real click on the host's marker; with the client's 50 on top force_stream_key_miss off; watch until its top is
+    BasescapeState for 1 s; read V. Cells: client_visit_landing-pre GUARD (the start of the last host fnv == H0 read
+    is later than the client's logged 50 push, the first changed read ends before its logged BasescapeState push),
+    -stack FIX, -geo FIX, -lift FIX, -leave GUARD.
+  -lift cells: clicked ONLY on [GeoscapeState, BasescapeState] (else FAIL "not reached (broken stack)", no click): the
+    real click on the visited base's lift tile -> BriefingState over GeoscapeState within W_UI; the briefing's OK,
+    then end_turn_button -> [GeoscapeState, BasescapeState] within W_UI; both alive.
+When broken: exit 2, exactly host_notice_kept-notice, -ok, host_visit_landing-stack, -geo, -lift,
+client_visit_landing-stack, -geo, -lift FAIL (8 of 17).
+A precondition miss ends its row ("not reached"); a boot miss fails the row's -pre cell with ONE CAPTURE line. ONE
+EVIDENCE line per row, one PASS / FAIL line per cell, the verdict; every row runs; exit 0 only when every cell passes,
+else 2.
 """
 import base64, datetime, glob, json, math, os, sys, time  # noqa: E401
 from types import SimpleNamespace
@@ -40,7 +46,7 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49257"
-QUICK, PROBE = "_quick_.asav", "w2h71_probe.sav"
+QUICK, PROBE = "_quick_.asav", "window_pops_probe.sav"
 HOST_POS = (0.90, -0.60)
 ITEM = "STR_STINGRAY_MISSILES"
 SDLK_KP2 = 258
@@ -56,10 +62,10 @@ NEEDLES = {"CLEAR": "[coop-session] clearDeferredSave", "CLOSE54": "[coop] the h
            "HOLDFIRE": "[coop-test] hold_base_result: the held base view opens", "GEOPOP": "[coop-ui] pop  class OpenXcom::GeoscapeState",
            "BSPUSH": "[coop-ui] push class OpenXcom::BasescapeState depth="}
 PUSH50 = "[coop-ui] push class OpenXcom::CoopState depth=2"
-GIFT70 = "[coop-gift] the stored own world follows a gift"  # W2-H70 E1: the client pushed its stored own world at the gift
-MISS = "Failed to read from hash map with key: client_"  # loopData's logged miss of the client's own-world key (W2-H66 lever)
-W_LEVER = 5.0  # the lever's miss follows the host's reply to the client's push (W2-H70 T1: the whole stream took 0.23 s)
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
+GIFT_PUSH = "[coop-gift] the stored own world follows a gift"  # the client pushed its stored own world at the gift
+MISS = "Failed to read from hash map with key: client_"  # loopData's logged miss of the client's own-world key
+W_MISS = 5.0  # the forced miss follows the host's reply to the client's push (the whole stream was measured at 0.23 s)
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this harness slot's own crash folder
 GEO, BS = "GeoscapeState", "BasescapeState"
 
 class Stop(Exception):
@@ -132,7 +138,7 @@ def real_click(gc, text, timeout):
     return False
 
 def leave_base(gc):
-    """CAP's leave_base: close a sub-screen or a CoopState on top, then the real GEOSCAPE"""
+    """leave_base: close a sub-screen or a CoopState on top, then the real GEOSCAPE"""
     for _ in range(4):
         t = top(gc)
         if t in ("SoldierInfoState", "SoldiersState", "PurchaseState"):
@@ -145,7 +151,7 @@ def leave_base(gc):
             break
     return real_click(gc, "GEOSCAPE", W_UI)
 
-# ----- the globe picker (CAP) -----
+# ----- the globe picker -----
 def project(G, lon, lat, geom):
     cl, ct = G["globeLon"], G["globeLat"]
     R = ZOOM[int(G["globeZoom"])] * geom["H"]
@@ -162,7 +168,8 @@ def own_base(gc):
     return next((b for b in gc.ok({"cmd": "geo_state"}).get("bases", []) if not b.get("coopIcon") and not b.get("coopBase")), None)
 
 def click_marker(gc, base, pk, fnv_host=None, fnv_reads=None):
-    """the real marker click (CAP offsets, ONE request); with fnv_host each cycle reads the host fnv first -> (t50 epoch, codes)"""
+    """the real marker click (CLICKS offsets, ONE request); with fnv_host each cycle reads the host fnv first -> (t50
+    epoch, codes)"""
     x, y = project(pk["G"], base["lon"], base["lat"], pk["geom"])
     t50, codes = None, []
     for dx, dy in CLICKS:
@@ -175,7 +182,7 @@ def click_marker(gc, base, pk, fnv_host=None, fnv_reads=None):
             st = stack(gc)
             if st[-1:] == ["CoopState"]:
                 moved = True
-                if fnv_host is None:  # R3 polls the host fnv and does not use the dialog codes
+                if fnv_host is None:  # client_visit_landing polls the host fnv and does not use the dialog codes
                     c = dlg(gc).get("code")
                     codes.append(c)
                     t50 = t50 or (time.time() if c == 50 else None)
@@ -238,7 +245,8 @@ def visit(x):
         raise Stop("the client not inside the host base (codes %s, stack %s)" % (codes, stack(x.client)))
 
 def gift(x):
-    """CAP host_gift_to_client: BASES, SOLDIERS, the first row, KP2, the client's button; the client's notice OK; the host back on [Geo]"""
+    """the host's gift to the client: BASES, SOLDIERS, the first row, KP2, the client's button; the client's notice OK;
+    the host back on [Geo]"""
     h, c = x.host, x.client
     real_click(h, "BASES", W_UI)
     wait(lambda: top(h) == BS, W_UI, 0.02)
@@ -269,11 +277,12 @@ def gift(x):
     time.sleep(1.0)
 
 def hold_gift(x, ev):
-    """R2 (S45, vwp-gap F20484): the host's soldier gift to the visiting client INSIDE the host's held 50. W2-H70 pushes the client's own
-    world at the gift, so the gift (no longer the leave, whose push now carries the same bytes) is the client world that changes the host
-    fnv while the 50 is up. The host's screens sit under its own modal 50, so the gift is the harness `gift` command: the call
-    GiftSoldierMenu's button makes (giftSoldier(soldier, owner, true)) for the host base's first soldier (the original first SOLDIERS row) to
-    the client (owner 1). Then the client's real OK on its GiftNoticeState."""
+    """host_visit_landing: the host's soldier gift to the visiting client INSIDE the host's held 50. The client pushes
+    its own world at the gift, so the gift (not the leave, whose push carries the same bytes) is the client world that
+    changes the host fnv while the 50 is up. The host's screens sit under its own modal 50, so the gift is the harness
+    `gift` command: the call GiftSoldierMenu's button makes (giftSoldier(soldier, owner, true)) for the host base's
+    first soldier (the original first SOLDIERS row) to the client (owner 1). Then the client's real OK on its
+    GiftNoticeState."""
     h, c = x.host, x.client
     hb = next((b for b in q(h, {"cmd": "get_soldiers"}).get("bases", []) if not b.get("coopIcon") and not b.get("coopBaseFlag")), None)
     name = ((hb or {}).get("soldiers") or [{}])[0].get("name")
@@ -286,23 +295,25 @@ def hold_gift(x, ev):
         raise Stop("hold_gift: %s" % ev["gift"])
     real_click(c, "OK", W_UI)
 
-def lever(x, on):
-    """R3 (S45, vwp-gap F20483): W2-H66's TEST-ONLY force_stream_key_miss on the client: while on, its host-bound stream finds no blob and
-    retries, so the world W2-H70 pushes at the gift does not land before B; off (with the client's 50 up), the held stream sends the
-    client's current own-world blob. Not usable in R2: the held stream also holds the client's base stream the host's visit needs"""
+def force_miss(x, on):
+    """client_visit_landing: the test command force_stream_key_miss on the client: while on, its host-bound stream finds
+    no blob and retries, so the world the client pushes at the gift does not land before B; off (with the client's 50
+    up), the held stream sends the client's current own-world blob. Not usable in host_visit_landing: the held stream
+    also holds the client's base stream the host's visit needs"""
     lv = q(x.client, {"cmd": "force_stream_key_miss", "on": on})
     if not (lv.get("ok") and lv.get("on") is on):
         raise Stop("force_stream_key_miss %s not set on the client: %s" % (on, lv))
 
 def held(x, cr, n_c):
-    """after the gift: the client's ONE W2-H70 push and the lever's ONE logged miss of it (a crash file new since cr) -> ev-ready dict"""
+    """after the gift: the client's ONE stored-world push and the forced ONE logged miss of it (a crash file new since
+    cr) -> ev-ready dict"""
     def probe():
-        n70 = sum(1 for ln in log(x.client)[n_c:] if GIFT70 in ln)
+        pushes = sum(1 for ln in log(x.client)[n_c:] if GIFT_PUSH in ln)
         ms = sorted(os.path.basename(p) for p in crashes() - cr if MISS in open(p, encoding="utf-8", errors="replace").read())
-        return {"n70": n70, "misses": ms}
-    v, s = wait(lambda: (lambda d: d if d["n70"] == 1 and len(d["misses"]) == 1 else None)(probe()), W_LEVER, 0.02)
+        return {"pushes": pushes, "misses": ms}
+    v, s = wait(lambda: (lambda d: d if d["pushes"] == 1 and len(d["misses"]) == 1 else None)(probe()), W_MISS, 0.02)
     if not v:
-        raise Stop("the W2-H70 push not held by the lever: %s" % probe())
+        raise Stop("the gift's push not held by force_stream_key_miss: %s" % probe())
     v["s"] = s
     return v
 
@@ -385,8 +396,10 @@ def guard(r, cid, label, fn):
     r.cell(cid, "GUARD", label, True)
     return v
 
-def row_r1(x, results):
-    r = Row("R1", ["R1-pre", "R1-notice", "R1-items", "R1-written", "R1-ok", "R1-client", "R1-common"], x)
+def row_host_notice_kept(x, results):
+    r = Row("host_notice_kept", ["host_notice_kept-pre", "host_notice_kept-notice", "host_notice_kept-items",
+                                 "host_notice_kept-written", "host_notice_kept-ok", "host_notice_kept-client",
+                                 "host_notice_kept-common"], x)
     if x.err:
         return boot_miss(r, results)
     h, c, ev = x.host, x.client, r.ev
@@ -409,7 +422,8 @@ def row_r1(x, results):
             raise Stop("no PurchaseState row %s / TextList" % ITEM)
         sc = x.pkC["scale"]
         bx, by = tl["x"] + 227 + 5, tl["y"] + items.index(ITEM) * 8 + 4
-        tc = time.time()   # one red lost this click (amount 0); the client log's PurchaseState push time is comparable
+        tc = time.time()   # one earlier run lost this click (amount 0); the client log's PurchaseState push time is
+        #                    comparable
         ev["buyClick"] = {"at": "%s.%03d" % (time.strftime("%H-%M-%S", time.localtime(tc)), int(tc * 1000) % 1000),
                           "tl": {k: tl.get(k) for k in ("visible", "hidden")}}
         q(c, {"cmd": "inject_input", "kind": "click", "x": int(bx * sc["x"] + 1), "y": int(by * sc["y"] + 1)})
@@ -425,8 +439,9 @@ def row_r1(x, results):
         if not (P["host"] == [GEO, "CoopState", "CoopState"] and P["dlg"].get("code") == 150 and P["pending"] == QUICK and P["inside"]):
             raise Stop("read P: %s" % P)
     try:
-        guard(r, "R1-pre", "read P: host [GeoscapeState, CoopState, CoopState], top 150 over the 54 (seen on top, %s armed); the client inside "
-              "the host base" % QUICK, pre)
+        guard(r, "host_notice_kept-pre",
+              "read P: host [GeoscapeState, CoopState, CoopState], top 150 over the 54 (seen on top, %s armed); the "
+              "client inside the host base" % QUICK, pre)
         tg = time.time()
         leave_base(c)
         mt, tcl = [x.q0], None
@@ -443,9 +458,12 @@ def row_r1(x, results):
         n = counts(h, x.n_h)
         W = ev["W"] = {"stack": stack(h), "dlg": dlg(h), "pending": coop(h).get("pendingHostSaveName"), "needles": n, "client s": tcl,
                        "transfers": next((b.get("transfers") for b in h.ok({"cmd": "geo_state"}).get("bases", []) if b.get("name") == x.hb["name"]), None)}
-        r.cell("R1-notice", "FIX", "read W: host top CoopState 150 with its OK visible, 3 states (red today: [GeoscapeState], the 150 popped "
-               "unread, F19760)", W["stack"] == [GEO, "CoopState", "CoopState"] and W["dlg"].get("code") == 150 and W["dlg"].get("backVisible") is True)
-        r.cell("R1-items", "GUARD", "read W: %s in %s's transfers, qty 1" % (ITEM, x.hb["name"]),
+        r.cell("host_notice_kept-notice", "FIX",
+               "read W: host top CoopState 150 with its OK visible, 3 states (when broken: [GeoscapeState], "
+               "the 150 popped unread)",
+               W["stack"] == [GEO, "CoopState", "CoopState"] and W["dlg"].get("code") == 150
+               and W["dlg"].get("backVisible") is True)
+        r.cell("host_notice_kept-items", "GUARD", "read W: %s in %s's transfers, qty 1" % (ITEM, x.hb["name"]),
                any(t.get("rule") == ITEM and t.get("qty") == 1 for t in W["transfers"] or []))
         if W["stack"][-1:] == ["CoopState"] and W["dlg"].get("code") == 150:
             n0 = len(log(h))
@@ -453,14 +471,19 @@ def row_r1(x, results):
             vb, sb = wait(lambda: stack(h) == [GEO], W_CLOSE, 0.005)
             c54 = sum(1 for ln in log(h)[n0:] if NEEDLES["CLOSE54"] in ln)
             ev["OK"] = {"click": ok, "back s": sb, "close54": c54}
-            r.cell("R1-ok", "FIX", "the host's real OK on the 150 -> [GeoscapeState] within %.0f s, CLOSE54 +1" % W_CLOSE, bool(ok and vb and c54 == 1))
+            r.cell("host_notice_kept-ok", "FIX",
+                   "the host's real OK on the 150 -> [GeoscapeState] within %.0f s, CLOSE54 +1" % W_CLOSE,
+                   bool(ok and vb and c54 == 1))
         else:
-            r.cell("R1-ok", "FIX", "not reached (no 150 on top at read W; red today)", False)
+            r.cell("host_notice_kept-ok", "FIX", "not reached (no 150 on top at read W; as when broken)", False)
         E = ev["E"] = {"mtimes": mt + [quick(h)], "needles": counts(h, x.n_h)}
-        r.cell("R1-written", "GUARD", "%s's mtime moved exactly once since B; CLEAR +1; pendingHostSaveName \"\" at W" % QUICK,
+        r.cell("host_notice_kept-written", "GUARD",
+               "%s's mtime moved exactly once since B; CLEAR +1; pendingHostSaveName \"\" at W" % QUICK,
                len(set(E["mtimes"])) == 2 and E["needles"]["CLEAR"] == 1 and W["pending"] == "")
-        r.cell("R1-client", "GUARD", "the client's stack == [GeoscapeState] within %.0f s of its GEOSCAPE (its 53 closed)" % W_SAVE, tcl is not None)
-        common(r, "R1", x)
+        r.cell("host_notice_kept-client", "GUARD",
+               "the client's stack == [GeoscapeState] within %.0f s of its GEOSCAPE (its 53 closed)" % W_SAVE,
+               tcl is not None)
+        common(r, "host_notice_kept", x)
     except Exception as e:
         r.stop(e)
     r.end(results)
@@ -470,7 +493,7 @@ def common(r, p, x):
     r.cell(p + "-common", "GUARD", "both alive; no new crash file since B", alive(x.host) and alive(x.client) and not nc)
 
 def visit_row(x, results, rid, who):
-    """R2 (who = host) / R3 (who = client)"""
+    """host_visit_landing (who = host) / client_visit_landing (who = client)"""
     p = rid
     r = Row(rid, [p + "-pre", p + "-stack", p + "-geo", p + "-lift", p + "-leave"], x)
     if x.err:
@@ -483,7 +506,7 @@ def visit_row(x, results, rid, who):
         visit(x)
         if who == "client":
             cr, n_c = crashes(), len(log(c))
-            lever(x, True)
+            force_miss(x, True)
             gift(x)
             ev["held"] = held(x, cr, n_c)
         baseline(x)
@@ -511,8 +534,8 @@ def visit_row(x, results, rid, who):
             click_marker(c, x.hb, x.pkC, h, reads)
             ev["at release"] = [stack(c), dlg(c).get("code")]
             if ev["at release"] != [[GEO, "CoopState"], 50]:
-                raise Stop("the client's 50 not on top at the lever's release: %s" % ev["at release"])
-            lever(x, False)
+                raise Stop("the client's 50 not on top when force_stream_key_miss is released: %s" % ev["at release"])
+            force_miss(x, False)
             watch(x, c, reads)
             t50, tbs = first_time(c, x.nk, PUSH50), first_time(c, x.nk, NEEDLES["BSPUSH"])
             h0 = [z for z in reads if z[1] == x.H0]
@@ -529,20 +552,24 @@ def visit_row(x, results, rid, who):
                      "host's 50 was first seen and before its BasescapeState")
         else:
             label = ("the client's PUSHED +1 and HOLD since B; the last host fnv == H0 read started after the client's logged 50 push and the first "
-                     "changed read ended before its logged BasescapeState push (R-H71-2)")
+                     "changed read ended before its logged BasescapeState push")
         guard(r, p + "-pre", label, pre)
         V = ev["V"] = stack(gc)
-        r.cell(p + "-stack", "FIX", "read V: the %s stack == [GeoscapeState, BasescapeState] (red today: [BasescapeState])" % who, V == [GEO, BS])
+        r.cell(p + "-stack", "FIX",
+               "read V: the %s stack == [GeoscapeState, BasescapeState] (when broken: [BasescapeState])" % who,
+               V == [GEO, BS])
         lines = [ln.split("\t")[-1] for ln in log(gc)[x.nk:]]
         geopop, bsp = sum(1 for ln in lines if NEEDLES["GEOPOP"] in ln), [ln for ln in lines if NEEDLES["BSPUSH"] in ln]
         ev["geo"] = {"GEOPOP": geopop, "BSPUSH": bsp}
-        r.cell(p + "-geo", "FIX", "the %s log since the click: GEOPOP 0 and the BSPUSH line ends depth=2 (red today: GEOPOP 1, depth=1)" % who,
+        r.cell(p + "-geo", "FIX",
+               "the %s log since the click: GEOPOP 0 and the BSPUSH line ends depth=2 (when broken: GEOPOP 1, depth=1)"
+               % who,
                geopop == 0 and len(bsp) == 1 and bsp[0].endswith("depth=2"))
         if V == [GEO, BS]:
             r.cell(p + "-lift", "FIX", "the real lift click -> BriefingState over GeoscapeState; OK, end_turn_button -> [GeoscapeState, "
                    "BasescapeState] within %.0f s; both alive" % W_UI, lift(x, gc, (x.cb if who == "host" else x.hb)["name"], ev))
         else:
-            r.cell(p + "-lift", "FIX", "not reached (red stack %s: no lift click on it, R-H71-2)" % V, False)
+            r.cell(p + "-lift", "FIX", "not reached (broken stack %s: no lift click on it)" % V, False)
         ok = real_click(gc, "GEOSCAPE", W_UI)
         vb, ev["leave s"] = wait(lambda: stack(gc) == [GEO], W_UI, 0.02)
         nc = sorted(crashes() - x.cr0)
@@ -594,8 +621,11 @@ def shut(x):
             failed.append("%s shutdown %s" % (x.tag, gc.name))
     return failed
 
-ROWS = (("R1", "w2h71_r1", lambda x, res: row_r1(x, res)), ("R2", "w2h71_r2", lambda x, res: visit_row(x, res, "R2", "host")),
-        ("R3", "w2h71_r3", lambda x, res: visit_row(x, res, "R3", "client")))
+ROWS = (("host_notice_kept", "window_pops_host_notice_kept", lambda x, res: row_host_notice_kept(x, res)),
+        ("host_visit_landing", "window_pops_host_visit_landing",
+         lambda x, res: visit_row(x, res, "host_visit_landing", "host")),
+        ("client_visit_landing", "window_pops_client_visit_landing",
+         lambda x, res: visit_row(x, res, "client_visit_landing", "client")))
 
 def main():
     t0, results, walls, failed = time.time(), {}, {}, []
