@@ -1,38 +1,41 @@
-"""W2-H31 rows G3E (boot G) and CM (boot C): a side a human plays ends by itself when none of its seats has a unit
-left to command (L-H29-1, F11676; QH29-5 (a), owner D53, design-D1, QU8-1 (a), r5-T5; vanilla: a side with no unit to
-move ends at once).
+"""test_mc_side_ends.py: a side a human plays ends by itself when none of its seats has a unit left to command, as in
+vanilla, where a side with no unit to move ends at once. The battle-end tally is vanilla's: the aliens' hold is released
+at their side's start, before the tally, so the battle goes on.
 
-Spec: docs repo rewrite/prompts/w2h31_mc_side_never_ends.md section (f) test_mc_side_ends.py (QH31-1..QH31-7 (a)),
-with the orchestrator rulings R-H31-1 (the battle-end tally is vanilla's) and R-H31-2 (CM-ends re-pointed to vanilla's
-outcome: the aliens' hold is released at their side's start, before the tally, so the battle goes on).
-Constants: rewrite/w2h31-task0/CONSTANTS.md (TASK 0 boots Ga / Gb, Ca / Cb, Ca2 / Cb2).
-
-Boot G (gm3 parallel, key 48786; the host plays the aliens, seat 0): G3F.bring_up, gm3_census-mode and gm3_census-seats
-must pass, every unit's reactions 0, the B2 staging (MCT.stage_open_ground).
-  G3E  the partner's X-COM S holds the host's only alien A (the host psi_attack lever on S, SEED_G3):
-       G3E-mc     (precondition) A faction 0, mcId S, coop 0 on both; both tops BattlescapeState
-       G3E-end    the partner's END TURN alone: the host's side-phase counter +1 within SIDE_S
-       G3E-skip   with no further press both machines on side 0 turn 2 within SIDE_S, and exactly one
-                  '[coop-endturn] no seat has a live unit on the active side' host log line (the host's side had no
-                  live seat)
-       G3E-back   A faction 1, coop 0 on both at side 0 turn 2 (released at its controller side's start)
-       G3E-alien  the partner's press: side 1 turn 2; host tally {count 0, needed 1} within PAINT_S; the host's press
-                  alone: side 0 turn 3
-       G3E-common every bucket EQUAL right before the partner's G3E-end press, desyncSeen false, no new crash file
-Boot C (classic co-op parallel, key 48787): MCC.boot_seated (X 1000000 pinned AI-neutral; seat 0 [10..14],
+The gm3 boot (gm3 parallel, key 48786; the host plays the aliens, seat 0): G3F.bring_up, gm3_census-mode and
+gm3_census-seats must pass, every unit's reactions 0, the open-ground staging (MCT.stage_open_ground).
+  alien_side_held  the partner's X-COM S holds the host's only alien A (the host's psi_attack test command on S,
+      SEED_TAKE_A):
+      alien_side_held-held                (precondition) A faction 0, mcId S, coop 0 on both; both tops
+                                          BattlescapeState
+      alien_side_held-partner_ends        the partner's END TURN alone: the host's side-phase counter +1 within SIDE_S
+      alien_side_held-side_skipped        with no further press both machines on side 0 turn 2 within SIDE_S, and
+                                          exactly one '[coop-endturn] no seat has a live unit on the active side' host
+                                          log line (the host's side had no live seat)
+      alien_side_held-released            A faction 1, coop 0 on both at side 0 turn 2 (released at its controller
+                                          side's start)
+      alien_side_held-alien_side_returns  the partner's press: side 1 turn 2; host tally {count 0, needed 1} within
+                                          PAINT_S; the host's press alone: side 0 turn 3
+      alien_side_held-common              every bucket EQUAL right before the partner's alien_side_held-partner_ends
+                                          press, desyncSeen false, no new crash file
+The classic boot (classic co-op parallel, key 48787): MCC.boot_seated (X 1000000 pinned AI-neutral; seat 0 [10..14],
 seat 1 [8, 9]), reactions 0, MCC.stage_tiles.
-  CM   X holds the partner's 8 and 9 (the C1 recipe, R-H29-A-1), the host's five soldiers die mid-side:
-       CM-mc      (precondition) 8 and 9 faction 1, mcId X, coop 1 on both
-       CM-out     (precondition) host kill_unit_real {coop_side 0}: killed [10..14], DEAD on both; the wait ends at
-                  the observed deaths, capped at WATCH_CAP_S (R-H31-3; boxes dismissed on their own machine; no
-                  turn screen closed, no settle)
-       CM-end     with no press the host's NextTurnState is up within SIDE_S of the kill, and exactly one self-end line
-       CM-ends    the alien side's turn screen: both machines on side 1 turn 1, 8 / 9 back at faction 0 (coop
-                  1) on both, no battleEnd (emitted 0, applied 0 on both); the host's close runs vanilla's tally and the
-                  battle goes on: the host's side 0 turn 2 turn screen with no DebriefingState, the partner on side 0
-                  turn 2, both records still 0 / 0 (vanilla: SBG :1742 releases the hold before the tally, BG :749)
-       CM-common  every bucket EQUAL right before the kill, desyncSeen false, no new crash file
-Every InfoboxState is dismissed on its own machine before any END TURN press (only the top state thinks, F11689).
+  xcom_side_wiped  X holds the partner's 8 and 9 (as in test_mc_seat_coop's ai_mind_control row), the host's five
+      soldiers die mid-side:
+      xcom_side_wiped-held              (precondition) 8 and 9 faction 1, mcId X, coop 1 on both
+      xcom_side_wiped-soldiers_dead     (precondition) host kill_unit_real {coop_side 0}: killed [10..14], DEAD on both;
+                                        the wait ends at the observed deaths, capped at WATCH_CAP_S (boxes dismissed on
+                                        their own machine; no turn screen closed, no settle)
+      xcom_side_wiped-side_ends_itself  with no press the host's NextTurnState is up within SIDE_S of the kill, and
+                                        exactly one self-end line
+      xcom_side_wiped-battle_goes_on    the alien side's turn screen: both machines on side 1 turn 1, 8 / 9 back at
+                                        faction 0 (coop 1) on both, no battleEnd (emitted 0, applied 0 on both); the
+                                        host's close runs vanilla's tally and the battle goes on: the host's side 0 turn
+                                        2 turn screen with no DebriefingState, the partner on side 0 turn 2, both
+                                        records still 0 / 0 (vanilla: SavedBattleGame.cpp:1742 releases the hold before
+                                        the tally, BattlescapeGame.cpp:749)
+      xcom_side_wiped-common            every bucket EQUAL right before the kill, desyncSeen false, no new crash file
+Every InfoboxState is dismissed on its own machine before any END TURN press (only the top state thinks).
 
 One EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a failure. A boot
 step past its bound prints ONE CAPTURE line and fails that boot's row "boot"; a staging step fails it "staging"; a cell
@@ -63,12 +66,17 @@ from test_mc_seat_tally import (mcv, poll_box, tally_view, unit_rows, turn_side,
 import test_mc_seat_coop as MCC  # noqa: E402
 from test_mc_seat_coop import X_ID, S0_IDS, S1_IDS, X_TU, DEAD  # noqa: E402
 
-KEY_G, KEY_C = "48786", "48787"
-SEED_G3 = 1                       # TASK 0 Ga / Gb: the host lever psi_attack {8, 1000000} converts A with seed 1
-W2H31 = "[coop-endturn] no seat has a live unit on the active side"   # the host's one log line per self-ended side
-WATCH_CAP_S = 135                 # CM-out ends at the observed deaths; >= max(120, 2.5 x 7.26 s)
-G_ROWS = (("G3E", ("G3E-mc", "G3E-end", "G3E-skip", "G3E-back", "G3E-alien", "G3E-common")),)
-C_ROWS = (("CM", ("CM-mc", "CM-out", "CM-end", "CM-ends", "CM-common")),)
+KEY_GM3, KEY_CLASSIC = "48786", "48787"
+SEED_TAKE_A = 1                   # the host's psi_attack test command {8, 1000000} converts A with seed 1
+NO_LIVE_SEAT_N = "[coop-endturn] no seat has a live unit on the active side"   # the host's one line per self-ended
+#                                                                                side
+WATCH_CAP_S = 135                 # xcom_side_wiped-soldiers_dead ends at the observed deaths; >= max(120, 2.5 x 7.26 s)
+GM3_ROWS = (("alien_side_held", ("alien_side_held-held", "alien_side_held-partner_ends", "alien_side_held-side_skipped",
+                                 "alien_side_held-released", "alien_side_held-alien_side_returns",
+                                 "alien_side_held-common")),)
+CLASSIC_ROWS = (("xcom_side_wiped", ("xcom_side_wiped-held", "xcom_side_wiped-soldiers_dead",
+                                     "xcom_side_wiped-side_ends_itself", "xcom_side_wiped-battle_goes_on",
+                                     "xcom_side_wiped-common")),)
 
 
 # ===================== probes and steps =====================
@@ -130,8 +138,8 @@ def debrief(gc):
 
 def self_end_lines(host):
     """The self-end line check: a bounded HOLD_S wait for the count to reach 1, then the count (want exactly 1)."""
-    BER.wait_until(lambda: log_count(host, W2H31) >= 1, HOLD_S, 0.25)
-    return log_count(host, W2H31)
+    BER.wait_until(lambda: log_count(host, NO_LIVE_SEAT_N) >= 1, HOLD_S, 0.25)
+    return log_count(host, NO_LIVE_SEAT_N)
 
 
 def to_side0_turn2(host, client):
@@ -150,53 +158,53 @@ def common_cell(host, client, crash0, hashed, at):
     return ok, f"{detail} (hash taken {at if hashed else 'at the row end: its point was not reached'})"
 
 
-# ===================== boot G and row G3E =====================
+# ===================== the gm3 boot and row alien_side_held =====================
 
 
-def boot_g(host, client, key):
+def boot_gm3(host, client, key):
     """G3F.bring_up (its own CAPTURE line on a miss); gm3_census-mode and gm3_census-seats must pass."""
-    boot, _crash = G3F.bring_up(host, client, key, "G")
+    boot, _crash = G3F.bring_up(host, client, key, "gm3")
     cells, _ev = G3F.census_cells(host, client, boot)
     bad = {n: cells[n][1] for n in ("gm3_census-mode", "gm3_census-seats") if not cells[n][0]}
     assert not bad, f"gm3_census cells {bad}"
     return {"boot": boot, "turnMode": [es(host, "turnMode"), es(client, "turnMode")]}
 
 
-def row_g3e(host, client, crash0, rec):
+def row_alien_side_held(host, client, crash0, rec):
     ev, cells, hashed = {}, {}, []
     gate = MCC.gate_runner(cells)
     amp = MCT.give_amp(host, client, S_ID)
     MCT.set_stat_both(host, client, S_ID, "psiSkill", 100)
     MCT.set_stat_both(host, client, A_ID, "psiStrength", 0)
     ev.update(amp=amp, sTu=set_tu_both(host, client, S_ID, 255))
-    ev.update(MCT.psi_attack_seeded(host, client, S_ID, A_ID, amp, SEED_G3, FACTION_PLAYER, rec, "G3E"))
+    ev.update(MCT.psi_attack_seeded(host, client, S_ID, A_ID, amp, SEED_TAKE_A, FACTION_PLAYER, rec, "alien_side_held"))
     a = [mcv(host, A_ID), mcv(client, A_ID)]
-    tops = MCT.tops_ready((host, client), rec, "before G3E-end press")
+    tops = MCT.tops_ready((host, client), rec, "before alien_side_held-partner_ends press")
     want_a = (FACTION_PLAYER, S_ID, 0, False, 0)
-    gate("G3E-mc", lambda: (a == [want_a] * 2 and tops,
+    gate("alien_side_held-held", lambda: (a == [want_a] * 2 and tops,
                             f"A host/client {a} (want {want_a}); both tops BattlescapeState {tops}"))
 
-    def g3e_end():
+    def partner_ends():
         ev["preEnd"] = views(host, client)
         hashed.append(G3F.hash_now(host, client))
-        ok, s, p0 = MCC.press_ends(host, client, client, rec, "before G3E-end press")
+        ok, s, p0 = MCC.press_ends(host, client, client, rec, "before alien_side_held-partner_ends press")
         ev["topsAfterEnd"] = [stack(host), stack(client)]
         return ok, (f"the partner's END TURN alone: host side-phase counter {p0} -> {MCC.pc(host)} within {SIDE_S} s: "
                     f"{ok} ({s} s)")
 
-    def g3e_skip():
+    def side_skipped():
         ok, s = to_side0_turn2(host, client)
         n = self_end_lines(host)
         ev["skip"] = {"tally": [tally_view(host), tally_view(client)], "lines": n}
         return ok and n == 1, (f"no further press: both machines on side 0 turn 2 within {SIDE_S} s: {ok} ({s}); host "
-                               f"'{W2H31}' lines {n} (want exactly 1); host tally {tally_view(host)}")
+                               f"'{NO_LIVE_SEAT_N}' lines {n} (want exactly 1); host tally {tally_view(host)}")
 
-    def g3e_back():
-        MCT.settle(host, client, rec, "G3E side 0 turn 2")
+    def alien_released():
+        MCT.settle(host, client, rec, "alien_side_held side 0 turn 2")
         v = [mcv(host, A_ID)[:3:2], mcv(client, A_ID)[:3:2]]
         return v == [(FACTION_HOSTILE, 0)] * 2, f"A (faction, coop) at side 0 turn 2 host/client {v} (want (1, 0))"
 
-    def g3e_alien():
+    def alien_side_returns():
         want = {"count": 0, "needed": 1}
         ev["preAlien"] = views(host, client)
         ok1, s1 = MCT.press_to(host, client, client, FACTION_HOSTILE, 2, rec, SIDE_S)
@@ -207,17 +215,21 @@ def row_g3e(host, client, crash0, rec):
                                     f"{PAINT_S} s: {pt} ({sp} s; {tally_view(host)['tally']}); the host's END TURN "
                                     f"alone -> side 0 turn 3: {ok2} ({s2})")
 
-    for name, fn in (("G3E-end", g3e_end), ("G3E-skip", g3e_skip), ("G3E-back", g3e_back), ("G3E-alien", g3e_alien)):
+    for name, fn in (("alien_side_held-partner_ends", partner_ends), ("alien_side_held-side_skipped", side_skipped),
+                     ("alien_side_held-released", alien_released),
+                     ("alien_side_held-alien_side_returns", alien_side_returns)):
         gate(name, fn)
-    ev.update(turnSide=[turn_side(host), turn_side(client)], lines=log_count(host, W2H31), boxes=rec.get("boxes"))
-    cells["G3E-common"] = common_cell(host, client, crash0, hashed, "right before the partner's G3E-end press")
+    ev.update(turnSide=[turn_side(host), turn_side(client)], lines=log_count(host, NO_LIVE_SEAT_N),
+              boxes=rec.get("boxes"))
+    cells["alien_side_held-common"] = common_cell(host, client, crash0, hashed,
+                                                  "right before the partner's alien_side_held-partner_ends press")
     return cells, ev
 
 
-# ===================== boot C and row CM =====================
+# ===================== the classic boot and row xcom_side_wiped =====================
 
 
-def row_cm(host, client, crash0, rec):
+def row_xcom_side_wiped(host, client, crash0, rec):
     ev, cells, hashed, t_kill = {}, {}, [], []
     gate = MCC.gate_runner(cells)
     amp = MCT.give_amp(host, client, X_ID)
@@ -225,7 +237,7 @@ def row_cm(host, client, crash0, rec):
     for uid in S1_IDS:
         MCT.set_stat_both(host, client, uid, "psiStrength", 0)
     ev["ampX"] = amp
-    for tag, tgt, seed in (("C1A", 8, MCC.SEED_TAKE_8), ("C1B", 9, MCC.SEED_TAKE_9)):
+    for tag, tgt, seed in (("take_8", 8, MCC.SEED_TAKE_8), ("take_9", 9, MCC.SEED_TAKE_9)):
         reply = MCT.set_stat_both(host, client, X_ID, "tu", X_TU, refill=True)["tu"]
         back = [(units(gc).get(X_ID) or {}).get("tu") for gc in (host, client)]
         ev[tag] = {"xTu": {"reply": reply, "readBack": back}}
@@ -234,15 +246,16 @@ def row_cm(host, client, crash0, rec):
     MCT.set_stat_both(host, client, X_ID, "tu", 0, refill=True)
     held = {i: [mcv(host, i)[:3], mcv(client, i)[:3]] for i in S1_IDS}
     want = (FACTION_HOSTILE, X_ID, 1)
-    gate("CM-mc", lambda: (all(v == [want, want] for v in held.values()),
+    gate("xcom_side_wiped-held", lambda: (all(v == [want, want] for v in held.values()),
                            f"8 / 9 (faction, mcId, coop) host/client {held} (want {want})"))
 
-    def cm_out():
-        ev["preKill"] = {"tally": [tally_view(host), tally_view(client)], "rvu8": MCC.live_units_changed_count(host)}
+    def soldiers_dead():
+        ev["preKill"] = {"tally": [tally_view(host), tally_view(client)],
+                         "liveChanged": MCC.live_units_changed_count(host)}
         hashed.append(G3F.hash_now(host, client))
         t_kill.append(time.time())
         k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "coop_side": 0})
-        ok, s = BER.wait_until(lambda: boxes(host, client, rec, "CM kill")
+        ok, s = BER.wait_until(lambda: boxes(host, client, rec, "xcom_side_wiped kill")
                                and all((units(gc).get(i) or {}).get("status") == DEAD
                                        for gc in (host, client) for i in S0_IDS), WATCH_CAP_S, 0.1)
         ev["kill"] = k
@@ -250,11 +263,11 @@ def row_cm(host, client, crash0, rec):
                 f"kill_unit_real coop_side 0 {k} (want killed {S0_IDS}); DEAD on both (the wait capped at "
                 f"{WATCH_CAP_S} s): {ok} ({s} s)")
 
-    def cm_end():
+    def side_ends_itself():
         tops = []
 
         def up():
-            boxes(host, client, rec, "CM-end")
+            boxes(host, client, rec, "xcom_side_wiped-side_ends_itself")
             t = [top(host), top(client)]
             if not tops or tops[-1][1] != t:
                 tops.append((round(time.time() - t_kill[0], 2), t))
@@ -262,12 +275,13 @@ def row_cm(host, client, crash0, rec):
         ok, _s = BER.wait_until(up, max(0.0, SIDE_S - (time.time() - t_kill[0])), 0.1)
         at = round(time.time() - t_kill[0], 2)
         n = self_end_lines(host)
-        ev["endWait"] = {"tops": tops, "rvu8": MCC.live_units_changed_count(host), "tally": [tally_view(host), tally_view(client)]}
+        ev["endWait"] = {"tops": tops, "liveChanged": MCC.live_units_changed_count(host),
+                         "tally": [tally_view(host), tally_view(client)]}
         return ok and n == 1, (f"no press: host NextTurnState up within {SIDE_S} s of the kill: {ok} ({at} s after the "
-                               f"kill; host top {top(host)}, (turn, side) {turn_side(host)}); host '{W2H31}' lines {n} "
-                               f"(want exactly 1)")
+                               f"kill; host top {top(host)}, (turn, side) {turn_side(host)}); host "
+                               f"'{NO_LIVE_SEAT_N}' lines {n} (want exactly 1)")
 
-    def cm_ends():
+    def battle_goes_on():
         ok1, s1 = BER.wait_until(lambda: turn_side(host) == (1, 1) and turn_side(client) == (1, 1), STEP_S, 0.1)
         fc = {i: [mcv(host, i)[:3:2], mcv(client, i)[:3:2]] for i in S1_IDS}
         r0 = [record(host), record(client)]
@@ -285,12 +299,15 @@ def row_cm(host, client, crash0, rec):
                       f"applied) host/client {r0} (want (0, 0)); host dismiss_popup {d.get('handled')!r} (want "
                       f"'NextTurnState->close'); then the host's side 0 turn 2 turn screen and no DebriefingState: "
                       f"{ok2 and not deb} ({s2} s), the partner on side 0 turn 2: {ok3} ({s3} s); battleEnd {r1} (want "
-                      f"(0, 0): the battle goes on, R-H31-2)")
+                      f"(0, 0): the battle goes on)")
 
-    for name, fn in (("CM-out", cm_out), ("CM-end", cm_end), ("CM-ends", cm_ends)):
+    for name, fn in (("xcom_side_wiped-soldiers_dead", soldiers_dead),
+                     ("xcom_side_wiped-side_ends_itself", side_ends_itself),
+                     ("xcom_side_wiped-battle_goes_on", battle_goes_on)):
         gate(name, fn)
-    ev.update(turnSide=[turn_side(host), turn_side(client)], lines=log_count(host, W2H31), boxes=rec.get("boxes"))
-    cells["CM-common"] = common_cell(host, client, crash0, hashed, "right before the kill")
+    ev.update(turnSide=[turn_side(host), turn_side(client)], lines=log_count(host, NO_LIVE_SEAT_N),
+              boxes=rec.get("boxes"))
+    cells["xcom_side_wiped-common"] = common_cell(host, client, crash0, hashed, "right before the kill")
     return cells, ev
 
 
@@ -298,9 +315,9 @@ def row_cm(host, client, crash0, rec):
 
 
 def run_boot(tag, key, boot_fn, staging_fn, rows, row_fns):
-    """MCT.run_boot with the dir prefix w2h31_ (F10917 copy pattern) and ONE CAPTURE line per missed boot step."""
-    host = GameClient("host", None, make_user_dir(f"w2h31_{tag}_host"))
-    client = GameClient("client", None, make_user_dir(f"w2h31_{tag}_client"))
+    """MCT.run_boot with the dir prefix mc_side_ends_ and ONE CAPTURE line per missed boot step."""
+    host = GameClient("host", None, make_user_dir(f"mc_side_ends_{tag}_host"))
+    client = GameClient("client", None, make_user_dir(f"mc_side_ends_{tag}_client"))
     m, rec, fails = (host, client), {"boxes": []}, 0
     try:
         try:
@@ -321,8 +338,9 @@ def run_boot(tag, key, boot_fn, staging_fn, rows, row_fns):
 
 def main():
     t0 = time.time()
-    fails = run_boot("g", KEY_G, boot_g, lambda h, c, rec: MCT.stage_open_ground(h, c), G_ROWS, (row_g3e,))
-    fails += run_boot("c", KEY_C, MCC.boot_seated, MCC.stage_tiles, C_ROWS, (row_cm,))
+    fails = run_boot("gm3", KEY_GM3, boot_gm3, lambda h, c, rec: MCT.stage_open_ground(h, c), GM3_ROWS,
+                     (row_alien_side_held,))
+    fails += run_boot("classic", KEY_CLASSIC, MCC.boot_seated, MCC.stage_tiles, CLASSIC_ROWS, (row_xcom_side_wiped,))
     print(f"test_mc_side_ends: {'PASS' if not fails else 'FAIL'} ({fails} failing cell(s)) wall "
           f"{time.time() - t0:.1f} s", flush=True)
     sys.exit(0 if not fails else 2)
