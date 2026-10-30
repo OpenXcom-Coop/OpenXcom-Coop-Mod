@@ -1,52 +1,38 @@
-"""SPEC 16 S1 - client drops mid-player-turn with a HOST WALK IN
-FLIGHT (drain-first proof, M1+M2). S2-S5 are later cycles, not in this file.
+"""Pause on leave: a partner who leaves mid-battle pauses the host's battle only after the host's
+running action has finished on its own. Two scenarios.
 
-Construction = owner D95 (2026-09-16, R1M F340/F342): a host-origin walk is
-NOT a wire intent (beginHostLocalWalk is a UI-click path only) and the
-test-only chain-hold lever of the time (deleted in W2-P4 S-F) never engaged
-for it, so a deterministic "walk in
-flight" fixture needs a real slow multi-step walk, not the intent lane. The
-fixture: SKYRANGER + a landed STR_SMALL_SCOUT (the smallest UFO) + one alien
-teleported onto the UFO's lift-shaft second level (z+1, facing away) + the
-host slowed via boot-time battleXcomSpeed=200, walking roughly 11-13 steps
-under the Skyranger via the real UI click path. LOS is absent by
-construction (the shaft's vertical floor separation plus horizontal distance
-beyond MAX_VIEW_DISTANCE) and is also confirmed empirically
-(spottedThisTurn stays empty on the alien before and during the walk).
-While that walk is in flight (>=2 steps still pending), the client
-disconnects. This exact fixture was measured REPRODUCIBLE 3/3 at tip
-bb2a14dae before any M1/M2 code existed. WV-D77 evidence folded in:
-battle_teleport is a dead "unsupported" stub (TestServer.cpp) - the live
-lever is battle_teleport_unit; the runtime set_option command has no case
-for battleXcomSpeed - the live lever is the boot-time options.cfg field via
-make_user_dir(options=...); the New Battle levers are newbattle_mission/
-newbattle_craft (there is no write_battle_fixture command).
+Walk drop (the default run): the client drops mid-player-turn with a HOST WALK IN FLIGHT. A host walk
+is NOT a wire intent (beginHostLocalWalk is a UI-click path only), so a deterministic "walk in flight"
+fixture needs a real slow multi-step walk. The fixture: SKYRANGER + a landed STR_SMALL_SCOUT (the
+smallest UFO) + one alien teleported onto the UFO's lift-shaft second level (z+1, facing away) + the
+host slowed via boot-time battleXcomSpeed=200, walking roughly 11-13 steps under the Skyranger via the
+real UI click path. LOS is absent by construction (the shaft's vertical floor separation plus
+horizontal distance beyond MAX_VIEW_DISTANCE) and is also confirmed empirically (spottedThisTurn stays
+empty on the alien before and during the walk). While that walk is in flight (>=2 steps still pending),
+the client disconnects. Without the fix this fixture froze the walk 3 runs out of 3. Test commands:
+battle_teleport is a dead "unsupported" stub (TestServer.cpp), so the alien moves by
+battle_teleport_unit; the runtime set_option command has no case for battleXcomSpeed, so it is the
+boot-time options.cfg field via make_user_dir(options=...); the New Battle commands are
+newbattle_mission / newbattle_craft (there is no write_battle_fixture command).
 
-PRE-FIX (measured, F342, 3/3): connectionTCP::disconnectTCP() pushes
-CoopState(COOP_DLG_WAIT_PLAYERS) SYNCHRONOUSLY on the drop, which puts a new
-top state over BattlescapeState - only the top state thinks, so the
-in-flight UnitWalkBState stops advancing: the walk FREEZES mid-path (final
-tile != the destination straight_runs() actually aimed it at), and
-authority.phase reads "Idle" (F331's unconditional resetBattleAuthority())
-under dialog code 62.
+Without the fix: connectionTCP::disconnectTCP() pushes CoopState(COOP_DLG_WAIT_PLAYERS) SYNCHRONOUSLY
+on the drop, which puts a new top state over BattlescapeState - only the top state thinks, so the
+in-flight UnitWalkBState stops advancing: the walk FREEZES mid-path (final tile != the destination
+straight_runs() actually aimed it at), and authority.phase reads "Idle" (an unconditional
+resetBattleAuthority()) under dialog code 62.
 
-POST-FIX (M1+M2): the walk DRAINS to its own destination/TU before the modal
-appears - M2 defers the CoopState(COOP_DLG_WAIT_PLAYERS) push to the RB-D5
-pump point's quiescence check (CoopArbiter::currentActionId()==0), so the
-battlescape stays the top state and the walk keeps thinking until it
-finishes on its own, exactly like an uninterrupted control walk of the same
-recipe. The authority survives at phase=="Active" with
-authority.peerAbsent==true (M1) instead of being torn down to Idle. Because
-the modal cannot appear before that quiescence check passes, the drop run's
-final actor position matching ITS OWN intended destination (captured before
-the drop, so this is not a moving target) IS the ordering proof ("the modal
-appeared after action_end") as well as the drain proof - under the pre-fix
-behaviour the two can never match, since the walk never reaches its
-destination once frozen. Each skirmish battle boots its own randomly
-generated map, so the CONTROL run (which proves the recipe itself converges
-on its own destination absent any interference) and the DROP run are
-compared against their OWN destinations, never against each other's raw
-coordinates - see main()'s own note.
+With the fix: the walk DRAINS to its own destination/TU before the modal appears - the
+CoopState(COOP_DLG_WAIT_PLAYERS) push waits for the pump point's quiescence check
+(CoopArbiter::currentActionId()==0), so the battlescape stays the top state and the walk keeps
+thinking until it finishes on its own, exactly like an uninterrupted control walk of the same recipe.
+The authority survives at phase=="Active" with authority.peerAbsent==true instead of being torn down
+to Idle. Because the modal cannot appear before that quiescence check passes, the drop run's final
+actor position matching ITS OWN intended destination (captured before the drop, so this is not a
+moving target) IS the ordering proof ("the modal appeared after action_end") as well as the drain
+proof - without the fix the two can never match, since the walk never reaches its destination once
+frozen. Each skirmish battle boots its own map, so the CONTROL run (which proves the recipe itself
+converges on its own destination absent any interference) and the DROP run are compared against their
+OWN destinations - see main()'s own note.
 
 Exit codes (ONE run each of CONTROL then DROP, no re-run of either):
   * PASS (exit 0): the drop-run walk drained to its own destination with TU
@@ -59,46 +45,35 @@ Exit codes (ONE run each of CONTROL then DROP, no re-run of either):
     a >=2-pending mid-flight state, ...) - the scenario was never run to the
     point where it could prove anything.
   * FAIL (exit 2): a game process crashed.
-  * FAIL (exit 4): both runs completed but one or more of the S1 invariants
-    above did not hold - the RED this file exists to invert.
+  * FAIL (exit 4): both runs completed but one or more of the walk drop
+    invariants above did not hold - the failure this scenario exists to catch.
 
-S2 - client kill() mid-ALIEN-turn (D96 M2 quiescence-gate proof, cycle 4) is
-appended below (run_alien_turn_kill() / main_alien_turn_kill()), invoked separately via
-`python test_pause_on_leave.py s2` (plain `python
-test_pause_on_leave.py` still runs ONLY S1, unchanged). Construction
-(F343, measured at tip 1c0291aaa): SPEC 12 AI-stream fixture (STR_SMALL_SCOUT
-/ STR_FLOATER / seed 1, via repro_atom_side_transition.bring_up_lobby +
-session.drive_to_battlescape - the established recipe test_ai_origin_
-stream.py already uses); a HOST soldier is teleported ADJACENT to the alien
-(its weapon is NOT stripped, unlike the AI-stream suite's own walk-only
-fixture) so the alien ATTACKS on its turn - an in-flight attack chain
-CoopArbiter's currentActionId() never wraps (CoopArbiter.h:145: "AI shot/
-grenade/psi stay out pending the shot atom"). Both players end turn; the
-side-flip pushes a NextTurnState that blocks handleAI until dismissed
-(dismiss_next_turn_if_present, same trap test_ai_origin_stream.py/
-repro_atom_side_transition.py already document), so the poll loop dismisses
-it every iteration. The poll catches the host busy on a NON-walk chain
-(isBusy True, and NOT an in-flight walk actionId change) - the vacuity
-target: without this the AI could have chosen to walk instead of attack, and
-"mid-alien-turn" attack interruption would be untested. `client.kill()` fires
+Alien-turn kill (run_alien_turn_kill() / main_alien_turn_kill(), invoked separately via
+`python test_pause_on_leave.py alien_turn`; plain `python test_pause_on_leave.py` runs ONLY the walk
+drop): the client is killed mid-ALIEN-turn. Construction: the AI-stream fixture (STR_SMALL_SCOUT /
+STR_FLOATER / seed 1, via repro_atom_side_transition.bring_up_lobby + session.drive_to_battlescape -
+the recipe test_ai_origin_stream.py also uses); a HOST soldier is teleported ADJACENT to the alien (its
+weapon is NOT stripped, unlike the AI-stream suite's own walk-only fixture) so the alien ATTACKS on its
+turn - an in-flight attack chain CoopArbiter's currentActionId() never wraps. Both players end turn;
+the side-flip pushes a NextTurnState that blocks handleAI until dismissed (dismiss_next_turn_if_present,
+the same trap test_ai_origin_stream.py / repro_atom_side_transition.py document), so the poll loop
+dismisses it every iteration. The poll catches the host busy on a NON-walk chain (isBusy True, and NOT
+an in-flight walk actionId change) - the vacuity target: without this the AI could have chosen to walk
+instead of attack, and "mid-alien-turn" attack interruption would be untested. `client.kill()` fires
 there; the host is then sampled for the pause modal (dialog code 62).
 
-PRE-FIX (measured, F343): the M2 gate (`currentActionId()==0` alone) is
-blind to this chain, so the modal fires ~0.02s after the kill while the
-alien is still mid-attack; the pushed CoopState(COOP_DLG_WAIT_PLAYERS)
-becomes the top state, so BattlescapeGame::think() (and therefore the
-ProjectileFlyBState mid-flight) never runs again - the alien is left frozen
-at STATUS_AIMING(4) with pendingStates>0 for as long as it was sampled
-(captured: sustained 1.3s).
+Without the fix (the gate `currentActionId()==0` alone): the gate is blind to this chain, so the modal
+fires ~0.02s after the kill while the alien is still mid-attack; the pushed
+CoopState(COOP_DLG_WAIT_PLAYERS) becomes the top state, so BattlescapeGame::think() (and therefore the
+ProjectileFlyBState mid-flight) never runs again - the alien is left frozen at STATUS_AIMING(4) with
+pendingStates>0 for as long as it was sampled (measured: sustained 1.3s).
 
-POST-FIX (D96, `!isBusy() && currentActionId()==0`): the modal push is
-deferred until the host's BState stack has ALSO drained, so by the time the
-dialog appears the interrupted attack has already resolved on its own - the
-alien's status reads a resting value (never STATUS_WALKING(1) or
-STATUS_AIMING(4)) and isBusy()/pendingStates read false/0, at (or before) the
-same sample that first shows the dialog.
+With the fix (`!isBusy() && currentActionId()==0`): the modal push waits until the host's BState stack
+has ALSO drained, so by the time the dialog appears the interrupted attack has already resolved on its
+own - the alien's status reads a resting value (never STATUS_WALKING(1) or STATUS_AIMING(4)) and
+isBusy()/pendingStates read false/0, at (or before) the same sample that first shows the dialog.
 
-Exit codes (S2, run_alien_turn_kill()/main_alien_turn_kill()):
+Exit codes (alien-turn kill, run_alien_turn_kill()/main_alien_turn_kill()):
   * PASS (exit 0): the alien was genuinely caught mid-action (isBusy True,
     pendingStates>0) before the kill; after the kill the pause modal (dialog
     62) appears, and by the time it has settled the alien's status is a
@@ -110,8 +85,8 @@ Exit codes (S2, run_alien_turn_kill()/main_alien_turn_kill()):
     busy on a non-walk chain within the poll window, or the dialog never
     appeared) - the scenario was never run to the point where it could prove
     anything.
-  * FAIL (exit 4): the run completed but one or more of the S2 invariants
-    above did not hold - the RED this scenario exists to invert.
+  * FAIL (exit 4): the run completed but one or more of the alien-turn kill
+    invariants above did not hold - the failure this scenario exists to catch.
 """
 import os
 import sys
@@ -126,8 +101,8 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
-from harness import shutdown_clients  # noqa: E402 (W2-U8d F8416: _alien_turn_bring_up's cleanup)
-import repro_atom_side_transition as sid  # noqa: E402 (S2: bring_up_lobby + dismiss_next_turn_if_present)
+from harness import shutdown_clients  # noqa: E402 (_alien_turn_bring_up's cleanup)
+import repro_atom_side_transition as sid  # noqa: E402 (alien-turn kill: bring_up_lobby + dismiss_next_turn_if_present)
 
 SDLK_HOME = 278
 SDLK_TAB = 9
@@ -136,10 +111,10 @@ COOP_DLG_WAIT_PLAYERS = 62
 BASE_PORT = 49950
 # Rare-dataset scan ceiling for _locate_ufo_lift_column(): any mapDataSetID
 # seen fewer than this many times at z=0, excluding the common hull/ground
-# sets, is a lift/hull-dataset candidate (F342, measured on this build's
+# sets, is a lift/hull-dataset candidate (measured on the
 # STR_SMALL_SCOUT map).
 UFO_LIFT_DATASET_RARE_MAX = 80
-# Pinned via `set_seed` (session.drive_to_battlescape's `pre_ok` window) so
+# Set via `set_seed` (session.drive_to_battlescape's `pre_ok` window) so
 # CONTROL and DROP generate the IDENTICAL map/actor/alien layout - see
 # _bring_up()'s doc comment. Chosen empirically: this seed's STR_SMALL_SCOUT
 # skirmish map spawns the actor's squad far enough from the UFO's lift shaft
@@ -147,16 +122,16 @@ UFO_LIFT_DATASET_RARE_MAX = 80
 # a walk long enough to hold >=2 pending steps at battleXcomSpeed=200.
 WALK_DROP_SEED = 2
 
-# ----- S2 constants (F343: SPEC 12 AI-stream fixture, same mission/race/seed
-# test_ai_origin_stream.py already uses for a reproducible single-alien
+# ----- alien-turn kill constants (the AI-stream fixture: the mission/race/seed
+# test_ai_origin_stream.py also uses for a reproducible single-alien
 # STR_SMALL_SCOUT boot) -----
-SPEC16_S2_MISSION = "STR_SMALL_SCOUT"
-SPEC16_S2_RACE = "STR_FLOATER"
-SPEC16_S2_SEED = 1
-SPEC16_S2_BASE_PORT = 49970
+ALIEN_TURN_MISSION = "STR_SMALL_SCOUT"
+ALIEN_TURN_RACE = "STR_FLOATER"
+ALIEN_TURN_SEED = 1
+ALIEN_TURN_BASE_PORT = 49970
 # Mod/Unit.h UnitStatus enum: {STANDING,WALKING,FLYING,TURNING,AIMING,
 # COLLAPSING,DEAD,UNCONSCIOUS,PANICKING,BERSERK,IGNORE_ME}. The two "still
-# mid-animation" values F343 captured frozen under the pre-fix modal.
+# mid-animation" values seen frozen under the modal without the fix.
 STATUS_WALKING = 1
 STATUS_AIMING = 4
 
@@ -186,25 +161,25 @@ def _away_direction(actor, target_xy):
 
 def _bring_up(tag, run_idx, seed):
     """Skirmish (NEW BATTLE > COOP) lobby -> STR_SMALL_SCOUT landed UFO
-    ground assault, craft pinned to STR_SKYRANGER, host slowed via boot-time
+    ground assault, craft set to STR_SKYRANGER, host slowed via boot-time
     battleXcomSpeed. oxceCrashedOrLanded=2 forces the NEW BATTLE screen's UFO
     LANDED toggle on (NewBattleState.cpp:201-202), selecting
     STR_UFO_GROUND_ASSAULT instead of a 50/50 crash roll
-    (NewBattleState.cpp:757-767). @a seed is pinned via `set_seed` right
+    (NewBattleState.cpp:757-767). @a seed is set via `set_seed` right
     before `newbattle_ok` (session.drive_to_battlescape's `pre_ok` window -
     the established pattern this suite already uses, e.g.
     test_turn_baton.py/test_end_turn_tally.py/repro_atom_walk.py), so
     the CONTROL and DROP scenarios generate the IDENTICAL map/actor/alien
-    layout when called with the same @a seed - the spec's own "an
-    uninterrupted control run of the SAME walk" requires the SAME walk, not
-    merely the same recipe, and two independent un-seeded skirmish boots
-    never share a map."""
+    layout when called with the same @a seed - an uninterrupted control
+    run of the SAME walk requires the SAME walk, not merely the same
+    recipe, and two independent un-seeded skirmish boots never share a
+    map."""
     port = BASE_PORT + run_idx * 4
-    host_dir = make_user_dir(f"spec16s1_{tag}_host_{run_idx}", options={
+    host_dir = make_user_dir(f"pause_walk_drop_{tag}_host_{run_idx}", options={
         "battleXcomSpeed": 200,
         "oxceCrashedOrLanded": 2,
     })
-    client_dir = make_user_dir(f"spec16s1_{tag}_client_{run_idx}")
+    client_dir = make_user_dir(f"pause_walk_drop_{tag}_client_{run_idx}")
     host = GameClient("host", port, host_dir)
     client = GameClient("client", port + 1, client_dir)
     try:
@@ -265,12 +240,12 @@ def _locate_ufo_lift_column(host):
     """Scan z=0 for the UFO's own rare mapDataSetID (the lift/hull dataset)
     and return (x, y, ds_id, info) for the first (x,y) whose z=0 floor part
     carries it, or (None, None, None, info) if no such column exists on this
-    boot's map. this build's STR_SMALL_SCOUT UFO1 block has no
+    boot's map. The STR_SMALL_SCOUT UFO1 block has no
     isUfoDoor/isDoor tile anywhere, but it does have a real 1-tile-wide,
     3-level-tall lift/elevator shaft - use that instead of a door."""
     dr = host.cmd({"cmd": "find_doors", "limit": 1})
     mx, my = dr["mapSizeX"], dr["mapSizeY"]
-    # the z=0 level in bulk (session.tile_scan), read in the same x-then-y order as the old per-tile loop
+    # the z=0 level in bulk (session.tile_scan), read in x-then-y order
     rows = session.tile_scan(host, 0, mx - 1, 0, my - 1, 0, 0)
     counts = {}
     first_hit = {}
@@ -293,7 +268,7 @@ def _locate_ufo_lift_column(host):
         return None, None, None, {"counts": counts}
     ds_id = rare[0]
     x, y = first_hit[ds_id]
-    ti = host.cmd({"cmd": "tile_info", "x": x, "y": y, "z": 0})  # the chosen tile's full tile_info reply, as before
+    ti = host.cmd({"cmd": "tile_info", "x": x, "y": y, "z": 0})  # the chosen tile's full tile_info reply
     return x, y, ds_id, {"counts": counts, "ground_tile": ti}
 
 
@@ -309,14 +284,13 @@ def _far_destinations(host, actor, alien_pos, occupied, length, want=5):
     horizontally-visible alien. This fixture's LOS safety comes from a
     DIFFERENT mechanism: the alien sits one Z-LEVEL UP on the
     UFO's lift shaft, so line of sight is blocked by the intervening floor
-    regardless of horizontal distance - and the actor's own spawn is
-    measured (this file's own author-time hunt, captured 2026-09-16)
-    within 11-21 tiles of the shaft on EVERY seed tried on this map, well
-    under 20, which makes straight_runs()'s full-box requirement
+    regardless of horizontal distance - and the actor's own spawn was
+    measured within 11-21 tiles of the shaft on EVERY seed tried on this
+    map, well under 20, which makes straight_runs()'s full-box requirement
     unsatisfiable here by construction, not a bug in this fixture's LOS.
-    The spec's own S1 text makes the EMPIRICAL spottedThisTurn check (see
-    _run_scenario) the authority on LOS, not this distance heuristic - this
-    helper only orders candidates so the walk still heads AWAY from the
+    The EMPIRICAL spottedThisTurn check (see _run_scenario) is the
+    authority on LOS, not this distance heuristic - this helper only
+    orders candidates so the walk still heads AWAY from the
     alien first, same as the intent behind straight_runs()'s own ordering."""
     aliens = [alien_pos]
     ring = []
@@ -357,7 +331,7 @@ def _select_by_tab(gc, unit_id, max_presses=16):
 
 
 def _click_walk(host, dest, max_rounds=4):
-    """The proven real-UI recipe (a host walk is NOT a wire intent - F340):
+    """The proven real-UI recipe (a host walk is NOT a wire intent):
     HOME to center the camera, map_tile_click_pos to get a verified window
     pixel for @a dest, inject_input to click it."""
     for _ in range(max_rounds):
@@ -399,7 +373,7 @@ def _run_scenario(tag, run_idx, drop, seed):
     disconnects the client once >=2 steps are pending and captures the
     post-drop host state; if False, lets the walk run to completion (the
     CONTROL this file's assertions compare the drop run against). @a seed is
-    pinned identically for both scenarios so they generate the SAME map/
+    set identically for both scenarios so they generate the SAME map/
     actor/alien layout - see _bring_up()'s own doc comment."""
     host, client = _bring_up(tag, run_idx, seed)
     result = {"run": tag, "drop": drop, "ok": False}
@@ -455,8 +429,8 @@ def _run_scenario(tag, run_idx, drop, seed):
         dist_to_alien = session.min_dist_to([elevator_tile], dest)
         result["dest_dist_to_alien"] = dist_to_alien
 
-        # LOS is asserted EMPIRICALLY (F342/D95's own authority, not a
-        # horizontal-distance proxy - see _far_destinations()'s doc comment
+        # LOS is asserted EMPIRICALLY (not a horizontal-distance proxy - see
+        # _far_destinations()'s doc comment
         # for why straight_runs()'s bounding-box distance gate does not apply
         # to this shaft/Z-separation fixture): the alien must not spot the
         # actor before OR during the walk.
@@ -518,7 +492,7 @@ def _run_scenario(tag, run_idx, drop, seed):
 
 
 def main():
-    # WALK_DROP_SEED is pinned identically for both scenarios via `set_seed`
+    # WALK_DROP_SEED is set identically for both scenarios via `set_seed`
     # (session.drive_to_battlescape's `pre_ok` window - the established
     # pattern this suite already uses for a deterministic map/actor/alien
     # layout, e.g. test_turn_baton.py/repro_atom_walk.py). Without this,
@@ -526,8 +500,8 @@ def main():
     # cross-run "reached the SAME tile" comparison would be meaningless -
     # measured directly: two un-seeded boots landed the actor 11-30 tiles
     # apart with completely different candidate destinations. With the same
-    # seed, CONTROL and DROP are the SAME walk, exactly as the spec asks.
-    print("=== SPEC16 S1: CONTROL (no drop) ===")
+    # seed, CONTROL and DROP are the SAME walk.
+    print("=== walk drop: CONTROL (no drop) ===")
     control = _run_scenario("control", 0, drop=False, seed=WALK_DROP_SEED)
     print("CONTROL RESULT:", json.dumps(control, default=str, indent=2))
     if not control.get("ok"):
@@ -537,17 +511,17 @@ def main():
     control_pos = tuple(control["control_final_pos"])
     if control_pos != control_dest:
         print(f"FAIL: the CONTROL run itself did not reach its own destination "
-              f"{control_dest} (landed {control_pos}) - fixture broken, not an M1/M2 claim")
+              f"{control_dest} (landed {control_pos}) - fixture broken, not a pause-on-leave failure")
         sys.exit(1)
 
-    print("=== SPEC16 S1: DROP (client disconnects mid-walk) ===")
+    print("=== walk drop: DROP (client disconnects mid-walk) ===")
     dropped = _run_scenario("drop", 1, drop=True, seed=WALK_DROP_SEED)
     print("DROP RESULT:", json.dumps(dropped, default=str, indent=2))
     if not dropped.get("ok"):
         print("FAIL: the DROP run did not complete - fixture broken:", dropped.get("error"))
         sys.exit(1)
     if tuple(dropped["dest"]) != control_dest:
-        print(f"FAIL: the pinned seed did not reproduce the SAME walk - "
+        print(f"FAIL: the fixed seed did not reproduce the SAME walk - "
               f"control dest {control_dest} != drop dest {tuple(dropped['dest'])}")
         sys.exit(1)
 
@@ -562,14 +536,13 @@ def main():
     failures = []
 
     # ---- drain-to-completion against the CONTROL run of the SAME walk (the
-    # pinned seed makes this an exact TILE comparison, not an approximate
+    # fixed seed makes this an exact TILE comparison, not an approximate
     # one) - this doubles as the ordering proof: the fixed code can only
     # reach the control's own destination if the walk kept executing
-    # strictly AFTER the drop, i.e. the pause modal did not freeze it. Under
-    # the pre-fix behaviour this can never happen (measured RED: the walk
-    # stops wherever it was mid-path the instant the modal lands on top, and
-    # measured again after an M2 implementation bug - see the WV-D77 trace in
-    # this unit's commit message - final tile stuck at the drop-time tile).
+    # strictly AFTER the drop, i.e. the pause modal did not freeze it.
+    # Without the fix this can never happen (measured: the walk
+    # stops wherever it was mid-path the instant the modal lands on top; the
+    # final tile stays at the drop-time tile).
     # TU is checked only as "spent further past the drop-time reading", not
     # for exact equality against the control: two independently-booted
     # processes can pick up a handful of TU of incidental drift (e.g. a
@@ -618,12 +591,12 @@ def main():
         failures.append(f"BattlescapeState is not on the host's state stack: {states}")
 
     if failures:
-        print("FAIL: S1 invariant(s) violated:")
+        print("FAIL: walk drop invariant(s) violated:")
         for f in failures:
             print("  -", f)
         sys.exit(4)
 
-    print("PASS: SPEC16 S1 - the host's in-flight walk drained to the "
+    print("PASS: walk drop - the host's in-flight walk drained to the "
           "control's destination/TU before the pause modal appeared; the "
           "authority survived (phase=Active, peerAbsent=true, battleId "
           "unchanged); dialog 62 held the end control, no LobbyMenu, "
@@ -632,15 +605,15 @@ def main():
 
 
 # =====================================================================
-# S2 - client kill() mid-ALIEN-turn (D96 M2 quiescence-gate, cycle 4)
-# See the module docstring's S2 section for the full construction/exit-code
-# rationale. Kept separate from S1's main()/_run_scenario() (a different
+# Alien-turn kill - client kill() mid-ALIEN-turn (the quiescence gate also waits for !isBusy())
+# See the module docstring's alien-turn kill section for the full construction/exit-code
+# rationale. Kept separate from the walk drop's main()/_run_scenario() (a different
 # fixture entirely - AI-stream attack, not a host walk) and invoked
-# separately: `python test_pause_on_leave.py s2`.
+# separately: `python test_pause_on_leave.py alien_turn`.
 # =====================================================================
 
 def _alien_turn_bring_up(base_port):
-    """SPEC 12 AI-stream fixture bring-up: the same mission/race/seed
+    """The AI-stream fixture bring-up: the same mission/race/seed
     test_ai_origin_stream.py uses for a reproducible single-alien
     STR_SMALL_SCOUT boot, via repro_atom_side_transition.bring_up_lobby (the
     established shared lobby-dance helper, not a scratch copy)."""
@@ -653,9 +626,9 @@ def _alien_turn_bring_up(base_port):
     try:
         sid.bring_up_lobby(host, client, str(port))
         session.drive_to_battlescape(
-            host, client, seated, mission=SPEC16_S2_MISSION, seat_count=2,
-            pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": SPEC16_S2_RACE}),
-            pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SPEC16_S2_SEED}))
+            host, client, seated, mission=ALIEN_TURN_MISSION, seat_count=2,
+            pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": ALIEN_TURN_RACE}),
+            pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": ALIEN_TURN_SEED}))
     except BaseException:
         # run_alien_turn_kill's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
@@ -668,17 +641,17 @@ def run_alien_turn_kill():
     """One run: bring up the AI-stream fixture, teleport a host soldier
     adjacent to the alien (weapon intact) so it attacks on its turn, catch
     the host mid-attack (a non-walk BState chain CoopArbiter never wraps),
-    kill() the client, and assert the D96 drain-first + survive invariants.
+    kill() the client, and assert the drain-first + survive invariants.
     FAIL (fixture, exit 1) if any precondition cannot be established; FAIL
     (invariant, exit 4) if the drain/survive assertions do not hold; PASS
     (exit 0) otherwise. See module docstring for the full contract."""
-    host, client = _alien_turn_bring_up(SPEC16_S2_BASE_PORT)
+    host, client = _alien_turn_bring_up(ALIEN_TURN_BASE_PORT)
     try:
         bs0 = session.battle_state(host)
         hostiles = [u for u in bs0["units"] if u.get("faction") == 1 and not u.get("isOut")]
         players = [u for u in bs0["units"] if u.get("faction") == 0 and not u.get("isOut")]
         if not hostiles:
-            print(f"FAIL: no living hostile on seed {SPEC16_S2_SEED}")
+            print(f"FAIL: no living hostile on seed {ALIEN_TURN_SEED}")
             sys.exit(1)
         if not players:
             print("FAIL: no living player soldier")
@@ -691,7 +664,7 @@ def run_alien_turn_kill():
         # Teleport the first player soldier onto an open tile ADJACENT to the
         # alien (weapon untouched - unlike the AI-stream suite's own
         # walk-only fixture) so it is an immediate, close-range, exposed
-        # target the instant the alien side's think() starts (F343 recipe).
+        # target the instant the alien side's think() starts.
         ax, ay, az = alien["x"], alien["y"], alien["z"]
         placed = False
         for dx, dy in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1),
@@ -704,7 +677,7 @@ def run_alien_turn_kill():
                 if not r.get("ok"):
                     if gc is host:  # the client leg already moved the soldier - stop, never stage on
                         print(f"FAIL: the host refused tile ({tx},{ty},{tz}) for soldier {target['id']} that the "
-                              f"client accepted ({r}): the two machines answered one lever differently")
+                              f"client accepted ({r}): the two machines answered one test command differently")
                         sys.exit(1)
                     ok_both = False
                     break
@@ -754,7 +727,7 @@ def run_alien_turn_kill():
                   "attack, or resolved too fast to catch, or never got LOS)")
             sys.exit(1)
 
-        # ---- vacuity guard (F343/(f) S2): "mid-alien-turn" is untested
+        # ---- vacuity guard: "mid-alien-turn" is untested
         # unless the alien was ACTUALLY mid-action at the instant of the kill. ----
         busy_at_kill = caught.get("isBusy")
         pending_at_kill = caught.get("pendingStates")
@@ -777,9 +750,8 @@ def run_alien_turn_kill():
             dlg = host.cmd({"cmd": "coop_dialog_info"})
             if dlg.get("present") and dlg.get("code") == COOP_DLG_WAIT_PLAYERS and dialog_seen_at is None:
                 dialog_seen_at = time.time() - t_kill
-                # short settle window (same shape as the F343 measurement
-                # script) so a same-tick sampling race does not read a stale
-                # mid-animation frame.
+                # short settle window so a same-tick sampling race does not
+                # read a stale mid-animation frame.
                 for _ in range(30):
                     time.sleep(0.02)
                 settle_bs = session.battle_state(host)
@@ -832,12 +804,12 @@ def run_alien_turn_kill():
             failures.append(f"BattlescapeState is not on the host's state stack: {states_list}")
 
         if failures:
-            print("FAIL: S2 invariant(s) violated:")
+            print("FAIL: alien-turn kill invariant(s) violated:")
             for f in failures:
                 print("  -", f)
             sys.exit(4)
 
-        print(f"PASS: SPEC16 S2 - kill() mid-alien-attack (isBusy={busy_at_kill} "
+        print(f"PASS: alien-turn kill - kill() mid-alien-attack (isBusy={busy_at_kill} "
               f"pendingStates={pending_at_kill} at kill) drained (final status={status}, "
               f"dialog_seen_at={dialog_seen_at:.4f}s) at/before the settled pause modal; "
               "phase=Active, peerAbsent=true, desyncFrozen=false, dialog 62 held, "
@@ -853,7 +825,7 @@ def main_alien_turn_kill():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "s2":
+    if len(sys.argv) > 1 and sys.argv[1] == "alien_turn":
         main_alien_turn_kill()
     else:
         main()
