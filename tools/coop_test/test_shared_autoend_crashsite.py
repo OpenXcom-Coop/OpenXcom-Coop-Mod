@@ -1,33 +1,36 @@
 #!/usr/bin/env python
 """test_shared_autoend_crashsite.py: a SHARED craft that lands on a crashed UFO whose crew died at generation
-ends cleanly for both players on the rewrite (POST-REWRITE-REVISIT row 18; owner D123, D229 (a) + gate, D210 (b), D156
-(a); P8b-1 V4; spec docs rewrite/prompts/rvu7_autoend_crash_proof.md; constants docs rewrite/rvu7-task0/CONSTANTS.md).
+ends cleanly for both players.
 
-In August a player's SHARED game crashed on such a landing: the old SHARED mission start set the host's battle screen
-up without showing it, the empty battle ended at once and BattlescapeState::finishBattle popped an empty state stack
-(0xC0000374 heap corruption, host only); main fixed it in #154 (c93d1ad4d). The rewrite shows every battle screen it
-sets up, and a battle that starts with no live alien goes to vanilla's AliensCrashState on both machines (D210 (b),
-P8b-1 V4). This file lands there from the player's own SHARED save, fixtures/auto_end_crash.sav (its Skyranger flies
-to the crashed UFO 23), through the rewrite's SHARED resume and landing.
+A player's SHARED game crashed on such a landing: an older SHARED mission start set the host's battle screen up
+without showing it, the empty battle ended at once and BattlescapeState::finishBattle popped an empty state stack
+(0xC0000374 heap corruption, host only); #154 fixed it. Every battle screen the game sets up is now shown, and a
+battle that starts with no live alien goes to vanilla's AliensCrashState on both machines. This file lands there from
+the player's own SHARED save, fixtures/auto_end_crash.sav (its Skyranger flies to the crashed UFO 23), through the
+SHARED resume and landing.
 
-Row R18 (ONE boot). Pre-cell (a miss is a setup failure: one CAPTURE line, then "FAIL R18: pre-cell ..."):
-  P1  session.resume_campaign on the fixture; both tops GeoscapeState; save_markers.campaignType 1 on both.
-  P2  host geo_set_speed {idx 2} every 0.5 s until ConfirmLandingState is on the host's stack (<= LAND_S).
-  P3  [set_seed SEED when pinned] host confirm_landing; host inBattle (<= 180 s); host BriefingState (<= 60 s).
-  P4  the host's faction-1 units at its BriefingState == CREW_IDS, every one dead at generation (health <= 0, or
-      stun >= health, or isOut).
-  P5  the client's BriefingState (<= 30 s); host phase Active (<= 30 s); client close_briefing -> CLIENT_SCREEN on
-      top (<= 5 s); the host's top still BriefingState; host battleEnd.emitted 0.
+Row aliens_crash_landing (ONE boot). Pre-cell (a miss is a setup failure: one CAPTURE line, then "FAIL
+aliens_crash_landing: pre-cell ..."):
+  resume         session.resume_campaign on the fixture; both tops GeoscapeState; save_markers.campaignType 1 on both.
+  landing        host geo_set_speed {idx 2} every 0.5 s until ConfirmLandingState is on the host's stack (<= LAND_S).
+  entry          [set_seed SEED when set] host confirm_landing; host inBattle (<= 180 s); host BriefingState (<= 60 s).
+  crew_dead      the host's faction-1 units at its BriefingState == CREW_IDS, every one dead at generation
+                 (health <= 0, or stun >= health, or isOut).
+  client_screen  the client's BriefingState (<= 30 s); host phase Active (<= 30 s); client close_briefing ->
+                 CLIENT_SCREEN on top (<= 5 s); the host's top still BriefingState; host battleEnd.emitted 0.
 Cells (in order; a failed cell ends the row, later cells "not reached"):
-  C1  host close_briefing -> its top AliensCrashState (<= 5 s); no host stack sample since P3 held a
-      BattlescapeState; host battleEnd emitted 1, reason aliensCrashed.
-  C2  the host's OK (handled AliensCrashState) -> its DebriefingState (<= 10 s); resultSent 1 (<= 5 s).
-  C3  the client's top AliensCrashState within 20 s of the host's DebriefingState; its OK (handled AliensCrashState)
-      -> its debriefing on top, display-only (<= 10 s); worldAdopted 1 (<= 15 s); shared_checksum chk* equal.
-  C4  both OKs (test_battle_end_campaign's client_ok_clean / host_ok_drain) -> both on GeoscapeState, no CoopState.
+  host_crash_screen    host close_briefing -> its top AliensCrashState (<= 5 s); no host stack sample since the
+                       entry step held a BattlescapeState; host battleEnd emitted 1, reason aliensCrashed.
+  host_debrief         the host's OK (handled AliensCrashState) -> its DebriefingState (<= 10 s); resultSent 1
+                       (<= 5 s).
+  client_crash_screen  the client's top AliensCrashState within 20 s of the host's DebriefingState; its OK (handled
+                       AliensCrashState) -> its debriefing on top, display-only (<= 10 s); worldAdopted 1 (<= 15 s);
+                       shared_checksum chk* equal.
+  both_geoscape        both OKs (test_battle_end_campaign's client_ok_clean / host_ok_drain) -> both on
+                       GeoscapeState, no CoopState.
 Guards: no new crash file (none with 0xC0000374 / finishBattle); both processes alive; host fatalVote.armed 0; the
-client zero-disk. Prints ONE "EVIDENCE R18:" line, then "PASS R18" or "FAIL R18: <message>". run in the
-foreground to completion. ONE run, no skip path; exit 0 only when the row passes, 2 otherwise.
+client zero-disk. Prints ONE "EVIDENCE aliens_crash_landing:" line, then "PASS aliens_crash_landing" or "FAIL
+aliens_crash_landing: <message>". ONE run, no skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_autoend_crashsite.py
 """
@@ -46,19 +49,22 @@ import test_battle_end_campaign as camp
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURE = os.path.join(HERE, "fixtures", "auto_end_crash.sav")
 SAVE = os.path.basename(FIXTURE)
-PORT = "47943"                      # this file's lobby key (unique in tools/coop_test, F10753)
+PORT = "47943"                      # this file's lobby key (unique in tools/coop_test)
 HOST_LABEL, CLIENT_LABEL = 49668, 49669
 
-# ----- TASK 0 pins (docs rewrite/rvu7-task0/CONSTANTS.md: boots A1 = A2 on the fixture's own RNG) -----
+# ----- measured on the fixture's own RNG (two boots, equal) -----
 SEED = None                         # the fixture's own RNG kills the whole crew at generation (no seed hunt needed)
 CREW_IDS = [1000001, 1000002, 1000003, 1000004, 1000005]   # 3 snakeman soldiers + 2 navigators, health 0 on both boots
 CLIENT_SCREEN = "InventoryState"    # the client's seat owns 5 soldiers aboard: its pre-battle equip screen
-LAND_S = 66                         # P2: 32.68 s on A1 and A2, x 2
+LAND_S = 66                         # landing: 32.68 s on both boots, x 2
 
-ENTER_S, HOST_BRIEF_S = 180, 60     # P3: session.bring_up_shared_mixed_battle's bounds
-BRIEF_S, ACTIVE_S, SCREEN_S = 30, 30, 5   # P5: test_prebattle_equip_end's EQ1 / ACTIVE / ENTRY waits
-CRASH_HOST_S, DEBRIEF_S, RESULT_S = 5, 10, 5   # C1 / C2: test_prebattle_equip_end's CRASH / DEBRIEF / RESULT waits
-CRASH_S = 20                        # C3: the client's AliensCrashState after the host's DebriefingState (SCR row D1d)
+ENTER_S, HOST_BRIEF_S = 180, 60     # entry: session.bring_up_shared_mixed_battle's bounds
+BRIEF_S, ACTIVE_S, SCREEN_S = 30, 30, 5   # client_screen: the client's briefing, the host's phase Active, the
+                                         # client's screen after its close_briefing
+CRASH_HOST_S, DEBRIEF_S, RESULT_S = 5, 10, 5   # host_crash_screen / host_debrief: as test_prebattle_equip_end's
+                                               # CRASH_WAIT_S / DEBRIEF_WAIT_S / RESULT_WAIT_S
+CRASH_S = 20                        # client_crash_screen: the client's AliensCrashState after the host's
+                                    # DebriefingState (as test_shared_crash_return's CRASH_S)
 ADOPT_S = camp.ADOPT_S              # 15 s
 FACTION_HOSTILE = 1
 CRASH_SIGNATURES = ("0xC0000374", "finishBattle")   # #154's crash signature in a crash_*.log
@@ -80,7 +86,8 @@ def rec_keys(gc):
     return {k: r.get(k) for k in REC_KEYS}
 
 
-# The host's stack is sampled on every wait round from P3 to C1 (C1: no sample may hold a BattlescapeState).
+# The host's stack is sampled on every wait round from the entry step to host_crash_screen (host_crash_screen: no
+# sample may hold a BattlescapeState).
 SAMPLES = {"host": None, "on": False, "t0": 0.0, "n": 0, "bs": 0, "log": [], "last": None}
 
 
@@ -138,11 +145,12 @@ def pre_cell(host, client, ctx):
     try:
         session.resume_campaign(host, client, SAVE, port=PORT)
     except Exception as e:
-        capture("P1 resume", short(e, 800), m)
+        capture("resume", short(e, 800), m)
     ct = {gc.name: gc.cmd({"cmd": "save_markers"}).get("campaignType") for gc in m}
-    ctx["P1"] = {"secs": round(time.time() - t, 2), "host": stack(host), "client": stack(client), "campaignType": ct}
+    ctx["resume"] = {"secs": round(time.time() - t, 2), "host": stack(host), "client": stack(client),
+                     "campaignType": ct}
     if top(host) != "GeoscapeState" or top(client) != "GeoscapeState" or ct != {"host": 1, "client": 1}:
-        capture("P1 resume", f"{ctx['P1']} (want both tops GeoscapeState, campaignType 1 on both)", m)
+        capture("resume", f"{ctx['resume']} (want both tops GeoscapeState, campaignType 1 on both)", m)
 
     def landing():
         if session.has_state(host, "ConfirmLandingState"):
@@ -150,72 +158,76 @@ def pre_cell(host, client, ctx):
         host.cmd({"cmd": "geo_set_speed", "idx": 2})
         return None
     g, d = wait_until(landing, LAND_S, 0.5)
-    ctx["P2"] = {"landS": d, "host": stack(host), "client": stack(client)}
+    ctx["landing"] = {"landS": d, "host": stack(host), "client": stack(client)}
     if not g:
-        capture("P2 landing", f"no ConfirmLandingState on the host within {LAND_S}s ({ctx['P2']})", m)
+        capture("landing", f"no ConfirmLandingState on the host within {LAND_S}s ({ctx['landing']})", m)
     SAMPLES.update(on=True, t0=time.time())
     if SEED is not None:
         ctx["seed"] = host.cmd({"cmd": "set_seed", "seed": SEED}).get("seed")
     cl = host.cmd({"cmd": "confirm_landing"})
     g1, d1 = wait_until(lambda: battle_state(host).get("inBattle"), ENTER_S, 0.25)
     g2, d2 = wait_until(lambda: "BriefingState" in stack(host), HOST_BRIEF_S) if g1 else (False, 0)
-    ctx["P3"] = {"confirm": {k: cl.get(k) for k in ("ok", "error")}, "inBattleS": d1 if g1 else None,
+    ctx["entry"] = {"confirm": {k: cl.get(k) for k in ("ok", "error")}, "inBattleS": d1 if g1 else None,
                  "briefingS": d2 if g2 else None, "host": stack(host), "client": stack(client)}
     if not (cl.get("ok") and g1 and g2):
-        capture("P3 enter", f"{ctx['P3']} (want confirm ok, inBattle, the host's BriefingState)", m)
+        capture("entry", f"{ctx['entry']} (want confirm ok, inBattle, the host's BriefingState)", m)
     c = crew(host)
-    ctx["P4"] = {"crew": c, "hostTop": top(host)}
+    ctx["crew_dead"] = {"crew": c, "hostTop": top(host)}
     if [u["id"] for u in c] != CREW_IDS or not all(dead(u) for u in c):
-        capture("P4 the crew dead at generation", f"host faction-1 units {c} (want ids {CREW_IDS}, every one dead)", m)
+        capture("crew_dead", f"host faction-1 units {c} (want ids {CREW_IDS}, every one dead)", m)
     g0, d0 = wait_until(lambda: "BriefingState" in stack(client), BRIEF_S)
     ga, da = wait_until(lambda: event_state(host).get("phase") == "Active", ACTIVE_S)
     cc = client.cmd({"cmd": "close_briefing"}) if g0 else {"error": "no client BriefingState"}
     gs, ds = wait_until(lambda: top(client) == CLIENT_SCREEN, SCREEN_S, 0.05)
-    ctx["P5"] = {"clientBriefingS": d0 if g0 else None, "hostActiveS": da if ga else None,
+    ctx["client_screen"] = {"clientBriefingS": d0 if g0 else None, "hostActiveS": da if ga else None,
                  "clientClose": {k: cc.get(k) for k in ("ok", "error")}, "clientScreen": top(client),
                  "clientScreenS": ds if gs else None, "clientStack": stack(client), "clientCrew": crew(client),
                  "hostTop": top(host), "hostEmitted": record(host).get("emitted")}
     ctx["loadGamePushes0"] = camp.log_count(client, camp.LOADGAME_PUSH)
-    if not (g0 and ga and gs and ctx["P5"]["hostTop"] == "BriefingState" and ctx["P5"]["hostEmitted"] == 0):
-        capture("P5 spine", f"{ctx['P5']} (want the client's {CLIENT_SCREEN}, the host Active in its "
+    if not (g0 and ga and gs and ctx["client_screen"]["hostTop"] == "BriefingState"
+            and ctx["client_screen"]["hostEmitted"] == 0):
+        capture("client_screen", f"{ctx['client_screen']} (want the client's {CLIENT_SCREEN}, the host Active in its "
                 f"BriefingState, emitted 0)", m)
 
 
 def cells(host, client, ctx):
-    def c1():
+    def cell_host_crash_screen():
         hc = host.cmd({"cmd": "close_briefing"})
         g, d = wait_until(lambda: top(host) == "AliensCrashState", CRASH_HOST_S, 0.05)
         sample()
         SAMPLES["on"] = False
         hr = rec_keys(host)
-        ctx["C1"] = {"close": {k: hc.get(k) for k in ("ok", "error")}, "secs": d if g else None,
+        ctx["host_crash_screen"] = {"close": {k: hc.get(k) for k in ("ok", "error")}, "secs": d if g else None,
                      "hostStack": stack(host), "samples": SAMPLES["n"], "bsSamples": SAMPLES["bs"], "hostRecord": hr}
         f = [] if g else [f"the host's stack {stack(host)} {CRASH_HOST_S}s after its OK (want top AliensCrashState)"]
         if SAMPLES["bs"]:
-            f.append(f"{SAMPLES['bs']} of {SAMPLES['n']} host stack samples since P3 held a BattlescapeState")
+            f.append(f"{SAMPLES['bs']} of {SAMPLES['n']} host stack samples since the entry step held a "
+                     f"BattlescapeState")
         if hr.get("emitted") != 1 or hr.get("reason") != "aliensCrashed":
             f.append(f"host battleEnd {hr} (want emitted 1, reason aliensCrashed)")
         return f
 
-    def c2():
+    def cell_host_debrief():
         hp = host.cmd({"cmd": "dismiss_popup"})
         g, d = wait_until(lambda: top(host) == "DebriefingState", DEBRIEF_S, 0.05)
         ctx["hostDebriefAt"] = time.time()
         g2, d2 = wait_until(lambda: record(host).get("resultSent") == 1, RESULT_S, 0.05)
-        ctx["C2"] = {"press": {k: hp.get(k) for k in ("ok", "handled", "error")}, "debriefS": d if g else None,
+        ctx["host_debrief"] = {"press": {k: hp.get(k) for k in ("ok", "handled", "error")},
+                               "debriefS": d if g else None,
                      "resultSentS": d2 if g2 else None, "hostStack": stack(host), "hostRecord": rec_keys(host)}
         f = [] if hp.get("handled") == "AliensCrashState" else [
-            f"the host's OK answered {ctx['C2']['press']} (want handled AliensCrashState)"]
+            f"the host's OK answered {ctx['host_debrief']['press']} (want handled AliensCrashState)"]
         if not g:
             f.append(f"no host DebriefingState within {DEBRIEF_S}s (stack {stack(host)})")
         if not g2:
             f.append(f"host battleEnd.resultSent={record(host).get('resultSent')!r} after {RESULT_S}s (want 1)")
         return f
 
-    def c3():
+    def cell_client_crash_screen():
         left = max(0.0, CRASH_S - (time.time() - ctx["hostDebriefAt"]))
         g, d = wait_until(lambda: top(client) == "AliensCrashState", left)
-        ctx["C3"] = {"secsAfterHostDebrief": round(time.time() - ctx["hostDebriefAt"], 2), "stack": stack(client),
+        ctx["client_crash_screen"] = {"secsAfterHostDebrief": round(time.time() - ctx["hostDebriefAt"], 2),
+                                      "stack": stack(client),
                      "clientRecord": rec_keys(client), "clientCrew": crew(client)}
         if not g:
             return [f"the client's stack {stack(client)} {CRASH_S}s after the host's DebriefingState (want top "
@@ -224,10 +236,11 @@ def cells(host, client, ctx):
         gd, dd = wait_until(lambda: (lambda x: x.get("onTop") is True and x.get("displayOnly") is True)(
             client.cmd({"cmd": "debrief_state"})), DEBRIEF_S)
         ga, da = wait_until(lambda: record(client).get("worldAdopted") == 1, ADOPT_S)
-        ctx["C3"].update({"press": {k: cp.get(k) for k in ("ok", "handled", "error")}, "debriefS": dd if gd else None,
+        ctx["client_crash_screen"].update({"press": {k: cp.get(k) for k in ("ok", "handled", "error")},
+                                           "debriefS": dd if gd else None,
                           "adoptS": da if ga else None, "stackAfter": stack(client)})
         f = [] if cp.get("handled") == "AliensCrashState" else [
-            f"the client's OK answered {ctx['C3']['press']} (want handled AliensCrashState)"]
+            f"the client's OK answered {ctx['client_crash_screen']['press']} (want handled AliensCrashState)"]
         if not gd:
             f.append(f"no client display-only DebriefingState on top within {DEBRIEF_S}s (stack {stack(client)})")
         if not ga:
@@ -235,10 +248,10 @@ def cells(host, client, ctx):
         if f:
             return f
         eq, esecs, hc, cc = camp.chk_equal(host, client)
-        ctx["C3"]["chk"] = {"equal": eq, "secs": esecs, "host": hc, "client": cc}
+        ctx["client_crash_screen"]["chk"] = {"equal": eq, "secs": esecs, "host": hc, "client": cc}
         return [] if eq else [f"shared_checksum chk* host {hc} != client {cc}"]
 
-    def c4():
+    def cell_both_geoscape():
         f = camp.client_ok_clean(client, ctx, "clientOk") + camp.host_ok_drain(host, ctx, "hostOk")
         for gc in (host, client):
             st = stack(gc)
@@ -246,8 +259,10 @@ def cells(host, client, ctx):
                 f.append(f"{gc.name} stack {st} (want top GeoscapeState, no CoopState)")
         return f
 
-    return [("C1 the host's AliensCrashState, no battle screen", c1), ("C2 the host's debriefing", c2),
-            ("C3 the client's AliensCrashState and display-only debriefing", c3), ("C4 both on the geoscape", c4)]
+    return [("host_crash_screen the host's AliensCrashState, no battle screen", cell_host_crash_screen),
+            ("host_debrief the host's debriefing", cell_host_debrief),
+            ("client_crash_screen the client's AliensCrashState and display-only debriefing", cell_client_crash_screen),
+            ("both_geoscape both on the geoscape", cell_both_geoscape)]
 
 
 def signature(path):
@@ -265,10 +280,10 @@ def end_view(gc):
 
 
 def main():
-    t0, ctx, verdict = time.time(), {"row": "R18"}, None
+    t0, ctx, verdict = time.time(), {"row": "aliens_crash_landing"}, None
     crash0 = session._crash_log_snapshot()
-    host = GameClient("host", HOST_LABEL, make_user_dir("rvu7_host", saves=[FIXTURE]))
-    client = GameClient("client", CLIENT_LABEL, make_user_dir("rvu7_client"))
+    host = GameClient("host", HOST_LABEL, make_user_dir("autoend_crashsite_host", saves=[FIXTURE]))
+    client = GameClient("client", CLIENT_LABEL, make_user_dir("autoend_crashsite_client"))
     SAMPLES["host"] = host
     try:
         try:
@@ -314,13 +329,13 @@ def main():
         if g:
             verdict = (verdict + " | " if verdict else "") + "guard: " + "; ".join(g)
         ctx.pop("hostDebriefAt", None)
-        camp.evidence("R18", ctx)
-        print("PASS R18" if verdict is None else f"FAIL R18: {verdict}", flush=True)
+        camp.evidence("aliens_crash_landing", ctx)
+        print("PASS aliens_crash_landing" if verdict is None else f"FAIL aliens_crash_landing: {verdict}", flush=True)
     finally:
         try:
             shutdown_clients(host, client)
         except Exception as e:
-            print(f"[rvu7] shutdown: {short(e)}", flush=True)
+            print(f"[autoend_crashsite] shutdown: {short(e)}", flush=True)
     print(f"\ntest_shared_autoend_crashsite: {0 if verdict else 1}/1 passed in {time.time() - t0:.1f}s", flush=True)
     return 0 if verdict is None else 2
 
