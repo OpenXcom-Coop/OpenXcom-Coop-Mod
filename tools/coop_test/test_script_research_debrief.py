@@ -1,34 +1,33 @@
-"""OF2 S-C - the second player's after-battle "return from mission" mod script reads the research of the player who owns
-the soldier, and the soldier tags it writes reach that player's own world (owner D266 (c), D268 (b), extending D263 (a)
-and D155 (a); spec docs rewrite/prompts/of2_mod_script_player_reads.md, AMENDMENT OF2-2 section 5 as AMENDMENT OF2-4
-section 5 amends it; TASK 0 docs rewrite/of2-task0/sc/CONSTANTS.md; F11335, F12862, F12863, F12869, F12876,
-F12980-F12999).
+"""The second player's after-battle "return from mission" mod script reads the research of the player who owns the
+soldier, and the soldier tags it writes reach that player's own world.
 In a SEPARATE campaign with research sync off the host builds the battle-end debriefing for both players' soldiers. The
 test MOD Coop_ScriptResearch_Test (both machines) adds a returnFromMissionUnit script: the GeoscapeSoldier tag
 COOP_SR_RET = 1 + isResearched(STR_PLASMA_PISTOL) read through battle_game.getGeoscapeGame, and recovery_time = 100 x
 that number: "1" / 100 = the host's research, "2" / 200 = the second player's, no tag = the script never ran. The
-client researched STR_PLASMA_PISTOL, the host did not (CR's boot). The returning record (D155's keys) carries the host
+client researched STR_PLASMA_PISTOL, the host did not (CR's boot). The returning soldier record carries the host
 copy's results to the client's own soldier at the client's OK.
 ONE boot (test_client_research's research-separate guest battle, lobby key 48999, the MOD on both machines, the
 client's own soldier id guest_id kept), then four rows in this order:
-  SD0  the ending: host battle_action kill_unit_real on every live hostile (chain_settled after each), end_turn_both,
-       close_host_nextturn, the host's DebriefingState within 60 s. SD0-guard (a miss = setup failure): G by name
-       (coop 1) and H (the first host soldier, coop 0); researchMode == CR.MODE_WANT and seats[1].stored on both; the
-       mod-active line in both engine logs; desyncSeen false on both before the ending; every kill settled; the host's
-       debrief_state shown, onTop, not displayOnly, title TITLE; the host's battleEnd reason aliensDown, not aborted;
-       the client's display-only DebriefingState within 20 s; COPY (the FIRST host soldier_record "Guest Zzz") alive;
-       HREC (the FIRST host soldier_record id H) where "base", coop 0; COPY.recovery in {100, 200}, HREC.recovery 100;
-       HREC tags.COOP_SR_RET "1", COPY's in {"1", "2"}.
-  SD1  SD1-G: COPY.recovery == 200. SD1-tag: COPY tags.COOP_SR_RET == "2" (its owner's research).
-  SD2  SD2-H: HREC.recovery == 100 (the host's soldier keeps the host's research).
-  SD3  SD3-ok: the client's OK through its follow-ups -> geo_clean. SD3-own: the FIRST client soldier_record id
-       guest_id (read only after the OK, F12876), alive, recovery == 200 and == COPY.recovery. SD3-tag: that record's
-       tags.COOP_SR_RET present, != "0" and == COPY's (D268 (b): the tag reached the owner's world).
-RED (C1, the base): exactly SD1-G, SD1-tag, SD3-own, SD3-tag FAIL (COPY 100 / "1", the client's own 100 / no tag).
-GREEN (C2): every cell PASS (7/7).
+  battle_end  the ending: host battle_action kill_unit_real on every live hostile (chain_settled after each),
+       end_turn_both, close_host_nextturn, the host's DebriefingState within 60 s. battle_end_setup (a miss = setup
+       failure): G by name (coop 1) and H (the first host soldier, coop 0); researchMode == CR.MODE_WANT and
+       seats[1].stored on both; the mod-active line in both engine logs; desyncSeen false on both before the ending;
+       every kill settled; the host's debrief_state shown, onTop, not displayOnly, title TITLE; the host's battleEnd
+       reason aliensDown, not aborted; the client's display-only DebriefingState within 20 s; COPY (the FIRST host
+       soldier_record "Guest Zzz") alive; HREC (the FIRST host soldier_record id H) where "base", coop 0;
+       COPY.recovery in {100, 200}, HREC.recovery 100; HREC tags.COOP_SR_RET "1", COPY's in {"1", "2"}.
+  guest_copy  guest_copy_recovery_own: COPY.recovery == 200. guest_copy_tag_own: COPY tags.COOP_SR_RET == "2" (its
+       owner's research).
+  host_soldier  host_soldier_recovery_host: HREC.recovery == 100 (the host's soldier keeps the host's research).
+  client_return  client_return_ok_closes: the client's OK through its follow-ups -> geo_clean.
+       client_return_record_own: the FIRST client soldier_record id guest_id (read only after the OK), alive,
+       recovery == 200 and == COPY.recovery. client_return_tag_home: that record's tags.COOP_SR_RET present, != "0"
+       and == COPY's (the tag reached the owner's world).
+Without the fix: exactly guest_copy_recovery_own, guest_copy_tag_own, client_return_record_own and
+client_return_tag_home fail (COPY 100 / "1", the client's own 100 / no tag). With the fix every cell passes (7/7).
 Tags are read through soldier_record's read-only `tags` field. Each row prints ONE
 "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a failure. A boot failure
-or an SD0 guard miss prints ONE "CAPTURE <what>:" line and fails every later row.
+or a battle_end_setup miss prints ONE "CAPTURE <what>:" line and fails every later row.
 ONE foreground run, no skip path; exit 0 only when every cell passes, 2 otherwise.
 Run:  python tools/coop_test/test_script_research_debrief.py
 """
@@ -48,21 +47,23 @@ from test_battle_end_separate import (chain_settled, end_turn_both, close_host_n
 from test_delta_core import both, short
 
 PORT = "48999"
-HOST_DIR, CLIENT_DIR = "of2_script_debrief_host", "of2_script_debrief_client"
-MOD_NAME = "Coop_ScriptResearch_Test"                  # NEW's MOD (test_script_research.py at the base)
+HOST_DIR, CLIENT_DIR = "script_debrief_host", "script_debrief_client"
+MOD_NAME = "Coop_ScriptResearch_Test"                  # the same MOD as test_script_research.py
 MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_NAME)
 MOD_ACTIVE_LINE = "- Coop_ScriptResearch_Test v1.0"
 TAG = "COOP_SR_RET"               # the MOD's GeoscapeSoldier tag (its only writer: returnFromMissionUnit)
 HOST_TAG, OWNER_TAG = "1", "2"    # 1 + isResearched(STR_PLASMA_PISTOL): the host's research / the second player's
 HOST_REC, OWNER_REC = 100, 200    # recovery_time = 100 x the tag
-TITLE = "Aliens defeated"         # the host's debrief title (T0-C3: 3 boots)
+TITLE = "Aliens defeated"         # the host's debrief title (3 boots)
 REASON = "aliensDown"
 FACTION_HOSTILE = 1
-KILL_S = 45                       # chain_settled per kill (TASK 0: 2.5-7.4 s)
-DEBRIEF_S = 60                    # the host's DebriefingState after the ending (TASK 0: 0.06 s after close_host_nextturn)
-CLIENT_DEBRIEF_S = 20             # the client's display-only DebriefingState (TASK 0: 0.06 s)
-CELLS = {"SD0": ("SD0-guard",), "SD1": ("SD1-G", "SD1-tag"), "SD2": ("SD2-H",),
-         "SD3": ("SD3-ok", "SD3-own", "SD3-tag")}
+KILL_S = 45                       # chain_settled per kill (measured 2.5-7.4 s)
+DEBRIEF_S = 60                    # the host's DebriefingState after the ending (measured 0.06 s after
+                                  # close_host_nextturn)
+CLIENT_DEBRIEF_S = 20             # the client's display-only DebriefingState (measured 0.06 s)
+CELLS = {"battle_end": ("battle_end_setup",), "guest_copy": ("guest_copy_recovery_own", "guest_copy_tag_own"),
+         "host_soldier": ("host_soldier_recovery_host",),
+         "client_return": ("client_return_ok_closes", "client_return_record_own", "client_return_tag_home")}
 
 
 def pairs(host, client):
@@ -107,7 +108,7 @@ def joined(fails):
     return "; ".join(fails) or None
 
 
-def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT; guest_id kept
+def boot(host, client):   # = CR's boot with lobby key PORT; guest_id kept
     ctx, pre_rec = {}, {}
 
     def pre(h, c):
@@ -136,7 +137,7 @@ def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT; gu
                    and u.get("name") != CR.GUEST_NAME and not u.get("isOut"))
     assert hsold, "no host soldier (coop 0, not out) for H"
     ctx["H"] = hsold[0]
-    pinned = pin_ai_neutral(host, client, tag="of2-sd")
+    pinned = pin_ai_neutral(host, client, tag="script_debrief")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": ctx["G"], "stat": "firing",
                         "value": CR.FIRING_PIN}, ("tu",))
@@ -151,7 +152,7 @@ def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT; gu
     return ctx
 
 
-def row_sd0(ev, res, host, client, st):
+def row_battle_end(ev, res, host, client, st):
     ctx, f = st["ctx"], []
     G, H = ctx["G"], ctx["H"]
     ev["boot"] = {k: ctx.get(k) for k in ("guestId", "G", "gCoop", "H", "gView", "guard", "pinned", "localSeat", "preIsr",
@@ -172,7 +173,7 @@ def row_sd0(ev, res, host, client, st):
     ev["desyncBefore"] = ds
     if any(ds.values()):
         f.append(f"desyncSeen before the ending {ds} (want false on both)")
-    # the ending (the guest_returns_dead / R4-L2 CR4 shape, seed-independent)
+    # the ending (test_battle_end_separate's guest_returns_dead shape, seed-independent)
     kills = []
     for uid in hostiles(host):
         r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})
@@ -216,32 +217,32 @@ def row_sd0(ev, res, host, client, st):
     if tag_of(hrec) != HOST_TAG or tag_of(copy) not in (HOST_TAG, OWNER_TAG):
         f.append(f"{TAG} COPY {tag_of(copy)!r} HREC {tag_of(hrec)!r} (want COPY in {{{HOST_TAG!r}, {OWNER_TAG!r}}} and "
                  f"HREC {HOST_TAG!r}: else the soldier-tag write never ran)")
-    res["SD0-guard"] = joined(f)
+    res["battle_end_setup"] = joined(f)
 
 
-def row_sd1(ev, res, host, client, st):
+def row_guest_copy(ev, res, host, client, st):
     copy = st["copy"]
     ev["COPY"] = rview(copy)
-    res["SD1-G"] = None if copy.get("recovery") == OWNER_REC else (
+    res["guest_copy_recovery_own"] = None if copy.get("recovery") == OWNER_REC else (
         f"COPY.recovery {copy.get('recovery')} (want {OWNER_REC}: the second player's soldier's after-battle script "
         f"reads its owner's research; {HOST_REC} = the host's)")
-    res["SD1-tag"] = None if tag_of(copy) == OWNER_TAG else (
+    res["guest_copy_tag_own"] = None if tag_of(copy) == OWNER_TAG else (
         f"COPY tags.{TAG} {tag_of(copy)!r} (want {OWNER_TAG!r}: its owner's research; {HOST_TAG!r} = the host's)")
 
 
-def row_sd2(ev, res, host, client, st):
+def row_host_soldier(ev, res, host, client, st):
     hrec = st["hrec"]
     ev["HREC"] = rview(hrec)
-    res["SD2-H"] = None if hrec.get("recovery") == HOST_REC else (
+    res["host_soldier_recovery_host"] = None if hrec.get("recovery") == HOST_REC else (
         f"HREC.recovery {hrec.get('recovery')} (want {HOST_REC}: the host's soldier keeps the host's research)")
 
 
-def row_sd3(ev, res, host, client, st):
+def row_client_return(ev, res, host, client, st):
     copy, kctx = st["copy"], {}
     ok1, at_geo, secs = client_ok_through_followups(client, kctx, "ret")
     ev["ok"] = {"press": ok1, "geoClean": at_geo, "secs": secs, "chain": (kctx.get("ret") or {}).get("clientChain"),
                 "stack": stack(client), "sepReturn": record(client).get("sepReturn")}
-    res["SD3-ok"] = None if ok1.get("pressed") is True and at_geo else (
+    res["client_return_ok_closes"] = None if ok1.get("pressed") is True and at_geo else (
         f"the client's OK {ok1} -> geo_clean {at_geo} after {secs} s (stack {stack(client)})")
     owns = soldier_recs(client, sid=st["ctx"]["guestId"])[0]   # its own world exists only after its OK
     own = owns[0] if owns else {}
@@ -252,15 +253,16 @@ def row_sd3(ev, res, host, client, st):
         f.append(f"the client's own record id {st['ctx']['guestId']} {rview(own)} (want an alive record)")
     if own.get("recovery") != OWNER_REC or own.get("recovery") != copy.get("recovery"):
         f.append(f"own recovery {own.get('recovery')} COPY {copy.get('recovery')} (want {OWNER_REC} on both: the "
-                 f"owner's research, carried home by D155's record)")
-    res["SD3-own"] = joined(f)
+                 f"owner's research, carried home by the returning record)")
+    res["client_return_record_own"] = joined(f)
     t = tag_of(own)
-    res["SD3-tag"] = None if (t is not None and t != "0" and t == tag_of(copy)) else (
+    res["client_return_tag_home"] = None if (t is not None and t != "0" and t == tag_of(copy)) else (
         f"own tags.{TAG} {'absent' if t is None else repr(t)} vs COPY's {tag_of(copy)!r} (want present, not '0', equal "
-        f"to COPY's: D268 (b), the soldier's tags come home)")
+        f"to COPY's: the soldier's tags come home)")
 
 
-ROWS = (("SD0", row_sd0), ("SD1", row_sd1), ("SD2", row_sd2), ("SD3", row_sd3))
+ROWS = (("battle_end", row_battle_end), ("guest_copy", row_guest_copy), ("host_soldier", row_host_soldier),
+        ("client_return", row_client_return))
 
 
 def report(rid, ev, res):
@@ -305,10 +307,10 @@ def main():
             failed += fail_rest([rid for rid, _ in ROWS], "boot")
         else:
             st = {"ctx": ctx, "crash0": session._crash_log_snapshot()}
-            failed += run_row("SD0", row_sd0, host, client, st)
+            failed += run_row("battle_end", row_battle_end, host, client, st)
             if failed:
-                capture(host, client, "SD0")
-                failed += fail_rest([rid for rid, _ in ROWS[1:]], "the SD0 guard missed (setup failure)")
+                capture(host, client, "battle_end")
+                failed += fail_rest([rid for rid, _ in ROWS[1:]], "the battle_end guard missed (setup failure)")
             else:
                 for rid, fn in ROWS[1:]:
                     failed += run_row(rid, fn, host, client, st)
@@ -317,7 +319,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[of2-sd] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[script_debrief] shutdown {gc.name}: {short(e)}", flush=True)
     n = sum(len(v) for v in CELLS.values())
     print(f"\ntest_script_research_debrief: {n - len(failed)}/{n} cells passed (fail={failed}) in "
           f"{round(time.time() - t_start, 1)} s", flush=True)
