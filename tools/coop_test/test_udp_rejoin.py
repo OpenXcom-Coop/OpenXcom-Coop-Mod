@@ -37,8 +37,8 @@ from harness import CRASH_DIR  # noqa: E402  (this harness slot's own crash fold
 COOP_KEYS = ("udpActive", "rendezvousActive", "onConnect", "coopSession", "inBattle")
 IDLE_S = 30
 FAILED_START_KEY = "48583"     # row failed_start's lobby key (in-process only)
-LOSS_WINDOW_S = 35.0           # failed_start's window: the UDP loss was measured at 17.4 s after the kill; + 15 s,
-                               # rounded up to 5 s
+LOSS_WINDOW_S = 35.0           # failed_start's window: the UDP loss was measured at 17.4 s after the kill;
+                               # 17.4 s + 15 s = 32.4 s, rounded up to the next multiple of 5 s
 UNWIND, UNMARKED = "failed battle start (", "battle marks cleared=0, crafts sent home=0"
 
 class FixtureMiss(Exception):
