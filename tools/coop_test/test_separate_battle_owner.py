@@ -28,6 +28,16 @@ One world, the host machine runs every battle. Rows:
          refused with a message, the file is unchanged, no upgraded copy is
          written, and the game is back where the load started. The load runs
          on the host before any session, so the client sees nothing of it.
+  partner_autosave  The autosave the previous co-op build wrote on the host right
+         after a mission the client's craft started also holds only the
+         client's campaign (the client's base, less the soldier who died in
+         that mission). Loading it on the host is refused with its own message,
+         the file is unchanged, no upgraded copy is written, and the game is
+         back where the load started.
+  host_autosave   The geoscape autosave the previous co-op build wrote on the host
+         after the client's first mission holds the host's own campaign. It
+         still upgrades, to one world in which the host's base and soldiers
+         are the host's and the client's base and soldiers are the client's.
   older_save      A Separate battle saved mid-battle by the previous co-op build (two
          worlds, the client's soldier aboard the host's craft) is upgraded to
          one world and resumed: each soldier is on its owner's seat on both
@@ -38,7 +48,7 @@ One world, the host machine runs every battle. Rows:
          copy of the client's soldier is gone (the client's soldier is listed
          once, as the client's).
 
-Run:  py -3 tools/coop_test/test_separate_battle_owner.py [host_craft|client_craft|client_cydonia|partner_save|older_save]
+Run:  py -3 tools/coop_test/test_separate_battle_owner.py [host_craft|client_craft|client_cydonia|partner_save|partner_autosave|host_autosave|older_save]
 Exit 0 = pass; anything else = failure.
 """
 
@@ -46,6 +56,8 @@ import hashlib
 import os
 import sys
 import time
+
+import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo
@@ -69,6 +81,17 @@ REFUSED_TITLE = "This save cannot be upgraded:"
 REFUSED_TEXT = ("This save was made during a battle that the other player's craft started, so it does not hold "
                 "your own campaign. Load a save from before that mission. This save was not changed.")
 REFUSED_KEY = "STR_SAVE_UPGRADE_PARTNER_BATTLE"   # the upgrade's own answer, before the screen translates it
+# The previous build's host autosave written right after a mission the client's craft started: the host still held
+# only the client's campaign (one of the client's soldiers died in that mission).
+CLIENT_MISSION_AUTOSAVE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures",
+                                       "separate_client_mission_autosave.asav")
+# The previous build's host geoscape autosave written later, after the client's first mission: the host's own campaign.
+HOST_AUTOSAVE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "separate_host_autosave.asav")
+AUTOSAVE_REFUSED_TEXT = ("This save was made right after a mission the other player's craft started, so it does not "
+                         "hold your own campaign. Load a save from before that mission. This save was not changed.")
+AUTOSAVE_REFUSED_KEY = "STR_SAVE_UPGRADE_PARTNER_MISSION"
+# Each base of the upgraded host autosave: its owner and how many of its soldiers each player owns.
+HOST_AUTOSAVE_BASES = {"HostBase": ("HostPlayer", {0: 8}), "ClientBase": ("ClientPlayer", {1: 8})}
 
 
 def _craft(gc, base_name, craft_type="STR_SKYRANGER"):
@@ -343,16 +366,14 @@ def _check_untouched(path, digest, upgraded, row, when):
     assert not os.path.exists(upgraded), f"{row}: an upgraded copy was written {when}: {upgraded}"
 
 
-def partner_save():
-    """The previous build's save made on the host during a battle the client's
-    craft started (fixtures/separate_client_battle_main.sav): the load is
-    refused with a message, the file stays as it was and the host is back
-    where the load started."""
-    row = "partner_save"
-    save = os.path.basename(CLIENT_BATTLE_SAVE)
-    host_dir = make_user_dir("sep_battle_owner3r_host", saves=(CLIENT_BATTLE_SAVE,))
+def _check_refused(row, fixture, tag, text, key):
+    """Loading the save on the host is refused with the message, the file stays
+    as it was, no upgraded copy is written and the host is back where the load
+    started."""
+    save = os.path.basename(fixture)
+    host_dir = make_user_dir(tag, saves=(fixture,))
     path = os.path.join(host_dir, "xcom1", save)
-    upgraded = os.path.join(host_dir, "xcom1", save[:-4] + "_upgraded.sav")
+    upgraded = os.path.join(host_dir, "xcom1", os.path.splitext(save)[0] + "_upgraded.sav")
     digest = _sha256(path)
     host = GameClient("host", None, host_dir)
     try:
@@ -373,8 +394,8 @@ def partner_save():
         assert top == "SaveUpgradeMessageState", (
             f"{row}: the upgrade was not refused: top {top}, states {session.states(host)}")
         texts = [w["text"] for w in host.ok({"cmd": "list_widgets"})["widgets"] if w.get("text") is not None]
-        assert REFUSED_TITLE in texts and REFUSED_TEXT in texts, f"{row}: the refusal shows {texts}"
-        print(f"PASS {row} refused: {REFUSED_TITLE} {REFUSED_TEXT}")
+        assert REFUSED_TITLE in texts and text in texts, f"{row}: the refusal shows {texts}"
+        print(f"PASS {row} refused: {REFUSED_TITLE} {text}")
         click = session.click_widget_ready(host, "OK")
         assert click.get("ok"), f"{row}: OK was not clicked: {click}"
         host.wait_for(f"{row} back where the load started", lambda: session.states(host) == start or None,
@@ -382,11 +403,82 @@ def partner_save():
         print(f"PASS {row} back: {session.states(host)}")
         _check_untouched(path, digest, upgraded, row, "after the refused load")
         r = host.ok({"cmd": "upgrade_run", "host": save})
-        assert r.get("success") is False and r.get("errors") == [REFUSED_KEY], (
-            f"{row}: the upgrade's own answer is {r}, want refused with [{REFUSED_KEY}] only")
+        assert r.get("success") is False and r.get("errors") == [key], (
+            f"{row}: the upgrade's own answer is {r}, want refused with [{key}] only")
         _check_untouched(path, digest, upgraded, row, "after the upgrade's own run")
         assert host.proc.poll() is None and host.ok({"cmd": "get_state"}), f"{row}: the host game stopped"
         print(f"PASS {row} untouched: the save's bytes are unchanged, no upgraded copy, the game runs")
+        print(f"ALL {row} PASSED")
+    finally:
+        old_resume.shut(host)
+
+
+def partner_save():
+    """The previous build's save made on the host during a battle the client's
+    craft started (fixtures/separate_client_battle_main.sav): the load is
+    refused with a message, the file stays as it was and the host is back
+    where the load started."""
+    _check_refused("partner_save", CLIENT_BATTLE_SAVE, "sep_battle_owner3r_host", REFUSED_TEXT, REFUSED_KEY)
+
+
+def partner_autosave():
+    """The previous build's autosave written on the host right after a mission
+    the client's craft started (fixtures/separate_client_mission_autosave.asav:
+    the client's base, less the soldier who died there): the load is refused
+    with its own message, the file stays as it was and the host is back where
+    the load started."""
+    _check_refused("partner_autosave", CLIENT_MISSION_AUTOSAVE, "sep_battle_owner5_host",
+                   AUTOSAVE_REFUSED_TEXT, AUTOSAVE_REFUSED_KEY)
+
+
+def _base_owners(path):
+    """{base name: (owner name, {soldier owner id: soldier count})} of a save."""
+    with open(path, "r", encoding="utf-8") as f:
+        body = list(yaml.safe_load_all(f.read()))[1]
+    owners = {}
+    for base in body.get("bases") or []:
+        seats = {}
+        for soldier in base.get("soldiers") or []:
+            seat = soldier.get("ownerplayerid")
+            seats[seat] = seats.get(seat, 0) + 1
+        owners[base.get("name")] = (base.get("ownerplayername"), seats)
+    return owners
+
+
+def host_autosave():
+    """The previous build's geoscape autosave written on the host after the
+    client's first mission (fixtures/separate_host_autosave.asav) holds the
+    host's own campaign: loading it on the host upgrades it, the original file
+    stays as it was, and each player owns its own base and soldiers."""
+    row = "host_autosave"
+    save = os.path.basename(HOST_AUTOSAVE)
+    host_dir = make_user_dir("sep_battle_owner6_host", saves=(HOST_AUTOSAVE,))
+    path = os.path.join(host_dir, "xcom1", save)
+    upgraded = os.path.join(host_dir, "xcom1", os.path.splitext(save)[0] + "_upgraded.sav")
+    digest = _sha256(path)
+    host = GameClient("host", None, host_dir)
+    try:
+        host.spawn(); host.connect()
+        det = host.ok({"cmd": "upgrade_detect", "file": save})
+        assert (det.get("kind"), det.get("variant"), det.get("schema")) == ("legacy", "embed", 2), f"{row}: {det}"
+        host.ok({"cmd": "load_save_menu", "file": save})
+        host.wait_for(f"{row} upgrade dialog", lambda: session.has_state(host, "SaveUpgradeDialogState"),
+                      timeout=30, interval=0.1)
+        click = session.click_widget_ready(host, "Create upgraded save")
+        assert click.get("ok"), f"{row}: the upgrade button was not clicked: {click}"
+        host.wait_for(f"{row} the upgrade's answer",
+                      lambda: session.has_state(host, "SaveUpgradeMessageState")
+                      or session.has_state(host, "SaveUpgradeSummaryState"),
+                      timeout=30, interval=0.1)
+        top = session.top_state(host)
+        texts = [w["text"] for w in host.ok({"cmd": "list_widgets"})["widgets"] if w.get("text") is not None]
+        assert top == "SaveUpgradeSummaryState", f"{row}: the upgrade did not finish: top {top}, shows {texts}"
+        print(f"PASS {row} upgraded: {top}")
+        assert _sha256(path) == digest, f"{row}: the original save changed on disk"
+        assert os.path.exists(upgraded), f"{row}: no upgraded copy at {upgraded}"
+        owners = _base_owners(upgraded)
+        assert owners == HOST_AUTOSAVE_BASES, f"{row}: the upgraded bases are {owners}, want {HOST_AUTOSAVE_BASES}"
+        print(f"PASS {row} owners: {owners}")
         print(f"ALL {row} PASSED")
     finally:
         old_resume.shut(host)
@@ -436,10 +528,12 @@ def older_save():
 
 
 def main():
-    rows = sys.argv[1:] or ["host_craft", "client_craft", "client_cydonia", "partner_save", "older_save"]
+    rows = sys.argv[1:] or ["host_craft", "client_craft", "client_cydonia", "partner_save", "partner_autosave",
+                            "host_autosave", "older_save"]
     for name in rows:
         {"host_craft": host_craft, "client_craft": client_craft, "client_cydonia": client_cydonia,
-         "partner_save": partner_save, "older_save": older_save}[name]()
+         "partner_save": partner_save, "partner_autosave": partner_autosave, "host_autosave": host_autosave,
+         "older_save": older_save}[name]()
 
 
 if __name__ == "__main__":
