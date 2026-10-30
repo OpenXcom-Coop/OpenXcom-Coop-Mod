@@ -62,7 +62,7 @@
   "test_client_baton": 163.1,
   "test_client_briefing": 10.8,
   "test_client_dialog_ok_crash": 47.7,
-  "test_client_disconnect_crash": 30.5,
+  "test_client_disconnect_crash": 7.7,
   "test_client_gates": 17.8,
   "test_client_grenade": 43.6,
   "test_client_items": 66.3,
