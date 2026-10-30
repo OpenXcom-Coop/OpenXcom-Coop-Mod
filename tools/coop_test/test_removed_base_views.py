@@ -1,43 +1,56 @@
-"""W2-H83 S-B RBV (tools/coop_test/test_removed_base_views.py): a base its owner removes is never read by a view of it on the other
-machine (lead L-BH3 rows V and S, ruling R-LBH3-1, veto lines VL-H83-1 / VL-H83-2; capture lbh3-cap F22268-F22273).
-Spec docs rewrite/prompts/w2h83_removed_base_views.md (common: rulings, R3, QH83-3 / QH83-4 (a)) + rewrite/prompts/w2h83_sb_open_views.md (f) RBV;
-TASK 0 values in rewrite/w2h83-task0/sb/CONSTANTS.md. Today a SEPARATE client VISITING the host's base keeps its view on the freed base after the
-host removes it (its GEOSCAPE once ended the campaign on both machines), and in SHARED the client's BUILD FACILITIES, alien containment and NEW
-RESEARCH windows stay open on the removed base and refresh from it. The green (EB1-EB5) sends the visitor home first (one LEAVE line) and closes
-the three windows like the eleven other bound base screens.
+"""A base its owner removes is never read by a view of it on the other machine.
+Without the fix a SEPARATE client VISITING the host's base keeps its view on the freed base after the host removes it,
+and in SHARED the client's BUILD FACILITIES, alien containment and NEW RESEARCH windows stay open on the removed base
+and refresh from it. The fix sends the visitor home first (one LEAVE line) and closes the three windows like the eleven
+other bound base screens.
 TWO boots, each shut down before the next (key KEY). The window mapping per machine: real INTERCEPT + CANCEL.
-V boot (dirs w2h83_v_*, campaign_mode "coop"): spawn + connect; session.new_campaign; geo_set_speed idx 0 both; HB = the host's first base
-  (mir(client) at boot); host build_new_base HostBase2 at B2 and HostBase3 at B3 (+ real GEOSCAPE each); both in mir(client).
-  Row VC  client real globe click on HB's marker (MultipleTargetsState: the HB row) -> the visit (BasescapeState, insideCoopBase true, selectedBase
-          HB); the host dismantles HostBase3 (real BASES, the key of its index if not shown, the BaseView lift cell, DismantleFacilityState OK) +
-          real GEOSCAPE; DEL_SETTLE; read the client; client real GEOSCAPE (the view of HB, a live base) -> its own GeoscapeState within W_BACK;
-          RT_SETTLE; read.  VC-pre (GUARD) HostBase2 / HostBase3 in mir(client); the visit open on HB; the host's OK reached.  VC-stay (GUARD)
-          after DEL_SETTLE the client's top BasescapeState, insideCoopBase true, selectedBase HB, its live bases lack HostBase3.  VC-gone (GUARD)
-          after its GEOSCAPE: own(client) non-empty and no HostBase3 id in mir(client) after RT_SETTLE.
-  Row V   (LAST) client real globe click on HostBase2 -> the visit (selectedBase HostBase2); V-mark; the host dismantles HostBase2; poll the client
-          every 0.05 s for W_LEAVE from the host's OK click; host real GEOSCAPE; RT_SETTLE; read; WATCH both stacks until W_END after the OK.
-          No client press after the dismantle.  V-pre (GUARD) the visit open on HostBase2; the host's OK reached.  V-leave (FIX) within W_LEAVE
-          of the OK the client's top GeoscapeState and own(client) non-empty.  V-log (FIX) the client's LEAVE lines since V-mark: exactly 1.
-          V-mir (FIX) after RT_SETTLE mir(client) ids == {HB_ID}.  V-end (GUARD) no CutsceneState / StatisticsState / SlideshowState on either
-          stack up to W_END.  V-host (GUARD) HostBase2 gone from own(host); the host's top GeoscapeState.
-S boot (dirs w2h83_s_*, campaign_mode "shared"): as V's bring-up; FB = the one shared base at boot. Rows BF, AC, NR (LAST), each on a fresh
-  lift-only SharedBaseN built by the host's build_new_base at B2 / B3 / B4 and present on both machines (set_funds 2x the cost on the host only
-  if a build is unaffordable). Per row: R-mark; client real BASES (key 2 if SharedBaseN is not shown); open the window (BF: real BUILD
-  FACILITIES; AC: the screen_push containment lever, base = SharedBaseN's index, prisonType 0 (a lift-only base has no containment); NR: real
-  RESEARCH, then real New Project); the host dismantles SharedBaseN; poll the client every 0.05 s for W_POP from the OK click; host real
-  GEOSCAPE; read. Recovery before the next row: BF real OK / AC real Cancel if the window is still on top (the only presses on a window whose
-  base was freed), the base view on FB, real GEOSCAPE. NR: none (LAST).
-          R-pre (GUARD) SharedBaseN on both machines; the window on the client's top (NR: NewResearchListState over ResearchState); the host's
-          OK reached; SharedBaseN gone from both lists.  R-pop (FIX) within W_POP the window is off the client's stack (NR: NewResearchListState
-          AND ResearchState).  R-view (FIX) within W_POP the client's top BasescapeState and geo_state.selectedBase FB.
-END       CRASH (GUARD): no new crash file in the lane's crash folder over both boots; every process alive until its shutdown.
-Red today: V-leave, V-log, V-mir, BF-pop, BF-view, AC-pop, AC-view, NR-pop, NR-view FAIL (9 of 19); every other cell PASS. Green (EB1-EB5):
-all 19 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon,
-coopBase, lon, lat]. LEAVE = engine-log lines holding "[coop] removed base: the partner removed the base this player views". Every press is a real
-click_widget or inject_input except the logged levers build_new_base, geo_set_speed, screen_push and set_funds. One EVIDENCE line per row, one
-PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached") and the file goes
-on; a boot miss fails its first row's -pre cell with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only
-when every cell passes, else 2.
+SEPARATE boot (dirs removed_base_views_separate_*, campaign_mode "coop"): spawn + connect; session.new_campaign;
+  geo_set_speed idx 0 both; HB = the host's first base (mir(client) at boot); host build_new_base HostBase2 at
+  BASE2_POS and HostBase3 at BASE3_POS (+ real GEOSCAPE each); both in mir(client).
+  Row live_visit_stays
+          client real globe click on HB's marker (MultipleTargetsState: the HB row) -> the visit (BasescapeState,
+          insideCoopBase true, selectedBase HB); the host dismantles HostBase3 (real BASES, the key of its index if not
+          shown, the BaseView lift cell, DismantleFacilityState OK) + real GEOSCAPE; DEL_SETTLE; read the client;
+          client real GEOSCAPE (the view of HB, a live base) -> its own GeoscapeState within W_BACK; RT_SETTLE; read.
+          live_visit_stays-pre (GUARD) HostBase2 / HostBase3 in mir(client); the visit open on HB; the host's OK
+          reached.  live_visit_stays-stay (GUARD) after DEL_SETTLE the client's top BasescapeState, insideCoopBase
+          true, selectedBase HB, its live bases lack HostBase3.  live_visit_stays-gone (GUARD) after its GEOSCAPE:
+          own(client) non-empty and no HostBase3 id in mir(client) after RT_SETTLE.
+  Row visit_sent_home
+          (LAST) client real globe click on HostBase2 -> the visit (selectedBase HostBase2); MARK; the host
+          dismantles HostBase2; poll the client every 0.05 s for W_LEAVE from the host's OK click; host real
+          GEOSCAPE; RT_SETTLE; read; WATCH both stacks until W_END after the OK. No client press after the dismantle.
+          visit_sent_home-pre (GUARD) the visit open on HostBase2; the host's OK reached.  visit_sent_home-leave
+          (FIX) within W_LEAVE of the OK the client's top GeoscapeState and own(client) non-empty.
+          visit_sent_home-log (FIX) the client's LEAVE lines since MARK: exactly 1.  visit_sent_home-mir (FIX) after
+          RT_SETTLE mir(client) ids == {HB_ID}.  visit_sent_home-end (GUARD) no CutsceneState / StatisticsState /
+          SlideshowState on either stack up to W_END.  visit_sent_home-host (GUARD) HostBase2 gone from own(host);
+          the host's top GeoscapeState.
+SHARED boot (dirs removed_base_views_shared_*, campaign_mode "shared"): as the SEPARATE boot's bring-up; FB = the one
+  shared base at boot. Rows build_facilities, alien_containment, new_research (LAST), each on a fresh lift-only
+  SharedBaseN built by the host's build_new_base at BASE2_POS / BASE3_POS / BASE4_POS and present on both machines
+  (set_funds 2x the cost on the host only if a build is unaffordable). Per row: client real BASES (key 2 if
+  SharedBaseN is not shown); open the window (build_facilities: real BUILD FACILITIES; alien_containment: the
+  screen_push containment test command, base = SharedBaseN's index, prisonType 0 (a lift-only base has no
+  containment); new_research: real RESEARCH, then real New Project); the host dismantles SharedBaseN; poll the client
+  every 0.05 s for W_POP from the OK click; host real GEOSCAPE; read. Recovery before the next row: build_facilities
+  real OK / alien_containment real Cancel if the window is still on top (the only presses on a window whose base was
+  freed), the base view on FB, real GEOSCAPE. new_research: none (LAST).
+  Cells of each window row R:
+          R-pre (GUARD) SharedBaseN on both machines; the window on the client's top (new_research:
+          NewResearchListState over ResearchState); the host's OK reached; SharedBaseN gone from both lists.  R-pop
+          (FIX) within W_POP the window is off the client's stack (new_research: NewResearchListState AND
+          ResearchState).  R-view (FIX) within W_POP the client's top BasescapeState and geo_state.selectedBase FB.
+END       CRASH (GUARD): no new crash file in the lane's crash folder over both boots; every process alive until its
+          shutdown.
+Without the fix: visit_sent_home-leave, -log and -mir and the -pop and -view cells of the three window rows FAIL (9 of
+19); every other cell PASS. With the fix: all 19 PASS. mir(gc) = geo_state bases with coopIcon true; own(gc) =
+coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon, coopBase, lon, lat]. LEAVE = engine-log lines
+holding "[coop] removed base: the partner removed the base this player views". Every press is a real click_widget or
+inject_input except the logged test commands build_new_base, geo_set_speed, screen_push and set_funds. One EVIDENCE
+line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line,
+later cells "not reached") and the file goes on; a boot miss fails its first row's -pre cell with ONE CAPTURE line.
+ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_views.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, os, sys, time  # noqa: E401
 
@@ -45,10 +58,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
-KEY = "49558"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 2822029fe)
-B2 = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2 / SharedBase2: on land
-B3 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3 / SharedBase3: on land
-B4 = (LAND_LON + 0.09, LAND_LAT + 0.03)     # SharedBase4: on land
+KEY = "49558"                               # lobby key (unused by every other test file)
+BASE2_POS = (LAND_LON + 0.03, LAND_LAT + 0.03)     # HostBase2 / SharedBase2: on land
+BASE3_POS = (LAND_LON + 0.06, LAND_LAT + 0.03)     # HostBase3 / SharedBase3: on land
+BASE4_POS = (LAND_LON + 0.09, LAND_LAT + 0.03)     # SharedBase4: on land
 LIFT = (80, 80)                             # build_new_base's lift (2, 2), BaseView GRID 32: its centre
 KEY_1, ZOOM_MIN, SYM_PLUS = 49, 3, 43
 W_LEAVE, W_POP = 5.0, 2.0
@@ -58,11 +71,18 @@ NEEDLE_A = "[coop] removed base: id=%s cache="
 LEAVE = "[coop] removed base: the partner removed the base this player views"
 LOGN = ("[coop] removed base: ", "[coop] coopBase3 marker", "the host's own world", "[coop-session]", "coop-ui] push", "coop-ui] pop")
 ENDS = ("CutsceneState", "StatisticsState", "SlideshowState")
-WIN = {"BF": "BuildFacilitiesState", "AC": "ManageAlienContainmentState", "NR": "NewResearchListState"}
-ROWS = (("VC", ("VC-pre", "VC-stay", "VC-gone")), ("V", ("V-pre", "V-leave", "V-log", "V-mir", "V-end", "V-host")),
-        ("BF", ("BF-pre", "BF-pop", "BF-view")), ("AC", ("AC-pre", "AC-pop", "AC-view")), ("NR", ("NR-pre", "NR-pop", "NR-view")),
+WIN = {"build_facilities": "BuildFacilitiesState", "alien_containment": "ManageAlienContainmentState",
+       "new_research": "NewResearchListState"}
+ROWS = (("live_visit_stays", ("live_visit_stays-pre", "live_visit_stays-stay", "live_visit_stays-gone")),
+        ("visit_sent_home", ("visit_sent_home-pre", "visit_sent_home-leave", "visit_sent_home-log",
+                             "visit_sent_home-mir", "visit_sent_home-end", "visit_sent_home-host")),
+        ("build_facilities", ("build_facilities-pre", "build_facilities-pop", "build_facilities-view")),
+        ("alien_containment", ("alien_containment-pre", "alien_containment-pop", "alien_containment-view")),
+        ("new_research", ("new_research-pre", "new_research-pop", "new_research-view")),
         ("END", ("CRASH",)))
-FIX = ("V-leave", "V-log", "V-mir", "BF-pop", "BF-view", "AC-pop", "AC-view", "NR-pop", "NR-view")
+FIX = ("visit_sent_home-leave", "visit_sent_home-log", "visit_sent_home-mir", "build_facilities-pop",
+       "build_facilities-view", "alien_containment-pop", "alien_containment-view", "new_research-pop",
+       "new_research-view")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -71,7 +91,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes and real input (copied from the capture docs rewrite/lbh3-cap/cap.py, never imported) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -196,8 +216,9 @@ def settle(gc, secs):
         time.sleep(0.25)
     return trace
 def build_base2(b, gc, name, pos):
-    """the harness base-build lever (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState -> PlaceLiftState, real states), then a
-    real GEOSCAPE if the new base's BasescapeState shows; set_funds (lever) 2x the last cost only when the funds are below it"""
+    """the harness base-build test command (BuildNewBaseState -> ConfirmNewBaseState -> BaseNameState ->
+    PlaceLiftState, real states), then a real GEOSCAPE if the new base's BasescapeState shows; set_funds (a test
+    command) 2x the last cost only when the funds are below it"""
     f0, fl = census(gc).get("funds") or 0, None
     if b.cost and f0 < b.cost:
         fl = q(gc, {"cmd": "set_funds", "value": 2 * b.cost})
@@ -253,8 +274,8 @@ def capture(b):
 # ----- the boots and the rows -----
 class Boot:
     def __init__(self, tag):
-        self.host = GameClient("host", None, make_user_dir("w2h83_%s_host" % tag))
-        self.client = GameClient("client", None, make_user_dir("w2h83_%s_client" % tag))
+        self.host = GameClient("host", None, make_user_dir("removed_base_views_%s_host" % tag))
+        self.client = GameClient("client", None, make_user_dir("removed_base_views_%s_client" % tag))
         self.sc, self.cost = {}, None
 class Row:
     def __init__(self, x, b, rid):
@@ -304,14 +325,14 @@ def bring_up(b, mode, st):
         raise Stop("boot: host own %s, client own %s, client mirrors %s" % (own(p["host"]), own(p["client"]), mir(p["client"])))
     hb = mir(p["client"])[0]
     st.update({"HB_ID": hb[0], "HB": hb[1], "HB_POS": hb[4:6]})
-    st["builds"] = [build_base2(b, b.host, "HostBase2", B2), build_base2(b, b.host, "HostBase3", B3)]
+    st["builds"] = [build_base2(b, b.host, "HostBase2", BASE2_POS), build_base2(b, b.host, "HostBase3", BASE3_POS)]
     other_has(b.client, "HostBase2")
     other_has(b.client, "HostBase3")
     time.sleep(1.0)
     p = both(b)
     m = {x[1]: x for x in mir(p["client"])}
     if not ("HostBase2" in m and "HostBase3" in m and {"HostBase2", "HostBase3"} <= set(own_names(p["host"]))):
-        raise Stop("V0: client mirrors %s, host own %s" % (mir(p["client"]), own(p["host"])))
+        raise Stop("afterBuild: client mirrors %s, host own %s" % (mir(p["client"]), own(p["host"])))
     st.update({"HB2_ID": m["HostBase2"][0], "HB2_POS": m["HostBase2"][4:6], "HB3_ID": m["HostBase3"][0]})
 def visit(b, r, name, pos):
     c = b.client
@@ -320,7 +341,7 @@ def visit(b, r, name, pos):
     g = census(c)
     r.ev["visit"] = {"marker": mk, "openS": s, "selected": g["selected"], "bases": g["bases"], "stack": g["stack"]}
     r.need(v and g["selected"] == name, "the visit of %s did not open: top %s, selectedBase %r" % (name, g["stack"], g["selected"]))
-def row_vc(b, r, st):
+def row_live_visit_stays(b, r, st):
     h, c, ev = b.host, b.client, r.ev
     ev["ids"] = {"HB_ID": st["HB_ID"], "HB": st["HB"], "HB2_ID": st["HB2_ID"], "HB3_ID": st["HB3_ID"]}
     visit(b, r, st["HB"], st["HB_POS"])
@@ -331,11 +352,13 @@ def row_vc(b, r, st):
     d = census(c)
     ins = coop(c).get("insideCoopBase")
     ev["afterDel"] = {"stack": d["stack"], "selected": d["selected"], "inside": ins, "bases": d["bases"], "hostOwn": own_names(census(h))}
-    r.cell("VC-pre", True, "HostBase2 %s / HostBase3 %s in mir(client); the visit opened on %r; the host's OK reached" % (
-        st["HB2_ID"], st["HB3_ID"], ev["visit"]["selected"]))
-    r.cell("VC-stay", d["stack"][-1:] == ["BasescapeState"] and ins is True and d["selected"] == st["HB"] and
-           st["HB3_ID"] not in [x[0] for x in d["bases"]], "after DEL_SETTLE: top %s, insideCoopBase %s, selectedBase %r, live bases %s" % (
-           d["stack"][-1:], ins, d["selected"], [x[:2] for x in d["bases"]]))
+    r.cell("live_visit_stays-pre", True,
+           "HostBase2 %s / HostBase3 %s in mir(client); the visit opened on %r; the host's OK reached" % (
+               st["HB2_ID"], st["HB3_ID"], ev["visit"]["selected"]))
+    r.cell("live_visit_stays-stay", d["stack"][-1:] == ["BasescapeState"] and ins is True and
+           d["selected"] == st["HB"] and st["HB3_ID"] not in [x[0] for x in d["bases"]],
+           "after DEL_SETTLE: top %s, insideCoopBase %s, selectedBase %r, live bases %s" % (
+               d["stack"][-1:], ins, d["selected"], [x[:2] for x in d["bases"]]))
     r.need(d["stack"][-1:] == ["BasescapeState"] and d["selected"] == st["HB"], "the client's view no longer shows HB: no GEOSCAPE press")
     must_click(c, "GEOSCAPE", 10)
     ev["backS"] = wait(lambda: top(c) == "GeoscapeState" and coop(c).get("insideCoopBase") is False, W_BACK)
@@ -343,13 +366,13 @@ def row_vc(b, r, st):
     ev["rtSettle"] = settle(c, RT_SETTLE)
     a = census(c)
     ev["after"] = a["bases"]
-    r.cell("VC-gone", len(own(a)) > 0 and st["HB3_ID"] not in mir_ids(a), "after RT_SETTLE: own(client) %s, mir(client) %s; HB3_ID %s" % (
-        own_names(a), mir_ids(a), st["HB3_ID"]))
-def row_v(b, r, st):
+    r.cell("live_visit_stays-gone", len(own(a)) > 0 and st["HB3_ID"] not in mir_ids(a),
+           "after RT_SETTLE: own(client) %s, mir(client) %s; HB3_ID %s" % (own_names(a), mir_ids(a), st["HB3_ID"]))
+def row_visit_sent_home(b, r, st):
     h, c, ev = b.host, b.client, r.ev
     ev["ids"] = {"HB_ID": st["HB_ID"], "HB2_ID": st["HB2_ID"]}
     visit(b, r, "HostBase2", st["HB2_POS"])
-    mark = [len(logl(h)), len(logl(c))]  # V-mark
+    mark = [len(logl(h)), len(logl(c))]  # MARK
     tops = []  # [t from the OK, client stack, host stack]: the WATCH up to W_END
 
     def leave_poll(tc):
@@ -367,7 +390,7 @@ def row_v(b, r, st):
             time.sleep(0.05)
         return {"trace": tr, "leaveAt": at}
     d = ev["dismantle"] = dismantle(h, b.sc["host"], "HostBase2", during=leave_poll)
-    r.cell("V-pre", True, "the visit opened on %r; the host's OK reached" % ev["visit"]["selected"])
+    r.cell("visit_sent_home-pre", True, "the visit opened on %r; the host's OK reached" % ev["visit"]["selected"])
     must_click(h, "GEOSCAPE", 10)
     wait_top(h, "GeoscapeState", 15)
     t0, rt, last = time.time(), [], None
@@ -388,14 +411,17 @@ def row_v(b, r, st):
     ev["watch"] = {"n": len(tops), "clientTops": sorted(set(t[1][-1] for t in tops if t[1])), "hostTops": sorted(set(t[2][-1] for t in tops if t[2])),
                    "ends": ends[:3]}
     lv = d["during"]
-    r.cell("V-leave", lv["leaveAt"] is not None, "within W_LEAVE: GeoscapeState with own(client) at +%s s; trace %s" % (lv["leaveAt"], lv["trace"]))
-    r.cell("V-log", len(ln["leave"]) == 1, "the client's LEAVE lines since V-mark: %d %s (want exactly 1)" % (len(ln["leave"]), ln["leave"]))
-    r.cell("V-mir", sorted(mir_ids(a)) == [st["HB_ID"]], "after RT_SETTLE: mir(client) %s, stack %s (want [%s])" % (mir_ids(a), a["stack"], st["HB_ID"]))
-    r.cell("V-end", not ends, "%d polls up to W_END; client tops %s, host tops %s; end states %s" % (
+    r.cell("visit_sent_home-leave", lv["leaveAt"] is not None,
+           "within W_LEAVE: GeoscapeState with own(client) at +%s s; trace %s" % (lv["leaveAt"], lv["trace"]))
+    r.cell("visit_sent_home-log", len(ln["leave"]) == 1, "the client's LEAVE lines since MARK: %d %s (want exactly 1)"
+           % (len(ln["leave"]), ln["leave"]))
+    r.cell("visit_sent_home-mir", sorted(mir_ids(a)) == [st["HB_ID"]],
+           "after RT_SETTLE: mir(client) %s, stack %s (want [%s])" % (mir_ids(a), a["stack"], st["HB_ID"]))
+    r.cell("visit_sent_home-end", not ends, "%d polls up to W_END; client tops %s, host tops %s; end states %s" % (
         len(tops), ev["watch"]["clientTops"], ev["watch"]["hostTops"], ends[:2]))
-    r.cell("V-host", "HostBase2" not in own_names(ha) and ha["stack"][-1:] == ["GeoscapeState"], "host own %s, host stack %s" % (
-        own_names(ha), ha["stack"]))
-def row_s(b, r, st, rid, n, pos):
+    r.cell("visit_sent_home-host", "HostBase2" not in own_names(ha) and ha["stack"][-1:] == ["GeoscapeState"],
+           "host own %s, host stack %s" % (own_names(ha), ha["stack"]))
+def row_window(b, r, st, rid, n, pos):
     h, c, ev, win = b.host, b.client, r.ev, WIN[rid]
     bn = ev["base"] = "SharedBase%d" % n
     ev["build"] = build_base2(b, h, bn, pos)
@@ -408,22 +434,24 @@ def row_s(b, r, st, rid, n, pos):
     ev["built"] = {"host": names(p["host"]), "client": names(p["client"])}
     r.need(bn in names(p["host"]) and bn in names(p["client"]), "%s not on both machines: %s" % (bn, ev["built"]))
     ev["open"] = open_base(c, bn)
-    if rid == "BF":
+    if rid == "build_facilities":
         must_click(c, "BUILD FACILITIES", 10)
-    elif rid == "AC":
-        ev["lever"] = q(c, {"cmd": "screen_push", "screen": "containment", "base": names(census(c)).index(bn), "prisonType": 0})
-        r.need(ev["lever"].get("ok"), "screen_push containment refused: %s" % ev["lever"])
+    elif rid == "alien_containment":
+        ev["screenPush"] = q(c, {"cmd": "screen_push", "screen": "containment", "base": names(census(c)).index(bn),
+                                 "prisonType": 0})
+        r.need(ev["screenPush"].get("ok"), "screen_push containment refused: %s" % ev["screenPush"])
     else:
         must_click(c, "RESEARCH", 10)
         wait_top(c, "ResearchState", 10)
         session.wait_widget_ready(c, "New Project")
         must_click(c, "New Project", 10)
     wait_top(c, win, 10)
-    if rid == "AC":
+    if rid == "alien_containment":
         session.wait_widget_ready(c, "Cancel")
     time.sleep(1.0)
     w0 = ev["window"] = stk(c)
-    r.need(w0[-1:] == [win] and (rid != "NR" or w0[-2:-1] == ["ResearchState"]), "the client's window not on top: %s" % w0)
+    r.need(w0[-1:] == [win] and (rid != "new_research" or w0[-2:-1] == ["ResearchState"]),
+           "the client's window not on top: %s" % w0)
 
     def pop_poll(tc):
         tr, last, pop_at, view_at = [], None, None, None
@@ -434,7 +462,7 @@ def row_s(b, r, st, rid, n, pos):
             if e != last:
                 tr.append([tt] + e)
                 last = e
-            if pop_at is None and win not in sc_ and (rid != "NR" or "ResearchState" not in sc_):
+            if pop_at is None and win not in sc_ and (rid != "new_research" or "ResearchState" not in sc_):
                 pop_at = tt
             if view_at is None and sc_[-1:] == ["BasescapeState"] and g["selected"] == st["FB"]:
                 view_at = tt
@@ -451,10 +479,12 @@ def row_s(b, r, st, rid, n, pos):
                                                                                                       names(a["host"])))
     r.cell(rid + "-pop", pp["popAt"] is not None, "within W_POP the window off the stack at +%s s; trace %s" % (pp["popAt"], pp["trace"]))
     r.cell(rid + "-view", pp["viewAt"] is not None, "within W_POP BasescapeState with selectedBase %r at +%s s" % (st["FB"], pp["viewAt"]))
-    if rid == "NR":
+    if rid == "new_research":
         return  # LAST: no press
-    if top(c) == win:  # recovery: BF's OK / AC's Cancel, the only presses on a window whose base was freed (both pop only)
-        ev["recovery"] = must_click(c, "OK" if rid == "BF" else "Cancel", 5)
+    # recovery: build_facilities's OK / alien_containment's Cancel, the only presses on a window whose base was freed
+    # (both pop only)
+    if top(c) == win:
+        ev["recovery"] = must_click(c, "OK" if rid == "build_facilities" else "Cancel", 5)
     v, s = wait(lambda: top(c) == "BasescapeState" and census(c)["selected"] == st["FB"], 5)
     r.need(v, "recovery: the client's base view not on %r: %s" % (st["FB"], stk(c)))
     must_click(c, "GEOSCAPE", 10)
@@ -498,9 +528,12 @@ def main():
     x, crash0 = X(), crashes()
     T0[0] = time.time()
     try:
-        run_boot(x, "v", "coop", (("VC", row_vc), ("V", row_v)))
-        run_boot(x, "s", "shared", tuple((rid, (lambda rid, n, pos: lambda b, r, st: row_s(b, r, st, rid, n, pos))(rid, n, pos))
-                                         for rid, n, pos in (("BF", 2, B2), ("AC", 3, B3), ("NR", 4, B4))))
+        run_boot(x, "separate", "coop",
+                 (("live_visit_stays", row_live_visit_stays), ("visit_sent_home", row_visit_sent_home)))
+        run_boot(x, "shared", "shared",
+                 tuple((rid, (lambda rid, n, pos: lambda b, r, st: row_window(b, r, st, rid, n, pos))(rid, n, pos))
+                       for rid, n, pos in (("build_facilities", 2, BASE2_POS), ("alien_containment", 3, BASE3_POS),
+                                           ("new_research", 4, BASE4_POS))))
     finally:
         r, new = Row(x, None, "END"), sorted(crashes() - crash0)
         r.ev.update({"newCrash": [os.path.basename(p) for p in new], "aliveUntilShutdown": x.alive, "crashDir": harness.CRASH_DIR})
@@ -508,8 +541,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H83 S-B RBV: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                              sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_removed_base_views: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
