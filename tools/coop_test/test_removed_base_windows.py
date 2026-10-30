@@ -1,6 +1,6 @@
 """Every co-op window that still shows a base the other player removes closes before it reads it.
 Without the fix a window opened on a base keeps it after the other player removes that base (DISMANTLE, TRANSFER base
-list, INTERCEPT, MONTHLY COSTS over BASE INFORMATION, the SEPARATE TRANSFER list of shown mirrors), and BASE
+list, INTERCEPT, MONTHLY COSTS over BASE INFORMATION, the SEPARATE TRANSFER list holding a partner base), and BASE
 INFORMATION under STORES re-reads the freed base (it killed the client on both boots measured without the fix). The fix
 closes every such screen top down right after the co-op drain, one engine line per screen: "[coop] removed base:
 closed <class> - the base it shows is gone".
@@ -39,22 +39,23 @@ SHARED boot (dirs removed_base_windows_shared_*, campaign_mode "shared"): spawn 
        (intercept_window: GeoscapeState).  R-log (FIX) CLOSED(receiver, MARK) == dismantle_confirm
        [DismantleFacilityState]; transfer_list [TransferBaseState]; intercept_window [InterceptState]; monthly_costs
        [MonthlyCostsState, BaseInfoState]; stores [StoresState, BaseInfoState].
-SEPARATE boot (dirs removed_base_windows_separate_*, campaign_mode "coop"): as above; HB = the host's first base
-  (mir(client)); the host's build_new_base HostBase2 at P[0] + real GEOSCAPE; HostBase2 in mir(client).
+SEPARATE boot (dirs removed_base_windows_separate_*, campaign_mode "coop"): as above; in the one shared world the
+  partner's bases are real bases; HB = the host's first base (partner(client)); the host's build_new_base HostBase2 at
+  P[0] + real GEOSCAPE; HostBase2 in partner(client).
   separate_transfer_list
-       (LAST) client BASES (its own base; key 1 if another shows) -> TRANSFER -> TransferBaseState listing HostBase2
-       (MARK); the host removes HostBase2; poll; RT_SETTLE; read. No client press.  separate_transfer_list-pre (GUARD)
-       HostBase2 in mir(client); TransferBaseState over the BasescapeState of the client's own base, HostBase2 in its
-       rows; the host's OK reached.  separate_transfer_list-pop (FIX) within W_POP TransferBaseState off the client's
-       stack.  separate_transfer_list-view (FIX) within W_POP the client's top BasescapeState, selectedBase its own
-       base.  separate_transfer_list-hide (FIX) after RT_SETTLE no coopIcon base in the client's geo_state (the view
-       hides the mirrors again).  separate_transfer_list-log (FIX) CLOSED(client, MARK) == [TransferBaseState].
+       (LAST) client BASES (its own base; key 1, the base strip's first slot, if another shows) -> TRANSFER ->
+       TransferBaseState listing HostBase2 (MARK); the host removes HostBase2; poll; RT_SETTLE; read. No client press.
+       separate_transfer_list-pre (GUARD) HostBase2 in partner(client); TransferBaseState over the BasescapeState of
+       the client's own base, HostBase2 in its rows; the host's OK reached.  separate_transfer_list-pop (FIX) within
+       W_POP TransferBaseState off the client's stack.  separate_transfer_list-view (FIX) within W_POP the client's
+       top BasescapeState, selectedBase its own base.  separate_transfer_list-log (FIX) CLOSED(client, MARK) ==
+       [TransferBaseState].
 END       CRASH (GUARD): no new crash file in the lane's crash folder over both boots; every process alive until its
           shutdown.
 Without the fix: the -pop, -view and -log cells of dismantle_confirm, transfer_list, intercept_window, monthly_costs
-and stores and the -pop, -view, -hide and -log cells of separate_transfer_list FAIL (19 of 28), plus CRASH when the
-client died inside stores; every other cell PASS. With the fix: all 28 PASS. mir(gc) = geo_state bases with coopIcon
-true; own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon, coopBase, lon, lat]. CLOSED(gc,
+and stores and the -pop, -view and -log cells of separate_transfer_list FAIL (18 of 27), plus CRASH when the client
+died inside stores; every other cell PASS. With the fix: all 27 PASS. partner(gc) = geo_state bases with coopBase true
+(the partner's); own(gc) = coopIcon and coopBase false; census rows [coopBaseId, name, coopIcon, coopBase, lon, lat]. CLOSED(gc,
 since) = the class names of the engine-log lines holding "[coop] removed base: closed " since the mark, top first.
 Every press is a real click_widget or inject_input except the logged test commands build_new_base, geo_set_speed,
 set_funds and fac_dismantle (stores only). One EVIDENCE line per row, one PASS / FAIL line per cell, then the row
@@ -94,13 +95,11 @@ ROWS = (("base_info_stays", ("base_info_stays-pre", "base_info_stays-stay")),) +
     tuple((r, tuple("%s-%s" % (r, c) for c in ("pre", "pop", "view", "log")))
           for r in ("dismantle_confirm", "transfer_list", "intercept_window", "monthly_costs", "stores")) + \
     (("separate_transfer_list", ("separate_transfer_list-pre", "separate_transfer_list-pop",
-                                 "separate_transfer_list-view", "separate_transfer_list-hide",
-                                 "separate_transfer_list-log")), ("END", ("CRASH",)))
+                                 "separate_transfer_list-view", "separate_transfer_list-log")), ("END", ("CRASH",)))
 FIX = tuple("%s-%s" % (r, c)
             for r in ("dismantle_confirm", "transfer_list", "intercept_window", "monthly_costs", "stores")
             for c in ("pop", "view", "log")) + \
-    ("separate_transfer_list-pop", "separate_transfer_list-view", "separate_transfer_list-hide",
-     "separate_transfer_list-log")
+    ("separate_transfer_list-pop", "separate_transfer_list-view", "separate_transfer_list-log")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -139,8 +138,8 @@ def census(gc, raw=False):
     if raw:
         out["raw"] = g.get("bases", [])
     return out
-def mir(c): return [b for b in c["bases"] if b[2]]
-def mir_ids(c): return [b[0] for b in mir(c)]
+def partner(c): return [b for b in c["bases"] if b[3]]
+def partner_ids(c): return [b[0] for b in partner(c)]
 def own(c): return [b for b in c["bases"] if not b[2] and not b[3]]
 def names(c): return [b[1] for b in c["bases"]]
 def both(b): return {"host": census(b.host), "client": census(b.client)}
@@ -238,16 +237,19 @@ def build_base2(b, gc, name, pos):
         must_click(gc, "GEOSCAPE", 10)
     wait_top(gc, "GeoscapeState", 15)
     return {"reply": r, "pos": [round(pos[0], 4), round(pos[1], 4)]}
+def view_names(c):
+    """the base strip's order (MiniBaseView): the machine's own bases first, then the partner's"""
+    return [b[1] for b in c["bases"] if not b[3]] + [b[1] for b in c["bases"] if b[3]]
 def open_base(gc, name):
-    """real BASES; if the shown base is not `name`, the real key of its index in the view's live list (keyBaseSelectN)"""
+    """real BASES; if the shown base is not `name`, the real key of its slot in the base strip (keyBaseSelectN)"""
     must_click(gc, "BASES", 10)
     wait_top(gc, "BasescapeState", 10)
     c = census(gc)
-    rec = {"selected": c["selected"], "key": None}
+    rec = {"selected": c["selected"], "key": None, "view": view_names(c)}
     if rec["selected"] != name:
-        if name not in names(c):
-            raise Stop("%s base view list %s lacks %r" % (gc.name, names(c), name))
-        rec["key"] = KEY_1 + names(c).index(name)
+        if name not in rec["view"]:
+            raise Stop("%s base view list %s lacks %r" % (gc.name, rec["view"], name))
+        rec["key"] = KEY_1 + rec["view"].index(name)
         key(gc, rec["key"])
         time.sleep(0.5)
         rec["selected"] = census(gc)["selected"]
@@ -339,16 +341,16 @@ def bring_up(b, mode, st):
                 p["client"]["stack"] != ["GeoscapeState"]:
             raise Stop("six bases: host %s %s, client %s %s" % (names(p["host"]), p["host"]["stack"], names(p["client"]), p["client"]["stack"]))
         return
-    if not (len(own(p["host"])) == 1 and len(own(p["client"])) == 1 and len(mir(p["client"])) == 1):
-        raise Stop("boot: host own %s, client own %s, client mirrors %s" % (own(p["host"]), own(p["client"]), mir(p["client"])))
-    st.update({"HB_ID": mir(p["client"])[0][0], "CB": own(p["client"])[0][1]})
+    if not (len(own(p["host"])) == 1 and len(own(p["client"])) == 1 and len(partner(p["client"])) == 1):
+        raise Stop("boot: host own %s, client own %s, client partner bases %s" % (own(p["host"]), own(p["client"]), partner(p["client"])))
+    st.update({"HB_ID": partner(p["client"])[0][0], "CB": own(p["client"])[0][1]})
     st["builds"] = [build_base2(b, b.host, "HostBase2", P[0])]
     if not wait(lambda: "HostBase2" in names(census(b.client)), 30, 0.25)[0]:
         raise Stop("HostBase2 not in the client's list within 30 s")
     time.sleep(1.0)
-    m = {x[1]: x for x in mir(census(b.client))}
+    m = {x[1]: x for x in partner(census(b.client))}
     if "HostBase2" not in m:
-        raise Stop("HostBase2 not in mir(client): %s" % list(m))
+        raise Stop("HostBase2 not in partner(client): %s" % list(m))
     st["HB2_ID"] = m["HostBase2"][0]
 def open_window(b, r, st, rid, bn):
     h, c = b.host, b.client
@@ -387,11 +389,11 @@ def row(b, r, st, rid):
     h, c, ev, bn = b.host, b.client, r.ev, BASE[rid]
     recv, rem = (h, c) if rid == "monthly_costs" else (c, h)
     p0 = both(b)
-    ev["before"] = {"host": names(p0["host"]), "client": names(p0["client"]), "clientMir": mir_ids(p0["client"])}
+    ev["before"] = {"host": names(p0["host"]), "client": names(p0["client"]), "clientPartner": partner_ids(p0["client"])}
     r.need(bn in names(p0["client"]) and (rid == "separate_transfer_list" or bn in names(p0["host"])),
            "%s not on both machines: %s" % (bn, ev["before"]))
     if rid == "separate_transfer_list":
-        r.need(st["HB2_ID"] in mir_ids(p0["client"]), "HostBase2 %s not in mir(client) %s" % (st["HB2_ID"], mir_ids(p0["client"])))
+        r.need(st["HB2_ID"] in partner_ids(p0["client"]), "HostBase2 %s not in partner(client) %s" % (st["HB2_ID"], partner_ids(p0["client"])))
     mark = [len(logl(h)), len(logl(c))]  # MARK
     open_window(b, r, st, rid, bn)
     w0 = census(recv)
@@ -446,15 +448,15 @@ def row(b, r, st, rid):
         t1, rt, last = time.time(), [], None
         while time.time() - t1 < RT_SETTLE:
             g = census(c)
-            if [mir_ids(g), g["stack"][-2:]] != last:
-                last = [mir_ids(g), g["stack"][-2:]]
+            if [partner_ids(g), g["stack"][-2:]] != last:
+                last = [partner_ids(g), g["stack"][-2:]]
                 rt.append([round(time.time() - t1, 2)] + last)
             time.sleep(0.25)
         ev["rtSettle"] = rt
     a = both(b)
     cl = ev["closed"] = {"host": closed(h, mark[0]), "client": closed(c, mark[1])}
     ev["after"] = {"host": a["host"]["stack"], "client": a["client"]["stack"], "hostBases": names(a["host"]), "clientBases": names(a["client"]),
-                   "clientMir": mir_ids(a["client"]), "selected": a[recv.name]["selected"], "clientAlive": alive(c),
+                   "clientPartner": partner_ids(a["client"]), "selected": a[recv.name]["selected"], "clientAlive": alive(c),
                    "clientRc": c.proc.poll() if c.proc else None}
     # the base left the receiver's list: its census; a dead stores client: a poll without it, or its StoresState pop
     # line (the guard pops only once the base left the list)
@@ -490,10 +492,6 @@ def row(b, r, st, rid):
         WIN[rid], recv.name, pp["popAt"], pp["trace"]))
     r.cell(rid + "-view", pp["viewAt"] is not None, "within W_POP top %s%s at +%s s" % (
         view[0], "" if view[1] is None else " with selectedBase %r" % view[1], pp["viewAt"]))
-    if rid == "separate_transfer_list":
-        r.cell("separate_transfer_list-hide", alive(c) and not mir(a["client"]),
-               "after RT_SETTLE coopIcon bases in the client's geo_state %s (want none); trace %s" % (
-                   mir_ids(a["client"]), ev["rtSettle"]))
     r.cell(rid + "-log", rc == WIN[rid], "CLOSED(%s) %s, want %s; CLOSED(%s) %s" % (
         recv.name, rc, WIN[rid], rem.name, cl[rem.name]))
     # the recovery when the window stayed open: CANCEL, the only press on a window whose base was freed (pops one
