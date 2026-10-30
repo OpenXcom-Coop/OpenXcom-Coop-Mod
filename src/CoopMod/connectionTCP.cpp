@@ -40089,6 +40089,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopCampaignType campaignType =
 			static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt());
 
+		const std::string activeMaster = Options::getActiveMaster();
+		const bool vanillaCampaign = activeMaster == "xcom1" || activeMaster == "xcom2";
+		if (campaignType == CoopCampaignType::Separate && !connectionTCP::no_bases
+			&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3
+			&& !vanillaCampaign)
+		{
+			// Mod campaigns may use difficulty as a faction selector (for example
+			// Rosigma). Their Separate clients choose independently. Vanilla xcom1
+			// and xcom2 retain the streamlined host-difficulty startup below.
+			_game->pushState(new NewGameState(true, CoopCampaignType::Separate,
+				true, players));
+			return;
+		}
+
 		if (campaignType == CoopCampaignType::Shared)
 		{
 			// a SHARED client is a replica - it never builds its own
