@@ -1,141 +1,133 @@
-"""W2-P8 S-A + S-B - test_inventory.py: the second player opens its own soldier's
-inventory in battle and moves, loads and unloads items; the host checks and performs
-every placement (spec docs rewrite/prompts/w2p8_inventory.md: owner D130; AMENDMENT
-P8-1 (ST1-ST5, OR1-OR3); the W2-P8 PLAN REVIEW section 2 (the assertion map), section
-8.2 (this file's pinned text) and section 9 (S-B); AMENDMENT P8-2 (the TASK 0
-constants and rulings F2090-F2093, F2097); AMENDMENT P8-3 (the re-pin at 63324d66b)).
+"""The second player opens its own soldier's inventory in battle and moves, loads and
+unloads items; the host checks and performs every placement.
 
-Before S-A the second player cannot open the inventory at all: the INVENTORY key
-and battle_open_inventory are refused with "Only the host can open the inventory"
-and no InventoryState opens. After S-A the screen opens on
-the client for a soldier its seat commands. Picking an item up is local (it rides
-the cursor only). Every placement is an `inv_move` intent (op move) that the host
-admits with vanilla's own checks and performs with vanilla's own effect and time
-unit cost, inside an `intent` action context ending in one bt_action_end. The
-client writes no hashed state: the Q11 backstop count `invLocalWrites` stays 0 and
-the `invGuard` probe names the decision each inventory execution point took
-(ST3 (a)).
+The screen opens on the client for a soldier its seat commands. Picking an item up is
+local (it rides the cursor only). Every placement is an `inv_move` intent (op move)
+that the host admits with vanilla's own checks and performs with vanilla's own effect
+and time unit cost, inside an `intent` action context ending in one bt_action_end. The
+client writes no hashed state: the backstop count `invLocalWrites` stays 0 and the
+`invGuard` probe names the decision each inventory execution point took.
 
 Rows (ONE boot; each row ONE run, in this order; every row first restages C on its
-own T0-1 tile, ST5 (a): tele_both(C, tile, 2), strip_both(C), the row's kit through
-client-first lever pairs with the ids read from the replies, C's TU to max):
-  IV1   open + look. TAB-select C on the client, the INVENTORY key (keyBattleInventory
-        from the client's own options.cfg), then the key again. RED: the client
-        banner reads "Only the host can open the inventory" (read within 0.5 s of
-        the press, F2097) and no InventoryState opens. GREEN: InventoryState on the
-        client only (inventory_view {open, top, unitId C}), nothing sent, every
-        bucket EQUAL while it is open and after the second key closes it.
-  IV2   pick-up is local. Open (battle_open_inventory C), inventory_click STR_BELT
-        (1,0), then a right-click. RED: the open is refused. GREEN: selectedItem =
-        the grenade, then -1; nothing sent; EQUAL with the item on the cursor and
-        after.
-  IV3   C29b, grenade belt (1,0) -> STR_LEFT_HAND with the in-flight window (ST4):
-        host defer_intents {ms 2000, count 1} before the drop. Inside the window:
-        client inFlight.kind inv_move, selectedItem = the grenade, the grenade still
-        STR_BELT (1,0) owner C on both, C's TU unchanged on both, EQUAL; a second
-        drop click -> invGuard.last.decision "inflight" and coopIntentsSent.inv_move
-        unchanged. After the answer: admitted, grenade STR_LEFT_HAND owner C on
-        both, C TU 64 - 4 on both.
-  IV4   the ground rifle clip (its client `ground` cell) -> STR_BELT (2,0):
-        admitted, clip owner C, off the tile, (2,0) on both; C TU 64 - 12.
-  IV5   rifle RH + grenade LH on an empty tile; grenade LH -> ground cell (0,0):
-        admitted, grenade on C's tile, owner -1, STR_GROUND, on both; C TU 64 - 2.
-  IV11  host denies, move ops (lever, screen open): battle_intent kind inv_move
-        with tuBasisOverride 99 -> cost_changed; H's grenade -> item_missing;
-        actor H -> not_your_unit; grenade -> belt (0,0) holding the clip ->
-        invalid_target (silent: invLastWarning unchanged); set_tu_both(C, 1) and
-        belt -> LH basis 4 -> no_tu. Each: lastDeny {iseq, reason}, the exact
-        rendered text on invLastWarning, nothing executed. RED: every order "not
-        sent" (sendClientIntent drops the unknown kind).
-  IV12  local TU refusal: set_tu_both(C, 1); a real drop belt (1,0) -> LH:
-        invGuard.last {site drop, op move, decision vanilla_refused}, nothing sent,
-        the grenade still on the cursor and in STR_BELT (1,0) on both, TU 1 on
-        both; the right-click returns it (selectedItem -1); EQUAL.
-  IV13  real-UI host deny (ST4): host defer_intents {ms 2000, count 1}; the client
-        drops the grenade belt (1,0) -> LH; inside the window set_tu_both(C, 1);
-        the answer is no_tu: selectedItem -1, the grenade STR_BELT (1,0) owner C on
-        both, invLastWarning "Not Enough Time Units!", C TU 1 on both.
-  RED (commit S-A.1): IV1 on the refusal; IV2-IV5, IV12, IV13 at their open step;
-  IV11 on "battle_intent: not sent" (its open step also fails at red and is
-  recorded).
+own measured tile: tele_both(C, tile, 2), strip_both(C), the row's kit through
+client-first test-command pairs with the ids read from the replies, C's TU to max):
+  open_and_look: TAB-select C on the client, the INVENTORY key (keyBattleInventory
+      from the client's own options.cfg), then the key again. Passes: InventoryState
+      on the client only (inventory_view {open, top, unitId C}), nothing sent, every
+      bucket EQUAL while it is open and after the second key closes it. When broken
+      the client banner reads "Only the host can open the inventory" (read within
+      0.5 s of the press) and no InventoryState opens.
+  pickup_is_local: open (battle_open_inventory C), inventory_click STR_BELT (1,0),
+      then a right-click: selectedItem = the grenade, then -1; nothing sent; EQUAL
+      with the item on the cursor and after.
+  grenade_to_hand: grenade belt (1,0) -> STR_LEFT_HAND with the in-flight window:
+      host defer_intents {ms 2000, count 1} before the drop. Inside the window:
+      client inFlight.kind inv_move, selectedItem = the grenade, the grenade still
+      STR_BELT (1,0) owner C on both, C's TU unchanged on both, EQUAL; a second drop
+      click -> invGuard.last.decision "inflight" and coopIntentsSent.inv_move
+      unchanged. After the answer: admitted, grenade STR_LEFT_HAND owner C on both,
+      C TU 64 - 4 on both.
+  ground_to_belt: the ground rifle clip (its client `ground` cell) -> STR_BELT
+      (2,0): admitted, clip owner C, off the tile, (2,0) on both; C TU 64 - 12.
+  hand_to_ground: rifle RH + grenade LH on an empty tile; grenade LH -> ground cell
+      (0,0): admitted, grenade on C's tile, owner -1, STR_GROUND, on both; C TU
+      64 - 2.
+  host_denies_moves: host denies, move ops (test command, screen open):
+      battle_intent kind inv_move with tuBasisOverride 99 -> cost_changed; H's
+      grenade -> item_missing; actor H -> not_your_unit; grenade -> belt (0,0)
+      holding the clip -> invalid_target (silent: invLastWarning unchanged);
+      set_tu_both(C, 1) and belt -> LH basis 4 -> no_tu. Each: lastDeny {iseq,
+      reason}, the exact rendered text on invLastWarning, nothing executed. When
+      broken every order is "not sent" (sendClientIntent drops the unknown kind).
+  local_tu_refusal: set_tu_both(C, 1); a real drop belt (1,0) -> LH: invGuard.last
+      {site drop, op move, decision vanilla_refused}, nothing sent, the grenade
+      still on the cursor and in STR_BELT (1,0) on both, TU 1 on both; the
+      right-click returns it (selectedItem -1); EQUAL.
+  real_ui_deny: real-UI host deny: host defer_intents {ms 2000, count 1}; the
+      client drops the grenade belt (1,0) -> LH; inside the window
+      set_tu_both(C, 1); the answer is no_tu: selectedItem -1, the grenade STR_BELT
+      (1,0) owner C on both, invLastWarning "Not Enough Time Units!", C TU 1 on
+      both.
+  When the client cannot open the screen: open_and_look fails on the refusal;
+  pickup_is_local, grenade_to_hand, ground_to_belt, hand_to_ground,
+  local_tu_refusal and real_ui_deny at their open step; host_denies_moves on
+  "battle_intent: not sent" (its open step also fails and is recorded).
 
-S-B rows (section 9; run after IV13; each on its own T0-1 tile with the kit its T0-1b host-vanilla
-twin ran on; the expectations are T0-1b's baked host-vanilla outcome, ST2 (a): no
-live host twin before S-C1's host sync):
-  IV6   C29a load: rifle (empty) RH, rifle clip belt (0,0); pick the clip, drop it on
-        the rifle. GREEN: admitted (invGuard.last {site load, op load, decision
-        sent}), rifle ammo [clip, r, r, r], the clip owner -1 slot "" off the tile,
-        on both; C TU 64 - 15; the cursor empty after the answer.
-  IV7   Shift-unload: rifle RH loaded, LH free; a Shift+click on the rifle. GREEN:
-        admitted (site unload, op unload), the clip in STR_LEFT_HAND owner C, rifle
-        ammo [r, r, r], on both; C TU 64 - 8.
-  IV8   Ctrl auto-place: rifle RH, a grenade on the tile; a Ctrl+click on the
-        grenade's ground cell. GREEN: admitted (site ctrl_fit, op move), the grenade
-        in STR_BELT (0,0) owner C, on both; C TU 64 - 12.
-  IV9   UNLOAD unprime: rifle RH, a primed grenade (fuse 0) belt (3,0), LH free;
-        pick the grenade, the UNLOAD button. GREEN: admitted (site unload, op
-        unload), fuse -1 and the grenade in STR_LEFT_HAND owner C, on both; C TU 64
-        - 20 (RULING F2090 (a): max(1, floor(base TU x 25 / 100)) + 4 on C's
-        run-time base TU, asserted 64); the cursor empty after the answer.
-  IV10  paperdoll drop (boot option on): grenade belt (1,0); pick it, click the
-        paperdoll. GREEN: admitted (site paperdoll, op move), the grenade on C's
-        tile, owner -1, STR_GROUND, on both; C TU 64 - 6; the cursor empty.
-  IV11b host denies, load/unload ops (lever, screen open; ST1 (a)): belt_and_ground plus a
-        grenade in STR_LEFT_HAND and a loaded rifle in STR_BACK_PACK (0,0). The
-        pistol clip -> the empty RH rifle: wrong_ammo "Wrong Ammunition for this
-        Weapon!"; the belt clip -> the loaded backpack rifle, swap false:
-        already_loaded "Weapon is already loaded!"; unload the backpack rifle with
-        both hands full: one_hand_empty "At least one hand must be empty!" (vanilla
-        counts the unloaded weapon's own hand as free, Inventory.cpp :1365-:1389, so
-        the weapon sits outside the hands); unload the empty RH rifle:
-        no_ammo_loaded "No Ammunition Loaded!". Each: lastDeny {iseq, reason}, the
-        exact text on invLastWarning, nothing executed.
-  RED (commit S-B.1, S-A's interim rule, spec (b)11): IV6-IV10 refused on the
-  client (invGuard.last {site <the row's>, decision interim}, nothing sent, items
-  and TU unchanged on both, every bucket EQUAL); IV11b answered `invalid_target`
-  (S-A's host answer to op load / unload, ST1 (a)). IV1-IV5, IV11-IV13 stay green.
+Load / unload rows (run after real_ui_deny; each on its own measured tile with the kit
+a host-vanilla run of the same op used; the expectations are that run's outcome,
+baked here, as there is no live host twin):
+  load_rifle: rifle (empty) RH, rifle clip belt (0,0); pick the clip, drop it on the
+      rifle. Passes: admitted (invGuard.last {site load, op load, decision sent}),
+      rifle ammo [clip, r, r, r], the clip owner -1 slot "" off the tile, on both;
+      C TU 64 - 15; the cursor empty after the answer.
+  shift_unload: rifle RH loaded, LH free; a Shift+click on the rifle. Passes:
+      admitted (site unload, op unload), the clip in STR_LEFT_HAND owner C, rifle
+      ammo [r, r, r], on both; C TU 64 - 8.
+  ctrl_autoplace: rifle RH, a grenade on the tile; a Ctrl+click on the grenade's
+      ground cell. Passes: admitted (site ctrl_fit, op move), the grenade in
+      STR_BELT (0,0) owner C, on both; C TU 64 - 12.
+  unload_unprime: rifle RH, a primed grenade (fuse 0) belt (3,0), LH free; pick the
+      grenade, the UNLOAD button. Passes: admitted (site unload, op unload), fuse -1
+      and the grenade in STR_LEFT_HAND owner C, on both; C TU 64 - 20
+      (max(1, floor(base TU x 25 / 100)) + 4 on C's run-time base TU, asserted
+      64); the cursor empty after the answer.
+  paperdoll_drop: (boot option on) grenade belt (1,0); pick it, click the
+      paperdoll. Passes: admitted (site paperdoll, op move), the grenade on C's
+      tile, owner -1, STR_GROUND, on both; C TU 64 - 6; the cursor empty.
+  host_denies_load_unload: host denies, load/unload ops (test command, screen
+      open): belt_and_ground plus a grenade in STR_LEFT_HAND and a loaded rifle in
+      STR_BACK_PACK (0,0). The pistol clip -> the empty RH rifle: wrong_ammo "Wrong
+      Ammunition for this Weapon!"; the belt clip -> the loaded backpack rifle,
+      swap false: already_loaded "Weapon is already loaded!"; unload the backpack
+      rifle with both hands full: one_hand_empty "At least one hand must be empty!"
+      (vanilla counts the unloaded weapon's own hand as free, Inventory.cpp
+      :1365-:1389, so the weapon sits outside the hands); unload the empty RH
+      rifle: no_ammo_loaded "No Ammunition Loaded!". Each: lastDeny {iseq, reason},
+      the exact text on invLastWarning, nothing executed.
+  When the client refuses load and unload itself (invGuard.last {site <the row's>,
+  decision `interim`}): load_rifle to paperdoll_drop fail with nothing sent, items
+  and TU unchanged on both and every bucket EQUAL, and the host answers
+  host_denies_load_unload with `invalid_target`; the move rows still pass.
 
-S-R rows (W2-P8 S-R, owner D167 = c: an in-battle rename is an order the host applies
-and both players see it; AMENDMENT P8-4 section 4.3 (R-1..R-5), the draft
-rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 2.6, AMENDMENT P8-4c (the S-R TASK 0
-pins and rulings 1-3, F2944-F2952)). RN0 runs FIRST (at battle start); RN1-RN4 run
-after IV11b, in this order. Only RN4 stages (typing needs no kit; C and H stay where
-the earlier rows left them). The typing recipe:
-battle_open_inventory <unit>; 0.3 s; ONE inject_input click at (266, 29) (the name
-TextEdit (28,6,210,17) centre x 2); 0.3 s; each letter one inject_input key, 0.3 s
-between; the screen closes only through battle_close_inventory (ruling 2, F2951: ESC
-or the INVENTORY key with the field focused blanks the name).
-  RN0   names at battle start (ruling 1, F2948; before S-R.2 hashes them, R-5):
-        battle_state units' `_name` (the unit's own stored name) and `rawName` (its
-        geoscape Soldier's raw name, "" without one) on both machines. Every unit's
-        `name`, `_name` and `rawName` equal on both, `_name` empty for every
-        non-SOLDIER unit, `rawName` empty for every unit without a Soldier. Declared
-        GREEN at red (the probes are S-R.1's). A non-empty `_name` on a non-soldier
-        is a STOP (ruling 1), never a fixture change.
-  RN1   the client renames C: opens C's inventory, clicks the name field, types "xy",
-        then End (ruling 3, F2952: a key that changes nothing), closes. RED: client
-        coopIntentsSent.rename +0, C's name changed on the client only. GREEN:
-        coopIntentsSent.rename +2, client renames.sent +2 and unchanged by End
-        (Q3 a), host renames.applied +2, C's name, _name and rawName = the old name
-        + "xy" on both, client inFlight null; EQUAL.
-  RN2   the host renames H the same way on its own screen. RED: the client's H name
-        unchanged. GREEN: host invHostDirty.sets.rename +2, host syncEvsEmitted
-        +>= 1, the client's H names = the host's (the old name + "xy") while the
-        host's screen is still open; EQUAL.
-  RN3   forged rename: client battle_intent {kind rename, actor H, name "x"}. RED:
-        not sent (sendClientIntent drops the unknown kind). GREEN: client lastDeny
-        {iseq, reason not_your_unit}, H's names unchanged on both, host
-        renames.applied +0; EQUAL.
-  RN4   a rename never waits (R-M2), in the T0-4 window (test_inventory_held.py
-        IH1a's pins: the host's snap shot at fire dial 1; C belt_and_ground on (2,33,0)): the
-        client clicks C's name field before the fire and types "z" on its first
-        `shot` cue. RED: as RN1. GREEN: host renames.applied +1 while the host's
-        shot still runs (host busyOwnerSeat != -1 at the apply), host
-        syncEvsEmitted +0 over the row and invHostDirty.heldByGate +> 0 (the name
-        rode the shot's evs), client coopPendingIntent null at every sample (never
-        held), C's names = the old name + "z" on both; EQUAL.
-  RED (commit S-R.1): RN1-RN4 fail on their RED cells; RN0, IV1-IV13 and the S-B
-  rows pass.
+Rename rows (an in-battle rename is an order the host applies, and both players see
+it). names_at_start runs FIRST (at battle start); client_rename to rename_in_window
+run after host_denies_load_unload, in this order. Only rename_in_window stages
+(typing needs no kit; C and H stay where the earlier rows left them). The typing
+recipe: battle_open_inventory <unit>; 0.3 s; ONE inject_input click at (266, 29) (the
+name TextEdit (28,6,210,17) centre x 2); 0.3 s; each letter one inject_input key,
+0.3 s between; the screen closes only through battle_close_inventory (ESC or the
+INVENTORY key with the field focused blanks the name).
+  names_at_start: battle_state units' `_name` (the unit's own stored name) and
+      `rawName` (its geoscape Soldier's raw name, "" without one) on both machines.
+      Every unit's `name`, `_name` and `rawName` equal on both, `_name` empty for
+      every non-SOLDIER unit, `rawName` empty for every unit without a Soldier.
+      This row also passes without the rename order. A non-empty `_name` on a
+      non-soldier is a product failure, never a reason to change the fixture.
+  client_rename: the client renames C: opens C's inventory, clicks the name field,
+      types "xy", then End (a key that changes nothing), closes. Passes:
+      coopIntentsSent.rename +2, client renames.sent +2 and unchanged by End, host
+      renames.applied +2, C's name, _name and rawName = the old name + "xy" on
+      both, client inFlight null; EQUAL. When broken: client
+      coopIntentsSent.rename +0, C's name changed on the client only.
+  host_rename: the host renames H the same way on its own screen. Passes: host
+      invHostDirty.sets.rename +2, host syncEvsEmitted +>= 1, the client's H names
+      = the host's (the old name + "xy") while the host's screen is still open;
+      EQUAL. When broken the client's H name is unchanged.
+  forged_rename: client battle_intent {kind rename, actor H, name "x"}. Passes:
+      client lastDeny {iseq, reason not_your_unit}, H's names unchanged on both,
+      host renames.applied +0; EQUAL. When broken it is not sent
+      (sendClientIntent drops the unknown kind).
+  rename_in_window: a rename never waits for a host shot to end (the window
+      test_inventory_held.py measured: the host's snap shot at fire dial 1; C with
+      kit belt_and_ground on (2,33,0)): the client clicks C's name field before
+      the fire and types "z" on its first `shot` cue. Passes: host
+      renames.applied +1 while the host's shot still runs (host busyOwnerSeat
+      != -1 at the apply), host syncEvsEmitted +0 over the row and
+      invHostDirty.heldByGate +> 0 (the name rode the shot's evs), client
+      coopPendingIntent null at every sample (never held), C's names = the old
+      name + "z" on both; EQUAL. When broken: as client_rename.
+  Without the rename order, client_rename to rename_in_window fail; every other row
+  passes.
 
 Common asserts, every row (after wait_host_idle): hash_now {full:true} every bucket
 EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and host 0;
@@ -147,19 +139,18 @@ same seq, kind and actionId; the only other host ev allowed since the drop is on
 `reveal` with actionId 0; client coopIntentsSent.inv_move +1; host
 intentsReceived.inv_move.admitted +1; client lastAftermath {actionId, kind inv_move};
 client inFlight null and intentTimeouts unchanged; client selectedItem -1; the moved
-item's fields and C's TU equal on both and equal to T0-1b's host-vanilla value. A
-REFUSED placement: nothing sent (client coopIntentsSent unchanged, inFlight null,
+item's fields and C's TU equal on both and equal to the measured host-vanilla value.
+A REFUSED placement: nothing sent (client coopIntentsSent unchanged, inFlight null,
 host lastSeqEmitted and intentsReceived unchanged) and state unchanged on both.
 
-Constants (AMENDMENT P8-2; P8-3 section 3.4: they hold at 63324d66b by code reading):
-the row tiles (T0-1, two runs identical, F2086), C's max TU 64 (T0-1), the costs
+Measured constants: the row tiles (two runs identical), C's max TU 64, the costs
 belt->LH 4, ground clip->belt 12, LH->ground 2, load 15, Shift-unload 8, Ctrl
-auto-place 12, paperdoll 6 (T0-1b on H, F2089; slot/item costs, unit-independent),
-IV9's unprime 20 on C, each moved item's outcome (T0-1b, docs
-rewrite/w2p8-task0/run2_t0_1_3_1b.log ops 4-8, ids substituted), the texts (en-US). The boot is the roster-pinned terror boot of
-test_host_combat.py with `oxceInventoryDropItemOverPaperdoll: true` on both
-(section 8.2). Every lever pair goes to the CLIENT first. Item ids are read at
-run time from the lever replies, never baked.
+auto-place 12, paperdoll 6 (measured on H; slot/item costs, unit-independent),
+unload_unprime's unprime 20 on C, each moved item's outcome (from a host-vanilla run
+of each op, ids substituted), the texts (en-US). The boot is the roster-pinned terror
+boot of test_host_combat.py with `oxceInventoryDropItemOverPaperdoll: true` on both.
+Every test-command pair goes to the CLIENT first. Item ids are read at run time from
+the command replies, never baked.
 
 Each row prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its
 conditions are checked; main() runs every row even after an earlier one failed and
@@ -189,58 +180,59 @@ from test_host_combat import bring_up_lobby_roster_pinned, evs_since, ev_tuples
 from test_client_items import strip_both
 from test_client_shoot import set_tu_both
 
-# ----- bring-up (plan review section 5: the roster-pinned terror boot) -----
+# ----- bring-up (the roster-pinned terror boot) -----
 MISSION = "STR_TERROR_MISSION"
 SEED_MAP = 1
-MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1 (T0a; P8-2 T0-1)
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1 (measured)
 SEATED = [8, 9]                   # the client's seated units: C and C2
 C_ID = 8
 H_ID = 10                         # first host-seat soldier
 PORT = "48741"
 COOP_SEAT_0 = 0
 FACTION_PLAYER = 0
-OPTS = {"oxceInventoryDropItemOverPaperdoll": True}   # section 8.2: the boot option on both
+OPTS = {"oxceInventoryDropItemOverPaperdoll": True}   # the boot option on both
 TU_MAX = 255                      # battle_set_unit_state tu: clamped to the unit's max TU
-C_TU_MAX = 64                     # P8-2 T0-1: "Max TU C 64"
+C_TU_MAX = 64                     # measured: "Max TU C 64"
 
-# ----- row tiles (P8-2 T0-1, all z 0; ST5 (a): one per row) and H's staging tile -----
-ROW_TILE = {"IV1": (0, 33, 0), "IV2": (0, 34, 0), "IV3": (49, 25, 0), "IV4": (1, 33, 0),
-            "IV5": (49, 24, 0), "IV11": (3, 32, 0), "IV12": (49, 23, 0), "IV13": (49, 26, 0),
-            # S-B (P8-2 T0-1)
-            "IV6": (0, 32, 0), "IV7": (1, 32, 0), "IV8": (0, 35, 0), "IV9": (2, 32, 0), "IV10": (48, 25, 0),
-            "IV11b": (1, 34, 0),
-            # S-R (P8-3b T0-4 window A: "C belt_and_ground on STAGE_C (2,33,0)", test_inventory_held.py IH1A_TILE)
-            "RN4": (2, 33, 0)}
-STAGE_H = (48, 24, 0)             # P8-2 T0-1 STAGE_H
-ROW_DIR = 2                       # section 8.2: tele_both(C, <row tile>, 2)
+# ----- row tiles (measured, all z 0; one per row) and H's staging tile -----
+ROW_TILE = {"open_and_look": (0, 33, 0), "pickup_is_local": (0, 34, 0), "grenade_to_hand": (49, 25, 0),
+            "ground_to_belt": (1, 33, 0), "hand_to_ground": (49, 24, 0), "host_denies_moves": (3, 32, 0),
+            "local_tu_refusal": (49, 23, 0), "real_ui_deny": (49, 26, 0),
+            # load / unload rows
+            "load_rifle": (0, 32, 0), "shift_unload": (1, 32, 0), "ctrl_autoplace": (0, 35, 0),
+            "unload_unprime": (2, 32, 0), "paperdoll_drop": (48, 25, 0), "host_denies_load_unload": (1, 34, 0),
+            # rename_in_window: the tile test_inventory_held.py measures its host-shot window on
+            "rename_in_window": (2, 33, 0)}
+STAGE_H = (48, 24, 0)             # measured
+ROW_DIR = 2                       # tele_both(C, <row tile>, 2)
 
-# ----- T0-1b host-vanilla costs on H -----
-TU_BELT_TO_HAND = 4               # op1 belt (1,0) -> LH
-TU_GROUND_TO_BELT = 12            # op2 ground rifle clip -> belt (2,0)
-TU_HAND_TO_GROUND = 2             # op3 LH -> ground
-# S-B (P8-2 T0-1b: "load 15; Shift-unload 8 (clip to LH); unprime + UNLOAD 18 = max(1, floor(58 x 25 / 100))
-# 14 + 4 (BattleUnit.cpp:2232); Ctrl auto-place 12 (belt (0,0)); paperdoll drop 6"; run2_t0_1_3_1b.log ops 4-8)
-TU_LOAD = 15                      # op4 clip belt (0,0) -> the rifle in RH (IV6)
-TU_SHIFT_UNLOAD = 8               # op5 Shift+click the loaded rifle in RH, LH free: the clip -> LH (IV7)
-TU_CTRL_FIT = 12                  # op7 Ctrl+click the ground grenade -> belt (0,0) (IV8)
-TU_PAPERDOLL = 6                  # op8 grenade belt (1,0) + the paperdoll -> ground (IV10)
-UNPRIME_PCT = 25                  # op6: the grenade's unprime cost, a % of the unit's base TU
-TU_UNPRIME_TO_HAND = 4            # op6: + the move belt (3,0) -> the free LH
-TU_UNPRIME_C = 20                 # RULING F2090 (a): max(1, floor(64 x 25 / 100)) + 4 on C (IV9)
+# ----- host-vanilla costs, measured on H -----
+TU_BELT_TO_HAND = 4               # belt (1,0) -> LH
+TU_GROUND_TO_BELT = 12            # ground rifle clip -> belt (2,0)
+TU_HAND_TO_GROUND = 2             # LH -> ground
+# load / unload rows, measured on H: "load 15; Shift-unload 8 (clip to LH); unprime + UNLOAD 18 = max(1, floor(58 x 25
+# / 100)) 14 + 4 (BattleUnit.cpp:2232); Ctrl auto-place 12 (belt (0,0)); paperdoll drop 6"
+TU_LOAD = 15                      # clip belt (0,0) -> the rifle in RH (load_rifle)
+TU_SHIFT_UNLOAD = 8               # Shift+click the loaded rifle in RH, LH free: the clip -> LH (shift_unload)
+TU_CTRL_FIT = 12                  # Ctrl+click the ground grenade -> belt (0,0) (ctrl_autoplace)
+TU_PAPERDOLL = 6                  # grenade belt (1,0) + the paperdoll -> ground (paperdoll_drop)
+UNPRIME_PCT = 25                  # the grenade's unprime cost, a % of the unit's base TU
+TU_UNPRIME_TO_HAND = 4            # + the move belt (3,0) -> the free LH
+TU_UNPRIME_C = 20                 # max(1, floor(64 x 25 / 100)) + 4 on C (unload_unprime): the % is of C's own base TU
 
-# ----- the belt_and_ground kit (P8-2 T0-1 / plan review section 5) -----
+# ----- the belt_and_ground kit -----
 RIFLE, RIFLE_CLIP, PISTOL_CLIP, GRENADE = "STR_RIFLE", "STR_RIFLE_CLIP", "STR_PISTOL_CLIP", "STR_GRENADE"
 BELT, LH, RH, GROUND = "STR_BELT", "STR_LEFT_HAND", "STR_RIGHT_HAND", "STR_GROUND"
 BACK_PACK = "STR_BACK_PACK"
 
 # ----- texts (bin/common + xcom1 en-US; exact text, never non-emptiness) -----
-TEXT_HOST_ONLY = "Only the host can open the inventory"   # STR_COOP_INVENTORY_HOST_ONLY (RED; retired at S-A.2)
+TEXT_HOST_ONLY = "Only the host can open the inventory"   # STR_COOP_INVENTORY_HOST_ONLY (shown only when broken)
 TEXT_DENY = {
     "cost_changed": "Order cancelled - cost changed",        # STR_COOP_DENY_COST_CHANGED
-    "item_missing": "Order cancelled - item unavailable",    # STR_COOP_DENY_ITEM_MISSING (S-A.2, Q4 a)
+    "item_missing": "Order cancelled - item unavailable",    # STR_COOP_DENY_ITEM_MISSING
     "not_your_unit": "Not one of your soldiers",             # STR_COOP_DENY_NOT_YOUR_UNIT
     "no_tu": "Not Enough Time Units!",                       # xcom1 STR_NOT_ENOUGH_TIME_UNITS
-    # S-B (IV11b; the S-A.2 deny rows, Q4 a)
+    # host_denies_load_unload
     "wrong_ammo": "Wrong Ammunition for this Weapon!",       # xcom1 STR_WRONG_AMMUNITION_FOR_THIS_WEAPON
     "already_loaded": "Weapon is already loaded!",           # xcom1 STR_WEAPON_IS_ALREADY_LOADED
     "one_hand_empty": "At least one hand must be empty!",    # OXCE STR_ONE_HAND_MUST_BE_EMPTY
@@ -248,26 +240,26 @@ TEXT_DENY = {
 }
 TU_BASIS_BAD = 99                 # "tuBasis -1" cannot be sent (-1 = recompute); pinned 99
 
-# ----- S-R (AMENDMENT P8-4 section 4.3; AMENDMENT P8-4c = ledger `## W2-P8 S-R TASK 0`, docs
-# rewrite/w2p8-task0/sr/t0_sr.py and run_par.log: "battle_open_inventory {unit}; 0.3 s settle; ONE inject_input
+# ----- rename rows. The measured typing recipe: "battle_open_inventory {unit}; 0.3 s settle; ONE inject_input
 # {kind click, x 266, y 29} (the name TextEdit (28,6,210,17) centre x 2); 0.3 s; keys one per inject_input {kind
 # key} with 0.3 s between; close with battle_close_inventory only. Each letter changes the typist's name within
 # 0.101 s") -----
 NAME_FIELD_RECT = (28, 6, 210, 17)  # InventoryState.cpp :114 `new TextEdit(this, 210, 17, 28, 6)` (list_widgets x,y,w,h)
-NAME_CLICK = (266, 29)              # P8-4c T0-R2: the rect's centre x 2 (the harness window is 640x400)
-RN_LETTERS = (("x", 120), ("y", 121))   # T0-R2's two letters; the inject_input key = the SDL sym (unicode = sym < 128)
-RN4_LETTERS = (("z", 122),)         # draft section 2.6 RN4: one letter
-SDLK_END = 279                      # deps/include/SDL/SDL_keysym.h; P8-4c ruling 3: End changes no text
-RN3_NAME = "x"                      # draft section 2.6 RN3
-KEY_SETTLE_S = 0.3                  # F2888 / T0-R2: after the open, after the click, between keys
-NAME_CHANGE_S = 2.0                 # T0-R2: 0.101 s per letter on the typist; a bounded record, never a condition
-NAME_SYNC_S = 3.0                   # GREEN: the other machine shows the typist's name within this
-END_QUIET_S = 1.0                   # ruling 3: End's change handler runs in the key's own frame; sampled 1 s later
+NAME_CLICK = (266, 29)              # the rect's centre x 2 (the harness window is 640x400)
+RN_LETTERS = (("x", 120), ("y", 121))   # the two measured letters; the inject_input key = the SDL sym
+#                                         (unicode = sym < 128)
+RENAME_IN_WINDOW_LETTERS = (("z", 122),)  # rename_in_window: one letter
+SDLK_END = 279                      # deps/include/SDL/SDL_keysym.h; End changes no text
+FORGED_NAME = "x"                   # forged_rename's name
+KEY_SETTLE_S = 0.3                  # after the open, after the click, between keys
+NAME_CHANGE_S = 2.0                 # measured 0.101 s per letter on the typist; a bounded record, never a condition
+NAME_SYNC_S = 3.0                   # the other machine shows the typist's name within this
+END_QUIET_S = 1.0                   # End's change handler runs in the key's own frame; sampled 1 s later
 RN_KEYS = ("renames", "invHostDirty", "syncEvsEmitted", "syncEvsApplied")
 NAME_KEYS = ("name", "_name", "rawName")
 
 # ----- windows and waits -----
-DEFER_MS = 2000                   # plan review section 2 IV3 / IV13 (as test_client_items press_while_in_flight)
+DEFER_MS = 2000                   # grenade_to_hand / real_ui_deny (as test_client_items press_while_in_flight)
 POLL_S = 0.05
 BANNER_READ_S = 0.5               # a refusal text is read within 0.5 s of the press
 CLICK_WAIT_S = 2.0                # a click's local effect (cursor, screen) shows within this
@@ -378,7 +370,7 @@ def order_done(host, client):
             and ec.get("queueDepth") == 0 and eh.get("queueDepth") == 0)
 
 
-# ===================== staging (client first, F607) =====================
+# ===================== staging (client first: a host-first teleport can latch a client desync) ======
 
 
 def give(host, client, uid, item, slot, sx=0, sy=0):
@@ -406,46 +398,46 @@ def give_primed(host, client, uid, sx, sy):
 
 
 def restage(host, client, row, kit):
-    """ST5 (a): C onto the row's own tile facing 2, stripped, the row's kit, TU max.
+    """C onto the row's own tile facing 2, stripped, the row's kit, TU max.
     kit "belt_and_ground": rifle (no ammo) RH, rifle clip belt (0,0), grenade belt (1,0), primed
     grenade belt (3,0) (fuse 0), a rifle clip and a pistol clip dropped on the tile.
-    kit "RH_LH": rifle RH, grenade LH (IV5).
-    S-B kits = the kit each row's T0-1b host-vanilla twin ran on (t0_1_3_1b.py ops 4-8):
-    "IV6" rifle RH + rifle clip belt (0,0); "IV7" rifle RH loaded (clip in ammo slot
-    0); "IV8" rifle RH + a grenade on the tile; "IV9" rifle RH + primed grenade belt
-    (3,0); "IV10" grenade belt (1,0); "IV11b" belt_and_ground + a grenade LH + a loaded rifle
-    STR_BACK_PACK (0,0). Returns the staging record with the ids."""
+    kit "RH_LH": rifle RH, grenade LH (hand_to_ground).
+    Load / unload kits = the kit each row's measured host-vanilla run used:
+    "load_rifle" rifle RH + rifle clip belt (0,0); "shift_unload" rifle RH loaded (clip in ammo slot
+    0); "ctrl_autoplace" rifle RH + a grenade on the tile; "unload_unprime" rifle RH + primed grenade belt
+    (3,0); "paperdoll_drop" grenade belt (1,0); "host_denies_load_unload" belt_and_ground + a grenade LH + a
+    loaded rifle STR_BACK_PACK (0,0). Returns the staging record with the ids."""
     tile = ROW_TILE[row]
     rec = {"tile": tile}
     t = tele_both(host, client, C_ID, tile, ROW_DIR)
     rec["tele"] = {"to": t.get("to"), "dir": t.get("dir")}
     rec["stripped"] = strip_both(host, client, C_ID)
     ids = {}
-    if kit in ("belt_and_ground", "IV11b"):
+    if kit in ("belt_and_ground", "host_denies_load_unload"):
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["beltClip"] = give(host, client, C_ID, RIFLE_CLIP, BELT, 0, 0)
         ids["grenade"] = give(host, client, C_ID, GRENADE, BELT, 1, 0)
         ids["primed"] = give_primed(host, client, C_ID, 3, 0)
         ids["groundClip"] = drop(host, client, tile, RIFLE_CLIP)
         ids["groundPistolClip"] = drop(host, client, tile, PISTOL_CLIP)
-        if kit == "IV11b":
+        if kit == "host_denies_load_unload":
             ids["lhGrenade"] = give(host, client, C_ID, GRENADE, "left")
             ids["bpRifle"], ids["bpClip"] = give_loaded(host, client, C_ID, RIFLE, BACK_PACK, RIFLE_CLIP, 0, 0)
     elif kit == "RH_LH":
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["grenade"] = give(host, client, C_ID, GRENADE, "left")
-    elif kit == "IV6":
+    elif kit == "load_rifle":
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["beltClip"] = give(host, client, C_ID, RIFLE_CLIP, BELT, 0, 0)
-    elif kit == "IV7":
+    elif kit == "shift_unload":
         ids["rifle"], ids["clip"] = give_loaded(host, client, C_ID, RIFLE, "right", RIFLE_CLIP)
-    elif kit == "IV8":
+    elif kit == "ctrl_autoplace":
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["grenade"] = drop(host, client, tile, GRENADE)
-    elif kit == "IV9":
+    elif kit == "unload_unprime":
         ids["rifle"] = give(host, client, C_ID, RIFLE, "right")
         ids["primed"] = give_primed(host, client, C_ID, 3, 0)
-    elif kit == "IV10":
+    elif kit == "paperdoll_drop":
         ids["grenade"] = give(host, client, C_ID, GRENADE, BELT, 1, 0)
     else:
         raise AssertionError(f"unknown kit {kit!r}")
@@ -459,7 +451,7 @@ def staged_fails(rec, diff):
     if diff:
         fails.append(f"buckets differ after the staging: {diff} (want none)")
     if rec["tu"] != C_TU_MAX:
-        fails.append(f"precondition: C's TU after the staging {rec['tu']} (want {C_TU_MAX}, P8-2 T0-1)")
+        fails.append(f"precondition: C's TU after the staging {rec['tu']} (want {C_TU_MAX})")
     return fails
 
 
@@ -624,7 +616,7 @@ def guard_fails(before, rec, delta, last, what):
 
 
 def common_fails(host, client, before, guard_delta, guard_last_want, what):
-    """Section 2 / (f) common asserts, after wait_host_idle."""
+    """The common asserts of every row (module docstring), after wait_host_idle."""
     fails = []
     try:
         session.wait_host_idle(host, client, timeout=30)
@@ -643,7 +635,7 @@ def common_fails(host, client, before, guard_delta, guard_last_want, what):
     if ph["coopClientBStatePushes"] != 0:
         fails.append(f"{what}: host coopClientBStatePushes={ph['coopClientBStatePushes']} (want 0)")
     if pc["invLocalWrites"] != 0:
-        fails.append(f"{what}: client invLocalWrites={pc['invLocalWrites']} (want 0: the Q11 backstop refused a "
+        fails.append(f"{what}: client invLocalWrites={pc['invLocalWrites']} (want 0: the backstop refused a "
                      f"local moveItem)")
     hv = inv_view(host)
     if hv.get("open") is not False:
@@ -694,7 +686,7 @@ def admitted_fails(before, rec, what):
     others = [e for e in extra if not (e["kind"] == "reveal" and e["actionId"] == 0)]
     if others or len(reveals) > 1:
         fails.append(f"{what}: host evs beside the inv_move context {ev_tuples(extra)} (want at most one `reveal` "
-                     f"with actionId 0, F2093)")
+                     f"with actionId 0)")
     d = count_of(rec["client"]["coopIntentsSent"], "inv_move") - count_of(before["client"]["coopIntentsSent"],
                                                                           "inv_move")
     if d != 1:
@@ -747,10 +739,10 @@ def evidence(row, fields):
 # ===================== rows =====================
 
 
-def iv1_open_look(host, client, ctx):
+def open_and_look(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV1", "belt_and_ground")
+    st = restage(host, client, "open_and_look", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     ev = {"leftover": leftover, "tab": tab_select(client, C_ID)}
@@ -776,37 +768,38 @@ def iv1_open_look(host, client, ctx):
     else:
         ev["secondKey"] = "not pressed: the first key opened nothing"
     rec = collect(host, client, seq0)
-    evidence("IV1", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
+    evidence("open_and_look", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
                      "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not ev["tab"]:
         fails.append(f"precondition: TAB never selected C on the client (selectedId "
                      f"{battle_state(client).get('selectedId')})")
     if not opened:
-        fails.append(f"IV1: the client's INVENTORY key (key {key}) opened no InventoryState (client stack "
+        fails.append(f"open_and_look: the client's INVENTORY key (key {key}) opened no InventoryState (client stack "
                      f"{ev['firstKey']['stack']}, client banner within {BANNER_READ_S} s "
                      f"{ev['bannerWithin05s']['text']!r})")
     else:
         v = ev["firstKey"]["view"]
         if not (v.get("top") is True and v.get("unitId") == C_ID and v.get("selectedItem") == -1):
-            fails.append(f"IV1: client inventory_view after the key {v} (want open, top, unitId {C_ID}, "
+            fails.append(f"open_and_look: client inventory_view after the key {v} (want open, top, unitId {C_ID}, "
                          f"selectedItem -1)")
         if ev["firstKey"]["hostView"].get("open") is not False:
-            fails.append(f"IV1: host inventory_view {ev['firstKey']['hostView']} (want open false: client only)")
+            fails.append(f"open_and_look: host inventory_view {ev['firstKey']['hostView']} (want open false: client "
+                         f"only)")
         if open_diff:
-            fails.append(f"IV1: buckets differ with the client's screen open: {open_diff} (want none)")
+            fails.append(f"open_and_look: buckets differ with the client's screen open: {open_diff} (want none)")
         if not ev["secondKey"]["closed"]:
-            fails.append(f"IV1: the second INVENTORY key did not close the client's screen "
+            fails.append(f"open_and_look: the second INVENTORY key did not close the client's screen "
                          f"(stack {ev['secondKey']['stack']})")
-    fails += nothing_sent_fails(before, rec, "IV1")
-    fails += common_fails(host, client, before, {}, None, "IV1")
+    fails += nothing_sent_fails(before, rec, "open_and_look")
+    fails += common_fails(host, client, before, {}, None, "open_and_look")
     finish(fails)
 
 
-def iv2_pickup_local(host, client, ctx):
+def pickup_is_local(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV2", "belt_and_ground")
+    st = restage(host, client, "pickup_is_local", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
@@ -825,32 +818,34 @@ def iv2_pickup_local(host, client, ctx):
         returned = right_click_return(client, ev, "rightClick", BELT, 1, 0)
         close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV2", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
+    evidence("pickup_is_local", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
                      "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not opened:
-        fails += open_fails(ev, "IV2")
+        fails += open_fails(ev, "pickup_is_local")
     else:
         if not picked:
-            fails.append(f"IV2: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor "
+            fails.append(f"pickup_is_local: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor "
                          f"(want the grenade {g}; click {ev['pick']})")
         if cursor_diff:
-            fails.append(f"IV2: buckets differ with the grenade on the cursor: {cursor_diff} (want none)")
+            fails.append(f"pickup_is_local: buckets differ with the grenade on the cursor: {cursor_diff} (want none)")
         if not returned:
-            fails.append(f"IV2: the right-click left {ev['rightClick'].get('cursor')} on the cursor (want -1)")
+            fails.append(f"pickup_is_local: the right-click left {ev['rightClick'].get('cursor')} on the cursor (want "
+                         f"-1)")
         if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
-            fails.append(f"IV2: the client's screen did not close: {ev.get('close')}")
-        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}, "IV2")
-    fails += tu_fails(rec, C_TU_MAX, "IV2")
-    fails += nothing_sent_fails(before, rec, "IV2")
-    fails += common_fails(host, client, before, {}, None, "IV2")
+            fails.append(f"pickup_is_local: the client's screen did not close: {ev.get('close')}")
+        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False},
+                            "pickup_is_local")
+    fails += tu_fails(rec, C_TU_MAX, "pickup_is_local")
+    fails += nothing_sent_fails(before, rec, "pickup_is_local")
+    fails += common_fails(host, client, before, {}, None, "pickup_is_local")
     finish(fails)
 
 
-def iv3_grenade_to_hand(host, client, ctx):
+def grenade_to_hand(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV3", "belt_and_ground")
+    st = restage(host, client, "grenade_to_hand", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
@@ -868,7 +863,7 @@ def iv3_grenade_to_hand(host, client, ctx):
             t0 = time.time()
             ev["drop"] = click(client, slot=LH, x=0, y=0)
             win["sent"] = wait_sent(host, client, before)
-            # the in-flight window (ST4): sampled while the host holds the order
+            # the in-flight window: sampled while the host holds the order
             ec = event_state(client)
             win["inFlight"] = ec.get("inFlight")
             win["cursor"] = selected(client)
@@ -889,59 +884,63 @@ def iv3_grenade_to_hand(host, client, ctx):
             time.sleep(0.3)
         close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV3", {"staging": st, "stagedDiff": staged, "ui": ev, "defer": dr, "disarm": disarm, "window": win,
+    evidence("grenade_to_hand",
+             {"staging": st, "stagedDiff": staged, "ui": ev, "defer": dr, "disarm": disarm, "window": win,
                      "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not opened:
-        fails += open_fails(ev, "IV3")
-        fails += nothing_sent_fails(before, rec, "IV3")
-        fails += common_fails(host, client, before, {}, None, "IV3")
+        fails += open_fails(ev, "grenade_to_hand")
+        fails += nothing_sent_fails(before, rec, "grenade_to_hand")
+        fails += common_fails(host, client, before, {}, None, "grenade_to_hand")
         finish(fails)
     if not picked:
-        fails.append(f"IV3: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor (want {g})")
+        fails.append(f"grenade_to_hand: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor (want "
+                     f"{g})")
     else:
         # inside the window
         fl = win.get("inFlight") or {}
         if win["sent"]["state"] != "sent" or fl.get("kind") != "inv_move":
-            fails.append(f"IV3 window: the drop on STR_LEFT_HAND is not in flight as inv_move (sent {win['sent']}, "
-                         f"client inFlight {win.get('inFlight')})")
+            fails.append(f"grenade_to_hand window: the drop on STR_LEFT_HAND is not in flight as inv_move (sent "
+                         f"{win['sent']}, client inFlight {win.get('inFlight')})")
         if win.get("cursor") != g:
-            fails.append(f"IV3 window: client selectedItem {win.get('cursor')} while in flight (want {g}: Q2 a)")
+            fails.append(f"grenade_to_hand window: client selectedItem {win.get('cursor')} while in flight (want {g})")
         want_belt = {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}
         for m in ("host", "client"):
             got = {k: (win["grenade"][m] or {}).get(k) for k in want_belt}
             if got != want_belt:
-                fails.append(f"IV3 window: {m} grenade {win['grenade'][m]} while in flight (want {want_belt})")
+                fails.append(f"grenade_to_hand window: {m} grenade {win['grenade'][m]} while in flight (want "
+                             f"{want_belt})")
         if win["tu"] != {"host": C_TU_MAX, "client": C_TU_MAX}:
-            fails.append(f"IV3 window: C tu {win['tu']} while in flight (want {C_TU_MAX} on both)")
+            fails.append(f"grenade_to_hand window: C tu {win['tu']} while in flight (want {C_TU_MAX} on both)")
         if win.get("diff"):
-            fails.append(f"IV3 window: buckets differ while the order is held: {win['diff']} (want none)")
+            fails.append(f"grenade_to_hand window: buckets differ while the order is held: {win['diff']} (want none)")
         a2 = win.get("afterSecond") or {}
         if (a2.get("invGuardLast") or {}).get("decision") != "inflight":
-            fails.append(f"IV3 window: client invGuard.last after the second drop {a2.get('invGuardLast')} "
-                         f"(want decision inflight, D150)")
+            fails.append(f"grenade_to_hand window: client invGuard.last after the second drop {a2.get('invGuardLast')} "
+                         f"(want decision inflight)")
         if count_of(a2.get("sent"), "inv_move") != count_of(win.get("sentAt"), "inv_move"):
-            fails.append(f"IV3 window: coopIntentsSent.inv_move {win.get('sentAt')} -> {a2.get('sent')} after the "
-                         f"second drop (want unchanged)")
+            fails.append(f"grenade_to_hand window: coopIntentsSent.inv_move {win.get('sentAt')} -> {a2.get('sent')} "
+                         f"after the second drop (want unchanged)")
         if not a2.get("inFlight"):
             fails.append(f"precondition: the second drop did not land while the first was in flight "
                          f"(window {win})")
         # after the answer
-        f, cx = admitted_fails(before, rec, "IV3")
+        f, cx = admitted_fails(before, rec, "grenade_to_hand")
         fails += f
-        fails += item_fails(rec, g, {"owner": C_ID, "slot": LH, "onTile": False}, "IV3")
-        fails += tu_fails(rec, C_TU_MAX - TU_BELT_TO_HAND, "IV3")
+        fails += item_fails(rec, g, {"owner": C_ID, "slot": LH, "onTile": False}, "grenade_to_hand")
+        fails += tu_fails(rec, C_TU_MAX - TU_BELT_TO_HAND, "grenade_to_hand")
         if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
-            fails.append(f"IV3: the client's screen did not close: {ev.get('close')}")
+            fails.append(f"grenade_to_hand: the client's screen did not close: {ev.get('close')}")
     fails += common_fails(host, client, before, {"sent": 1, "inflight": 1},
-                          {"site": "drop", "op": "move", "decision": "inflight", "itemId": g, "actorId": C_ID}, "IV3")
+                          {"site": "drop", "op": "move", "decision": "inflight", "itemId": g, "actorId": C_ID},
+                          "grenade_to_hand")
     finish(fails)
 
 
-def iv4_ground_to_belt(host, client, ctx):
+def ground_to_belt(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV4", "belt_and_ground")
+    st = restage(host, client, "ground_to_belt", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     clip = st["ids"]["groundClip"]
@@ -964,40 +963,42 @@ def iv4_ground_to_belt(host, client, ctx):
             ev["orderWait"] = wait_order(host, client, notes)
         close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV4", {"staging": st, "stagedDiff": staged, "ui": ev, "clipCell": cell,
+    evidence("ground_to_belt", {"staging": st, "stagedDiff": staged, "ui": ev, "clipCell": cell,
                      "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not opened:
-        fails += open_fails(ev, "IV4")
-        fails += nothing_sent_fails(before, rec, "IV4")
-        fails += common_fails(host, client, before, {}, None, "IV4")
+        fails += open_fails(ev, "ground_to_belt")
+        fails += nothing_sent_fails(before, rec, "ground_to_belt")
+        fails += common_fails(host, client, before, {}, None, "ground_to_belt")
         finish(fails)
     if cell is None:
         fails.append(f"precondition: the ground rifle clip {clip} is not in the client's inventory_view.ground "
                      f"{ev.get('ground')}")
     elif not picked:
-        fails.append(f"IV4: the click on the clip's ground cell {cell} put {ev['pick'].get('cursor')} on the cursor "
-                     f"(want {clip})")
+        fails.append(f"ground_to_belt: the click on the clip's ground cell {cell} put {ev['pick'].get('cursor')} on "
+                     f"the cursor (want {clip})")
     else:
-        f, cx = admitted_fails(before, rec, "IV4")
+        f, cx = admitted_fails(before, rec, "ground_to_belt")
         fails += f
-        fails += item_fails(rec, clip, {"owner": C_ID, "slot": BELT, "slotX": 2, "slotY": 0, "onTile": False}, "IV4")
-        fails += tu_fails(rec, C_TU_MAX - TU_GROUND_TO_BELT, "IV4")
+        fails += item_fails(rec, clip, {"owner": C_ID, "slot": BELT, "slotX": 2, "slotY": 0, "onTile": False},
+                            "ground_to_belt")
+        fails += tu_fails(rec, C_TU_MAX - TU_GROUND_TO_BELT, "ground_to_belt")
         if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
-            fails.append(f"IV4: the client's screen did not close: {ev.get('close')}")
+            fails.append(f"ground_to_belt: the client's screen did not close: {ev.get('close')}")
     fails += common_fails(host, client, before, {"sent": 1},
-                          {"site": "drop", "op": "move", "decision": "sent", "itemId": clip, "actorId": C_ID}, "IV4")
+                          {"site": "drop", "op": "move", "decision": "sent", "itemId": clip, "actorId": C_ID},
+                          "ground_to_belt")
     finish(fails)
 
 
-def iv5_hand_to_ground(host, client, ctx):
+def hand_to_ground(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV5", "RH_LH")
+    st = restage(host, client, "hand_to_ground", "RH_LH")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
-    tile = ROW_TILE["IV5"]
+    tile = ROW_TILE["hand_to_ground"]
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
@@ -1012,33 +1013,36 @@ def iv5_hand_to_ground(host, client, ctx):
             ev["orderWait"] = wait_order(host, client, notes)
         close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV5", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
+    evidence("hand_to_ground", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
                      "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not opened:
-        fails += open_fails(ev, "IV5")
-        fails += nothing_sent_fails(before, rec, "IV5")
-        fails += common_fails(host, client, before, {}, None, "IV5")
+        fails += open_fails(ev, "hand_to_ground")
+        fails += nothing_sent_fails(before, rec, "hand_to_ground")
+        fails += common_fails(host, client, before, {}, None, "hand_to_ground")
         finish(fails)
     if ev.get("groundBefore"):
-        fails.append(f"precondition: IV5's tile {tile} holds items {ev['groundBefore']} (want an empty tile)")
+        fails.append(f"precondition: hand_to_ground's tile {tile} holds items {ev['groundBefore']} (want an empty "
+                     f"tile)")
     if not picked:
-        fails.append(f"IV5: the click on STR_LEFT_HAND put {ev['pick'].get('cursor')} on the cursor (want {g})")
+        fails.append(f"hand_to_ground: the click on STR_LEFT_HAND put {ev['pick'].get('cursor')} on the cursor (want "
+                     f"{g})")
     else:
-        f, cx = admitted_fails(before, rec, "IV5")
+        f, cx = admitted_fails(before, rec, "hand_to_ground")
         fails += f
         fails += item_fails(rec, g, {"owner": -1, "slot": GROUND, "onTile": True, "tx": tile[0], "ty": tile[1],
-                                     "tz": tile[2]}, "IV5")
-        fails += tu_fails(rec, C_TU_MAX - TU_HAND_TO_GROUND, "IV5")
+                                     "tz": tile[2]}, "hand_to_ground")
+        fails += tu_fails(rec, C_TU_MAX - TU_HAND_TO_GROUND, "hand_to_ground")
         if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
-            fails.append(f"IV5: the client's screen did not close: {ev.get('close')}")
+            fails.append(f"hand_to_ground: the client's screen did not close: {ev.get('close')}")
     fails += common_fails(host, client, before, {"sent": 1},
-                          {"site": "drop", "op": "move", "decision": "sent", "itemId": g, "actorId": C_ID}, "IV5")
+                          {"site": "drop", "op": "move", "decision": "sent", "itemId": g, "actorId": C_ID},
+                          "hand_to_ground")
     finish(fails)
 
 
 def inv_req(actor, item, slot, x, y, tu_override=None):
-    """battle_intent's `inv_move` request (section 8.2: plan {op, item, to {slot, x, y}})."""
+    """battle_intent's `inv_move` request (plan {op, item, to {slot, x, y}})."""
     req = {"cmd": "battle_intent", "kind": "inv_move", "actor": actor,
            "plan": {"op": "move", "item": item, "to": {"slot": slot, "x": x, "y": y}}}
     if tu_override is not None:
@@ -1047,7 +1051,7 @@ def inv_req(actor, item, slot, x, y, tu_override=None):
 
 
 def send_intent(host, client, req, notes):
-    """One lever order; when sent, waits (bounded) for the host's answer: its deny
+    """One test-command order; when sent, waits (bounded) for the host's answer: its deny
     (client lastDeny.iseq) or the end of the order."""
     r = client.cmd(dict(req))
     iseq = r.get("iseq") if r.get("ok") else None
@@ -1070,14 +1074,14 @@ def send_intent(host, client, req, notes):
     return out
 
 
-def iv11_host_denies(host, client, ctx):
+def host_denies_moves(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
     # H's kit: H onto STAGE_H, stripped, one grenade on its belt (the item_missing order's item)
     th = tele_both(host, client, H_ID, STAGE_H, ROW_DIR)
     h_stripped = strip_both(host, client, H_ID)
     h_gren = give(host, client, H_ID, GRENADE, BELT, 1, 0)
-    st = restage(host, client, "IV11", "belt_and_ground")
+    st = restage(host, client, "host_denies_moves", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g, clip = st["ids"]["grenade"], st["ids"]["beltClip"]
@@ -1118,7 +1122,7 @@ def iv11_host_denies(host, client, ctx):
                      "cTu": (tu_of(host, C_ID), tu_of(client, C_ID))})
     close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV11", {"staging": st, "stagedDiff": staged, "ui": ev,
+    evidence("host_denies_moves", {"staging": st, "stagedDiff": staged, "ui": ev,
                       "variants": [{k: v for k, v in r.items() if k != "req"} for r in rows],
                       "requests": [r["req"] for r in rows], "row": rec_view(first, rec, st["ids"]),
                       "notes": notes})
@@ -1128,7 +1132,7 @@ def iv11_host_denies(host, client, ctx):
                   "beltClip": {"owner": C_ID, "slot": BELT, "slotX": 0, "slotY": 0, "onTile": False}}
     last_text = None
     for r in rows:
-        tag = f"IV11 {r['want']} ({r['name']})"
+        tag = f"host_denies_moves {r['want']} ({r['name']})"
         si = r["intent"]
         if not si["sent"]:
             fails.append(f"{tag}: battle_intent answered {si['resp']} (want sent: an iseq)")
@@ -1160,15 +1164,15 @@ def iv11_host_denies(host, client, ctx):
         if r["cTu"] != (want_tu, want_tu):
             fails.append(f"{tag}: C tu host/client {r['cTu']} (want {want_tu} on both)")
     if not opened:
-        fails += open_fails(ev, "IV11")
-    fails += common_fails(host, client, first, {}, None, "IV11")
+        fails += open_fails(ev, "host_denies_moves")
+    fails += common_fails(host, client, first, {}, None, "host_denies_moves")
     finish(fails)
 
 
-def iv12_local_tu_refusal(host, client, ctx):
+def local_tu_refusal(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV12", "belt_and_ground")
+    st = restage(host, client, "local_tu_refusal", "belt_and_ground")
     st["tuSet"] = set_tu_both(host, client, C_ID, 1)
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
@@ -1191,41 +1195,46 @@ def iv12_local_tu_refusal(host, client, ctx):
             returned = right_click_return(client, ev, "rightClick", BELT, 1, 0)
         close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV12", {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
+    evidence("local_tu_refusal",
+             {"staging": st, "stagedDiff": staged, "ui": ev, "row": rec_view(before, rec, st["ids"]),
                       "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if st["tuSet"] != 1:
         fails.append(f"precondition: C's TU {st['tuSet']} after set_tu_both 1 (want 1)")
     if not opened:
-        fails += open_fails(ev, "IV12")
-        fails += nothing_sent_fails(before, rec, "IV12")
-        fails += common_fails(host, client, before, {}, None, "IV12")
+        fails += open_fails(ev, "local_tu_refusal")
+        fails += nothing_sent_fails(before, rec, "local_tu_refusal")
+        fails += common_fails(host, client, before, {}, None, "local_tu_refusal")
         finish(fails)
     if not picked:
-        fails.append(f"IV12: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor (want {g})")
+        fails.append(f"local_tu_refusal: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor "
+                     f"(want {g})")
     else:
         ad = ev["afterDrop"]
         if ad["cursor"] != g:
-            fails.append(f"IV12: client selectedItem {ad['cursor']} after the refused drop (want {g}: still selected)")
+            fails.append(f"local_tu_refusal: client selectedItem {ad['cursor']} after the refused drop (want {g}: "
+                         f"still selected)")
         if ev["sent"]["state"] != "quiet":
-            fails.append(f"IV12: the refused drop {ev['sent']} (want nothing sent)")
+            fails.append(f"local_tu_refusal: the refused drop {ev['sent']} (want nothing sent)")
         if not returned:
-            fails.append(f"IV12: the right-click left {ev['rightClick'].get('cursor')} on the cursor (want -1)")
-        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}, "IV12")
+            fails.append(f"local_tu_refusal: the right-click left {ev['rightClick'].get('cursor')} on the cursor (want "
+                         f"-1)")
+        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False},
+                            "local_tu_refusal")
         if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
-            fails.append(f"IV12: the client's screen did not close: {ev.get('close')}")
-    fails += tu_fails(rec, 1, "IV12")
-    fails += nothing_sent_fails(before, rec, "IV12")
+            fails.append(f"local_tu_refusal: the client's screen did not close: {ev.get('close')}")
+    fails += tu_fails(rec, 1, "local_tu_refusal")
+    fails += nothing_sent_fails(before, rec, "local_tu_refusal")
     fails += common_fails(host, client, before, {"vanilla_refused": 1},
                           {"site": "drop", "op": "move", "decision": "vanilla_refused", "itemId": g,
-                           "actorId": C_ID}, "IV12")
+                           "actorId": C_ID}, "local_tu_refusal")
     finish(fails)
 
 
-def iv13_real_ui_deny(host, client, ctx):
+def real_ui_deny(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV13", "belt_and_ground")
+    st = restage(host, client, "real_ui_deny", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     g = st["ids"]["grenade"]
@@ -1262,55 +1271,60 @@ def iv13_real_ui_deny(host, client, ctx):
             win["cursor"] = selected(client)
         close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV13", {"staging": st, "stagedDiff": staged, "ui": ev, "defer": dr, "disarm": disarm, "window": win,
+    evidence("real_ui_deny",
+             {"staging": st, "stagedDiff": staged, "ui": ev, "defer": dr, "disarm": disarm, "window": win,
                       "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not opened:
-        fails += open_fails(ev, "IV13")
-        fails += nothing_sent_fails(before, rec, "IV13")
-        fails += common_fails(host, client, before, {}, None, "IV13")
+        fails += open_fails(ev, "real_ui_deny")
+        fails += nothing_sent_fails(before, rec, "real_ui_deny")
+        fails += common_fails(host, client, before, {}, None, "real_ui_deny")
         finish(fails)
     if not picked:
-        fails.append(f"IV13: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor (want {g})")
+        fails.append(f"real_ui_deny: the click on STR_BELT (1,0) put {ev['pick'].get('cursor')} on the cursor (want "
+                     f"{g})")
     else:
         if win["sent"]["state"] != "sent" or not win.get("inFlightAfterTuSet"):
             fails.append(f"precondition: set_tu_both(C, 1) did not land inside the held order's window "
-                         f"(sent {win['sent']}, inFlight after the TU lever {win.get('inFlightAfterTuSet')}, "
+                         f"(sent {win['sent']}, inFlight after the TU command {win.get('inFlightAfterTuSet')}, "
                          f"at {win.get('tuSetAtS')} s)")
         if win["tuSet"] != 1:
-            fails.append(f"IV13: C's TU {win['tuSet']} after set_tu_both 1 (want 1)")
+            fails.append(f"real_ui_deny: C's TU {win['tuSet']} after set_tu_both 1 (want 1)")
         ld = rec["client"]["lastDeny"] or {}
         if ld.get("reason") != "no_tu" or ld.get("iseq") != win.get("iseq"):
-            fails.append(f"IV13: client lastDeny {rec['client']['lastDeny']} (want {{iseq {win.get('iseq')}, "
+            fails.append(f"real_ui_deny: client lastDeny {rec['client']['lastDeny']} (want {{iseq {win.get('iseq')}, "
                          f"reason no_tu}})")
         if rec["client"]["invLastWarning"] != TEXT_DENY["no_tu"]:
-            fails.append(f"IV13: client invLastWarning {rec['client']['invLastWarning']!r} "
+            fails.append(f"real_ui_deny: client invLastWarning {rec['client']['invLastWarning']!r} "
                          f"(want {TEXT_DENY['no_tu']!r})")
         if win.get("cursor") != -1:
-            fails.append(f"IV13: client selectedItem {win.get('cursor')} after the deny (want -1: the item returned)")
+            fails.append(f"real_ui_deny: client selectedItem {win.get('cursor')} after the deny (want -1: the item "
+                         f"returned)")
         d = count_of(rec["client"]["coopIntentsSent"], "inv_move") - count_of(before["client"]["coopIntentsSent"],
                                                                               "inv_move")
         dd = recv_of(rec["host"]["intentsReceived"], "inv_move", "denied") - recv_of(
             before["host"]["intentsReceived"], "inv_move", "denied")
         if (d, dd) != (1, 1):
-            fails.append(f"IV13: client coopIntentsSent.inv_move +{d} host intentsReceived.inv_move.denied +{dd} "
-                         f"(want +1 / +1)")
+            fails.append(f"real_ui_deny: client coopIntentsSent.inv_move +{d} host intentsReceived.inv_move.denied "
+                         f"+{dd} (want +1 / +1)")
         new = new_contexts(before["host"]["closedContexts"], rec["host"]["closedContexts"])
         if new or rec["host"]["lastSeqEmitted"] != before["host"]["lastSeqEmitted"]:
-            fails.append(f"IV13: host lastSeqEmitted {before['host']['lastSeqEmitted']}->"
+            fails.append(f"real_ui_deny: host lastSeqEmitted {before['host']['lastSeqEmitted']}->"
                          f"{rec['host']['lastSeqEmitted']} newContexts={new} (want nothing executed)")
         if rec["client"]["inFlight"] is not None:
-            fails.append(f"IV13: client inFlight after the deny {rec['client']['inFlight']} (want null)")
-        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}, "IV13")
-        fails += tu_fails(rec, 1, "IV13")
+            fails.append(f"real_ui_deny: client inFlight after the deny {rec['client']['inFlight']} (want null)")
+        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False},
+                            "real_ui_deny")
+        fails += tu_fails(rec, 1, "real_ui_deny")
         if not (isinstance(ev.get("close"), dict) and ev["close"]["closed"]):
-            fails.append(f"IV13: the client's screen did not close: {ev.get('close')}")
+            fails.append(f"real_ui_deny: the client's screen did not close: {ev.get('close')}")
     fails += common_fails(host, client, before, {"sent": 1},
-                          {"site": "drop", "op": "move", "decision": "sent", "itemId": g, "actorId": C_ID}, "IV13")
+                          {"site": "drop", "op": "move", "decision": "sent", "itemId": g, "actorId": C_ID},
+                          "real_ui_deny")
     finish(fails)
 
 
-# ===================== S-B rows (section 9) =====================
+# ===================== load / unload rows =====================
 
 
 def items_both(host, client, ids):
@@ -1329,16 +1343,16 @@ def staged_item_fails(st_items, wants, what):
     return fails
 
 
-def sb_client_row(host, client, row, do_op, what, guard, tu_spent, outcome, staged_want=None):
-    """IV6-IV10: one real-UI inventory op of the client on its own C.
+def client_ui_row(host, client, row, do_op, what, guard, tu_spent, outcome, staged_want=None):
+    """load_rifle to paperdoll_drop: one real-UI inventory op of the client on its own C.
     do_op(client, ev, ids) makes the row's clicks and returns True when its own
     precondition held (the pick landed, the cell was found). Then: up to
     SENT_WAIT_S for the order to show as sent and, when sent, the end of the order;
     the cursor, invGuard and inFlight right after; an item still on the cursor then
-    goes back with ONE right-click (recorded; the interim refusal keeps it there) and
+    goes back with ONE right-click (recorded; a client-side refusal keeps it there) and
     the screen closes. guard = (site, op, the ids key of the order's item);
-    tu_spent = T0-1b's cost, or cost(st) -> (cost, precondition fails) (IV9, F2090);
-    outcome(ids, tile) = {ids key: the item's T0-1b host-vanilla outcome}."""
+    tu_spent = the measured host-vanilla cost, or cost(st) -> (cost, precondition fails) (unload_unprime);
+    outcome(ids, tile) = {ids key: the item's measured host-vanilla outcome}."""
     notes = []
     leftover = ensure_closed(client, notes)
     st = restage(host, client, row, row)
@@ -1402,8 +1416,8 @@ def sb_client_row(host, client, row, do_op, what, guard, tu_spent, outcome, stag
     finish(fails)
 
 
-def iv6_load(host, client, ctx):
-    """C29a: the belt clip dropped on the empty rifle in RH (T0-1b op4)."""
+def load_rifle(host, client, ctx):
+    """The belt clip dropped on the empty rifle in RH."""
     def do_op(cl, ev, ids):
         if not pick(cl, ev, "pick", BELT, 0, 0, ids["beltClip"]):
             return False
@@ -1419,12 +1433,12 @@ def iv6_load(host, client, ctx):
         r, c = ids["rifle"], ids["beltClip"]
         return {"rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [c, r, r, r], "fuse": -1},
                 "beltClip": {"owner": -1, "slot": "", "onTile": False, "ammo": [], "fuse": -1}}
-    sb_client_row(host, client, "IV6", do_op, "load (clip belt (0,0) -> the rifle in STR_RIGHT_HAND)",
+    client_ui_row(host, client, "load_rifle", do_op, "load (clip belt (0,0) -> the rifle in STR_RIGHT_HAND)",
                   ("load", "load", "beltClip"), TU_LOAD, outcome, staged_want)
 
 
-def iv7_shift_unload(host, client, ctx):
-    """Shift+click the loaded rifle in RH with LH free (T0-1b op5)."""
+def shift_unload(host, client, ctx):
+    """Shift+click the loaded rifle in RH with LH free."""
     def do_op(cl, ev, ids):
         g0 = (probes(cl).get("invGuard") or {}).get("last")
         ev["shiftClick"] = click(cl, slot=RH, x=0, y=0, mod="shift")
@@ -1441,12 +1455,12 @@ def iv7_shift_unload(host, client, ctx):
         r, c = ids["rifle"], ids["clip"]
         return {"rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [r, r, r], "fuse": -1},
                 "clip": {"owner": C_ID, "slot": LH, "onTile": False, "ammo": [], "fuse": -1}}
-    sb_client_row(host, client, "IV7", do_op, "Shift+click unload of the rifle in STR_RIGHT_HAND",
+    client_ui_row(host, client, "shift_unload", do_op, "Shift+click unload of the rifle in STR_RIGHT_HAND",
                   ("unload", "unload", "rifle"), TU_SHIFT_UNLOAD, outcome, staged_want)
 
 
-def iv8_ctrl_autoplace(host, client, ctx):
-    """Ctrl+click the grenade on the ground (T0-1b op7): vanilla's first fitting cell."""
+def ctrl_autoplace(host, client, ctx):
+    """Ctrl+click the grenade on the ground: vanilla's first fitting cell."""
     def do_op(cl, ev, ids):
         ground = inv_view(cl).get("ground") or []
         ev["ground"] = ground
@@ -1467,13 +1481,13 @@ def iv8_ctrl_autoplace(host, client, ctx):
     def outcome(ids, tile):
         return {"grenade": {"owner": C_ID, "slot": BELT, "slotX": 0, "slotY": 0, "onTile": False, "ammo": [],
                             "fuse": -1}}
-    sb_client_row(host, client, "IV8", do_op, "Ctrl+click auto-place of the ground grenade",
+    client_ui_row(host, client, "ctrl_autoplace", do_op, "Ctrl+click auto-place of the ground grenade",
                   ("ctrl_fit", "move", "grenade"), TU_CTRL_FIT, outcome, staged_want)
 
 
-def iv9_unload_unprime(host, client, ctx):
+def unload_unprime(host, client, ctx):
     """The primed grenade picked from belt (3,0), then the UNLOAD button, LH free
-    (T0-1b op6). The cost is a % of C's base TU: RULING F2090 (a)."""
+    The cost is a % of C's own base TU."""
     def do_op(cl, ev, ids):
         if not pick(cl, ev, "pick", BELT, 3, 0, ids["primed"]):
             return False
@@ -1492,15 +1506,15 @@ def iv9_unload_unprime(host, client, ctx):
         base = st["tu"]
         spent = max(1, (base * UNPRIME_PCT) // 100) + TU_UNPRIME_TO_HAND
         bad = [] if spent == TU_UNPRIME_C else [
-            f"precondition: C's base TU {base} gives the unprime cost {spent} (want {TU_UNPRIME_C}, F2090)"]
+            f"precondition: C's base TU {base} gives the unprime cost {spent} (want {TU_UNPRIME_C})"]
         return spent, bad
-    sb_client_row(host, client, "IV9", do_op, "UNLOAD unprime of the primed grenade",
+    client_ui_row(host, client, "unload_unprime", do_op, "UNLOAD unprime of the primed grenade",
                   ("unload", "unload", "primed"), unprime_cost, outcome, staged_want)
 
 
-def iv10_paperdoll(host, client, ctx):
+def paperdoll_drop(host, client, ctx):
     """The grenade picked from belt (1,0), then a click on the paperdoll with
-    oxceInventoryDropItemOverPaperdoll on (T0-1b op8)."""
+    oxceInventoryDropItemOverPaperdoll on."""
     def do_op(cl, ev, ids):
         if not pick(cl, ev, "pick", BELT, 1, 0, ids["grenade"]):
             return False
@@ -1513,12 +1527,12 @@ def iv10_paperdoll(host, client, ctx):
     def outcome(ids, tile):
         return {"grenade": {"owner": -1, "slot": GROUND, "onTile": True, "tx": tile[0], "ty": tile[1],
                             "tz": tile[2], "ammo": [], "fuse": -1}}
-    sb_client_row(host, client, "IV10", do_op, "paperdoll drop of the grenade",
+    client_ui_row(host, client, "paperdoll_drop", do_op, "paperdoll drop of the grenade",
                   ("paperdoll", "move", "grenade"), TU_PAPERDOLL, outcome, staged_want)
 
 
 def inv_load_req(actor, item, weapon, swap=False):
-    """battle_intent's `inv_move` load (section 8.2: plan {op, item, weapon, swap})."""
+    """battle_intent's `inv_move` load (plan {op, item, weapon, swap})."""
     return {"cmd": "battle_intent", "kind": "inv_move", "actor": actor,
             "plan": {"op": "load", "item": item, "weapon": weapon, "swap": swap}}
 
@@ -1527,14 +1541,14 @@ def inv_unload_req(actor, item):
     return {"cmd": "battle_intent", "kind": "inv_move", "actor": actor, "plan": {"op": "unload", "item": item}}
 
 
-def iv11b_load_unload_denies(host, client, ctx):
+def host_denies_load_unload(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
-    st = restage(host, client, "IV11b", "IV11b")
+    st = restage(host, client, "host_denies_load_unload", "host_denies_load_unload")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     ids = st["ids"]
-    tile = ROW_TILE["IV11b"]
+    tile = ROW_TILE["host_denies_load_unload"]
     r, rb, bc, pc, gl = ids["rifle"], ids["bpRifle"], ids["beltClip"], ids["groundPistolClip"], ids["lhGrenade"]
     want_items = {
         "rifle": {"owner": C_ID, "slot": RH, "onTile": False, "ammo": [r, r, r], "fuse": -1},
@@ -1579,13 +1593,13 @@ def iv11b_load_unload_denies(host, client, ctx):
                      "cTu": (tu_of(host, C_ID), tu_of(client, C_ID))})
     close_client(client, ev)
     rec = collect(host, client, seq0)
-    evidence("IV11b", {"staging": st, "stagedDiff": staged, "stagedItems": st_items, "ui": ev,
+    evidence("host_denies_load_unload", {"staging": st, "stagedDiff": staged, "stagedItems": st_items, "ui": ev,
                        "variants": [{k: v for k, v in x.items() if k != "req"} for x in rows],
                        "requests": [x["req"] for x in rows], "row": rec_view(first, rec, ids), "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
-    fails += staged_item_fails(st_items, want_items, "IV11b")
+    fails += staged_item_fails(st_items, want_items, "host_denies_load_unload")
     for x in rows:
-        tag = f"IV11b {x['want']} ({x['name']})"
+        tag = f"host_denies_load_unload {x['want']} ({x['name']})"
         si = x["intent"]
         if not si["sent"]:
             fails.append(f"{tag}: battle_intent answered {si['resp']} (want sent: an iseq)")
@@ -1612,16 +1626,16 @@ def iv11b_load_unload_denies(host, client, ctx):
         if x["cTu"] != (C_TU_MAX, C_TU_MAX):
             fails.append(f"{tag}: C tu host/client {x['cTu']} (want {C_TU_MAX} on both)")
     if not opened:
-        fails += open_fails(ev, "IV11b")
-    fails += common_fails(host, client, first, {}, None, "IV11b")
+        fails += open_fails(ev, "host_denies_load_unload")
+    fails += common_fails(host, client, first, {}, None, "host_denies_load_unload")
     finish(fails)
 
 
-# ===================== S-R rows =====================
+# ===================== rename rows =====================
 
 
 def probes_rn(gc):
-    """probes()' keys plus the S-C1 latch probes and S-R's `renames` (zeros on commit S-R.1)."""
+    """probes()' keys plus the held-inventory latch probes and the `renames` counters."""
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
     return {k: es.get(k) for k in PROBE_KEYS + RN_KEYS}
@@ -1638,7 +1652,7 @@ def collect_rn(host, client, seq0):
 
 
 def names_of(gc, uid):
-    """battle_state's `name`, `_name` and `rawName` of `uid` on `gc` (S-R.1's probes, P8-4c ruling 1)."""
+    """battle_state's `name`, `_name` and `rawName` of `uid` on `gc`."""
     u = units(gc).get(uid) or {}
     return {k: u.get(k) for k in NAME_KEYS}
 
@@ -1662,7 +1676,7 @@ def dnum(a, b):
 
 
 def rn_view(before, rec):
-    """The S-R EVIDENCE fields of one row: both machines' rename probes and counters."""
+    """The rename EVIDENCE fields of one row: both machines' rename probes and counters."""
     b, a = before, rec
     return {"renames": {m: (b[m]["renames"], a[m]["renames"]) for m in ("host", "client")},
             "sentRename": (count_of(b["client"]["coopIntentsSent"], "rename"),
@@ -1679,7 +1693,7 @@ def rn_view(before, rec):
 
 
 def open_name_field(gc, uid, ev):
-    """P8-4c T0-R2: battle_open_inventory <uid> on `gc`; KEY_SETTLE_S; the one visible TextEdit must sit on
+    """The measured recipe: battle_open_inventory <uid> on `gc`; KEY_SETTLE_S; the one visible TextEdit must sit on
     NAME_FIELD_RECT; ONE inject_input click on NAME_CLICK; KEY_SETTLE_S. Fills `ev`; returns True when the click
     was made on `uid`'s open screen."""
     r = gc.cmd({"cmd": "battle_open_inventory", "unit": uid})
@@ -1702,9 +1716,10 @@ def open_name_field(gc, uid, ev):
 
 
 def type_letters(gc, uid, letters, ev):
-    """One inject_input key per letter, KEY_SETTLE_S between (T0-R2). After each key, a bounded record
-    (NAME_CHANGE_S) of when `gc`'s own `name` of `uid` became the old name + the letters so far: on the host and at
-    red that is vanilla's own write; at GREEN the client's own name follows the host's apply."""
+    """One inject_input key per letter, KEY_SETTLE_S between. After each key, a bounded record
+    (NAME_CHANGE_S) of when `gc`'s own `name` of `uid` became the old name + the letters so far: on the host, and on
+    a client without the rename order, that is vanilla's own write; otherwise the client's own name follows the
+    host's apply."""
     base = names_of(gc, uid).get("name") or ""
     typed, out = "", []
     for ch, sym in letters:
@@ -1735,7 +1750,7 @@ def names_fails(names, want, what, who="C"):
 
 
 def rename_order_fails(before, rec, n, what):
-    """n letters typed by the client: n `rename` orders sent (R-1) and n applied by the host (R-4)."""
+    """n letters typed by the client: n `rename` orders sent and n applied by the host."""
     b, a = before, rec
     ds = count_of(a["client"]["coopIntentsSent"], "rename") - count_of(b["client"]["coopIntentsSent"], "rename")
     dr = dnum(rn_of(b["client"], "sent"), rn_of(a["client"], "sent"))
@@ -1745,7 +1760,7 @@ def rename_order_fails(before, rec, n, what):
         fails.append(f"{what}: client coopIntentsSent.rename +{ds} renames.sent +{dr}, host renames.applied +{da} "
                      f"(want +{n} / +{n} / +{n})")
     if a["client"]["inFlight"] is not None:
-        fails.append(f"{what}: client inFlight {a['client']['inFlight']} (want null: a rename is untracked, R-1)")
+        fails.append(f"{what}: client inFlight {a['client']['inFlight']} (want null: a rename is untracked)")
     return fails
 
 
@@ -1765,8 +1780,8 @@ def closed_fails(ev, what, who):
     return [f"{what}: {who}'s screen did not close: {ev.get('close')}"]
 
 
-def rn0_names_at_start(host, client, ctx):
-    """P8-4c ruling 1: read-only, the first row (battle start)."""
+def names_at_start(host, client, ctx):
+    """Read-only, the first row (battle start)."""
     bh, bc = battle_state(host), battle_state(client)
     uh, uc = session.units_by_id(bh), session.units_by_id(bc)
     rows = []
@@ -1779,31 +1794,33 @@ def rn0_names_at_start(host, client, ctx):
         rows.append(r)
     non_soldiers = [r for r in rows if r["type"] != "SOLDIER"]
     no_soldier = [r for r in rows if r["soldier"] == [False, False]]
-    evidence("RN0", {"turn": [bh.get("turn"), bc.get("turn")], "units": len(rows), "nonSoldiers": len(non_soldiers),
+    evidence("names_at_start",
+             {"turn": [bh.get("turn"), bc.get("turn")], "units": len(rows), "nonSoldiers": len(non_soldiers),
                      "withoutSoldier": len(no_soldier), "rows": rows})
     fails = []
     if set(uh) != set(uc):
-        fails.append(f"RN0: unit ids differ: host-only {sorted(set(uh) - set(uc))} client-only "
+        fails.append(f"names_at_start: unit ids differ: host-only {sorted(set(uh) - set(uc))} client-only "
                      f"{sorted(set(uc) - set(uh))}")
     missing = [r["id"] for r in rows if any(not isinstance(v, str) for k in ("_name", "rawName") for v in r[k])]
     if missing:
-        fails.append(f"RN0: unit(s) {missing} lack battle_state `_name` / `rawName` on a machine (want both strings on "
-                     f"every unit)")
+        fails.append(f"names_at_start: unit(s) {missing} lack battle_state `_name` / `rawName` on a machine (want both "
+                     f"strings on every unit)")
     unequal = [(r["id"], k, r[k]) for r in rows for k in NAME_KEYS if r[k][0] != r[k][1]]
     if unequal:
-        fails.append(f"RN0: names differ between the machines at battle start: {unequal}")
+        fails.append(f"names_at_start: names differ between the machines at battle start: {unequal}")
     bad = [(r["id"], r["type"], r["_name"]) for r in non_soldiers if r["_name"] != ["", ""]]
     if bad:
-        fails.append(f"RN0: `_name` not empty on non-SOLDIER unit(s) {bad} (P8-4c ruling 1: STOP)")
+        fails.append(f"names_at_start: `_name` not empty on non-SOLDIER unit(s) {bad} (a product failure, not a "
+                     f"fixture problem)")
     bad_raw = [(r["id"], r["rawName"]) for r in no_soldier if r["rawName"] != ["", ""]]
     if bad_raw:
-        fails.append(f"RN0: `rawName` not empty on unit(s) without a geoscape Soldier {bad_raw}")
+        fails.append(f"names_at_start: `rawName` not empty on unit(s) without a geoscape Soldier {bad_raw}")
     if not non_soldiers:
         fails.append("precondition: no non-SOLDIER unit at battle start (the check would be vacuous)")
     finish(fails)
 
 
-def rn1_client_rename(host, client, ctx):
+def client_rename(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
     session.wait_host_idle(host, client, timeout=30)
@@ -1817,7 +1834,7 @@ def rn1_client_rename(host, client, ctx):
     ready = open_name_field(client, C_ID, ev)
     if ready:
         type_letters(client, C_ID, RN_LETTERS, ev)
-        # P8-4c ruling 3: End runs the change handler but changes no text
+        # End runs the change handler but changes no text
         e0 = probes_rn(client)
         end["before"] = {"sent": rn_of(e0, "sent"), "rename": count_of(e0["coopIntentsSent"], "rename"),
                          "names": names_of(client, C_ID)}
@@ -1831,27 +1848,27 @@ def rn1_client_rename(host, client, ctx):
     ev["hostNamesAtS"] = wait_names(host, C_ID, want) if ready else None
     rec = collect_rn(host, client, seq0)
     n1 = names_both(host, client, C_ID)
-    evidence("RN1", {"preDiff": pre, "namesBefore": n0, "namesAfter": n1, "want": want, "ui": ev, "end": end,
+    evidence("client_rename", {"preDiff": pre, "namesBefore": n0, "namesAfter": n1, "want": want, "ui": ev, "end": end,
                      "rn": rn_view(before, rec), "notes": notes})
     fails = list(notes) + pre_fails(pre)
     if not ready:
-        fails += field_fails(ev, "RN1", "the client")
+        fails += field_fails(ev, "client_rename", "the client")
     else:
-        fails += rename_order_fails(before, rec, len(RN_LETTERS), "RN1")
-        fails += names_fails(n1, want, "RN1")
+        fails += rename_order_fails(before, rec, len(RN_LETTERS), "client_rename")
+        fails += names_fails(n1, want, "client_rename")
         eb, ea = end["before"], end["after"]
         if (ea["sent"], ea["rename"]) != (eb["sent"], eb["rename"]):
-            fails.append(f"RN1 End (Q3 a, F2952): client renames.sent {eb['sent']}->{ea['sent']}, "
+            fails.append(f"client_rename End: client renames.sent {eb['sent']}->{ea['sent']}, "
                          f"coopIntentsSent.rename {eb['rename']}->{ea['rename']} (want unchanged: the text did not "
                          f"change)")
         if ea["names"] != eb["names"]:
-            fails.append(f"RN1 End: client C names {eb['names']} -> {ea['names']} (want unchanged)")
-        fails += closed_fails(ev, "RN1", "the client")
-    fails += common_fails(host, client, before, {}, None, "RN1")
+            fails.append(f"client_rename End: client C names {eb['names']} -> {ea['names']} (want unchanged)")
+        fails += closed_fails(ev, "client_rename", "the client")
+    fails += common_fails(host, client, before, {}, None, "client_rename")
     finish(fails)
 
 
-def rn2_host_rename(host, client, ctx):
+def host_rename(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
     session.wait_host_idle(host, client, timeout=30)
@@ -1865,7 +1882,7 @@ def rn2_host_rename(host, client, ctx):
     ready = open_name_field(host, H_ID, ev)
     if ready:
         type_letters(host, H_ID, RN_LETTERS, ev)
-        # sampled with the host's screen still open (draft section 2.6 RN2 GREEN)
+        # sampled with the host's screen still open
         at = wait_names(client, H_ID, want)
         eh = probes_rn(host)
         open_at = {"clientNamesAtS": at, "hostOpen": inv_view(host).get("open"), "hostStack": stack(host),
@@ -1874,32 +1891,32 @@ def rn2_host_rename(host, client, ctx):
     close_client(host, ev)
     rec = collect_rn(host, client, seq0)
     n1 = names_both(host, client, H_ID)
-    evidence("RN2", {"preDiff": pre, "namesBefore": n0, "namesAfter": n1, "want": want, "ui": ev,
+    evidence("host_rename", {"preDiff": pre, "namesBefore": n0, "namesAfter": n1, "want": want, "ui": ev,
                      "whileOpen": open_at, "rn": rn_view(before, rec), "notes": notes})
     fails = list(notes) + pre_fails(pre)
     if not ready:
-        fails += field_fails(ev, "RN2", "the host")
+        fails += field_fails(ev, "host_rename", "the host")
     else:
         slow = [k for k in ev["keys"] if k["ownNameAtS"] is None]
         if slow:
-            fails.append(f"precondition (RN2): the host's own H name did not take the letter(s) {slow} within "
-                         f"{NAME_CHANGE_S} s (the T0-R2 typing recipe)")
+            fails.append(f"precondition (host_rename): the host's own H name did not take the letter(s) {slow} within "
+                         f"{NAME_CHANGE_S} s (the measured typing recipe)")
         ds = dnum(dirty_of(before["host"], "setsRename"), dirty_of(rec["host"], "setsRename"))
         if ds != len(RN_LETTERS):
-            fails.append(f"RN2: host invHostDirty.sets.rename +{ds} (want +{len(RN_LETTERS)})")
+            fails.append(f"host_rename: host invHostDirty.sets.rename +{ds} (want +{len(RN_LETTERS)})")
         dsync = dnum(before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"])
         if dsync is None or dsync < 1:
-            fails.append(f"RN2: host syncEvsEmitted +{dsync} (want +>= 1)")
+            fails.append(f"host_rename: host syncEvsEmitted +{dsync} (want +>= 1)")
         if open_at["clientNamesAtS"] is None or open_at["hostOpen"] is not True:
-            fails.append(f"RN2: the client's H names {open_at['names']['client']} with the host's screen open "
+            fails.append(f"host_rename: the client's H names {open_at['names']['client']} with the host's screen open "
                          f"{open_at['hostOpen']} (want {want!r}, the host's, within {NAME_SYNC_S} s while it is open)")
-        fails += names_fails(n1, want, "RN2", "H")
-        fails += closed_fails(ev, "RN2", "the host")
-    fails += common_fails(host, client, before, {}, None, "RN2")
+        fails += names_fails(n1, want, "host_rename", "H")
+        fails += closed_fails(ev, "host_rename", "the host")
+    fails += common_fails(host, client, before, {}, None, "host_rename")
     finish(fails)
 
 
-def rn3_forged_rename(host, client, ctx):
+def forged_rename(host, client, ctx):
     notes = []
     leftover = ensure_closed(client, notes)
     session.wait_host_idle(host, client, timeout=30)
@@ -1907,7 +1924,7 @@ def rn3_forged_rename(host, client, ctx):
     n0 = names_both(host, client, H_ID)
     before = snap_rn(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
-    req = {"cmd": "battle_intent", "kind": "rename", "actor": H_ID, "name": RN3_NAME}
+    req = {"cmd": "battle_intent", "kind": "rename", "actor": H_ID, "name": FORGED_NAME}
     r = client.cmd(dict(req))
     iseq = r.get("iseq") if r.get("ok") else None
     si = {"resp": r, "sent": bool(iseq), "iseq": iseq, "deny": None}
@@ -1921,39 +1938,39 @@ def rn3_forged_rename(host, client, ctx):
             notes.append(f"no deny for iseq {iseq} in {ANSWER_TIMEOUT_S} s")
     rec = collect_rn(host, client, seq0)
     n1 = names_both(host, client, H_ID)
-    evidence("RN3", {"preDiff": pre, "req": req, "intent": si, "namesBefore": n0, "namesAfter": n1,
+    evidence("forged_rename", {"preDiff": pre, "req": req, "intent": si, "namesBefore": n0, "namesAfter": n1,
                      "rn": rn_view(before, rec), "leftover": leftover, "notes": notes})
     fails = list(notes) + pre_fails(pre)
     if not si["sent"]:
-        fails.append(f"RN3: battle_intent answered {r} (want sent: an iseq)")
+        fails.append(f"forged_rename: battle_intent answered {r} (want sent: an iseq)")
     else:
         ld = rec["client"]["lastDeny"] or {}
         if ld.get("iseq") != iseq or ld.get("reason") != "not_your_unit":
-            fails.append(f"RN3: client lastDeny {rec['client']['lastDeny']} (want {{iseq {iseq}, reason "
+            fails.append(f"forged_rename: client lastDeny {rec['client']['lastDeny']} (want {{iseq {iseq}, reason "
                          f"not_your_unit}})")
         if rec["client"]["inFlight"] is not None:
-            fails.append(f"RN3: client inFlight {rec['client']['inFlight']} (want null)")
+            fails.append(f"forged_rename: client inFlight {rec['client']['inFlight']} (want null)")
     for m in ("host", "client"):
         if n1[m] != n0[m]:
-            fails.append(f"RN3: {m} H names {n0[m]} -> {n1[m]} (want unchanged)")
+            fails.append(f"forged_rename: {m} H names {n0[m]} -> {n1[m]} (want unchanged)")
     da = dnum(rn_of(before["host"], "applied"), rn_of(rec["host"], "applied"))
     if da != 0:
-        fails.append(f"RN3: host renames.applied +{da} (want +0)")
-    fails += common_fails(host, client, before, {}, None, "RN3")
+        fails.append(f"forged_rename: host renames.applied +{da} (want +0)")
+    fails += common_fails(host, client, before, {}, None, "forged_rename")
     finish(fails)
 
 
-def rn4_rename_in_window(host, client, ctx):
-    # Imported here: test_inventory_held imports this module (its T0-4 fire helpers, P8-3b T0-4 row).
+def rename_in_window(host, client, ctx):
+    # Imported here: test_inventory_held imports this module (this row uses its host-shot helpers).
     import test_inventory_held as held
     notes = []
     leftover = ensure_closed(client, notes)
     ws = held.fire_setup(host, client)
-    st = restage(host, client, "RN4", "belt_and_ground")
+    st = restage(host, client, "rename_in_window", "belt_and_ground")
     session.wait_host_idle(host, client, timeout=30)
     staged = diff_buckets(host, client)
     n0 = names_both(host, client, C_ID)
-    want = (n0["client"]["name"] or "") + "".join(ch for ch, _ in RN4_LETTERS)
+    want = (n0["client"]["name"] or "") + "".join(ch for ch, _ in RENAME_IN_WINDOW_LETTERS)
     before = snap_rn(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
@@ -1962,7 +1979,7 @@ def rn4_rename_in_window(host, client, ctx):
     if ready:
         t_cue = held.fire_and_cue(host, client, win)
         if t_cue:
-            ch, sym = RN4_LETTERS[0]
+            ch, sym = RENAME_IN_WINDOW_LETTERS[0]
             r = client.cmd({"cmd": "inject_input", "kind": "key", "key": sym})
             t_key = time.time()
             win["key"] = {"letter": ch, "sym": sym, "ok": r.get("ok"), "afterCueMs": held.ms_since(t_cue)}
@@ -1988,55 +2005,61 @@ def rn4_rename_in_window(host, client, ctx):
     ev["hostNamesAtS"] = wait_names(host, C_ID, want) if ready else None
     rec = collect_rn(host, client, seq0)
     n1 = names_both(host, client, C_ID)
-    evidence("RN4", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "namesBefore": n0, "namesAfter": n1,
+    evidence("rename_in_window",
+             {"fireSetup": ws, "staging": st, "stagedDiff": staged, "namesBefore": n0, "namesAfter": n1,
                      "want": want, "ui": ev, "window": win, "rn": rn_view(before, rec), "notes": notes})
     fails = list(notes) + staged_fails(st, staged)
     if not ready:
-        fails += field_fails(ev, "RN4", "the client")
+        fails += field_fails(ev, "rename_in_window", "the client")
     else:
-        fails += held.fire_fails(win, "RN4")
+        fails += held.fire_fails(win, "rename_in_window")
         if not win.get("key"):
-            fails.append("precondition (RN4): no letter typed (no client `shot` cue)")
+            fails.append("precondition (rename_in_window): no letter typed (no client `shot` cue)")
         else:
-            fails += rename_order_fails(before, rec, len(RN4_LETTERS), "RN4")
+            fails += rename_order_fails(before, rec, len(RENAME_IN_WINDOW_LETTERS), "rename_in_window")
             at = win.get("appliedAt")
             if not at or at.get("hostBusy") in (None, -1):
-                fails.append(f"RN4: host renames.applied +1 not seen while the host's shot ran (at {at}; last sample "
+                fails.append(f"rename_in_window: host renames.applied +1 not seen while the host's shot ran (at {at}; "
+                             f"last sample "
                              f"{win.get('lastSample')}; want +1 within {NAME_CHANGE_S} s of the key with host "
-                             f"busyOwnerSeat != -1: a rename never waits, R-M2)")
+                             f"busyOwnerSeat != -1: a rename never waits)")
             dsync = dnum(before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"])
             if dsync != 0:
-                fails.append(f"RN4: host syncEvsEmitted +{dsync} over the row (want +0: the name rides the shot's evs)")
+                fails.append(f"rename_in_window: host syncEvsEmitted +{dsync} over the row (want +0: the name rides "
+                             f"the shot's evs)")
             dg = dnum(dirty_of(before["host"], "heldByGate"), dirty_of(rec["host"], "heldByGate"))
             if dg is None or dg <= 0:
-                fails.append(f"RN4: host invHostDirty.heldByGate +{dg} (want +> 0: the latch held by the shot's "
-                             f"context)")
+                fails.append(f"rename_in_window: host invHostDirty.heldByGate +{dg} (want +> 0: the latch held by the "
+                             f"shot's context)")
             if win.get("pendingSeen") or win.get("endPending") is not None:
-                fails.append(f"RN4: client coopPendingIntent {win.get('pendingSeen')} / at the end "
+                fails.append(f"rename_in_window: client coopPendingIntent {win.get('pendingSeen')} / at the end "
                              f"{win.get('endPending')} (want null throughout: a rename is never held)")
-        fails += names_fails(n1, want, "RN4")
-        fails += closed_fails(ev, "RN4", "the client")
-    fails += common_fails(host, client, before, {}, None, "RN4")
+        fails += names_fails(n1, want, "rename_in_window")
+        fails += closed_fails(ev, "rename_in_window", "the client")
+    fails += common_fails(host, client, before, {}, None, "rename_in_window")
     finish(fails)
 
 
-SCENARIOS = (("RN0", rn0_names_at_start),   # S-R (P8-4c ruling 1): at battle start, before every other row
-             ("IV1", iv1_open_look), ("IV2", iv2_pickup_local), ("IV3", iv3_grenade_to_hand),
-             ("IV4", iv4_ground_to_belt), ("IV5", iv5_hand_to_ground), ("IV11", iv11_host_denies),
-             ("IV12", iv12_local_tu_refusal), ("IV13", iv13_real_ui_deny),
-             # S-B (section 9)
-             ("IV6", iv6_load), ("IV7", iv7_shift_unload), ("IV8", iv8_ctrl_autoplace),
-             ("IV9", iv9_unload_unprime), ("IV10", iv10_paperdoll), ("IV11b", iv11b_load_unload_denies),
-             # S-R (AMENDMENT P8-4 section 4.3; the draft section 2.6)
-             ("RN1", rn1_client_rename), ("RN2", rn2_host_rename), ("RN3", rn3_forged_rename),
-             ("RN4", rn4_rename_in_window))
+SCENARIOS = (("names_at_start", names_at_start),   # at battle start, before every other row
+             ("open_and_look", open_and_look), ("pickup_is_local", pickup_is_local),
+             ("grenade_to_hand", grenade_to_hand),
+             ("ground_to_belt", ground_to_belt), ("hand_to_ground", hand_to_ground),
+             ("host_denies_moves", host_denies_moves),
+             ("local_tu_refusal", local_tu_refusal), ("real_ui_deny", real_ui_deny),
+             # load / unload rows
+             ("load_rifle", load_rifle), ("shift_unload", shift_unload), ("ctrl_autoplace", ctrl_autoplace),
+             ("unload_unprime", unload_unprime), ("paperdoll_drop", paperdoll_drop),
+             ("host_denies_load_unload", host_denies_load_unload),
+             # rename rows
+             ("client_rename", client_rename), ("host_rename", host_rename), ("forged_rename", forged_rename),
+             ("rename_in_window", rename_in_window))
 
 
 # ===================== bring-up =====================
 
 
-def n31(gc):
-    """N31 = F1950: every on-tile item holds STR_GROUND (arrangeGround writes it on open)."""
+def off_ground_slots(gc):
+    """On-tile items not in STR_GROUND: every on-tile item holds STR_GROUND (arrangeGround writes it on open)."""
     return sorted((i, it.get("slot")) for i, it in items_by_id(gc).items()
                   if it.get("onTile") and it.get("slot") != GROUND)
 
@@ -2050,7 +2073,7 @@ def boot(host, client):
     assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
         f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
-    pinned = pin_ai_neutral(host, client, tag="w2p8-sa")
+    pinned = pin_ai_neutral(host, client, tag="inventory")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
     seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
@@ -2062,15 +2085,15 @@ def boot(host, client):
         es = event_state(gc)
         assert (isinstance(es.get("invLocalWrites"), int) and isinstance(es.get("invLastWarning"), str)
                 and isinstance(es.get("invGuard"), dict)), (
-            f"{gc.name} event_state lacks the W2-P8 probes: invLocalWrites={es.get('invLocalWrites')!r} "
+            f"{gc.name} event_state lacks the inventory probes: invLocalWrites={es.get('invLocalWrites')!r} "
             f"invLastWarning={es.get('invLastWarning')!r} invGuard={es.get('invGuard')!r}")
         assert gc.cmd({"cmd": "inventory_view"}).get("ok"), f"{gc.name}: inventory_view is not a known command"
-    bad = {gc.name: n31(gc) for gc in (host, client)}
-    assert not bad["host"] and not bad["client"], f"N31 (F1950): on-tile items not in STR_GROUND: {bad}"
+    bad = {gc.name: off_ground_slots(gc) for gc in (host, client)}
+    assert not bad["host"] and not bad["client"], f"on-tile items not in STR_GROUND: {bad}"
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
     ub = session.units_by_id(hs)
-    print(f"[w2p8-sa] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={seated_uids} H={H_ID} "
+    print(f"[inventory] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={seated_uids} H={H_ID} "
           f"pinned={len(pinned)} C={unit_view(ub.get(C_ID))} turnMode host/client="
           f"{event_state(host).get('turnMode')}/{event_state(client).get('turnMode')} "
           f"invGuard client={event_state(client).get('invGuard')}", flush=True)
@@ -2079,8 +2102,8 @@ def boot(host, client):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", 49910, make_user_dir("w2p8_inventory_host", options=OPTS))
-    client = GameClient("client", 49911, make_user_dir("w2p8_inventory_client", options=OPTS))
+    host = GameClient("host", 49910, make_user_dir("inventory_host", options=OPTS))
+    client = GameClient("client", 49911, make_user_dir("inventory_client", options=OPTS))
     results = {}
     try:
         try:
@@ -2102,7 +2125,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p8-sa] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[inventory] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_inventory: {len(passed)}/{len(SCENARIOS)} passed "
