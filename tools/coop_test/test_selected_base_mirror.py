@@ -1,34 +1,37 @@
-"""W2-H68 (R-H68-0; the W2-H8 K3 follow-up) - SEPARATE campaign: the selected base stays on its base when a
-base screen hides and shows the partner's mirror bases, so the geoscape BASES button opens the player's own
-base with every button.
+"""SEPARATE campaign: the selected base stays on its base when a base screen hides and shows the partner's mirror
+bases, so the geoscape BASES button opens the player's own base with every button.
 
 A SEPARATE world holds the partner's bases as `_coopIcon` mirrors. An open base screen takes them out of the
 live base list and puts them back on every exit. `SavedGame::_selectedBase` is an INDEX; written
 while the mirrors are out, it names a mirror once they are back, and the next BASES opens the mirror's layout
 (BUILD FACILITIES, RESEARCH, MANUFACTURE, TRANSFER, SELL/SACK hidden) over the player's first base.
 
-ONE boot, lobby key "49249" (user dirs w2h68_host / w2h68_client), slot from OXC_HARNESS_SLOT. Spec
-rewrite/prompts/w2h68_selected_base_mirror.md (f); pins from rewrite/w2h68-task0/sa/CONSTANTS.md (TASK 0
-boots a, b red; c green).
+ONE boot, lobby key "49249" (user dirs selected_base_mirror_host / selected_base_mirror_client), slot from
+OXC_HARNESS_SLOT.
 
-  B   bring-up: SEPARATE campaign, both on the geoscape     (no cell; a miss fails every cell "boot")
-  H0  host BASES, GEOSCAPE (control)                        H0-sel, H0-geo
-  H1  host builds "hsnew" (BUILD NEW BASE, globe, OK, name, lift), GEOSCAPE        H1-geo
-  H2  host BASES, TRANSFER, CANCEL, GEOSCAPE                H2-shown, H2-buttons, H2-transfer, H2-geo
-  H3  reset RS, base-strip click on slot 2, right click on the lift              H3-geo
-  H4  reset RS, key 2, BUILD NEW BASE, CANCEL               H4-geo
-  C1  client builds "ltrnew", GEOSCAPE                      C1-geo
-  C2  client as H2                                          C2-shown, C2-buttons, C2-transfer, C2-geo
-  L   both base lists (control)                             L-lists
-  end shutdown                                              CRASH
-RS = BASES, GEOSCAPE, BASES, key 1: the reset both builds reach alike. Red on the pre-fix build:
-H1-geo, H2-shown, H2-buttons, H2-transfer, H2-geo, H3-geo, H4-geo, C1-geo, C2-shown, C2-buttons, C2-transfer,
-C2-geo (the selection names a mirror, or the redirect's first base); H0-*, L-lists and CRASH pass.
+  bring_up            SEPARATE campaign, both on the geoscape (no cell; a miss fails every cell "boot")
+  host_control        host BASES, GEOSCAPE (control): host_control_shown, host_control_geo
+  host_builds_base    host builds "hsnew" (BUILD NEW BASE, globe, OK, name, lift), GEOSCAPE: host_builds_base_geo
+  host_base_screen    host BASES, TRANSFER, CANCEL, GEOSCAPE: host_base_screen_shown, host_base_screen_buttons,
+                      host_base_screen_transfer, host_base_screen_geo
+  host_strip_click    reset RS, base-strip click on slot 2, right click on the lift: host_strip_click_geo
+  host_build_cancel   reset RS, key 2, BUILD NEW BASE, CANCEL: host_build_cancel_geo
+  client_builds_base  client builds "ltrnew", GEOSCAPE: client_builds_base_geo
+  client_base_screen  client as host_base_screen: client_base_screen_shown, client_base_screen_buttons,
+                      client_base_screen_transfer, client_base_screen_geo
+  base_lists          both base lists (control): base_lists_match
+  end                 shutdown: CRASH
+RS = BASES, GEOSCAPE, BASES, key 1: a reset that reaches the same state with or without the fix. Without the fix
+these cells fail (the selection names a mirror, or the redirect's first base): host_builds_base_geo,
+host_base_screen_shown, host_base_screen_buttons, host_base_screen_transfer, host_base_screen_geo,
+host_strip_click_geo, host_build_cancel_geo, client_builds_base_geo, client_base_screen_shown,
+client_base_screen_buttons, client_base_screen_transfer, client_base_screen_geo; host_control_*, base_lists_match and
+CRASH pass.
 
 Each row prints ONE "EVIDENCE <row>:" line, one "PASS <cell>" / "FAIL <cell>: <why>" line per cell and
 "ROW <row>: PASS|FAIL". Every row runs after a failure; a precondition miss ends its row (its cells FAIL "not
-reached"). Every press is a real click_widget or inject_input. run it to completion in the foreground.
-ONE run is the bar, no SKIP. Exit 0 = every cell passed; 2 = at least one cell failed.
+reached"). Every press is a real click_widget or inject_input. One run decides, with no SKIP. Exit 0 = every cell
+passed; 2 = at least one cell failed.
 Run:  python tools/coop_test/test_selected_base_mirror.py
 """
 
@@ -45,7 +48,7 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49249"
-HOST_POS = (0.90, -0.60)               # bases >= 0.15 rad apart, both on land (TASK 0: 0.21 rad)
+HOST_POS = (0.90, -0.60)               # bases >= 0.15 rad apart, both on land (measured 0.21 rad)
 NAME2, NAME1 = "hsnew", "ltrnew"       # the host's / the client's second base
 LIFTS = ((2, 2), (3, 2), (2, 3), (3, 3))  # BaseView tiles; the first that leaves PlaceLiftState is used
 MINI1 = (24, 8)                        # MiniBaseView slot 1 centre (16 px per slot)
@@ -53,16 +56,23 @@ KEY1, KEY2 = 49, 50                    # Options::keyBaseSelect1 / 2 = SDLK_1 / 
 FIVE = ("BUILD FACILITIES", "RESEARCH", "MANUFACTURE", "TRANSFER", "SELL")
 WIN_S, POLL, TR_S, STEP_CAP_S = 3.0, 3.0, 2.0, 6.0
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
-ROWCELLS = (("H0", ("H0-sel", "H0-geo")), ("H1", ("H1-geo",)),
-            ("H2", ("H2-shown", "H2-buttons", "H2-transfer", "H2-geo")), ("H3", ("H3-geo",)), ("H4", ("H4-geo",)),
-            ("C1", ("C1-geo",)), ("C2", ("C2-shown", "C2-buttons", "C2-transfer", "C2-geo")), ("L", ("L-lists",)))
+ROWCELLS = (("host_control", ("host_control_shown", "host_control_geo")),
+            ("host_builds_base", ("host_builds_base_geo",)),
+            ("host_base_screen", ("host_base_screen_shown", "host_base_screen_buttons", "host_base_screen_transfer",
+                                  "host_base_screen_geo")),
+            ("host_strip_click", ("host_strip_click_geo",)),
+            ("host_build_cancel", ("host_build_cancel_geo",)),
+            ("client_builds_base", ("client_builds_base_geo",)),
+            ("client_base_screen", ("client_base_screen_shown", "client_base_screen_buttons",
+                                    "client_base_screen_transfer", "client_base_screen_geo")),
+            ("base_lists", ("base_lists_match",)))
 CELLS = [c for _, cs in ROWCELLS for c in cs] + ["CRASH"]
 RESULT = {}
 
 class Pre(Exception):
     """A fixture step missed its precondition: ends its row."""
 
-# --------------------------------------------------------------------------- probes and presses (helpers copied from t0_h65a.py)
+# --------------------------------------------------------------------------- probes and presses
 
 def q(gc, obj):
     try:
@@ -205,7 +215,7 @@ def cell(cid, ok, msg):
 
 # --------------------------------------------------------------------------- rows
 
-def row_h0(x, ev):
+def row_host_control(x, ev):
     h = x.host
     press(h, "BASES", "BasescapeState")
     ev["inBase"] = snap(h)
@@ -213,10 +223,10 @@ def row_h0(x, ev):
     press(h, "GEOSCAPE", "GeoscapeState")
     s2 = ev["geo"] = SEL(h)
     oh = x.own1["host"]
-    return dict([cell("H0-sel", s1 == oh, "host selectedBase in the base screen %r (want %r)" % (s1, oh)),
-                 cell("H0-geo", s2 == oh, "host selectedBase after GEOSCAPE %r (want %r)" % (s2, oh))])
+    return dict([cell("host_control_shown", s1 == oh, "host selectedBase in the base screen %r (want %r)" % (s1, oh)),
+                 cell("host_control_geo", s2 == oh, "host selectedBase after GEOSCAPE %r (want %r)" % (s2, oh))])
 
-def row_h1(x, ev):
+def row_host_builds_base(x, ev):
     h, c = x.host, x.client
     build_base(x, h, NAME2, ev)
     if not (SEL(h) == NAME2 and KINDS(h) == ["own", "own"]):
@@ -234,7 +244,8 @@ def row_h1(x, ev):
     ev["winS"] = w
     if KINDS(c) != ["own", "mirror", "mirror"]:
         raise Pre("client kinds %s after a window cycle + %.0f s (want [own, mirror, mirror])" % (KINDS(c), w))
-    return dict([cell("H1-geo", sel == NAME2, "host selectedBase after the new base's GEOSCAPE %r (want %r)" % (sel, NAME2))])
+    return dict([cell("host_builds_base_geo", sel == NAME2,
+                      "host selectedBase after the new base's GEOSCAPE %r (want %r)" % (sel, NAME2))])
 
 def transfer_pair(x, gc, new, rows_ok, ev):
     """BASES; TRANSFER (raw); CANCEL when TransferBaseState is on top; GEOSCAPE"""
@@ -254,18 +265,20 @@ def transfer_pair(x, gc, new, rows_ok, ev):
     g = SEL(gc)
     ev["geo"] = snap(gc)
     t = ev["tag"]
-    return dict([cell(t + "-shown", shown == new, "%s selectedBase in the base screen %r (want %r)" % (gc.name, shown, new)),
-                 cell(t + "-buttons", all(v == [True] for v in fv.values()), "%s visible %s (want one True each)" % (gc.name, fv)),
-                 cell(t + "-transfer", tr["top"] == "transfer_base" and rows_ok(tr["rows"] or []),
+    return dict([cell(t + "_shown", shown == new,
+                      "%s selectedBase in the base screen %r (want %r)" % (gc.name, shown, new)),
+                 cell(t + "_buttons", all(v == [True] for v in fv.values()),
+                      "%s visible %s (want one True each)" % (gc.name, fv)),
+                 cell(t + "_transfer", tr["top"] == "transfer_base" and rows_ok(tr["rows"] or []),
                       "%s TRANSFER %s" % (gc.name, tr)),
-                 cell(t + "-geo", g == new, "%s selectedBase after GEOSCAPE %r (want %r)" % (gc.name, g, new))])
+                 cell(t + "_geo", g == new, "%s selectedBase after GEOSCAPE %r (want %r)" % (gc.name, g, new))])
 
-def row_h2(x, ev):
+def row_host_base_screen(x, ev):
     oh, oc = x.own1["host"], x.own1["client"]
-    ev["tag"] = "H2"
+    ev["tag"] = "host_base_screen"
     return transfer_pair(x, x.host, NAME2, lambda rows: rows == [oh, oc], ev)
 
-def row_h3(x, ev):
+def row_host_strip_click(x, ev):
     h = x.host
     rs(x, h, ev)
     mx, my = rect(h, "MiniBaseView")
@@ -282,9 +295,10 @@ def row_h3(x, ev):
         raise Pre("right click on the lift %s: host %s (want GeoscapeState)" % (ev["liftpx"], snap(h)))
     s = SEL(h)
     ev["geo"] = snap(h)
-    return dict([cell("H3-geo", s == NAME2, "host selectedBase after the lift's right click %r (want %r)" % (s, NAME2))])
+    return dict([cell("host_strip_click_geo", s == NAME2,
+                      "host selectedBase after the lift's right click %r (want %r)" % (s, NAME2))])
 
-def row_h4(x, ev):
+def row_host_build_cancel(x, ev):
     h = x.host
     rs(x, h, ev)
     key(h, KEY2)
@@ -294,9 +308,10 @@ def row_h4(x, ev):
     press(h, "CANCEL", "GeoscapeState")
     s = SEL(h)
     ev["geo"] = snap(h)
-    return dict([cell("H4-geo", s == NAME2, "host selectedBase after BUILD NEW BASE, CANCEL %r (want %r)" % (s, NAME2))])
+    return dict([cell("host_build_cancel_geo", s == NAME2,
+                      "host selectedBase after BUILD NEW BASE, CANCEL %r (want %r)" % (s, NAME2))])
 
-def row_c1(x, ev):
+def row_client_builds_base(x, ev):
     c = x.client
     build_base(x, c, NAME1, ev)
     if not (SEL(c) == NAME1 and KINDS(c) == ["own", "own"]):
@@ -306,31 +321,35 @@ def row_c1(x, ev):
     ev["geo"] = snap(c)
     if KINDS(c) != ["own", "mirror", "mirror", "own"]:
         raise Pre("client kinds %s after GEOSCAPE (want [own, mirror, mirror, own])" % KINDS(c))
-    return dict([cell("C1-geo", s == NAME1, "client selectedBase after the new base's GEOSCAPE %r (want %r)" % (s, NAME1))])
+    return dict([cell("client_builds_base_geo", s == NAME1,
+                      "client selectedBase after the new base's GEOSCAPE %r (want %r)" % (s, NAME1))])
 
-def row_c2(x, ev):
+def row_client_base_screen(x, ev):
     oh, oc = x.own1["host"], x.own1["client"]
-    ev["tag"] = "C2"
-    # spec (f): the row of the host's new base is not asserted (its mirror's name follow is W2-H65 S-A's)
+    ev["tag"] = "client_base_screen"
+    # the row of the host's new base is not asserted (test_partner_base_name.py checks the mirror's name)
     return transfer_pair(x, x.client, NAME1, lambda rows: oc in rows and oh in rows and NAME1 not in rows, ev)
 
-def row_l(x, ev):
+def row_base_lists(x, ev):
     oh, oc = x.own1["host"], x.own1["client"]
     ho, hm, co, cm = names(x.host, False), names(x.host, True), names(x.client, False), names(x.client, True)
     ev.update({"hostOwn": ho, "hostMirrors": hm, "clientOwn": co, "clientMirrors": cm})
     ok = ho == [oh, NAME2] and oc in hm and co == [oc, NAME1] and oh in cm
-    return dict([cell("L-lists", ok, "host own %s mirrors %s; client own %s mirrors %s (want own [%s, %s] + %s; own [%s, %s] + %s)"
+    return dict([cell("base_lists_match", ok,
+                      "host own %s mirrors %s; client own %s mirrors %s (want own [%s, %s] + %s; own [%s, %s] + %s)"
                       % (ho, hm, co, cm, oh, NAME2, oc, oc, NAME1, oh))])
 
-ROWS = (("H0", row_h0), ("H1", row_h1), ("H2", row_h2), ("H3", row_h3), ("H4", row_h4), ("C1", row_c1), ("C2", row_c2),
-        ("L", row_l))
+ROWS = (("host_control", row_host_control), ("host_builds_base", row_host_builds_base),
+        ("host_base_screen", row_host_base_screen), ("host_strip_click", row_host_strip_click),
+        ("host_build_cancel", row_host_build_cancel), ("client_builds_base", row_client_builds_base),
+        ("client_base_screen", row_client_base_screen), ("base_lists", row_base_lists))
 
 # --------------------------------------------------------------------------- driver
 
 class X:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h68_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h68_client"))
+        self.host = GameClient("host", None, make_user_dir("selected_base_mirror_host"))
+        self.client = GameClient("client", None, make_user_dir("selected_base_mirror_client"))
         self.aff, self.own1, self.lift, self.alive = {}, {}, {}, []
 
 def record(cid, ok, msg):
@@ -366,7 +385,8 @@ def bring_up(x):
         if stk(gc) != ["GeoscapeState"] or len(own) != 1 or len(mir) != 1:
             raise Pre("%s: want [GeoscapeState] with one own base + one mirror: %s" % (gc.name, snap(gc)))
         x.own1[gc.name] = own[0]
-    print("EVIDENCE B: host %s | client %s | affine %s | OWN %s" % (snap(x.host), snap(x.client), x.aff["host"], x.own1),
+    print("EVIDENCE bring_up: host %s | client %s | affine %s | OWN %s"
+          % (snap(x.host), snap(x.client), x.aff["host"], x.own1),
           flush=True)
 
 def main():
