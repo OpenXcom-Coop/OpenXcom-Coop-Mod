@@ -1,48 +1,57 @@
-"""W2-H89 LER (tools/coop_test/test_lost_base_event_rewards.py): after a SEPARATE player loses its first base while it owns another,
-a geoscape event it fires delivers its items, its craft and its soldier transfers to that player's first OWN base, the soldiers arrive
-there and the player's save holds them (ruling R-LH88-1-1, veto line VL-H89-1). Spec docs rewrite/prompts/w2h89_event_hq_base.md (f) + its
-ORCHESTRATOR RULINGS (R-H89-1: QH89-1 .. QH89-6 (a)); TASK 0 values in docs rewrite/w2h89-task0/sa/CONSTANTS.md; capture lh88-1-cap
-F23450-F23464 (docs rewrite/lh88-1-cap/). Vanilla treats the first base in the list as the HQ (GeoscapeEventState eventLogic). A SEPARATE
-world lists the partner's base copies ("mirrors", coopBase and coopIcon true, never saved) after the bases loaded at session start, so once
-a player loses its first base a mirror sits at the front: today the event's rewards go into the mirror and die with it at the next load or
-drop. The green (H1-H8) adds SavedGame::getCoopHqBase() (the first own base) at the six HQ sites.
-TWO boots on key KEY (SEPARATE, Research Sync on, mod Coop_GeoEvent_Test on both, set_seed 1 on both), each shut down before the next:
-  boot A (dirs w2h89_a_*): SETUP-A the host builds HB2 (build_new_base at B2, real GEOSCAPE), the client lists it.
-    CTL (GUARD) FIRE(host, T_INSTANT, E_INSTANT) before any loss.
-         CTL-pre: S0 host list == [HB own, CB mirror, HB2 own]; start_research ok; the host's E_INSTANT window within EV_CAP.
-         CTL-land: HB STR_PISTOL +2 and STR_INTERCEPTOR +1; HB2 ITEMSUM +0, crafts and transfers unchanged; mirror CB ITEMSUM +0; the host's
-         top GeoscapeState within W_OK after the real OK.
-    HR (host row) LOSS-A = LOSE(host, HB); FIRE(host, T_TRANSFER, E_TRANSFER); ARRIVE(host); SAVE(host, "w2h89_a_host.sav").
-         HR-pre (GUARD): STRIP / spawn_ufo / trigger ok; BaseDestroyedState within W_BDS; host own bases == [HB2]; host bases[0] == CB with
-         coopBase and coopIcon true (the defect's precondition); host stack [GeoscapeState]; start ok; the host's E_TRANSFER window.
-         HR-items (FIX): HB2 ITEMSUM +2 and STR_PISTOL >= +1; mirror CB ITEMSUM +0. HR-craft (FIX): HB2 STR_SKYRANGER +1.
-         HR-xfer (FIX): HB2 gains exactly 2 STR_SOLDIER transfers. HR-arrive (FIX): at the host's Items Arriving HB2 soldiers +2, mirror CB
-         soldiers 0, no STR_SOLDIER transfer left. HR-save (FIX): the save parses; saved bases == [HB2]; HB2 ITEMSUM == S0 + 2 with
-         STR_PISTOL >= 1, STR_SKYRANGER == S0 + 1, soldiers == S0 + 2.
-  boot B (dirs w2h89_b_*): SETUP-B the client builds CB2 at B2, the host lists it.
-    CR (the client mirror image) LOSS-B = LOSE(client, CB); FIRE(client, T_TRANSFER, E_TRANSFER); ARRIVE(client); SAVE(client,
-         "w2h89_b_client.sav"). CR-pre (GUARD) / CR-items / CR-craft / CR-xfer / CR-arrive / CR-save (FIX) as HR's with the roles swapped
-         (client own bases == [CB2]; client bases[0] == HB, both flags true; the client's mirror HB).
-  END CRASH (GUARD): no new file in harness.CRASH_DIR since the file start; every process alive until its shutdown; shutdown codes in OKRC.
-READ(m) = geo_state + get_soldiers of m per base (ITEMSUM = the sum of `items` over ITEMS, STR_PISTOL, crafts per type, transfers,
-soldier count), stack, clock, funds, the open window's geo_event_probe texts. SKIP(t, kind, want, cap) = geo.skip_ingame_time at SKIP_IDX 4
-(F23464: never a fixed short span at idx 5) with interest on GeoscapeEventState / ItemsArrivingState, at most 12 passes, cap counted on
-the host clock; the hit ends it when it is t's `kind` (for a GeoscapeEventState its geo_event_probe event.texts.title == want); any other
-window (the partner's own copy of the event, F23457, or its Items Arriving) is READ and closed with a real OK and never read by a cell.
-FIRE(t, T, E) = S0 = READ(t); start_research {T, cost 1, scientists 1} on t; SKIP(t, GeoscapeEventState, E, EV_CAP); S1 = READ(t) at the
-open window (eventLogic ran in its constructor); real OK; t's top GeoscapeState within W_OK. ARRIVE(t) = SKIP(t, ItemsArrivingState, -,
-ARRIVE_CAP); S2 = READ(t) at it; real OK. SAVE(t, f) = save_game {f} on t; the file under t's user dir within W_SAVE; its last YAML
-document's bases. LOSE(m, base) = STRIP (get_soldiers + set_soldier_dead on every soldier of m's own base), spawn_ufo, trigger_base_defense
-(the first own base), BaseDestroyedState within W_BDS, the real OK until GeoscapeState, S_LOSS. The mirror's crafts are never compared
-(a mirror lists the partner's crafts; the partner's own copy adds a Skyranger to them, F23456). Every TESTED press is real (OK on
-BaseDestroyedState, the event window and Items Arriving; GEOSCAPE after a build); build_new_base, STRIP, spawn_ufo, trigger_base_defense,
-start_research, geo_set_speed and save_game are setup levers. No row presses BASES and no row builds a base after a loss.
-Red today: HR-items, HR-craft, HR-xfer, HR-arrive, HR-save, CR-items, CR-craft, CR-xfer, CR-arrive, CR-save FAIL (10 of 15); every other
-cell PASS. Green (H1-H8): 15 / 15. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss
-ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fails every row of that boot with ONE CAPTURE line.
-ONE foreground run, no skip; exit 0 only when every cell passes, else 2. Helpers copied from docs
-rewrite/lh88-1-cap/cap.py (never imported; its [coop-lh88-1] instrumentation reads dropped).
-Run: python tools/coop_test/test_lost_base_event_rewards.py   (OXC_HARNESS_SLOT selects the lane)"""
+"""test_lost_base_event_rewards.py: after a SEPARATE player loses its first base while it owns another, a geoscape
+event it fires delivers its items, its craft and its soldier transfers to that player's first OWN base, the soldiers
+arrive there and the player's save holds them. Vanilla treats the first base in the list as the HQ (GeoscapeEventState
+eventLogic). A SEPARATE world lists the partner's base copies ("mirrors", coopBase and coopIcon true, never saved)
+after the bases loaded at session start, so once a player loses its first base a mirror sits at the front: without the
+fix the event's rewards go into the mirror and die with it at the next load or drop. The fix uses
+SavedGame::getCoopHqBase() (the first own base) at the six HQ sites.
+TWO boots on key KEY (SEPARATE, Research Sync on, mod Coop_GeoEvent_Test on both, set_seed 1 on both), each shut down
+before the next:
+  boot host_loses (dirs lost_base_rewards_host_loses_*): setup: the host builds HB2 (build_new_base at B2, real
+    GEOSCAPE), the client lists it.
+    control_event (GUARD) FIRE(host, T_INSTANT, E_INSTANT) before any loss.
+         control_event-pre: S0 host list == [HB own, CB mirror, HB2 own]; start_research ok; the host's E_INSTANT
+         window within EV_CAP.
+         control_event-land: HB STR_PISTOL +2 and STR_INTERCEPTOR +1; HB2 ITEMSUM +0, crafts and transfers unchanged;
+         mirror CB ITEMSUM +0; the host's top GeoscapeState within W_OK after the real OK.
+    host_lost_base: LOSE(host, HB); FIRE(host, T_TRANSFER, E_TRANSFER); ARRIVE(host); SAVE(host,
+         "lost_base_rewards_host.sav").
+         host_lost_base-pre (GUARD): STRIP / spawn_ufo / trigger ok; BaseDestroyedState within W_BDS; host own bases
+         == [HB2]; host bases[0] == CB with coopBase and coopIcon true (the defect's precondition); host stack
+         [GeoscapeState]; start ok; the host's E_TRANSFER window.
+         host_lost_base-items (FIX): HB2 ITEMSUM +2 and STR_PISTOL >= +1; mirror CB ITEMSUM +0. host_lost_base-craft
+         (FIX): HB2 STR_SKYRANGER +1. host_lost_base-xfer (FIX): HB2 gains exactly 2 STR_SOLDIER transfers.
+         host_lost_base-arrive (FIX): at the host's Items Arriving HB2 soldiers +2, mirror CB soldiers 0, no
+         STR_SOLDIER transfer left. host_lost_base-save (FIX): the save parses; saved bases == [HB2]; HB2 ITEMSUM ==
+         S0 + 2 with STR_PISTOL >= 1, STR_SKYRANGER == S0 + 1, soldiers == S0 + 2.
+  boot client_loses (dirs lost_base_rewards_client_loses_*): setup: the client builds CB2 at B2, the host lists it.
+    client_lost_base (the client mirror image) LOSE(client, CB); FIRE(client, T_TRANSFER, E_TRANSFER); ARRIVE(client);
+         SAVE(client, "lost_base_rewards_client.sav"). client_lost_base-pre (GUARD) / -items / -craft / -xfer /
+         -arrive / -save (FIX) as host_lost_base's with the roles swapped (client own bases == [CB2]; client bases[0]
+         == HB, both flags true; the client's mirror HB).
+  END CRASH (GUARD): no new file in harness.CRASH_DIR since the file start; every process alive until its shutdown;
+    shutdown codes in OKRC.
+READ(m) = geo_state + get_soldiers of m per base (ITEMSUM = the sum of `items` over ITEMS, STR_PISTOL, crafts per
+type, transfers, soldier count), stack, clock, funds, the open window's geo_event_probe texts. SKIP(t, kind, want,
+cap) = geo.skip_ingame_time at SKIP_IDX 4 (never a fixed short span at idx 5) with interest on GeoscapeEventState /
+ItemsArrivingState, at most 12 passes, cap counted on the host clock; the hit ends it when it is t's `kind` (for a
+GeoscapeEventState its geo_event_probe event.texts.title == want); any other window (the partner's own copy of the
+event, or its Items Arriving) is READ and closed with a real OK and never read by a cell. FIRE(t, T, E) = S0 =
+READ(t); start_research {T, cost 1, scientists 1} on t; SKIP(t, GeoscapeEventState, E, EV_CAP); S1 = READ(t) at the
+open window (eventLogic ran in its constructor); real OK; t's top GeoscapeState within W_OK. ARRIVE(t) = SKIP(t,
+ItemsArrivingState, -, ARRIVE_CAP); S2 = READ(t) at it; real OK. SAVE(t, f) = save_game {f} on t; the file under t's
+user dir within W_SAVE; its last YAML document's bases. LOSE(m, base) = STRIP (get_soldiers + set_soldier_dead on
+every soldier of m's own base), spawn_ufo, trigger_base_defense (the first own base), BaseDestroyedState within W_BDS,
+the real OK until GeoscapeState, S_LOSS. The mirror's crafts are never compared (a mirror lists the partner's crafts;
+the partner's own copy adds a Skyranger to them). Every TESTED press is real (OK on BaseDestroyedState, the event
+window and Items Arriving; GEOSCAPE after a build); build_new_base, STRIP, spawn_ufo, trigger_base_defense,
+start_research, geo_set_speed and save_game are setup test commands. No row presses BASES and no row builds a base
+after a loss.
+Without the fix the -items, -craft, -xfer, -arrive and -save cells of host_lost_base and client_lost_base FAIL (10 of
+15); every other cell PASS. With it: 15 / 15. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row
+verdict; a precondition miss ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fails every
+row of that boot with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+Run: python tools/coop_test/test_lost_base_event_rewards.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import datetime, glob, json, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -50,23 +59,28 @@ import harness, session, geo  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 import yaml  # noqa: E402
 
-KEY = "49708"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 1c74eb67f)
+KEY = "49708"                               # lobby key (no other user in src + tools)
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_GeoEvent_Test")
-B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # the second base (CAP B2; land, accepted on both machines in TASK 0)
+B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # the second base (land, accepted on both machines when measured)
 T_INSTANT, T_TRANSFER = "STR_GEOEV_TRG_INSTANT", "STR_GEOEV_TRG_TRANSFER"
 E_INSTANT, E_TRANSFER = "STR_GEOEV_EV_INSTANT", "STR_GEOEV_EV_TRANSFER"
 ITEMS = ["STR_PISTOL", "STR_RIFLE", "STR_HEAVY_CANNON", "STR_AUTO_CANNON", "STR_ROCKET_LAUNCHER", "STR_GRENADE",
          "STR_SMOKE_GRENADE", "STR_PISTOL_CLIP", "STR_RIFLE_CLIP", "STR_HC_AP_AMMO"]
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
-SKIP_IDX, EV_CAP, ARRIVE_CAP, SKIP_REAL = 4, 4320, 4317, 150   # ARRIVE_CAP = 3 x TASK 0's 1,439 game min (CONSTANTS.md swap)
+SKIP_IDX, EV_CAP, ARRIVE_CAP, SKIP_REAL = 4, 4320, 4317, 150   # ARRIVE_CAP = 3 x the measured 1,439 game min
 W_OK, W_BDS, OTHER_HAS, W_SAVE, BOOT_S = 10.0, 6.0, 30.0, 5.0, 60.0
 S_LOSS, S_BUILD, S_EVOK, S_ARROK = 2.0, 1.0, 1.5, 0.8
 LOGN = ("[coop-ui]", "[coop] removed base: ", "delete_base", "LoadGameState")
-ROWS = (("CTL", ("CTL-pre", "CTL-land")),
-        ("HR", ("HR-pre", "HR-items", "HR-craft", "HR-xfer", "HR-arrive", "HR-save")),
-        ("CR", ("CR-pre", "CR-items", "CR-craft", "CR-xfer", "CR-arrive", "CR-save")), ("END", ("CRASH",)))
-FIX = ("HR-items", "HR-craft", "HR-xfer", "HR-arrive", "HR-save", "CR-items", "CR-craft", "CR-xfer", "CR-arrive", "CR-save")
+ROWS = (("control_event", ("control_event-pre", "control_event-land")),
+        ("host_lost_base", ("host_lost_base-pre", "host_lost_base-items", "host_lost_base-craft", "host_lost_base-xfer",
+                            "host_lost_base-arrive", "host_lost_base-save")),
+        ("client_lost_base", ("client_lost_base-pre", "client_lost_base-items", "client_lost_base-craft",
+                              "client_lost_base-xfer", "client_lost_base-arrive", "client_lost_base-save")),
+        ("END", ("CRASH",)))
+FIX = ("host_lost_base-items", "host_lost_base-craft", "host_lost_base-xfer", "host_lost_base-arrive",
+       "host_lost_base-save", "client_lost_base-items", "client_lost_base-craft", "client_lost_base-xfer",
+       "client_lost_base-arrive", "client_lost_base-save")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -75,7 +89,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes, levers and real input (copied from docs rewrite/lh88-1-cap/cap.py, never imported) -----
+# ----- probes, test commands and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 3)
 def rel(t): return round(t - T0[0], 3) if t else None
@@ -359,8 +373,10 @@ def capture(b):
 class Boot:
     def __init__(self, tag):
         self.tag, opts = tag, {"EnableResearchSync": True}
-        self.host = GameClient("host", None, make_user_dir("w2h89_%s_host" % tag, mods=(MOD,), options=opts))
-        self.client = GameClient("client", None, make_user_dir("w2h89_%s_client" % tag, mods=(MOD,), options=opts))
+        self.host = GameClient("host", None, make_user_dir("lost_base_rewards_%s_host" % tag, mods=(MOD,),
+                                                           options=opts))
+        self.client = GameClient("client", None, make_user_dir("lost_base_rewards_%s_client" % tag, mods=(MOD,),
+                                                               options=opts))
 
 
 class Row:
@@ -394,8 +410,9 @@ class Row:
 
 
 def bring_up(b, st):
-    """Boot(KEY, tag) + SETUP: a SEPARATE campaign, speed 0, one own base and one mirror each, sync on; then the boot's builder (host in
-    boot A, client in boot B) builds its second base at B2 (real GEOSCAPE) and the partner lists it"""
+    """Boot(KEY, tag) + SETUP: a SEPARATE campaign, speed 0, one own base and one mirror each, sync on; then the boot's
+    builder (host in boot host_loses, client in boot client_loses) builds its second base at B2 (real GEOSCAPE) and the
+    partner lists it"""
     st["cpu"] = cpu()
     for gc in (b.host, b.client):
         gc.spawn()
@@ -416,7 +433,8 @@ def bring_up(b, st):
             and len(mir(h)) == 1 and len(mir(c)) == 1):
         raise Stop("boot: host %s, client %s" % (h["bases"], c["bases"]))
     b.HB, b.CB = own(h)[0][0], own(c)[0][0]
-    builder, other, name = (b.host, b.client, "HostBase2") if b.tag == "a" else (b.client, b.host, "ClientBase2")
+    builder, other, name = ((b.host, b.client, "HostBase2") if b.tag == "host_loses"
+                            else (b.client, b.host, "ClientBase2"))
     st["setup"] = build_base(builder, name, B2)
     st["setup"]["otherHasS"] = other_has(other, name)
     time.sleep(S_BUILD)
@@ -450,7 +468,7 @@ def close_window(r, t, tag):
     return v, s
 
 
-def row_ctl(b, r):
+def row_control_event(b, r):
     h, lay = b.host, []
 
     def pre(s0):
@@ -458,12 +476,14 @@ def row_ctl(b, r):
         r.need(lay == [[b.HB, False, False], [b.CB, True, True], [b.N, False, False]], "S0 host list %s (want [%s own, %s mirror, %s own])" % (
             lay, b.HB, b.CB, b.N))
     s0, s1, sk = fire(b, r, h, T_INSTANT, E_INSTANT, pre)
-    r.cell("CTL-pre", True, "S0 host list %s; start ok; host %s window at %s (+%s game min)" % (lay, E_INSTANT, s1["clock"], sk["hit"]["elapsedMin"]))
+    r.cell("control_event-pre", True, "S0 host list %s; start ok; host %s window at %s (+%s game min)" % (
+        lay, E_INSTANT, s1["clock"], sk["hit"]["elapsedMin"]))
     v, s = close_window(r, h, "ok")
     a0, a1, n0, n1 = base(s0, b.HB, False), base(s1, b.HB, False), base(s0, b.N, False), base(s1, b.N, False)
     m0, m1 = base(s0, b.CB, True), base(s1, b.CB, True)
     ic = [z["crafts"].get("STR_INTERCEPTOR", 0) for z in (a0, a1)]
-    r.cell("CTL-land", a1["pistol"] - a0["pistol"] == 2 and ic[1] - ic[0] == 1 and n1["sum"] == n0["sum"] and n1["crafts"] == n0["crafts"]
+    r.cell("control_event-land", a1["pistol"] - a0["pistol"] == 2 and ic[1] - ic[0] == 1 and n1["sum"] == n0["sum"]
+           and n1["crafts"] == n0["crafts"]
            and n1["xfers"] == n0["xfers"] and m1["sum"] == m0["sum"] and v,
            "%s STR_PISTOL %d -> %d, STR_INTERCEPTOR %d -> %d; %s sum %d -> %d, crafts %s -> %s, transfers %d -> %d; mirror %s sum %d -> %d; "
            "GeoscapeState %s s after the OK (W_OK %.0f s); rows %s" % (b.HB, a0["pistol"], a1["pistol"], ic[0], ic[1], b.N, n0["sum"], n1["sum"],
@@ -472,8 +492,10 @@ def row_ctl(b, r):
 
 
 def row_lost(b, r, rid):
-    """HR / CR: LOSE(t, its first base); FIRE(t, T_TRANSFER, E_TRANSFER); ARRIVE(t); SAVE(t, f)"""
-    t, first, mname, f = (b.host, b.HB, b.CB, "w2h89_a_host.sav") if rid == "HR" else (b.client, b.CB, b.HB, "w2h89_b_client.sav")
+    """host_lost_base / client_lost_base: LOSE(t, its first base); FIRE(t, T_TRANSFER, E_TRANSFER); ARRIVE(t);
+    SAVE(t, f)"""
+    t, first, mname, f = ((b.host, b.HB, b.CB, "lost_base_rewards_host.sav") if rid == "host_lost_base"
+                          else (b.client, b.CB, b.HB, "lost_base_rewards_client.sav"))
     r.ev["loss"] = loss = lose_first_base(t, first)
 
     def pre(s0):
@@ -549,7 +571,7 @@ def run_boot(x, tag, rows):
                 if i == 0:
                     r.ev["boot"] = st
                 try:
-                    row_ctl(b, r) if rid == "CTL" else row_lost(b, r, rid)
+                    row_control_event(b, r) if rid == "control_event" else row_lost(b, r, rid)
                     r.finish()
                 except Stop as e:
                     r.finish(str(e))
@@ -571,8 +593,8 @@ def main():
     x, crash0 = X(), crashes()
     T0[0] = time.time()
     try:
-        run_boot(x, "a", ("CTL", "HR"))
-        run_boot(x, "b", ("CR",))
+        run_boot(x, "host_loses", ("control_event", "host_lost_base"))
+        run_boot(x, "client_loses", ("client_lost_base",))
     finally:
         r, new = Row(x, None, "END"), sorted(crashes() - crash0)
         r.ev.update({"newCrash": [os.path.basename(p) for p in new], "aliveUntilShutdownRc": x.alive, "crashDir": harness.CRASH_DIR, "cpu": cpu()})
@@ -580,8 +602,8 @@ def main():
                "new crash files %d %s; [process, alive until shutdown, rc] %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY pass=%d fail=%d (W2-H89 LER; failing %s; wall %.1f s)" % (len(cl) - len(set(x.fails)), len(set(x.fails)),
-                                                                            sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY pass=%d fail=%d (lost base event rewards; failing %s; wall %.1f s)" % (
+        len(cl) - len(set(x.fails)), len(set(x.fails)), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 
 
