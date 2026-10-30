@@ -1,28 +1,36 @@
-"""W2-H65 S-A PBN (tools/coop_test/test_partner_base_name.py): a partner base named after its marker appeared shows no name and opens
-the partner's first base (L-TR6-1, ruling R-H65-0; F19200-F19210). Spec docs rewrite/prompts/w2h65_sa_name_follows.md (f) (stage S-A),
-rewrite/prompts/w2h65_sb_no_rollback.md (stage S-B: the visit's 995 and rollback, never a cell here) and the common file
-rewrite/prompts/w2h65_mirror_name_rollback.md (probe P0 globe_point); TASK 0 values in rewrite/w2h65-task0/sa/CONSTANTS.md.
-In a SEPARATE campaign, when a player builds a base and the partner's geoscape re-inits while that player is still naming it, the partner's
-marker (mirror) gets the name "" and keeps it: an unlabelled marker, a blank transfer-list row, a click that opens the player's FIRST base.
-ONE boot (key K1). Bring-up B: spawn + connect both; session.new_campaign (host base at HOST_POS); geo.slow_clock; geo.drain_popups; the
-window mapping per machine from INTERCEPT + its CANCEL (real clicks).
-  Row R-2  host BASES, BUILD NEW BASE, one globe click at PICK (globe_point), OK -> BaseNameState, own base N2 "" [P2-1]; client INTERCEPT +
-           CANCEL, WIN_S -> client mirror N2 "" [P2-2]; host NAME2 (key presses), OK, lift tile LIFT, GEOSCAPE.
-    R-2a (FIX) client mirror N2 named NAME2 at +READ_S after the lift.  R-2b (FIX) the same after one more client INTERCEPT + CANCEL
-    and WIN_S.  R-2c (GUARD) exactly one client mirror with id N2.
-  Row R-1  both on GeoscapeState [P1-0]; the client builds N1 the same way [P1-1]; host INTERCEPT + CANCEL, WIN_S -> host mirror N1 ""
-           [P1-2]; client NAME1, OK, LIFT, GEOSCAPE.
-    R-1a (FIX) host mirror N1 named NAME1 at +READ_S after the lift.  R-1b (FIX) the same after one more host INTERCEPT + CANCEL and
-    WIN_S.  R-1e (GUARD) exactly one host mirror with id N1.  R-1c (FIX) host BASES, TRANSFER: screen_state rows hold NAME1, no "".
-    R-1d (FIX) the host's click on marker N1 (CLICK rule) -> BasescapeState within VISIT_S; geo_state.selectedBase (the open basescape's
-    base, F19342) is NAME1. Then a CoopState on top closed by its own button, GEOSCAPE, session.wait_back_on_geoscape: EVIDENCE only.
-  END   CRASH (GUARD): no crash file new in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today: R-2a, R-2b, R-1a, R-1b, R-1c, R-1d FAIL; R-2c, R-1e, CRASH PASS. Green (EA1-EA4: every in-place mirror refresh takes the
-marker's name): all PASS. R-1 runs last (QH65-A2 (a)).
-mirrors = bases with coopIcon true; own = coopIcon and coopBase false. Every press is a real click_widget or inject_input (key or
-click); no visit, leave, dismiss or dialog-back lever (the wait / LIFT / CLICK replacement rules log their swaps). One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict;
-a precondition miss ends its row (CAPTURE line, cells "not reached"); a boot miss fails every cell "boot" with ONE CAPTURE line.
-ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+"""test_partner_base_name.py: a partner base named after its marker appeared shows no name and opens the partner's
+first base. In a SEPARATE campaign, when a player builds a base and the partner's geoscape re-inits while that player
+is still naming it, the partner's marker (mirror) gets the name "" and keeps it: an unlabelled marker, a blank
+transfer-list row, a click that opens the player's FIRST base. The visit's 995 and its rollback are
+test_partner_visit_rollback's subject, never a cell here.
+ONE boot (key KEY). The bring-up: spawn + connect both; session.new_campaign (host base at HOST_POS); geo.slow_clock;
+geo.drain_popups; the window mapping per machine from INTERCEPT + its CANCEL (real clicks). N2 is the host's new base,
+N1 the client's.
+  Row host_builds  host BASES, BUILD NEW BASE, one globe click at PICK (globe_point), OK -> BaseNameState, own base N2
+           "" [host_name_screen]; client INTERCEPT + CANCEL, WIN_S -> client mirror N2 "" [client_mirror_blank]; host
+           NAME2 (key presses), OK, lift tile LIFT, GEOSCAPE.
+    client_mirror_named (FIX) client mirror N2 named NAME2 at +READ_S after the lift.
+    client_mirror_after_init (FIX) the same after one more client INTERCEPT + CANCEL and WIN_S.
+    one_client_mirror (GUARD) exactly one client mirror with id N2.
+  Row client_builds  both on GeoscapeState [both_on_geoscape]; the client builds N1 the same way [client_name_screen];
+           host INTERCEPT + CANCEL, WIN_S -> host mirror N1 "" [host_mirror_blank]; client NAME1, OK, LIFT, GEOSCAPE.
+    host_mirror_named (FIX) host mirror N1 named NAME1 at +READ_S after the lift.
+    host_mirror_after_init (FIX) the same after one more host INTERCEPT + CANCEL and WIN_S.
+    one_host_mirror (GUARD) exactly one host mirror with id N1.
+    transfer_list_name (FIX) host BASES, TRANSFER: screen_state rows hold NAME1, no "".
+    marker_click_opens_base (FIX) the host's click on marker N1 (CLICK rule) -> BasescapeState within VISIT_S;
+    geo_state.selectedBase (the open basescape's base) is NAME1. Then a CoopState on top closed by its own button,
+    GEOSCAPE, session.wait_back_on_geoscape: EVIDENCE only.
+  END   CRASH (GUARD): no crash file new in the lane's crash folder since the file start; both processes alive until
+        their shutdown.
+Without the fix: client_mirror_named, client_mirror_after_init, host_mirror_named, host_mirror_after_init,
+transfer_list_name, marker_click_opens_base FAIL; one_client_mirror, one_host_mirror, CRASH PASS. With the fix (every
+in-place mirror refresh takes the marker's name): all PASS. client_builds runs last.
+mirrors = bases with coopIcon true; own = coopIcon and coopBase false. Every press is a real click_widget or
+inject_input (key or click); no visit, leave, dismiss or dialog-back test command (the wait / LIFT / CLICK replacement
+rules log their swaps). One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a
+precondition miss ends its row (CAPTURE line, cells "not reached"); a boot miss fails every cell "boot" with ONE
+CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_partner_base_name.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
@@ -30,23 +38,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo, harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-K1 = "49231"
-K2 = "49232"                                # TASK 0's key (rewrite/w2h65-task0/sa); this file runs on K1 only
+KEY = "49231"
+SPARE_KEY = "49232"                         # a second key kept for this test; this file runs on KEY only
 HOST_POS = (0.90, -0.60)                    # rad: both bases on land, >= 0.15 rad apart
-NAME1, NAME2 = "ltrnew", "hsnew"            # lowercase: inject_input key = unicode sym
+NAME1, NAME2 = "clientnew", "hostnew"       # lowercase: inject_input key = unicode sym
 LIFTS = ((2, 2), (3, 2), (2, 3), (3, 3))    # LIFT, then its replacement tiles in order
 WIN_S, READ_S, STEP_CAP_S = 3.0, 2.0, 6.0   # +1 s steps up to STEP_CAP_S when the peer's reply is not handled yet
 VISIT_S, VISIT_S2 = 20.0, 30.0
 ZOOM_MIN, SYM_PLUS, SYM_ESC = 3, 43, 27
 NEEDLES = ("coop-ui] push", "coop-ui] pop", "Save failed", "basehost", "LoadGame", "[coop-session]")
-ROWS = (("R-2", ("R-2a", "R-2b", "R-2c")), ("R-1", ("R-1a", "R-1b", "R-1e", "R-1c", "R-1d")), ("END", ("CRASH",)))
-FIX = ("R-2a", "R-2b", "R-1a", "R-1b", "R-1c", "R-1d")
+ROWS = (("host_builds", ("client_mirror_named", "client_mirror_after_init", "one_client_mirror")),
+        ("client_builds", ("host_mirror_named", "host_mirror_after_init", "one_host_mirror", "transfer_list_name",
+                           "marker_click_opens_base")),
+        ("END", ("CRASH",)))
+FIX = ("client_mirror_named", "client_mirror_after_init", "host_mirror_named", "host_mirror_after_init",
+       "transfer_list_name", "marker_click_opens_base")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
 class Stop(Exception): pass  # noqa: E701 - a precondition missed: the row ends here
 
-# ----- probes and real input (copied from the capture rewrite/ltr6-1-cap/cap.py, never imported; ltr_globe -> P0 globe_point) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -145,8 +157,8 @@ def capture(b):
 # ----- the boot, the rows and their construction steps -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h65a_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h65a_client"))
+        self.host = GameClient("host", None, make_user_dir("partner_base_name_host"))
+        self.client = GameClient("client", None, make_user_dir("partner_base_name_client"))
         self.aff = {}
 class Row:
     def __init__(self, x, b, rid):
@@ -172,12 +184,12 @@ class Row:
         print(("PASS %s" % self.rid) if not fails else ("FAIL %s: %s" % (self.rid, " ".join(fails))), flush=True)
         self.x.fails += fails
 def bring_up(b):
-    """Bring-up B (S-A stage file (f)): one SEPARATE campaign, both on GeoscapeState, the window mapping per machine"""
+    """The bring-up: one SEPARATE campaign, both on GeoscapeState, the window mapping per machine"""
     for gc in (b.host, b.client):
         gc.spawn()
         gc.connect(timeout=240)
     session.HOST_LON, session.HOST_LAT = HOST_POS
-    session.new_campaign(b.host, b.client, port=K1)
+    session.new_campaign(b.host, b.client, port=KEY)
     geo.slow_clock(b.host, b.client)
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
@@ -220,28 +232,34 @@ def finish_name(b, r, gc, name, p):
     r.need(top(gc) != "PlaceLiftState", "%s: PlaceLiftState never left (%s)" % (p, ev["lift"]))
     ev["tLift"], ev["geo"] = now(), cw(gc, "GEOSCAPE")["after"]
     r.need(top(gc) == "GeoscapeState", "%s: %s not back on GeoscapeState (%s)" % (p, gc.name, stk(gc)))
-def row_r2(b, r):
-    """R-2 (S-A stage file (f)): the host builds a base; the client's mirror"""
+def row_host_builds(b, r):
+    """host_builds: the host builds a base; the client's mirror"""
     h, c, ev = b.host, b.client, r.ev
-    n2 = ev["N2"] = to_name_screen(b, r, h, "P2-1")
+    n2 = ev["N2"] = to_name_screen(b, r, h, "host_name_screen")
     ev["clientCycle"] = cycle(c)
     settle(ev, "WIN_S", lambda: mid(c, n2), WIN_S, STEP_CAP_S)
     m = mid(c, n2)
-    ev["P2-2"] = {"t": now(), "clientMirrorN2": m, "client": census(c)["bases"], "host": census(h)["bases"]}
-    r.need(m == [[n2, ""]], "P2-2: client mirror N2 \"\" after the client's geoscape init (%s)" % m)
+    ev["client_mirror_blank"] = {"t": now(), "clientMirrorN2": m, "client": census(c)["bases"],
+                                 "host": census(h)["bases"]}
+    r.need(m == [[n2, ""]], "client_mirror_blank: client mirror N2 \"\" after the client's geoscape init (%s)" % m)
     finish_name(b, r, h, NAME2, "hostName")
     settle(ev, "READ_S", lambda: mid(c, n2), READ_S, STEP_CAP_S)
     m = mid(c, n2)
-    ev["R-2a"] = {"t": now(), "clientMirrorN2": m, "client": census(c)["bases"], "host": census(h)["bases"]}
-    r.cell("R-2a", m == [[n2, NAME2]], "client mirror N2 %s at +READ_S after the lift: %s (want name %r)" % (n2, m, NAME2))
+    ev["client_mirror_named"] = {"t": now(), "clientMirrorN2": m, "client": census(c)["bases"],
+                                 "host": census(h)["bases"]}
+    r.cell("client_mirror_named", m == [[n2, NAME2]],
+           "client mirror N2 %s at +READ_S after the lift: %s (want name %r)" % (n2, m, NAME2))
     ev["clientCycle2"] = cycle(c)
     settle(ev, "WIN_S", lambda: mid(c, n2), WIN_S, STEP_CAP_S)
     m = mid(c, n2)
-    ev["R-2b"] = {"t": now(), "clientMirrorN2": m, "client": census(c)["bases"], "host": census(h)["bases"]}
-    r.cell("R-2b", m == [[n2, NAME2]], "client mirror N2 %s after one more client geoscape init: %s (want name %r)" % (n2, m, NAME2))
-    r.cell("R-2c", len(m) == 1, "client mirrors with id N2 %s: %s (want exactly one)" % (n2, m))
+    ev["client_mirror_after_init"] = {"t": now(), "clientMirrorN2": m, "client": census(c)["bases"],
+                                      "host": census(h)["bases"]}
+    r.cell("client_mirror_after_init", m == [[n2, NAME2]],
+           "client mirror N2 %s after one more client geoscape init: %s (want name %r)" % (n2, m, NAME2))
+    r.cell("one_client_mirror", len(m) == 1, "client mirrors with id N2 %s: %s (want exactly one)" % (n2, m))
 def click_mirror(b, r, m):
-    """CLICK rule: right-click the marker to centre, '+' to ZOOM_MIN, left-click it; else P0's view move / ESC, '+', re-click (logged)"""
+    """CLICK rule: right-click the marker to centre, '+' to ZOOM_MIN, left-click it; else globe_point's view move / ESC,
+    '+', re-click (logged)"""
     h, sc, (lon, lat) = b.host, b.aff["host"], (m[2], m[3])
     out = {"g0": globe(h, lon=lon, lat=lat)}
     g = out["g0"]
@@ -255,7 +273,8 @@ def click_mirror(b, r, m):
         centred = g1.get("cenLon") is not None and dist((g1["cenLon"], g1["cenLat"]), (lon, lat)) < 0.05
     if not centred:
         g1 = globe(h, centerLon=lon, centerLat=lat)
-        r.ev["swaps"].append("CLICK: no right-click centre (%s) -> P0 view move to (%s, %s)" % (out.get("cen"), g1.get("cenLon"), g1.get("cenLat")))
+        r.ev["swaps"].append("CLICK: no right-click centre (%s) -> globe_point view move to (%s, %s)"
+                             % (out.get("cen"), g1.get("cenLon"), g1.get("cenLat")))
     zs = [globe(h).get("zoom")]
     while (zs[-1] or 0) < ZOOM_MIN and len(zs) < 7:
         key(h, SYM_PLUS)
@@ -272,41 +291,48 @@ def click_mirror(b, r, m):
         r.ev["swaps"].append("CLICK: MultipleTargetsState on top -> ESC, '+' (zoom %s), re-click" % g3.get("zoom"))
         out["tries"] += click_px(h, g3["x"], g3["y"], sc, "GeoscapeState")
     return out
-def row_r1(b, r):
-    """R-1 (S-A stage file (f)): the client builds a base; the host's mirror, transfer list and click"""
+def row_client_builds(b, r):
+    """client_builds: the client builds a base; the host's mirror, transfer list and click"""
     h, c, ev = b.host, b.client, r.ev
-    r.need(stk(h) == ["GeoscapeState"] and stk(c) == ["GeoscapeState"], "P1-0: both on GeoscapeState (%s, %s)" % (stk(h), stk(c)))
-    n1 = ev["N1"] = to_name_screen(b, r, c, "P1-1")
+    r.need(stk(h) == ["GeoscapeState"] and stk(c) == ["GeoscapeState"],
+           "both_on_geoscape: both on GeoscapeState (%s, %s)" % (stk(h), stk(c)))
+    n1 = ev["N1"] = to_name_screen(b, r, c, "client_name_screen")
     ev["hostCycle"] = cycle(h)
     settle(ev, "WIN_S", lambda: mid(h, n1), WIN_S, STEP_CAP_S)
     m = mid(h, n1)
-    ev["P1-2"] = {"t": now(), "hostMirrorN1": m, "host": census(h)["bases"], "client": census(c)["bases"]}
-    r.need(m == [[n1, ""]], "P1-2: host mirror N1 \"\" after the host's geoscape init (%s)" % m)
+    ev["host_mirror_blank"] = {"t": now(), "hostMirrorN1": m, "host": census(h)["bases"], "client": census(c)["bases"]}
+    r.need(m == [[n1, ""]], "host_mirror_blank: host mirror N1 \"\" after the host's geoscape init (%s)" % m)
     finish_name(b, r, c, NAME1, "clientName")
     settle(ev, "READ_S", lambda: mid(h, n1), READ_S, STEP_CAP_S)
     m = mid(h, n1)
-    ev["R-1a"] = {"t": now(), "hostMirrorN1": m, "host": census(h)["bases"], "client": census(c)["bases"]}
-    r.cell("R-1a", m == [[n1, NAME1]], "host mirror N1 %s at +READ_S after the lift: %s (want name %r)" % (n1, m, NAME1))
+    ev["host_mirror_named"] = {"t": now(), "hostMirrorN1": m, "host": census(h)["bases"], "client": census(c)["bases"]}
+    r.cell("host_mirror_named", m == [[n1, NAME1]],
+           "host mirror N1 %s at +READ_S after the lift: %s (want name %r)" % (n1, m, NAME1))
     ev["hostCycle2"] = cycle(h)
     settle(ev, "WIN_S", lambda: mid(h, n1), WIN_S, STEP_CAP_S)
     hc = census(h)
     m = [x for x in mirrors(hc) if x[0] == n1]
-    ev["R-1b"] = {"t": now(), "hostMirrorN1": m, "host": hc["bases"], "selectedBase": hc["selectedBase"], "client": census(c)["bases"]}
-    r.cell("R-1b", m == [[n1, NAME1]], "host mirror N1 %s after one more host geoscape init: %s (want name %r)" % (n1, m, NAME1))
-    r.cell("R-1e", len(m) == 1, "host mirrors with id N1 %s: %s (want exactly one)" % (n1, m))
-    tr = ev["R-1c"] = {"bases": cw(h, "BASES")["after"]}
-    r.need(top(h) == "BasescapeState", "R-1c: host top %s after BASES" % top(h))
+    ev["host_mirror_after_init"] = {"t": now(), "hostMirrorN1": m, "host": hc["bases"],
+                                    "selectedBase": hc["selectedBase"], "client": census(c)["bases"]}
+    r.cell("host_mirror_after_init", m == [[n1, NAME1]],
+           "host mirror N1 %s after one more host geoscape init: %s (want name %r)" % (n1, m, NAME1))
+    r.cell("one_host_mirror", len(m) == 1, "host mirrors with id N1 %s: %s (want exactly one)" % (n1, m))
+    tr = ev["transfer_list_name"] = {"bases": cw(h, "BASES")["after"]}
+    r.need(top(h) == "BasescapeState", "transfer_list_name: host top %s after BASES" % top(h))
     tr["transfer"] = cw(h, "TRANSFER")["after"]
     tr["screen"] = {k: v for k, v in q(h, {"cmd": "screen_state"}).items() if k in ("top", "rows", "error")}
-    r.need(tr["screen"].get("top") == "transfer_base", "R-1c: the host's TRANSFER list not on top (%s)" % tr)
+    r.need(tr["screen"].get("top") == "transfer_base",
+           "transfer_list_name: the host's TRANSFER list not on top (%s)" % tr)
     rows = tr["screen"].get("rows") or []
-    r.cell("R-1c", NAME1 in rows and "" not in rows, "host transfer rows %s (want %r in, \"\" not in)" % (rows, NAME1))
+    r.cell("transfer_list_name", NAME1 in rows and "" not in rows,
+           "host transfer rows %s (want %r in, \"\" not in)" % (rows, NAME1))
     tr["cancel"], tr["geo"] = cw(h, "CANCEL")["after"], cw(h, "GEOSCAPE")["after"]
     ph, pc = census(h), census(c)
     mm = [x for x in ph["bases"] if x[0] == n1 and x[2]]
     pre = ev["PRE"] = {"t": now(), "F0": ph["funds"], "T0": ph["time"], "C0": pc["time"], "hostOwn": own(ph), "hostMirrors": mirrors(ph),
                        "selectedBase": ph["selectedBase"], "stacks": [ph["stack"], pc["stack"]]}
-    r.need(ph["stack"] == ["GeoscapeState"] and len(mm) == 1, "R-1d: host on GeoscapeState with marker N1 shown (%s)" % pre)
+    r.need(ph["stack"] == ["GeoscapeState"] and len(mm) == 1,
+           "marker_click_opens_base: host on GeoscapeState with marker N1 shown (%s)" % pre)
     ev["click"] = click_mirror(b, r, [mm[0][0], mm[0][1], mm[0][4], mm[0][5]])
     trace, t1, bs_at, sel = [], time.time(), None, []
     while time.time() - t1 < VISIT_S2 + 3.0:
@@ -328,13 +354,14 @@ def row_r1(b, r):
                    "visitBases": [[x.get("coopBaseId"), x.get("name"), x.get("coopIcon"), x.get("coopBase")] for x in g.get("bases", [])],
                    "insideCoopBase": q(h, {"cmd": "get_coop"}).get("insideCoopBase")}
     ev["swaps"] += ["VISIT_S %.0f -> %.0f s" % (VISIT_S, VISIT_S2)] if bs_at and bs_at - t1 > VISIT_S else []
-    r.need(bs_at is not None, "R-1d: no BasescapeState within VISIT_S (%s)" % trace)
-    r.cell("R-1d", "BasescapeState" in sel[-1][2] and sel[-1][1] == NAME1,
+    r.need(bs_at is not None, "marker_click_opens_base: no BasescapeState within VISIT_S (%s)" % trace)
+    r.cell("marker_click_opens_base", "BasescapeState" in sel[-1][2] and sel[-1][1] == NAME1,
            "host selectedBase with BasescapeState in the stack: %s (want %r)" % (sel[-1][1], NAME1))
-    back = ev["back"] = {"close": []}  # EVIDENCE only from here (S-B's subject: the 995, the funds / time after the visit)
+    # EVIDENCE only from here (the 995 and the funds / time after the visit are test_partner_visit_rollback's subject)
+    back = ev["back"] = {"close": []}
     while top(h) == "CoopState" and len(back["close"]) < 3:
         d = dlg(h)
-        r.need(d.get("backText"), "R-1d: a CoopState on top without a button (%s)" % d)
+        r.need(d.get("backText"), "marker_click_opens_base: a CoopState on top without a button (%s)" % d)
         back["close"].append([d.get("code"), d.get("backText"), cw(h, d["backText"])["after"]])
     back["geo"] = cw(h, "GEOSCAPE")["after"]
     try:
@@ -351,7 +378,7 @@ def main():
     T0[0] = time.time()
     try:
         b = Boot()
-        ev = {"key": K1, "slot": harness.HARNESS_SLOT, "cpu": cpu(), "t": now()}
+        ev = {"key": KEY, "slot": harness.HARNESS_SLOT, "cpu": cpu(), "t": now()}
         try:
             ok, bev = bring_up(b)
             ev.update(bev)
@@ -364,7 +391,7 @@ def main():
                 print("FAIL %s %s: boot" % (cid, "FIX" if cid in FIX else "GUARD"), flush=True)
                 x.fails.append(cid)
         else:
-            for rid, fn in (("R-2", row_r2), ("R-1", row_r1)):
+            for rid, fn in (("host_builds", row_host_builds), ("client_builds", row_client_builds)):
                 r = Row(x, b, rid)
                 try:
                     fn(b, r)
@@ -388,8 +415,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H65 S-A PBN: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                               sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_partner_base_name: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
