@@ -18,7 +18,7 @@ Fixtures:
          any Sell screen on both machines, restages X and Y with give_items {+STAGE} on both (client first, S25), then
          opens open_screen {screen: "sell"} on both (the real SellState, init() binds it); rows end both screens with
          Cancel unless the row closes them.
-  FXST = test_shared_forced_storage.fx_st (FX-ST, AMENDMENT P7-7 section 3; boot 2's T pins) with OPTS =
+  FXST = test_shared_forced_storage.storage_fixture (FX-ST, AMENDMENT P7-7 section 3; boot 2's T pins) with OPTS =
          {storageLimitsEnforced, canSellLiveAliens, oxceAutoSell} on BOTH user dirs (oxceAutoSell: P7-7 RULINGS R-D1-3,
          getAutosell reads false while the local option is off) and set_autosell {T, on: true} on both (client first)
          before the battle; pre-cell adds screen_rows {autosell: [T]} true on both after the client's adoption.
@@ -344,8 +344,8 @@ def sel_pre(js, ctx):
 
 
 def fxst_pre(js, ctx):
-    """FXST pre-cell: set_autosell {T, on} on both (client first) before the battle, fst.fx_st (FX-ST, boot 2's T
-    pins), then screen_rows {autosell: [T]} true on both after the client's adoption."""
+    """FXST pre-cell: set_autosell {T, on} on both (client first) before the battle, fst.storage_fixture (FX-ST,
+    boot 2's T pins), then screen_rows {autosell: [T]} true on both after the client's adoption."""
     host, client = js.host, js.client
     m = (host, client)
     sa = {}
@@ -355,7 +355,7 @@ def fxst_pre(js, ctx):
     ctx["setAutosell"] = sa
     if not all(v.get("ok") and v.get("autosell") is True for v in sa.values()):
         capture("FXST set_autosell", f"set_autosell {T} on answered {sa} (want autosell True on both)", m)
-    fst.fx_st(js, ctx, "ST2")
+    fst.storage_fixture(js, ctx, "storage_page3")
     a = {gc.name: p3.autosell(gc, [T]).get(T) for gc in m}
     ctx["autosellAfterAdoption"] = a
     if not all(v is True for v in a.values()):

@@ -1,72 +1,71 @@
 """test_shared_forced_storage.py: after a SHARED battle that leaves the base over its storage limit,
 the second player gets the forced storage screen too, every SHARED sell confirm waits for the host's answer, and a
-forced screen closes itself once the base is back under its limit (docs rewrite/prompts/w2p7_sc_design.md section
-3.6, AMENDMENT P7-7 sections 2-4: PR-29..PR-35; owner D154, D175; mechanism rulings MR9, MR10, MR15).
+forced screen closes itself once the base is back under its limit.
 
-Before S-C-D2: the second player's OK takes it straight to its geoscape - only the host
+Without the fix the second player's OK takes it straight to its geoscape - only the host
 gets vanilla's forced SellState + "STORAGE SPACE EXCEEDED" box; a SHARED sell closes its screen at submit, before the
 host answers, so a rejected sale leaves no screen; the host's sellValidate counts base stock only (a forced-storage
 sale of a craft's items is rejected); a forced confirm that arrives after the base is solved shows a fail box.
 
-Fixture FX-ST (AMENDMENT P7-7 section 3, CONSTANTS docs rewrite/w2p7sc2-task0/CONSTANTS.md T0-S3 (ii), CONSTRUCTED):
-shared_fixture.bring_up(tag, (0, 0, PORT), host_options=OPTS, client_options=OPTS), OPTS = {storageLimitsEnforced,
-canSellLiveAliens} (F5429: boot-time options on BOTH user dirs); give_items {STR_RIFLE, 300} on BOTH (client first;
-base 0 then holds 111 of 65 stores); then stage_x() = a local copy of test_battle_end_campaign.stage()
-WITHOUT its HOST_DEBRIEF pin (T0's storage boots totalled 418, not S-C-A's 454: the pin does not transfer; the host's
-debriefing is recorded in EVIDENCE): SEED_S 1, MAP_FP_S, autoEnd on, kill_unit_real {faction: 1} kills the 15
-hostiles, the host's DebriefingState. Pre-cell (a failure is a setup failure: one CAPTURE line, every row of the boot
-FAILs "pre-cell"): the client's display-only DebriefingState and battleEnd.worldAdopted 1 within ADOPT_S; the host's
-base over its storage limit; boot 1 also a craft holding a rifle (D2c cell 3's MR15 sale reaches it); boot 2 T's
-page-3 count == T_QTY on both and the host's stock of T == T_QTY. Cell-level precondition (setup failure): after the
-host's OK its stack ends SellState + ErrorMessageState.
+Fixture (storage_fixture): shared_fixture.bring_up(tag, (0, 0, PORT), host_options=OPTS, client_options=OPTS), OPTS =
+{storageLimitsEnforced, canSellLiveAliens} (boot-time options on BOTH user dirs); give_items {STR_RIFLE, 300} on BOTH
+(client first; base 0 then holds 111 of 65 stores); then stage_x() = a local copy of test_battle_end_campaign.stage()
+WITHOUT its HOST_DEBRIEF check (these boots' debriefings total 418, not that file's 454, so its expected debriefing does
+not apply; the host's debriefing is recorded in EVIDENCE): SEED_S 1, MAP_FP_S, autoEnd on, kill_unit_real {faction: 1}
+kills the 15 hostiles, the host's DebriefingState. Pre-cell (a failure is a setup failure: one CAPTURE line, every row
+of the boot FAILs "pre-cell"): the client's display-only DebriefingState and battleEnd.worldAdopted 1 within ADOPT_S;
+the host's base over its storage limit; boot storage_craft also a craft holding a rifle (client_forced_sell cell 3's
+sale reaches it); boot storage_page3 T's page-3 count == T_QTY on both and the host's stock of T == T_QTY. Cell-level
+precondition (setup failure): after the host's OK its stack ends SellState + ErrorMessageState.
 
-Probes and levers (PR-28, PR-35): screen_rows / screen_set_amount (the top Sell screen), screen_rows {recovered}
-(page-3 counts, R-D1-1), shared_stats {lastFail, failCount, applyQueued, applyHold}, shared_update_defer {on} (the
-client "hold": its per-frame SharedEcon drain waits, so a host answer or apply surfaces only at the release - PR-35,
-F5578; a held shared_fail is asserted AFTER the release, F5573), the host's `sell` lever (a harness confirm, immediate
-pop, F2521), base_report (storage, usedStores / availableStores, crafts[].items), coop_dialog_info, list_widgets (the
-error box text), click_widget on the real captions (SELL, Sell/Sack), dismiss_popup ONLY on an ErrorMessageState top,
-coop_dialog_back ONLY on a CoopState top - never on a forced screen.
-J10 timing: a client hold that outlives a host world change by RESYNC_DEBOUNCE (3 s) while the host's
+Probes and test hooks: screen_rows / screen_set_amount (the top Sell screen), screen_rows {recovered} (page-3 counts),
+shared_stats {lastFail, failCount, applyQueued, applyHold}, shared_update_defer {on} (the client "hold": its per-frame
+SharedEcon drain waits, so a host answer or apply surfaces only at the release; a held shared_fail is asserted AFTER the
+release), the host's `sell` test command (a harness confirm, immediate pop), base_report (storage, usedStores /
+availableStores, crafts[].items), coop_dialog_info, list_widgets (the error box text), click_widget on the real
+captions (SELL, Sell/Sack), dismiss_popup ONLY on an ErrorMessageState top, coop_dialog_back ONLY on a CoopState top -
+never on a forced screen.
+Timing: a client hold that outlives a host world change by RESYNC_DEBOUNCE (3 s) while the host's
 GeoscapeState is on top (it alone sends the checksummed `time` heartbeat) requests a world resync that replaces the
 client's screens; every hold below is released within HOLD_MAX_S of the host's change.
 
-Rows (the GREEN cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
-  Boot 1 (port 47256): D2c.
-  D2c (1) the client's OK, then the host's: the client's stack ends SellState + ErrorMessageState (the host's box
-          text) and its battleEnd.forced.storage == 1.
-      (2) both boxes dismissed: the client's forced SellState lists Rifle qty == base stock + craft + transfer rifles
-          (MR15), its OK (Sell/Sack) hidden.
+Rows (the cells, checked in order; a failed cell ends its row and the rest are reported "not reached"):
+  Boot storage_craft (port 47256): client_forced_sell.
+  client_forced_sell (1) the client's OK, then the host's: the client's stack ends SellState + ErrorMessageState (the
+          host's box text) and its battleEnd.forced.storage == 1.
+      (2) both boxes dismissed: the client's forced SellState lists Rifle qty == base stock + craft + transfer rifles,
+          its OK (Sell/Sack) hidden.
       (3) Rifle = stock + 1 (the sale reaches one craft rifle), OK visible; with the client held, Sell/Sack: its screen
-          stays (MR9/MR10) for HOLD_SAMPLE_S; released: BOTH forced SellStates close themselves within SCREEN_S
-          (tops GeoscapeState), the crafts' rifle count -1 on both, world_diff empty, no CoopState on either stack.
-  Boot 2 (port 47257): D2e, then D2d, then D2f.
-  D2e (before the OKs) (1) the client's page-3 SellState open (lists T: T_QTY); client held; the host's `sell {T,
-          T_QTY - 1}` applied on the host.
-      (2) [re-pointed by S-C-E1.1, AMENDMENT P7-8 PR-52] the client sets T = T_QTY, Sell/Sack: the host applies its
-          shared list clamped to its stock (P7-8 PR-39/PR-40, V-E1): within ANSWER_S the client's page-3 SellState is
-          gone (top DebriefingState) although the client is still held, no CoopState on either, the client's
-          failCount unchanged, the host's stock of T == 0.
+          stays until the host's answer reaches it (sampled for HOLD_SAMPLE_S); released: BOTH forced SellStates close
+          themselves within SCREEN_S (tops GeoscapeState), the crafts' rifle count -1 on both, world_diff empty, no
+          CoopState on either stack.
+  Boot storage_page3 (port 47257): stale_page3_sale_clamped, then both_forced_screens_up, then
+  stale_forced_confirm_dropped.
+  stale_page3_sale_clamped (before the OKs) (1) the client's page-3 SellState open (lists T: T_QTY); client held; the
+          host's `sell {T, T_QTY - 1}` applied on the host.
+      (2) the client sets T = T_QTY, Sell/Sack: the host applies its shared list clamped to its stock: within ANSWER_S
+          the client's page-3 SellState is gone (top DebriefingState) although the client is still held, no CoopState
+          on either, the client's failCount unchanged, the host's stock of T == 0.
       (3) released: recovered[T] == T_QTY - 1 on both; world_diff empty.
-  D2d (1) both OKs as D2c (1); both boxes dismissed, both forced SellStates up. (Its old cells 2-3, a stale-stock
-          rejection on a bound forced Sell screen, cannot occur after S-C-E1's clamp, F6106: deleted by PR-52.)
-  D2f (1) client held; the host's `sell {STR_RIFLE, N}` (N clears the host's base by base_report): the host's forced
-          SellState closes itself (top GeoscapeState).
+  both_forced_screens_up (1) both OKs as client_forced_sell (1); both boxes dismissed, both forced SellStates up. (A
+          stale-stock rejection on a bound forced Sell screen cannot occur: the host clamps the sale to its stock.)
+  stale_forced_confirm_dropped (1) client held; the host's `sell {STR_RIFLE, N}` (N clears the host's base by
+          base_report): the host's forced SellState closes itself (top GeoscapeState).
       (2) the client (held, still over in its view) sets Rifle to clear by its view (OK visible), Sell/Sack: the host
-          drops it silently - the client's lastFail == coop_forced_resolved (PR-32), no CoopState.
+          drops it silently - the client's lastFail == coop_forced_resolved, no CoopState.
       (3) released: no CoopState within SCREEN_S, the client's forced SellState closes itself (top GeoscapeState);
           world_diff empty.
   Rows sharing a boot start by turning every hold off and dismissing any ErrorMessageState / CoopState box on both
-  machines; D2d also cancels a Sell screen left over a debriefing (D2e's red leaves its page-3 SellState up). D2f
-  needs D2d's forced screen: when D2d fails, D2f is reported "not reached".
+  machines; both_forced_screens_up also cancels a Sell screen left over a debriefing (a failed
+  stale_page3_sale_clamped leaves its page-3 SellState up). stale_forced_confirm_dropped needs
+  both_forced_screens_up's forced screen: when that row fails, it is reported "not reached".
 Guard on every row: host event_state.fatalVote.armed 0; no new crash log; the client zero-disk at the boot's end.
 
-RED (commit S-C-D2.1: levers and rows, product untouched): D2c fails on cell 1 (the client reaches its geoscape with
-no forced screen, F5432), D2e on cell 2 (the page-3 SellState is gone at submit, F2501), D2d on cell 1 (as D2c); D2f
-not reached. GREEN (commit S-C-D2.2): every row passes.
-RE-POINT (commit S-C-E1.1, AMENDMENT P7-8 PR-52, F6106, chain rule section A.10; Q-P8-1 (a), D203): RED on the D2
-product (pre-E1): D2e fails on cell 2 (the host rejects the stale-stock sale, so the page-3 SellState stays); D2c,
-D2d (1) and D2f pass. GREEN (commit S-C-E1.2): every row passes.
+Without the forced screens on the client: client_forced_sell fails on cell 1 (the client reaches its geoscape with no
+forced screen), stale_page3_sale_clamped on cell 2 (the page-3 SellState is gone at submit),
+both_forced_screens_up on cell 1 (as client_forced_sell); stale_forced_confirm_dropped not reached. Without the clamp
+to the host's stock: stale_page3_sale_clamped fails on cell 2 (the host rejects the stale-stock sale, so the page-3
+SellState stays); the other rows pass.
 Each row prints ONE "EVIDENCE <id>:" line (both machines' battleEnd keys page3, worldAdoptDeferredPasses, forced,
 adoptFailed), then "PASS <id>" or "FAIL <id>: <message>". ONE foreground run, no skip path; exit 0
 only when every row passes, 2 otherwise.
@@ -87,22 +86,24 @@ import shared_fixture
 import test_battle_end_campaign as camp
 import test_shared_page3 as p3
 
-# ----- pins -----
-OPTS_ST = {"storageLimitsEnforced": True, "canSellLiveAliens": True}  # CONSTANTS T0-S3 (ii) / F5429 (both user dirs)
-RIFLE, RIFLE_FILL = "STR_RIFLE", 300     # CONSTANTS T0-S3 (ii): "give_items STR_RIFLE 300 to base 0 on both"
-RIFLE_SIZE = 0.2                         # CONSTANTS T0-S3 (ii): "(rifle size 0.2)"
-T = "STR_SECTOID_CORPSE"                 # FX-S's T
-T_QTY = 10                               # FX-ST boot 2: T's page-3 count and the host's stock at its debriefing (pinned
-                                         # by this file's first construction, EVIDENCE D2e pre.fxST.counts / stockT)
-BOOT_PORT = {"ST1": "47256", "ST2": "47257"}  # AMENDMENT P7-7 section 3: D2 = 47254-47258
-HOSTILES = camp.HOSTILES                 # CONSTANTS (part 1) T0-6 (i): 1000000-1000014
+# ----- fixture values -----
+OPTS_ST = {"storageLimitsEnforced": True, "canSellLiveAliens": True}  # boot-time options on both user dirs
+RIFLE, RIFLE_FILL = "STR_RIFLE", 300     # give_items STR_RIFLE 300 to base 0 on both
+RIFLE_SIZE = 0.2                         # the rifle's storage size
+T = "STR_SECTOID_CORPSE"                 # the page-3 item
+T_QTY = 10                               # boot storage_page3: T's page-3 count and the host's stock at its
+                                         # debriefing (read from this fixture's first construction: EVIDENCE
+                                         # stale_page3_sale_clamped pre.storageFixture.counts / stockT)
+BOOT_PORT = {"storage_craft": "47256", "storage_page3": "47257"}  # session keys (47254 / 47255:
+                                                                    # test_shared_forced_containment)
+HOSTILES = camp.HOSTILES                 # 1000000-1000014
 STORAGE_MARK = "STORAGE SPACE EXCEEDED"  # en-US STR_STORAGE_EXCEEDED's head (bin/standard/xcom1/Language/en-US.yml)
-SELL_OK = "Sell/Sack"                    # SellState's OK caption (STR_SELL_SACK, F5572)
-FORCED_RESOLVED = "coop_forced_resolved"      # PR-32's silent reason
-ADOPT_S = camp.ADOPT_S                   # 15 s (CONSTANTS T0-S2)
+SELL_OK = "Sell/Sack"                    # SellState's OK caption (STR_SELL_SACK)
+FORCED_RESOLVED = "coop_forced_resolved"      # the reason for a forced confirm dropped silently
+ADOPT_S = camp.ADOPT_S                   # 15 s
 OK_S = camp.OK_S                         # 10 s: a machine's next screen after its own OK
 GEO_STEADY_S = 1.0                       # cell 1: a GeoscapeState top this long after the OK = the chain is done
-SCREEN_S = 10                            # P7-7 section 3.2: "within 10 s"
+SCREEN_S = 10                            # a forced screen closes itself within 10 s
 PAGE_S = p3.PAGE_S                       # 5 s: a screen push / box after a real click or a release
 ANSWER_S = 2.5                           # a held client sees the host's answer (shared_ok / shared_fail at receipt)
 HOLD_SAMPLE_S = 1.0                      # "stays until the apply": the held client's top sampled this long
@@ -139,7 +140,7 @@ def record(gc):
 
 
 def rec_keys(gc):
-    """The battleEnd record keys P7-7 names for the report, plus the adoption keys."""
+    """The battleEnd record keys the report names, plus the adoption keys."""
     r = record(gc)
     return {k: r.get(k) for k in ("page3", "worldAdoptDeferredPasses", "forced", "adoptFailed", "worldAdopted",
                                   "worldHeld", "returnPending", "debriefOkBranch")}
@@ -155,7 +156,7 @@ def sstats(gc):
 
 
 def hold(gc, on):
-    """The client hold (P10's shared_update_defer, PR-35): {on} -> its `deferred` answer."""
+    """The client hold (shared_update_defer): {on} -> its `deferred` answer."""
     return gc.cmd({"cmd": "shared_update_defer", "on": bool(on)}).get("deferred")
 
 
@@ -245,7 +246,7 @@ def ok_visible(r, caption):
 
 
 def screen_ready(gc, cls):
-    """Top == cls and its list holds rows (its init() ran, F5573)."""
+    """Top == cls and its list holds rows (its init() ran)."""
     if top(gc) != cls:
         return False
     r = rows(gc)
@@ -293,8 +294,9 @@ def capture(name, err, machines, extra_items=()):
 
 
 def stage_x(js, ctx, pre_kill=None, kill_expect=HOSTILES):
-    """test_battle_end_campaign.stage() without its HOST_DEBRIEF pin (FX-ST/FX-CT): the SHARED battle on SEED_S
-    (MAP_FP_S), autoEnd on, the optional pre_kill(js, ctx) (FX-CT's stun), kill_unit_real {faction: 1}, the host's
+    """test_battle_end_campaign.stage() without its HOST_DEBRIEF check (this file's storage_fixture and
+    test_shared_forced_containment's containment_fixture): the SHARED battle on SEED_S (MAP_FP_S), autoEnd on, the
+    optional pre_kill(js, ctx) (the containment fixture's stun), kill_unit_real {faction: 1}, the host's
     DebriefingState; the host's debrief_state is recorded (ctx["hostDebrief"]). Raises FixtureMiss after a CAPTURE."""
     host, client = js.host, js.client
     m = (host, client)
@@ -306,7 +308,8 @@ def stage_x(js, ctx, pre_kill=None, kill_expect=HOSTILES):
     fp = (battle_state(host).get("mapFingerprint"), battle_state(client).get("mapFingerprint"))
     ctx["mapFingerprint"] = fp
     if fp != (camp.MAP_FP_S, camp.MAP_FP_S):
-        capture("map pin", f"mapFingerprint (host, client) {fp} (want both {camp.MAP_FP_S!r}, SEED_S {camp.SEED_S})", m)
+        capture("map fingerprint",
+                f"mapFingerprint (host, client) {fp} (want both {camp.MAP_FP_S!r}, SEED_S {camp.SEED_S})", m)
     ae = host.cmd({"cmd": "set_option", "name": "battleAutoEnd", "value": True})
     ctx["autoEnd"] = ae.get("value")
     if ae.get("value") is not True:
@@ -339,7 +342,7 @@ def stage_x(js, ctx, pre_kill=None, kill_expect=HOSTILES):
            for k, w in (("shown", True), ("onTop", True), ("displayOnly", False)) if hdeb.get(k) is not w]
     armed = (event_state(host).get("fatalVote") or {}).get("armed")
     if armed != 0:
-        bad.append(f"host fatalVote.armed={armed!r} (want 0: no S-V vote, F4544)")
+        bad.append(f"host fatalVote.armed={armed!r} (want 0: no fatal-wounds vote)")
     if bad:
         capture("host debriefing", "; ".join(bad), m)
 
@@ -362,12 +365,12 @@ def client_adopted(js, ctx):
 
 
 def bring_up(tag, port, opts):
-    """shared_fixture.bring_up with the same boot-time options on BOTH user dirs (PR-35's client_options, F5429)."""
+    """shared_fixture.bring_up with the same boot-time options on BOTH user dirs (client_options)."""
     return shared_fixture.bring_up(tag, (0, 0, port), host_options=opts, client_options=opts)
 
 
-def fx_st(js, ctx, boot):
-    """FX-ST: STR_RIFLE x RIFLE_FILL on both (client first), stage_x(), the adoption; the boot's own preconditions."""
+def storage_fixture(js, ctx, boot):
+    """STR_RIFLE x RIFLE_FILL on both (client first), stage_x(), the adoption; the boot's own preconditions."""
     host, client = js.host, js.client
     m = (host, client)
     give = {}
@@ -377,24 +380,25 @@ def fx_st(js, ctx, boot):
     ctx["give"] = give
     if not (give["host"].get("ok") and give["client"].get("ok")
             and give["host"].get("stored") == give["client"].get("stored")):
-        capture("FX-ST give_items", f"answered {give}", m)
+        capture("storage fixture give_items", f"answered {give}", m)
     stage_x(js, ctx)
     client_adopted(js, ctx)
     rv = {gc.name: rifles(gc) for gc in m}
-    ctx["fxST"] = {"rifles": rv, "counts": {gc.name: p3.counts(gc, [T, RIFLE]) for gc in m},
+    ctx["storageFixture"] = {"rifles": rv, "counts": {gc.name: p3.counts(gc, [T, RIFLE]) for gc in m},
                    "stockT": {gc.name: stock_of(gc, T) for gc in m}}
     h = rv["host"]
     if not (isinstance(h.get("used"), (int, float)) and isinstance(h.get("available"), (int, float))
             and h["used"] > h["available"]):
-        capture("FX-ST over the limit", f"host base 0 usedStores {h.get('used')} / availableStores "
-                f"{h.get('available')} (want used > available, F5433)", m)
-    if boot == "ST1" and not all(r.get("craft", 0) > 0 for r in rv.values()):
-        capture("FX-ST craft rifle", f"no craft holds a rifle (rifles {rv}): D2c cell 3's MR15 sale has no craft item",
+        capture("storage fixture over the limit", f"host base 0 usedStores {h.get('used')} / availableStores "
+                f"{h.get('available')} (want used > available)", m)
+    if boot == "storage_craft" and not all(r.get("craft", 0) > 0 for r in rv.values()):
+        capture("storage fixture craft rifle",
+                f"no craft holds a rifle (rifles {rv}): client_forced_sell cell 3's sale has no craft item",
                 m)
-    if boot == "ST2":
-        c, s = ctx["fxST"]["counts"], ctx["fxST"]["stockT"]
+    if boot == "storage_page3":
+        c, s = ctx["storageFixture"]["counts"], ctx["storageFixture"]["stockT"]
         if not (c["host"].get(T) == T_QTY and c["client"].get(T) == T_QTY and s["host"] == T_QTY):
-            capture("FX-ST T", f"recovered[{T}] {c}, host stock {s} (want {T_QTY} each)", m)
+            capture("storage fixture T", f"recovered[{T}] {c}, host stock {s} (want {T_QTY} each)", m)
 
 
 # ===================== cells =====================
@@ -439,7 +443,7 @@ def both_oks_forced(host, client, ctx, key, cls, mark, record_check=None):
     ctx[key]["clientRecord"] = rec_keys(client)
     if cst[-2:] != [cls, "ErrorMessageState"]:
         return [f"the client's stack {cst} after both OKs has no forced {cls} under an ErrorMessageState - it reached "
-                f"{cst[-1] if cst else None} with no forced screen (F5432)"]
+                f"{cst[-1] if cst else None} with no forced screen"]
     f = []
     cerr = err_text(client)
     ctx[key]["clientBox"] = cerr
@@ -465,7 +469,7 @@ def boxes_to_screens(host, client, ctx, key, cls):
 
 def held_click(gc, caption, cls, ctx, key):
     """With gc held: click `caption`, then sample its top for HOLD_SAMPLE_S - every sample must be cls (the screen stays
-    until the host's apply / answer reaches it, MR9 / MR10). Returns the failures (the hold is NOT released here)."""
+    until the host's apply / answer reaches it). Returns the failures (the hold is NOT released here)."""
     c = p3.click(gc, caption)
     tops, t0 = [], time.time()
     while time.time() - t0 < HOLD_SAMPLE_S:
@@ -475,7 +479,7 @@ def held_click(gc, caption, cls, ctx, key):
         time.sleep(0.1)
     ctx[key] = {"click": c, "tops": tops}
     return [] if tops == [cls] else [f"{gc.name}'s {cls} left at submit (tops {tops} within {HOLD_SAMPLE_S}s of "
-                                     f"{caption!r}; want it to stay until the host answers, MR10)"]
+                                     f"{caption!r}; want it to stay until the host answers)"]
 
 
 def wait_answer(gc, f0, reason, ctx, key):
@@ -500,10 +504,10 @@ def crafts_rifles(gc):
     return rifles(gc)["craft"]
 
 
-# ----- D2c -----
+# ----- client_forced_sell -----
 
 
-def d2c_cells(host, client, ctx):
+def client_forced_sell_cells(host, client, ctx):
     def c2():
         f = boxes_to_screens(host, client, ctx, "boxes", "SellState")
         if f:
@@ -515,7 +519,7 @@ def d2c_cells(host, client, ctx):
         okv = ok_visible(r, SELL_OK)
         ctx["c2"] = {"clientRifle": [qty, amt], "hostRifle": hq, "rifles": rv, "want": want, "okVisible": okv}
         f = [] if qty == want else [f"the client's forced SellState lists Rifle {qty} (want stock {rv['stock']} + craft "
-                                    f"{rv['craft']} + transfers {rv['xfer']} = {want}, MR15)"]
+                                    f"{rv['craft']} + transfers {rv['xfer']} = {want})"]
         if okv is not False:
             f.append(f"the client's {SELL_OK} visible={okv!r} on its forced SellState (want False: still over)")
         return f
@@ -546,7 +550,7 @@ def d2c_cells(host, client, ctx):
         ok, secs = wait_until(minus_one, EQUAL_S)
         ctx["c3"]["craftRifles"] = {"before": {n: rv0[n]["craft"] for n in rv0}, "after": dict(last), "secs": secs}
         f = [] if ok else [f"crafts' rifles {dict(last)} after the sale (want {rv0['host']['craft'] - 1} on both: the "
-                           f"sale reaches one craft rifle, MR15)"]
+                           f"sale reaches one craft rifle)"]
         f += world_same(host, client, ctx, "c3world")
         cs = [gc.name for gc in (host, client) if not no_coopstate(gc)]
         if cs:
@@ -560,10 +564,10 @@ def d2c_cells(host, client, ctx):
     ]
 
 
-# ----- D2e -----
+# ----- stale_page3_sale_clamped -----
 
 
-def d2e_cells(host, client, ctx):
+def stale_page3_sale_cells(host, client, ctx):
     def c1():
         hygiene(host, client, ctx)
         if not p3.to_page2(client):
@@ -606,7 +610,7 @@ def d2e_cells(host, client, ctx):
                           "stats": st, "hostStockT": stock_of(host, T)})
         f = [] if ok else [f"the client's page-3 SellState not gone within {round(budget, 2)}s of Sell/Sack while "
                            f"held (stack {stack(client)}, stats {st}; want the host to apply its shared list clamped "
-                           f"to its stock, P7-8 PR-39/PR-40, V-E1)"]
+                           f"to its stock)"]
         cs = [gc.name for gc in (host, client) if not no_coopstate(gc)]
         if not f and cs:
             f.append(f"a CoopState on {cs}'s stack")
@@ -628,29 +632,31 @@ def d2e_cells(host, client, ctx):
     ]
 
 
-# ----- D2d -----
+# ----- both_forced_screens_up -----
 
 
-def d2d_cells(host, client, ctx):
+def both_forced_screens_cells(host, client, ctx):
     def c1():
         hygiene(host, client, ctx)
-        ctx["backToDebrief"] = {gc.name: p3.back_to_debrief(gc) for gc in (host, client)}  # a Sell screen D2e left up
+        # a Sell screen a failed stale_page3_sale_clamped left up
+        ctx["backToDebrief"] = {gc.name: p3.back_to_debrief(gc) for gc in (host, client)}
         f = both_oks_forced(host, client, ctx, "c1", "SellState", STORAGE_MARK, storage_record)
         return f or boxes_to_screens(host, client, ctx, "boxes", "SellState")
-    # S-C-E1.1: cells 2-3 (a stale-stock rejection on a bound forced Sell screen) deleted.
+    # No stale-stock rejection cell: the host clamps a sale to its stock.
     return [
         ("1 both OKs: both forced SellStates up", c1),
     ]
 
 
-# ----- D2f -----
+# ----- stale_forced_confirm_dropped -----
 
 
-def d2f_cells(host, client, ctx):
+def stale_forced_confirm_cells(host, client, ctx):
     def c1():
         hygiene(host, client, ctx)
         if not (screen_ready(host, "SellState") and screen_ready(client, "SellState")):
-            return [f"D2f needs both forced SellStates up (stacks host {stack(host)} client {stack(client)})"]
+            return [f"stale_forced_confirm_dropped needs both forced SellStates up (stacks host {stack(host)} "
+                    f"client {stack(client)})"]
         hb = rifles(host)
         n = int(math.ceil((hb["used"] - hb["available"]) / RIFLE_SIZE - 1e-9)) + 1
         ctx["c1"] = {"host": hb, "n": n, "hold": hold(client, True)}
@@ -702,7 +708,7 @@ def d2f_cells(host, client, ctx):
         f = []
         if not no_coopstate(client) or "CoopState" in tops:
             f.append(f"a CoopState on the client after the release (tops {tops}, stack {stack(client)}; want the "
-                     f"already-solved confirm dropped silently, PR-32)")
+                     f"already-solved confirm dropped silently)")
         if top(client) != "GeoscapeState":
             f.append(f"the client's forced SellState did not close itself within {SCREEN_S}s of the release (tops "
                      f"{tops})")
@@ -740,7 +746,7 @@ def guard(host, client, crash0, ctx, last):
     f = []
     armed = (event_state(host).get("fatalVote") or {}).get("armed")
     if armed != 0:
-        f.append(f"host fatalVote.armed={armed!r} (want 0, F4544)")
+        f.append(f"host fatalVote.armed={armed!r} (want 0)")
     new_crash = sorted(session._crash_log_snapshot() - crash0)
     ctx["newCrashLogs"] = new_crash
     if new_crash:
@@ -753,7 +759,7 @@ def guard(host, client, crash0, ctx, last):
     return f
 
 
-def run_boot(boot, tag, port, opts, pre_fn, rows_spec, results, walls, needs=None, prefix="w2p7-scd2"):
+def run_boot(boot, tag, port, opts, pre_fn, rows_spec, results, walls, needs=None, prefix="shared_forced_screens"):
     """One boot: bring-up + pre_fn(js, ctx) (pre-cell), then each row (EVIDENCE, PASS / FAIL). `needs` = {rid:
     earlier rid}: a row whose prerequisite row failed is reported "not reached" without running."""
     t0, js, pre = time.time(), None, {}
@@ -789,13 +795,13 @@ def run_boot(boot, tag, port, opts, pre_fn, rows_spec, results, walls, needs=Non
             print(f"PASS {rid}" if verdict is None else f"FAIL {rid}: {verdict}", flush=True)
     finally:
         if js is not None:
-            # every TEST-ONLY hold off before the shutdown (each lever is inert unless armed)
-            for gc, lever in ((js.host, "shared_update_defer"), (js.client, "shared_update_defer"),
+            # every test-only hold off before the shutdown (each hook is inert unless armed)
+            for gc, hook in ((js.host, "shared_update_defer"), (js.client, "shared_update_defer"),
                               (js.host, "hold_world_stream"), (js.client, "hold_world_adopt")):
                 try:
-                    gc.cmd({"cmd": lever, "on": False})
+                    gc.cmd({"cmd": hook, "on": False})
                 except Exception as e:
-                    print(f"[{prefix}] release {lever}: {short(e)}", flush=True)
+                    print(f"[{prefix}] release {hook}: {short(e)}", flush=True)
             try:
                 js.shutdown()
             except Exception as e:
@@ -803,15 +809,18 @@ def run_boot(boot, tag, port, opts, pre_fn, rows_spec, results, walls, needs=Non
         walls[boot] = round(time.time() - t0, 1)
 
 
-BOOTS = (("ST1", "w2p7scd2_st1", (("D2c", d2c_cells),), {}),
-         ("ST2", "w2p7scd2_st2", (("D2e", d2e_cells), ("D2d", d2d_cells), ("D2f", d2f_cells)), {"D2f": "D2d"}))
+BOOTS = (("storage_craft", "forced_storage_craft", (("client_forced_sell", client_forced_sell_cells),), {}),
+         ("storage_page3", "forced_storage_page3",
+          (("stale_page3_sale_clamped", stale_page3_sale_cells), ("both_forced_screens_up", both_forced_screens_cells),
+           ("stale_forced_confirm_dropped", stale_forced_confirm_cells)),
+          {"stale_forced_confirm_dropped": "both_forced_screens_up"}))
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
     for boot, tag, rows_spec, needs in BOOTS:
-        run_boot(boot, tag, BOOT_PORT[boot], OPTS_ST, lambda js, ctx, b=boot: fx_st(js, ctx, b), rows_spec, results,
-                 walls, needs)
+        run_boot(boot, tag, BOOT_PORT[boot], OPTS_ST, lambda js, ctx, b=boot: storage_fixture(js, ctx, b), rows_spec,
+                 results, walls, needs)
     order = [rid for _, _, rs, _ in BOOTS for rid, _ in rs]
     passed, failed = [r for r in order if results.get(r)], [r for r in order if not results.get(r)]
     print(f"\ntest_shared_forced_storage: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
