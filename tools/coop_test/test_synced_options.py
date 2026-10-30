@@ -1,37 +1,52 @@
-"""test_synced_options.py: one set of battle rules per co-op session (owner D134; D160 a, D161 a,
-D163 a, D165 a). Spec: docs rewrite/prompts/w2p9_synced_options.md as re-pinned by AMENDMENT P9-1 (section 3
-PR-1..PR-14, section 4.1 S-A, section 5) and its P9-1 RULINGS. Constants: docs rewrite/w2p9-task0/CONSTANTS.md
-(TASK 0 `w2p9-t0`, F4980-F4989).
+"""test_synced_options.py: one set of battle rules per co-op session.
 
-Before S-A.2 each machine reads its OWN copy of the 15 synced options (11 OXC + 3 OXCE visible rows + the hidden
-unload option): the host's values decide the battle while the second player's screens follow its own. After it the
-host's globals are the session table: a joiner takes them silently (`synced_options_table` after the INIT_SERVER
-reply), every battle_offer re-asserts them (`hostRules`), a change goes through the host's queue and applies only
-between actions (coopBattleQuiescent), every machine writes the shared value into its in-memory option and posts a
-"System" chat line, and leaving restores each player's own values; options.cfg never receives a shared value.
+Without the fix each machine reads its OWN copy of the 15 synced options (11 OXC + 3 OXCE visible rows + the hidden
+unload option): the host's values decide the battle while the second player's screens follow its own. With it the host's
+globals are the session table: a joiner takes them silently (`synced_options_table` after the INIT_SERVER reply), every
+battle_offer re-asserts them (`hostRules`), a change goes through the host's queue and applies only between actions
+(coopBattleQuiescent), every machine writes the shared value into its in-memory option and posts a "System" chat line,
+and leaving restores each player's own values; options.cfg never receives a shared value.
 
-ONE boot (PR-14): host user dir {battleInstantGrenade true, battleExplosionHeight 2, sneakyAI true}, client
-{battleInstantGrenade false, battleExplosionHeight 0, alienBleeding true}; repro_atom_walk.bring_up_lobby on lobby
-key 47240; OWN_FILE = each machine's options.cfg read after bring_up_lobby returns, the 15 ids parsed. Rows
-in this order (O7 runs before O6):
+ONE boot: host user dir {battleInstantGrenade true, battleExplosionHeight 2, sneakyAI true}, client
+{battleInstantGrenade false, battleExplosionHeight 0, alienBleeding true}; repro_atom_walk.bring_up_lobby on lobby key
+47240; OWN_FILE = each machine's options.cfg read after bring_up_lobby returns, the 15 ids parsed. Rows in this order
+(save_keeps_own runs before leave_restores_own); each lists its fixture, its cells, and the cells that fail without the
+fix:
 
-| row | fixture | GREEN cells | RED cells (S-A.1 build) |
-|---|---|---|---|
-| O1 | the bring-up, at the lobby | active true + role Host/Client; client values == host values == the host's boot table; client own == its boot table; client tablesApplied 1, lastTableFrom "join"; versions equal (0); no chat line | client values == its own boot values (client_values), active false (active); own null (client_own), no table (table) |
-| O2 | lobby: client synced_option_request battleInstantGrenade false | host ring +1 {applied, arrivedWhileBusy false, player = client localName}; both tables == the session table; version +1 on both; client inFlight empty; one chat line each "System" / "<client> changed Instant grenades to NO" | host applied empty, values unchanged (host_applied, values, version, chat) |
-| O3 | session.drive_to_battlescape(seat_count=2); host request battleExplosionHeight 3 | before: client tablesApplied 2, lastTableFrom "offer", versions equal; after: both tables == session (height 3), version +1, one chat line each "<host> changed Explosion height to 3" | client tablesApplied 0 (offer_table), host height unchanged (values, version, chat) |
-| O4 | T0-2's blocker (seat-1 index 0, the R2-P7 helpers); while it runs: client request alienBleeding true, ONE sample | at the sample: host pending holds it with arrivedWhileBusy true, host alienBleeding false, the blocker still open; after wait_blocker_closed: the ring entry's afterSeq >= endSeq, heldFrames >= 1, both tables == session | host pending empty at the sample (pending); then no ring entry (ring), values differ (values) |
-| O5 | host synced_apply_hold on; client sneakyAI false; host pending length 1; host sneakyAI true; hold off | pending order [client's, host's]; two ring entries in that order, versions n+1, n+2; both tables == session (sneakyAI true); two chat lines in that order on both | host pending empty under the hold (pending1, order); then ring, values, chat |
-| O7 | while values != own on both: options_save on both | the 15 ids in each options.cfg == its OWN_FILE; values unchanged in memory | precondition "values != own on both" fails (pre) |
-| O6 | client disconnect_to_menu; then host disconnect_to_menu | client values == its OWN_FILE, own null, active false; host values and version unchanged until its own leave, then == its OWN_FILE | precondition "client values != own" fails (pre) |
+- join_takes_host: the bring-up, at the lobby. Active true + role Host/Client; client values == host values == the
+  host's boot table; client own == its boot table; client tablesApplied 1, lastTableFrom "join"; versions equal (0); no
+  chat line. Without the fix: client values == its own boot values (client_values), active false (active); own null
+  (client_own), no table (table).
+- client_request_lobby: lobby: client synced_option_request battleInstantGrenade false. Host ring +1 {applied,
+  arrivedWhileBusy false, player = client localName}; both tables == the session table; version +1 on both; client
+  inFlight empty; one chat line each "System" / "<client> changed Instant grenades to NO". Without the fix: host applied
+  empty, values unchanged (host_applied, values, version, chat).
+- offer_reasserts: session.drive_to_battlescape(seat_count=2); host request battleExplosionHeight 3. Before: client
+  tablesApplied 2, lastTableFrom "offer", versions equal; after: both tables == session (height 3), version +1, one chat
+  line each "<host> changed Explosion height to 3". Without the fix: client tablesApplied 0 (offer_table), host height
+  unchanged (values, version, chat).
+- request_while_busy: test_retry_cancel's blocker (seat-1 index 0, its helpers); while it runs: client request
+  alienBleeding true, ONE sample. At the sample: host pending holds it with arrivedWhileBusy true, host alienBleeding
+  false, the blocker still open; after wait_blocker_closed: the ring entry's afterSeq >= endSeq, heldFrames >= 1, both
+  tables == session. Without the fix: host pending empty at the sample (pending); then no ring entry (ring), values
+  differ (values).
+- held_queue_order: host synced_apply_hold on; client sneakyAI false; host pending length 1; host sneakyAI true; hold
+  off. Pending order [client's, host's]; two ring entries in that order, versions n+1, n+2; both tables == session
+  (sneakyAI true); two chat lines in that order on both. Without the fix: host pending empty under the hold (pending1,
+  order); then ring, values, chat.
+- save_keeps_own: while values != own on both: options_save on both. The 15 ids in each options.cfg == its OWN_FILE;
+  values unchanged in memory. Without the fix: precondition "values != own on both" fails (pre).
+- leave_restores_own: client disconnect_to_menu; then host disconnect_to_menu. Client values == its OWN_FILE, own null,
+  active false; host values and version unchanged until its own leave, then == its OWN_FILE. Without the fix:
+  precondition "client values != own" fails (pre).
 
-Guards: every row - the 15 ids in each options.cfg == OWN_FILE (draft STOP-IF 4); in battle (O3, O4, O5, O7) -
-desyncSeen false on both, the client's coopClientBStatePushes unchanged since the battle started, hash_now full
-equal after session.wait_host_idle. The guards pass on the red build.
+Guards: every row - the 15 ids in each options.cfg == OWN_FILE; in battle (offer_reasserts, request_while_busy,
+held_queue_order, save_keeps_own) - desyncSeen false on both, the client's coopClientBStatePushes unchanged since the
+battle started, hash_now full equal after session.wait_host_idle. The guards also pass without the fix.
 
-one run is the result; every row runs after a failure; every wait is bounded. Each row prints
-ONE "EVIDENCE <id>:" line (both machines' synced_options_state) and then "PASS <id>" or "FAIL <id>: <cells>".
-Exit 0 only when every row passes, 2 otherwise. run in the foreground to completion.
+One run is the result; every row runs after a failure; every wait is bounded. Each row prints ONE "EVIDENCE <id>:" line
+(both machines' synced_options_state) and then "PASS <id>" or "FAIL <id>: <cells>". Exit 0 only when every row passes, 2
+otherwise. Run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_options.py
 """
@@ -46,18 +61,18 @@ from harness import GameClient, make_user_dir
 import session
 from session import event_state, assert_hash_clean
 import repro_atom_walk as raw
-import test_retry_cancel as rc   # PR-14: qualifying_actor, stage_blocker, start_autoshot_blocker, wait_blocker_closed
+import test_retry_cancel as rc   # qualifying_actor, stage_blocker, start_autoshot_blocker, wait_blocker_closed
 
-# ----- TASK 0 constants (docs rewrite/w2p9-task0/CONSTANTS.md, the line named in each comment) -----
-LOBBY_PORT = "47240"                 # LOBBY_PORT="47240" (PR-14; S26: 47240-47243 belong to P9)
+# ----- constants -----
+LOBBY_PORT = "47240"                 # the lobby key
 CTRL_LABELS = (49240, 49241)         # GameClient labels (the control sockets are ephemeral)
-HOST_OPTS = {"battleInstantGrenade": True, "battleExplosionHeight": 2, "sneakyAI": True}           # HOST_OPTS=
-CLIENT_OPTS = {"battleInstantGrenade": False, "battleExplosionHeight": 0, "alienBleeding": True}   # CLIENT_OPTS=
-BLOCKER_SEAT1_INDEX = 0              # BLOCKER actor = seat-1 index 0 (unit 8 / soldierId 8); BLOCKER_SEED=1 = rc's
-WINDOW_MIN_S = 3.104                 # WINDOW helperReturn->hostClosed s = 3.104/3.455/3.533
-PROBE_RTT_MS = 50                    # PROBE_RTT_MS ~50
+HOST_OPTS = {"battleInstantGrenade": True, "battleExplosionHeight": 2, "sneakyAI": True}
+CLIENT_OPTS = {"battleInstantGrenade": False, "battleExplosionHeight": 0, "alienBleeding": True}
+BLOCKER_SEAT1_INDEX = 0              # the blocker actor = seat-1 index 0 (unit 8 / soldierId 8)
+WINDOW_MIN_S = 3.104                 # helper return -> host closed: 3.104 / 3.455 / 3.533 s
+PROBE_RTT_MS = 50                    # measured at about 50 ms
 
-# PR-1: the 15 table ids in table order; Options.cpp registrations (desktop branch): every bool false, both ints 0.
+# the 15 table ids in table order; Options.cpp registrations (desktop branch): every bool false, both ints 0.
 IDS = ["battleInstantGrenade", "battleExplosionHeight", "oxceEnableOffCentreShooting", "oxceUniformShootingSpread",
        "allowPsiStrengthImprovement", "allowPsionicCapture", "weaponSelfDestruction", "alienBleeding", "sneakyAI",
        "battleAutoEnd", "disableAutoEquip", "includePrimeStateInSavedLayout", "battleUFOExtenderAccuracy",
@@ -68,14 +83,14 @@ DEFAULTS = {i: (0 if i in INT_IDS else False) for i in IDS}
 OWN_HOST = dict(DEFAULTS, **HOST_OPTS)
 OWN_CLIENT = dict(DEFAULTS, **CLIENT_OPTS)
 
-# PR-9 / PR-10 / PR-14: the chat line, English literals (bin/common/Language/en-US.yml, STR_YES / STR_NO).
+# the chat line, English literals (bin/common/Language/en-US.yml, STR_YES / STR_NO).
 SYSTEM = "System"
 DESC = {"battleInstantGrenade": "Instant grenades", "battleExplosionHeight": "Explosion height",
         "weaponSelfDestruction": "Alien weapon self-destruction", "sneakyAI": "Sneaky AI",
         "alienBleeding": "Alien bleeding"}
 
 # ----- bounded waits (PROBE_RTT_MS ~50) -----
-O4_ARRIVE_S = 1.0     # the client's request reaches the host's queue (20x the RTT; well inside WINDOW_MIN_S)
+BUSY_ARRIVE_S = 1.0     # the client's request reaches the host's queue (20x the RTT; well inside WINDOW_MIN_S)
 HOLD_ARRIVE_S = 3.0   # the client's request reaches the held host queue
 APPLY_S = 5.0         # an apply lands on both machines
 MENU_S = 60           # disconnect_to_menu reaches MainMenuState
@@ -103,7 +118,7 @@ def wait_until(pred, timeout, interval=POLL):
 
 
 def sos(gc):
-    """synced_options_state (PR-13) of one machine, minus the reply's `ok`."""
+    """synced_options_state of one machine, minus the reply's `ok`."""
     r = gc.cmd({"cmd": "synced_options_state"})
     return {k: v for k, v in r.items() if k != "ok"}
 
@@ -132,7 +147,7 @@ def norm_raw(s):
 
 def read_cfg(gc):
     """The 15 ids of this machine's options.cfg, parsed (the engine's reader takes the FIRST key; so does this).
-    Values compared parsed, never as bytes (F4982: a quit rewrites `language`)."""
+    Values compared parsed, never as bytes (a quit rewrites `language`)."""
     with open(os.path.join(gc.user_dir, "options.cfg"), "r", encoding="utf-8") as f:
         text = f.read()
     out = {}
@@ -212,10 +227,10 @@ def new_lines(before, after):
 # ===================== rows =====================
 
 
-def row_o1(r, x):
+def row_join_takes_host(r, x):
     hs, cs = sos(x.h), sos(x.c)
     r.ev.update(host=hs, client=cs, ownFile=x.own_file,
-                t0_3={"clientValues": cs.get("values"), "clientBoot": OWN_CLIENT,
+                extra={"clientValues": cs.get("values"), "clientBoot": OWN_CLIENT,
                       "chatMenuExists": {"host": hs.get("chatMenuExists"), "client": cs.get("chatMenuExists")}})
     r.cell("pre_ownfile", not diff(x.own_file.get("host"), OWN_HOST) and not diff(x.own_file.get("client"), OWN_CLIENT),
            f"OWN_FILE vs boot: host {diff(x.own_file.get('host'), OWN_HOST)} client "
@@ -236,7 +251,7 @@ def row_o1(r, x):
     guard_file(r, x)
 
 
-def row_o2(r, x):
+def row_client_request_lobby(r, x):
     oid = "battleInstantGrenade"
     h0, c0 = sos(x.h), sos(x.c)
     resp = x.c.cmd({"cmd": "synced_option_request", "id": oid, "value": False})
@@ -260,14 +275,15 @@ def row_o2(r, x):
     guard_file(r, x)
 
 
-def row_o3(r, x):
+def row_offer_reasserts(r, x):
     oid = "battleExplosionHeight"
     session.drive_to_battlescape(x.h, x.c, x.seated, seat_count=2)
     x.in_battle = True
     x.bstate0 = event_state(x.c).get("coopClientBStatePushes")
     h0, c0 = sos(x.h), sos(x.c)
     r.ev.update(hostBefore=h0, clientBefore=c0, bstate0=x.bstate0, soldierIds=x.seated.get("soldierIds"),
-                t0_3={"chatMenuExistsInBattle": {"host": h0.get("chatMenuExists"), "client": c0.get("chatMenuExists")}})
+                extra={"chatMenuExistsInBattle": {"host": h0.get("chatMenuExists"),
+                                                  "client": c0.get("chatMenuExists")}})
     r.cell("offer_table", (c0.get("tablesApplied"), c0.get("lastTableFrom")) == (2, "offer"),
            f"client tablesApplied {c0.get('tablesApplied')} lastTableFrom {c0.get('lastTableFrom')!r}")
     r.cell("offer_version", c0.get("version") == h0.get("version"),
@@ -289,10 +305,10 @@ def row_o3(r, x):
     guard_file(r, x)
 
 
-def row_o4(r, x):
+def row_request_while_busy(r, x):
     oid = "alienBleeding"
     sid = x.seated["soldierIds"][BLOCKER_SEAT1_INDEX]
-    staged = session.stage_open_ground_actor(x.h, x.c, [sid], "w2p9_o4")
+    staged = session.stage_open_ground_actor(x.h, x.c, [sid], "synced_options_busy")
     r.ev["staged"] = {"unit": staged[0].get("id"), "tile": staged[1], "runDir": staged[2]}
     actor = rc.qualifying_actor(x.h, sid)
     if actor is None:
@@ -307,7 +323,7 @@ def row_o4(r, x):
     aid = rc.start_autoshot_blocker(x.h, x.c, blocker)
     t_ret = time.time()
     resp = x.c.cmd({"cmd": "synced_option_request", "id": oid, "value": True})
-    ok, secs = wait_until(lambda: bool(sos(x.h).get("pending")), O4_ARRIVE_S)
+    ok, secs = wait_until(lambda: bool(sos(x.h).get("pending")), BUSY_ARRIVE_S)
     hs = sos(x.h)
     closed = [cc.get("actionId") for cc in (event_state(x.h).get("closedContexts") or [])]
     t_sample = round(time.time() - t_ret, 3)
@@ -334,14 +350,14 @@ def row_o4(r, x):
     guard_file(r, x)
 
 
-def row_o5(r, x):
+def row_held_queue_order(r, x):
     oid = "sneakyAI"
     h0, c0 = sos(x.h), sos(x.c)
     n = h0.get("version") or 0
     hname, cname = h0.get("localName"), c0.get("localName")
     try:
         hold = x.h.cmd({"cmd": "synced_apply_hold", "on": True})
-        r.cell("hold_lever", hold.get("ok") is True and hold.get("holdArmed") is True, f"hold on answered {hold}")
+        r.cell("hold_armed", hold.get("ok") is True and hold.get("holdArmed") is True, f"hold on answered {hold}")
         rq1 = x.c.cmd({"cmd": "synced_option_request", "id": oid, "value": False})
         ok, secs = wait_until(lambda: len(sos(x.h).get("pending") or []) == 1, HOLD_ARRIVE_S)
         hs1 = sos(x.h)
@@ -373,7 +389,7 @@ def row_o5(r, x):
     guard_file(r, x)
 
 
-def row_o7(r, x):
+def row_save_keeps_own(r, x):
     hs, cs = sos(x.h), sos(x.c)
     r.ev.update(hostBefore=hs, clientBefore=cs)
     pre = {m: (st.get("own") is not None and bool(diff(st.get("values"), st.get("own"))))
@@ -382,7 +398,7 @@ def row_o7(r, x):
            f"values != own on both (host own {hs.get('own')}, client own {cs.get('own')})")
     sh, sc = x.h.cmd({"cmd": "options_save"}), x.c.cmd({"cmd": "options_save"})
     r.ev["save"] = {"host": sh, "client": sc}
-    r.cell("save_lever", sh.get("saved") is True and sc.get("saved") is True, f"options_save host {sh} client {sc}")
+    r.cell("save_answered", sh.get("saved") is True and sc.get("saved") is True, f"options_save host {sh} client {sc}")
     files = {"host": read_cfg(x.h), "client": read_cfg(x.c)}
     d = {m: diff(files[m], x.own_file.get(m)) for m in files}
     r.ev["files"] = files
@@ -399,7 +415,7 @@ def at_menu(gc):
     return (session.top_state(gc) or "").endswith("MainMenuState") or None
 
 
-def row_o6(r, x):
+def row_leave_restores_own(r, x):
     hs0, cs0 = sos(x.h), sos(x.c)
     r.ev.update(hostBefore=hs0, clientBefore=cs0)
     r.cell("pre", cs0.get("own") is not None and bool(diff(cs0.get("values"), cs0.get("own"))),
@@ -431,8 +447,10 @@ def row_o6(r, x):
 # ===================== runner =====================
 
 
-ROWS = (("O1", row_o1), ("O2", row_o2), ("O3", row_o3), ("O4", row_o4), ("O5", row_o5), ("O7", row_o7),
-        ("O6", row_o6))
+ROWS = (("join_takes_host", row_join_takes_host), ("client_request_lobby", row_client_request_lobby),
+        ("offer_reasserts", row_offer_reasserts), ("request_while_busy", row_request_while_busy),
+        ("held_queue_order", row_held_queue_order), ("save_keeps_own", row_save_keeps_own),
+        ("leave_restores_own", row_leave_restores_own))
 
 
 def run_one(rid, fn, x, results):
@@ -454,8 +472,8 @@ def run_one(rid, fn, x, results):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", CTRL_LABELS[0], make_user_dir("w2p9_synced_host", options=HOST_OPTS))
-    client = GameClient("client", CTRL_LABELS[1], make_user_dir("w2p9_synced_client", options=CLIENT_OPTS))
+    host = GameClient("host", CTRL_LABELS[0], make_user_dir("synced_options_host", options=HOST_OPTS))
+    client = GameClient("client", CTRL_LABELS[1], make_user_dir("synced_options_client", options=CLIENT_OPTS))
     x = Ctx(host, client)
     results = {}
     order = [rid for rid, _ in ROWS]
@@ -463,7 +481,7 @@ def main():
         try:
             raw.bring_up_lobby(host, client, LOBBY_PORT)
             x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}   # OWN_FILE
-            print(f"[w2p9-sa] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
+            print(f"[synced_options] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
         except Exception as e:
             for rid in order:
                 results[rid] = False
@@ -476,7 +494,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p9-sa] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[synced_options] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_synced_options: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
