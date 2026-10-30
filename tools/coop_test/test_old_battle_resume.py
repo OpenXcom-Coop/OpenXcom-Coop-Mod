@@ -1,38 +1,40 @@
-"""D246-U stage S-A rows RS and L1: a SEPARATE co-op campaign saved mid-battle by an OLDER version (the release line,
-`main` 651ae44ba) loads on the rewrite's host without the FW-7 refusal and resumes for both players (owner D246 (b);
-FW-7 narrowed; D-22, D-26 narrowed by QD246-3 (a), D99, D100 / D-23, D235-VL2, D248, aud-E1-15).
+"""A SEPARATE co-op campaign saved mid-battle by an older version loads on the host without the "different version"
+refusal and resumes for both players: the host's load converts it in memory, with no dialog.
 
-Spec: docs repo rewrite/prompts/d246u_midbattle_save_convert.md section (f) test_old_battle_resume.py (QD246-1 ..
-QD246-9 (a), orchestrator rulings 2026-10-12). Constants: rewrite/d246u-task0/sa/CONSTANTS.md (TASK 0 T0-3 .. T0-6).
-Fixture: tools/coop_test/fixtures/separate_battle.sav, made by the release build's own
-test_coop_resume_battle_control.py on the main-check worktree (T0-3), committed unedited.
+Fixture: tools/coop_test/fixtures/separate_battle.sav, made by the released game's own
+test_coop_resume_battle_control.py, committed unedited.
 
-Boot RS (key 46610, dirs d246u_rs_*): the host gets the fixture, the client an EMPTY dir.
-  RS-load    host load_save_menu -> HostMenu within 60 s, no ErrorMessageState (red: ErrorMessageState and the refusal
-             text "different version of the mod" in the host log, in EVIDENCE)
-  RS-log     exactly one "[coop-convert] an older version's mid-battle co-op save converted" line whose counts are
-             PARTNER_SNAPSHOTS / PARTNER_MIRRORS / SEATED / UNSEATED, turnMode traditional, deployment DEPLOYMENT
-  RS-resume  session.resume_campaign_battle's post-load steps on key 46610: both inBattle, phase Active,
-             authority.battleId equal and non-zero
-  RS-hash    the host log has "battle_ready saveBlob EQUAL" and no MISMATCH; desyncSeen false on both
-  RS-seats   the (name, seat) set == RS_EXPECT on both (rc.assert_split); every non-player original faction has coop -1
-  RS-mode    turnMode "traditional" and coopEndTurnTally.activeSeat 0 on both (D100 / D-23: the host's go)
-  RS-deploy  deployment / strTarget / strCraftOrBase == DEPLOYMENT / TGT_RS / COB_RS on both
-  RS-click   the host's RESUME (CoopState 60 / 62); both tops BattlescapeState; no HostMenu / LobbyMenu
-  RS-go      the client's turn order for its guest is refused not_your_go; the guest's facing unchanged on both
-  RS-pass    the host's END TURN -> coopEndTurnTally.activeSeat 1 on both; side 0 and turn unchanged
-  RS-cmd     own guest turn admitted: no deny with its iseq; a host turn delta, admitted +1; facings
-  RS-common  every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no save
-Boot L1 (host only, dir d246u_l1_host): the SEPARATE fixture with its ONE coop_parallel_turns line removed (the v2.0.6
-shape, line endings kept, asserted).
-  L1-load    as RS-load
-  L1-mode    event_state.turnMode "traditional" on the host; the conversion line says turnMode traditional
-  L1-common  desyncSeen false on the host, no new lane crash file (no client in this boot)
+Boot old_save_resumes (key 46610, dirs old_battle_resume_*): the host gets the fixture, the client an EMPTY dir.
+  host_load            host load_save_menu -> HostMenu within 60 s, no ErrorMessageState (without the fix:
+                       ErrorMessageState and the refusal text "different version of the mod" in the host log, in
+                       EVIDENCE)
+  conversion_line      exactly one "[coop-convert] an older version's mid-battle co-op save converted" line whose
+                       counts are PARTNER_SNAPSHOTS / PARTNER_MIRRORS / SEATED / UNSEATED, turnMode traditional,
+                       deployment DEPLOYMENT
+  both_in_battle       session.resume_campaign_battle's post-load steps on key 46610: both inBattle, phase Active,
+                       authority.battleId equal and non-zero
+  ready_hash           the host log has "battle_ready saveBlob EQUAL" and no MISMATCH; desyncSeen false on both
+  seat_split           the (name, seat) set == SEATS_BY_NAME on both (rc.assert_split); every non-player original
+                       faction has coop -1
+  host_go              turnMode "traditional" and coopEndTurnTally.activeSeat 0 on both (the host's go)
+  deploy_strings       deployment / strTarget / strCraftOrBase == DEPLOYMENT / TARGET / CRAFT_OR_BASE on both
+  resume_click         the host's RESUME (CoopState 60 / 62); both tops BattlescapeState; no HostMenu / LobbyMenu
+  refused_not_your_go  the client's turn order for its guest is refused not_your_go; the guest's facing unchanged on
+                       both
+  baton_pass           the host's END TURN -> coopEndTurnTally.activeSeat 1 on both; side 0 and turn unchanged
+  own_turn_admitted    own guest turn admitted: no deny with its iseq; a host turn delta, admitted +1; facings
+  common_checks        every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no
+                       save
+Boot no_turn_mode_line (host only, dir old_battle_resume_legacy_host): the SEPARATE fixture with its ONE
+coop_parallel_turns line removed (the v2.0.6 shape, line endings kept, asserted).
+  no_turn_mode_load         as host_load
+  no_turn_mode_traditional  event_state.turnMode "traditional" on the host; the conversion line says turnMode
+                            traditional
+  no_turn_mode_common       desyncSeen false on the host, no new lane crash file (no client in this boot)
 
 One EVIDENCE line per row, then one PASS/FAIL line per cell, then the row verdict. Every row runs after a failure; a
 cell whose precondition failed FAILs "not reached". A boot step past its bound prints ONE CAPTURE line and fails the
-boot's rows "boot". run in the foreground to completion. ONE run is the result, no skip
-path; exit 0 only when every cell passes, else 2.
+boot's rows "boot". ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_old_battle_resume.py
 """
@@ -53,15 +55,15 @@ from session import battle_state, event_state, assert_hash_clean  # noqa: E402
 import test_coop_resume_battle_control as rc  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "separate_battle.sav")
-RS_KEY = "46610"
-HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"          # the save's coopPlayers (T0-5)
-RS_EXPECT = {"Erno Bartok": 0, "Robin Berggren": 0, "Lyris Kollias": 0, "Guest Zzz": 1}
-SEATED = (3, 1)                   # seated 0 / seated 1 by E4 (1)'s rule (T0-5)
-UNSEATED = 25                     # 14 aliens + 11 civilians, each saved with coop 0 (T0-5)
-PARTNER_SNAPSHOTS, PARTNER_MIRRORS = 0, 0  # partner world: battle snapshots / droppable mirrors (T0-5 row 6)
+KEY = "46610"
+HOST_NAME, CLIENT_NAME = "HostPlayer", "ClientPlayer"          # the save's coopPlayers
+SEATS_BY_NAME = {"Erno Bartok": 0, "Robin Berggren": 0, "Lyris Kollias": 0, "Guest Zzz": 1}
+SEATED = (3, 1)                   # seated 0 / seated 1, from each unit's saved coop tag
+UNSEATED = 25                     # 14 aliens + 11 civilians, each saved with coop 0
+PARTNER_SNAPSHOTS, PARTNER_MIRRORS = 0, 0  # partner world: battle snapshots / droppable mirrors
 DEPLOYMENT = "STR_TERROR_MISSION"
-TGT_RS, COB_RS = "TERROR SITE-1", "BASE> HostBase"
-GUEST_UNIT, RS_HOST0 = 9, 1       # the guest's battle unit / Erno Bartok's
+TARGET, CRAFT_OR_BASE = "TERROR SITE-1", "BASE> HostBase"
+GUEST_UNIT, HOST_UNIT = 9, 1      # the guest's battle unit / Erno Bartok's
 LOAD_S, LOG_S, RESUME_S, MODE_S, CLICK_S, DENY_S, PASS_S = 60, 10, 180, 10, 60, 15, 30
 CONVERT = "[coop-convert] an older version's mid-battle co-op save converted"
 CONVERT_RE = re.compile(r"partner worlds: battle snapshots (\d+), mirrors (\d+); seats 0/1 (\d+)/(\d+), "
@@ -69,9 +71,10 @@ CONVERT_RE = re.compile(r"partner worlds: battle snapshots (\d+), mirrors (\d+);
 REFUSAL = "different version of the mod"
 N_EQUAL = "battle_ready saveBlob EQUAL"
 N_MISMATCH = "battle_ready saveBlob MISMATCH"
-RS_CELLS = ("RS-load", "RS-log", "RS-resume", "RS-hash", "RS-seats", "RS-mode", "RS-deploy", "RS-click", "RS-go",
-            "RS-pass", "RS-cmd", "RS-common")
-L1_CELLS = ("L1-load", "L1-mode", "L1-common")
+RESUME_CELLS = ("host_load", "conversion_line", "both_in_battle", "ready_hash", "seat_split", "host_go",
+                "deploy_strings", "resume_click", "refused_not_your_go", "baton_pass", "own_turn_admitted",
+                "common_checks")
+LEGACY_CELLS = ("no_turn_mode_load", "no_turn_mode_traditional", "no_turn_mode_common")
 
 
 class Miss(Exception):
@@ -136,7 +139,7 @@ def shut(*gcs):
             if gc is not None and gc.proc is not None and gc.proc.poll() is None:
                 gc.shutdown()
         except Exception as e:
-            print(f"[d246u] shutdown {gc.name}: {type(e).__name__}: {str(e)[:200]}", flush=True)
+            print(f"[old_battle] shutdown {gc.name}: {type(e).__name__}: {str(e)[:200]}", flush=True)
 
 
 def wait_until(pred, timeout, interval=0.2):
@@ -183,7 +186,7 @@ def need(cells, name):
 
 def attempt(cells, name, fn, machines=None):
     """Run one cell's action; an exception FAILs that cell with the error (the row goes on). With `machines`, a
-    failure also prints ONE CAPTURE line (R7)."""
+    failure also prints ONE CAPTURE line."""
     try:
         cells[name] = fn()
     except Exception as e:
@@ -264,7 +267,7 @@ def log_cell(host, ev, tag, want):
 def resume_loaded(host, client, key, ev, tag):
     """session.resume_campaign_battle's steps after its own load_save_menu (session.py: host_tcp, the resume lobby
     with lobbyMode 2, join_tcp, the REAL RESUME button, both inBattle, bounded RESUME_S) on the ONE load the -load
-    cell made (F13303: calling the helper would load the save a second time while its lobby commands run)."""
+    cell made (calling the helper would load the save a second time while its lobby commands run)."""
     host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": key, "player": HOST_NAME})
     host.wait_for("resume lobby", lambda: session.has_state(host, "LobbyMenu"), timeout=60)
     ls = host.ok({"cmd": "lobby_state"})
@@ -353,27 +356,27 @@ def tally_seat(gc):
     return (es(gc, "coopEndTurnTally") or {}).get("activeSeat")
 
 
-def row_rs(host, client, crash0, cells, ev):
+def row_old_save_resumes(host, client, crash0, cells, ev):
     save = os.path.basename(FIXTURE)
-    cells["RS-load"] = load_cell(host, save, ev, "rs")
-    need(cells, "RS-load")
-    cells["RS-log"] = log_cell(host, ev, "rs", (PARTNER_SNAPSHOTS, PARTNER_MIRRORS, SEATED[0], SEATED[1], UNSEATED,
-                                                "traditional", DEPLOYMENT))
-    attempt(cells, "RS-resume", lambda: resume_loaded(host, client, RS_KEY, ev, "rs"), (host, client))
-    need(cells, "RS-resume")
-    cells["RS-hash"] = hash_cell(host, client, ev, "rs")
-    cells["RS-seats"] = seats_cell(host, client, ev, "RS", RS_EXPECT)
+    cells["host_load"] = load_cell(host, save, ev, "resume")
+    need(cells, "host_load")
+    cells["conversion_line"] = log_cell(host, ev, "resume", (PARTNER_SNAPSHOTS, PARTNER_MIRRORS, SEATED[0], SEATED[1],
+                                                             UNSEATED, "traditional", DEPLOYMENT))
+    attempt(cells, "both_in_battle", lambda: resume_loaded(host, client, KEY, ev, "resume"), (host, client))
+    need(cells, "both_in_battle")
+    cells["ready_hash"] = hash_cell(host, client, ev, "resume")
+    cells["seat_split"] = seats_cell(host, client, ev, "old_save_resumes", SEATS_BY_NAME)
 
     def mode():
         return ([es(gc, "turnMode") for gc in (host, client)] == ["traditional"] * 2
                 and [tally_seat(gc) for gc in (host, client)] == [0, 0])
     wait_until(mode, MODE_S)
     got = {gc.name: (es(gc, "turnMode"), es(gc, "coopEndTurnTally")) for gc in (host, client)}
-    ev["rsMode"] = got
-    cells["RS-mode"] = (mode(), f"(turnMode, coopEndTurnTally) {got} (want traditional, activeSeat 0 on both)")
-    cells["RS-deploy"] = deploy_cell(host, client, ev, "rs", (DEPLOYMENT, TGT_RS, COB_RS))
-    attempt(cells, "RS-click", lambda: click_cell(host, client, ev, "rs"), (host, client))
-    need(cells, "RS-click")
+    ev["resumeMode"] = got
+    cells["host_go"] = (mode(), f"(turnMode, coopEndTurnTally) {got} (want traditional, activeSeat 0 on both)")
+    cells["deploy_strings"] = deploy_cell(host, client, ev, "resume", (DEPLOYMENT, TARGET, CRAFT_OR_BASE))
+    attempt(cells, "resume_click", lambda: click_cell(host, client, ev, "resume"), (host, client))
+    need(cells, "resume_click")
 
     def go():
         d0 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
@@ -385,12 +388,12 @@ def row_rs(host, client, crash0, cells, ev):
             return ld if ld.get("reason") and (not r.get("iseq") or ld.get("iseq") == r.get("iseq")) else None
         deny, s = wait_until(denied, DENY_S, 0.1)
         d1 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
-        ev["rsGo"] = {"dir0": d0, "to": to, "resp": {k: r.get(k) for k in ("ok", "iseq", "error")}, "deny": deny,
+        ev["resumeGo"] = {"dir0": d0, "to": to, "resp": {k: r.get(k) for k in ("ok", "iseq", "error")}, "deny": deny,
                       "s": s, "dir1": d1}
         return ((deny or {}).get("reason") == "not_your_go" and d1 == d0,
                 f"client lastDeny {deny} after {s} s (want reason not_your_go); guest {GUEST_UNIT} facing host/client "
                 f"{d0} -> {d1} (want unchanged)")
-    attempt(cells, "RS-go", go)
+    attempt(cells, "refused_not_your_go", go)
 
     def pas():
         b0 = [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in (host, client)]
@@ -398,79 +401,84 @@ def row_rs(host, client, crash0, cells, ev):
         ok, s = wait_until(lambda: [tally_seat(gc) for gc in (host, client)] == [1, 1], PASS_S, 0.2)
         b1 = [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in (host, client)]
         seats = [tally_seat(gc) for gc in (host, client)]
-        ev["rsPass"] = {"before": b0, "after": b1, "activeSeat": seats, "s": s}
+        ev["resumePass"] = {"before": b0, "after": b1, "activeSeat": seats, "s": s}
         return (bool(ok) and all(b[0] == 0 for b in b1) and b1 == b0,
                 f"tally activeSeat host/client {seats} after {s} s (want 1 on both); (side, turn) {b0} -> {b1} "
                 f"(want side 0, unchanged)")
-    attempt(cells, "RS-pass", pas)
-    need(cells, "RS-pass")
+    attempt(cells, "baton_pass", pas)
+    need(cells, "baton_pass")
 
-    def cmd():  # lastDeny is battle-scoped (RS-go's deny stays): prove THIS order's outcome
+    def cmd():  # lastDeny is battle-scoped (refused_not_your_go's deny stays): prove THIS order's outcome
         d0 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
         to, hs0, base = (d0[1] + 1) % 8, event_state(host), es(client, "lastSeqApplied") or 0
-        iseq = ev["rsCmd"] = session.send_turn(client, GUEST_UNIT, to).get("iseq")
+        iseq = ev["resumeCmd"] = session.send_turn(client, GUEST_UNIT, to).get("iseq")
         session.wait_turn_settled(host, client, base)
         deny, hs1 = es(client, "lastDeny") or {}, event_state(host)
         (seq0, adm0), (seq1, adm1) = [(e.get("lastSeqEmitted", 0), ((e.get("intentsReceived") or {}).get("turn") or {})
                                        .get("admitted", 0)) for e in (hs0, hs1)]
         turns = [x.get("seq") for x in hs1.get("deltaRing") or [] if x.get("kind") == "turn" and x.get("seq", 0) > seq0]
         d1 = [session.unit_of(gc, GUEST_UNIT).get("direction") for gc in (host, client)]
-        ev["rsCmd"] = detail = (f"own turn iseq {iseq}: client deny {deny} (want none with iseq {iseq}); host seq "
+        ev["resumeCmd"] = detail = (f"own turn iseq {iseq}: client deny {deny} (want none with iseq {iseq}); host seq "
                                 f"{seq0} -> {seq1}, turn deltas {turns}, turn admitted {adm0} -> {adm1} (want +1); "
                                 f"facing {d0} -> {d1} (want {to} on both)")
         return (iseq and deny.get("iseq") != iseq and turns and adm1 == adm0 + 1 and d1 == [to] * 2), detail
-    attempt(cells, "RS-cmd", cmd, (host, client))
-    cells["RS-common"] = common_cell(host, client, crash0, ev, "rs")
+    attempt(cells, "own_turn_admitted", cmd, (host, client))
+    cells["common_checks"] = common_cell(host, client, crash0, ev, "resume")
 
 
-def boot_rs():
-    host = GameClient("host", None, make_user_dir("d246u_rs_host", saves=(FIXTURE,)))
-    client = GameClient("client", None, make_user_dir("d246u_rs_client"))
+def boot_old_save_resumes():
+    host = GameClient("host", None, make_user_dir("old_battle_resume_host", saves=(FIXTURE,)))
+    client = GameClient("client", None, make_user_dir("old_battle_resume_client"))
     crash0 = session._crash_log_snapshot()
     try:
         try:
-            boot("RS", (host, client))
+            boot("old_save_resumes", (host, client))
         except Miss:
-            return fail_all((("RS", RS_CELLS),), "boot (setup failure, see the CAPTURE RS line)")
-        return run_row("RS", RS_CELLS, lambda cells, ev: row_rs(host, client, crash0, cells, ev))
+            return fail_all((("old_save_resumes", RESUME_CELLS),),
+                            "boot (setup failure, see the CAPTURE old_save_resumes line)")
+        return run_row("old_save_resumes", RESUME_CELLS,
+                       lambda cells, ev: row_old_save_resumes(host, client, crash0, cells, ev))
     finally:
         shut(host, client)
 
 
-def row_l1(host, crash0, removed, cells, ev):
-    ev["l1Removed"] = removed.decode("ascii", errors="replace").rstrip("\r")
-    cells["L1-load"] = load_cell(host, os.path.basename(FIXTURE), ev, "l1")
-    lines = convert_line(host) if cells["L1-load"][0] else []
+def row_no_turn_mode_line(host, crash0, removed, cells, ev):
+    ev["legacyRemoved"] = removed.decode("ascii", errors="replace").rstrip("\r")
+    cells["no_turn_mode_load"] = load_cell(host, os.path.basename(FIXTURE), ev, "legacy")
+    lines = convert_line(host) if cells["no_turn_mode_load"][0] else []
     mode = es(host, "turnMode")
-    ev["l1Mode"] = {"turnMode": mode, "convert": lines}
-    cells["L1-mode"] = (mode == "traditional" and len(lines) == 1 and "turnMode traditional" in lines[0],
-                        f"host turnMode {mode!r} (want 'traditional'); conversion lines {lines} (want one, saying "
-                        f"turnMode traditional)")
+    ev["legacyMode"] = {"turnMode": mode, "convert": lines}
+    cells["no_turn_mode_traditional"] = (
+        mode == "traditional" and len(lines) == 1 and "turnMode traditional" in lines[0],
+        f"host turnMode {mode!r} (want 'traditional'); conversion lines {lines} (want one, saying "
+        f"turnMode traditional)")
     ds, crash = es(host, "desyncSeen"), sorted(session._crash_log_snapshot() - crash0)
-    cells["L1-common"] = (ds is False and not crash,
-                          f"host desyncSeen {ds} (want False); new crash files {crash} (want none); no client in "
-                          f"boot L1")
+    cells["no_turn_mode_common"] = (ds is False and not crash,
+                                    f"host desyncSeen {ds} (want False); new crash files {crash} (want none); no "
+                                    f"client in boot no_turn_mode_line")
 
 
-def boot_l1():
-    d = make_user_dir("d246u_l1_host")
+def boot_no_turn_mode_line():
+    d = make_user_dir("old_battle_resume_legacy_host")
     removed = derive(FIXTURE, os.path.join(d, "xcom1", os.path.basename(FIXTURE)), b"coop_parallel_turns:", None)
     host = GameClient("host", None, d)
     crash0 = session._crash_log_snapshot()
     try:
         try:
-            boot("L1", (host,))
+            boot("no_turn_mode_line", (host,))
         except Miss:
-            return fail_all((("L1", L1_CELLS),), "boot (setup failure, see the CAPTURE L1 line)")
-        return run_row("L1", L1_CELLS, lambda cells, ev: row_l1(host, crash0, removed, cells, ev))
+            return fail_all((("no_turn_mode_line", LEGACY_CELLS),),
+                            "boot (setup failure, see the CAPTURE no_turn_mode_line line)")
+        return run_row("no_turn_mode_line", LEGACY_CELLS,
+                       lambda cells, ev: row_no_turn_mode_line(host, crash0, removed, cells, ev))
     finally:
         shut(host)
 
 
 def main():
     t0 = time.time()
-    fails = boot_rs()
-    fails += boot_l1()
+    fails = boot_old_save_resumes()
+    fails += boot_no_turn_mode_line()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_old_battle_resume: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
