@@ -346,7 +346,7 @@ def geo_ok(g, cls, want_label):
     t, bottom = hit[0], lst["y"] + lst["h"]
     if not (isinstance(cancel.get("y"), int) and t["y"] >= bottom and t["y"] + t["h"] <= cancel["y"]):
         return False, (f"label rect y {t['y']}..{t['y'] + t['h']} not between the list's bottom {bottom} and the "
-                       f"{CANCEL} button's top {cancel.get('y')})")
+                       f"{CANCEL} button's top {cancel.get('y')}")
     return True, ""
 
 

@@ -228,7 +228,7 @@ campaign each run.
   everything), multi-tile-strong-blast (passes unfixed - no straddle band).
 
   Note also `overkill=0` on BOTH machines above: the CARRIED-item branch
-  (`bu->getOverKillDamage()`) did not fire at all, so it is not the lever it
+  (`bu->getOverKillDamage()`) did not fire at all, so it is not the cause it
   looks like either.
 
   So SHARED's exposure is real but narrow and probabilistic, where PvP's is
@@ -301,7 +301,7 @@ receive-order). Membership rides `df_open` with a monotonic `membershipEpoch`
 that guards `df_state` against the HK-reshuffle out-of-order race. So there is
 no exclusive "flyer" to route an HK to, and XP and
 `_dest`/waypoints are host-authoritative, since a replica's `update()`
-early-returns before any sim/award code).
+early-returns before any sim/award code.
 
 | test | proves |
 |---|---|

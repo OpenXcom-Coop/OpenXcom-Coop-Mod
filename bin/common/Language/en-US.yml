@@ -121,7 +121,7 @@ en-US:
   STR_COOP_WAITING_FOR_JOIN: "Waiting for the other player to join the battle"
   # coop: shown on the pre-battle equip screen while you are ready and {0} still equips.
   STR_COOP_WAITING_FOR_EQUIP: "Waiting for {0} to finish equipping"
-  # coop: the pre-battle equip screen's line over a partner's soldier, as the release line shows it ({0} = that player).
+  # coop: the pre-battle equip screen's line over a partner's soldier, as older versions show it ({0} = that player).
   STR_COOP_EQUIP_OWNER: "Owner: {0}"
   # coop: the client HARD GATES.
   # Four battlescape controls plus the
@@ -138,8 +138,8 @@ en-US:
   STR_COOP_LOCAL_LOAD_BLOCKED: "Saved games cannot be loaded during a co-op session"
   # coop: battle-entry SPECTATOR
   # notice - this seat commands no unit in this battle, so the entry auto-select
-  # had nothing to select. Legacy raised the same message from its own client
-  # unit selector (1e0f9276f:BattlescapeState.cpp:1630, "You are in spectator
+  # had nothing to select. Older versions raised the same message from their own client
+  # unit selector ("You are in spectator
   # mode"). A real path, not defensive framing: a plain classic "NEW BATTLE >
   # COOP" skirmish never calls Soldier::setCoop(), so the joining client owns
   # zero battle units. The click-select ownership refusal deliberately reuses

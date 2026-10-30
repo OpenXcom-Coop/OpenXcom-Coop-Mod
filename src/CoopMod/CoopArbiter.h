@@ -394,7 +394,7 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// host-side action-context stack or executes anything locally (turn
 /// EXECUTION is not built here; this only builds and sends the envelope) - the
 /// admitted intent's real execution happens on the HOST machine, inside
-/// onIntent() above, exactly like any other bt_intent sender).
+/// onIntent() above, exactly like any other bt_intent sender.
 ///
 /// Caller #1: TestServer's battle_intent command. Caller #2:
 /// the UI intercepts (BattlescapeGame::secondaryAction /

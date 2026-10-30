@@ -727,8 +727,8 @@ void BattlescapeGame::endTurn()
 	_triggerProcessed.reset();
 	_endTurnProcessed.reset();
 
-	// "emit AFTER SavedBattleGame::endTurn
-	// returns, i.e. at the point BattlescapeGame::endTurn regains control".
+	// The side transition is emitted AFTER SavedBattleGame::endTurn
+	// returns, i.e. at the point BattlescapeGame::endTurn regains control.
 	// This is that point for BOTH paths through the function above: the
 	// direct one (_save->endTurn() returned, no terrain explosion followed)
 	// and the terrain-explosion detour (that path returns EARLY, before

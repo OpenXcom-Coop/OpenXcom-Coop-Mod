@@ -1,6 +1,6 @@
 # Test-only mod for test_coop_event_sync.py. Timers are long and random
 # (timerRandom 20000 min, about 14 days) so two machines rolling them on their own
-# almost never agree; the test reads the countdowns through the geo_events lever.
+# almost never agree; the test reads the countdowns through the geo_events test command.
 # The minimum (timer: 1440, one day) keeps every event from firing on its own inside
 # a test's 3-hour window; rows that need a fire shorten the countdown explicitly.
 research:

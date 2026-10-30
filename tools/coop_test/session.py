@@ -483,7 +483,7 @@ def sync_buckets(gc):
     """This machine's RAW bucket values right now (`battle_state.battleHashes`).
 
     The deferred comparison is what the game does; this is what a test uses to
-    prove a lever moved the bucket it was supposed to move, without waiting a
+    prove a test command moved the bucket it was supposed to move, without waiting a
     round trip for a report that may never come."""
     b = gc.cmd({"cmd": "battle_state", "sync": True})
     h = b.get("battleHashes")
@@ -500,7 +500,7 @@ def wait_sync_loop_closed(host, timeout=20, interval=0.2):
     Why a harness helper for this: the sync-check samples the client's per-action
     hash LATE - at the moment the client consumes that chain's gated `action_end`
     marker (coopEmitActionDone), which lags the executor by whatever display is
-    still in flight. A harness lever that mints an item OUT OF BAND (battle_give is
+    still in flight. A harness test command that mints an item OUT OF BAND (battle_give is
     an immediate TestServer RPC, NOT a chain that flows through the marker pipeline)
     bumps BOTH machines' `_itemId`, but if the client still has an earlier chain's
     marker parked, that earlier chain's DEFERRED sample now reads the post-give
@@ -594,7 +594,7 @@ def assert_sync_clean(host, client, what="", strict=False, allow=(), timeout=30,
         # syncBoundaryPersistAlarms>0), NOT the lifetime cumulative `mismatchCount`
         # (g_syncBucketMismatches, SharedEcon.cpp:6569, increment-only), which flags every
         # pend-and-heal transient forever. The cumulative alarm-bucket counts and any still-
-        # pending latch entries are REPORTED for diagnostics, never asserted. Classic/lever-off
+        # pending latch entries are REPORTED for diagnostics, never asserted. Classic/wire-order-off
         # callers keep the cumulative semantics below untouched (other suites depend on them).
         ps = host.cmd({"cmd": "parallel_state"})
         persist_alarms = int(ps.get("syncBoundaryPersistAlarms") or 0)

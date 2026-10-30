@@ -2929,8 +2929,8 @@ Json::Value closedContexts()
 }
 
 // the writers of the two context probes above. HOST:
-// CoopArbiter::pushActionContext() counts every push (every origin);
-// included); every close site records its entry once its bt_action_end is out.
+// CoopArbiter::pushActionContext() counts every push (every origin); every close
+// site records its entry once its bt_action_end is out.
 // Probe only, never read by game logic.
 static void noteContextOpened(const std::string& origin)
 {
@@ -12717,7 +12717,7 @@ static bool coopWalkTileOccupied(SavedBattleGame* save, BattleUnit* unit, Positi
 /// Opens a walk chain's bookkeeping on the HOST, for either origin. The plan is
 /// kept so the completion restate can report `halted` against it and so the
 /// per-step hook can name the actor; `nextStepIndex` starts at 0
-/// - stepIndex indexes EXECUTION, not the intent's array).
+/// (stepIndex indexes EXECUTION, not the intent's array).
 static void beginWalkChain(BattleUnit* actor, std::uint32_t actionId,
 	const char* origin, const std::vector<Position>& plan)
 {
@@ -13413,7 +13413,7 @@ static const char* validatePsi(BattleUnit* actor, const Json::Value& intent, Sav
 // The `use_item` plan's admission - the
 // MIND PROBE (the item's battle type selects it) and the MOTION
 // SCANNER, which stops after the cost checks - it has no target; any other
-// item under this kind is a malformed plan). This order with
+// item under this kind is a malformed plan. This order with
 // VANILLA'S OWN FUNCTIONS: the item, research + canUseWeapon() (the action menu
 // ran both for BA_USE), the cost basis and haveTU() (the probe's own spendTU),
 // the shipped target unit alive and where the ordering seat saw it, then a
@@ -13471,7 +13471,7 @@ static const char* validateUseItem(BattleUnit* actor, const Json::Value& intent,
 		return "target_moved";
 	a.target = targetUnit->getPosition();
 
-	// 7. primaryAction's own BT_MINDPROBE target rules (a reproduction,
+	// 7. primaryAction's own BT_MINDPROBE target rules (a reproduction),
 	//    the ACTOR's faction (vanilla reads the selected unit's).
 	if (targetUnit->getFaction() == actor->getFaction() || !targetUnit->getVisible())
 		return "invalid_target";
@@ -19650,7 +19650,7 @@ bool connectionTCP::coopDebriefClientFill(DebriefingState* db)
 }
 
 // In DebriefingState::init, right after the rating is rendered, before the
-// world-write block). The display-only debrief's end of init: vanilla's
+// world-write block. The display-only debrief's end of init: vanilla's
 // _positiveScore rule, the unused MissionStatistics freed (it is handed to the
 // SavedGame only at the push this skips), the battle dropped as init
 // :803 does, the debrief music. Returns true = init returns now: no mission
@@ -23967,7 +23967,7 @@ struct GhostReplay
 	int frames = 0;
 	int seat = -1;
 	// Probe only, no behaviour
-	// change): the ev's actionId; for a `turn` ghost the directions its view drew as advance() stepped it
+	// change: the ev's actionId; for a `turn` ghost the directions its view drew as advance() stepped it
 	// (dirsShown, the final facing never appended), the view's status at the first such advance (poseShown,
 	// -1 before one) and the advance() gap record (lastAdvanceMs starts at startedAtMs). Read by the
 	// turn-end record (turnGhostEnded) only.

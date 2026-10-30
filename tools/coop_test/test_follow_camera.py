@@ -354,7 +354,7 @@ def row_host_off_ignores_walk(host, client, crash0):
         cells["host_off_ignores_walk-host"] = (sup == want and o1 == HC.cam_offset(staged) and vl == 1,
                                                f"host camera.suppressed delta {sup} (want {want}); offset {o1} (want "
                                                f"the staged {HC.cam_offset(staged)}); viewLevel {vl} (want 1): the "
-                                               f"host's option is off, so its camera stays)")
+                                               f"host's option is off, so its camera stays")
     else:
         cells.update(unreached(("host_off_ignores_walk-host",), "host_off_ignores_walk-walk"))
     cells["host_off_ignores_walk-common"] = common(host, client, crash0)

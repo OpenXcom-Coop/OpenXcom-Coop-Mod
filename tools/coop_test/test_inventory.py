@@ -243,7 +243,7 @@ TU_BASIS_BAD = 99                 # "tuBasis -1" cannot be sent (-1 = recompute)
 # ----- rename rows. The measured typing recipe: "battle_open_inventory {unit}; 0.3 s settle; ONE inject_input
 # {kind click, x 266, y 29} (the name TextEdit (28,6,210,17) centre x 2); 0.3 s; keys one per inject_input {kind
 # key} with 0.3 s between; close with battle_close_inventory only. Each letter changes the typist's name within
-# 0.101 s") -----
+# 0.101 s" -----
 NAME_FIELD_RECT = (28, 6, 210, 17)  # InventoryState.cpp :114 `new TextEdit(this, 210, 17, 28, 6)` (list_widgets x,y,w,h)
 NAME_CLICK = (266, 29)              # the rect's centre x 2 (the harness window is 640x400)
 RN_LETTERS = (("x", 120), ("y", 121))   # the two measured letters; the inject_input key = the SDL sym
