@@ -2,32 +2,34 @@
 base, the geoscape BASES button opens its own remaining base with every button, and leaving that screen reloads nothing.
 
 A lost base is erased without re-pointing the selected-base index, and the partner's session-start mirror sits right after
-the first base, so the index names the mirror. Today BASES opens that mirror as a visit (insideCoopBase true, no BUILD
-FACILITIES / RESEARCH / MANUFACTURE / TRANSFER / SELL) and its GEOSCAPE loads "basehost", the player's own session-start
-world: the lost base comes back with its old id, the base built since vanishes, the funds jump back to the session start,
-the host's clock (and the client's, which follows it) goes back, and the two machines' maps disagree for good.
+the first base, so the index names the mirror. Without the fix BASES opens that mirror as a visit (insideCoopBase true,
+no BUILD FACILITIES / RESEARCH / MANUFACTURE / TRANSFER / SELL) and its GEOSCAPE loads "basehost", the player's own
+session-start world: the lost base comes back with its old id, the base built since vanishes, the funds jump back to the
+session start, the host's clock (and the client's, which follows it) goes back, and the two machines' maps disagree for
+good. test_lost_base_reply_ghost.py covers a lost base coming back on the partner's globe.
 
-TWO boots, lobby key "49692" (user dirs w2h87_a_* / w2h87_b_*), slot from OXC_HARNESS_SLOT. Spec
-rewrite/prompts/w2h87_lost_first_base_revert.md (f) (ruling R-H87-1: QH87-1 .. QH87-8 (a)); pins from
-rewrite/w2h87-task0/sa/CONSTANTS.md (TASK 0 boots h87t0_r_a / _r_b red, h87t0_g_a / _g_b green). Capture lf23065-cap;
-spec findings F23200-F23215. The same unit's F23069 (a lost base back on the partner's globe; R-LBH2-1,
-VL-H87-2) is test_lost_base_reply_ghost.py.
+TWO boots, lobby key "49692" (user dirs lost_first_base_host_acts_* / lost_first_base_client_acts_*), slot from
+OXC_HARNESS_SLOT.
 
-  boot A (host acts)
-    SETUP-A host builds HostBase2 (build_new_base lever), the client lists it                    (feeds RL3-pre)
-    RL-3  guard: real BASES on HostBase2, the BaseView lift (inject), real OK of the dismantle,
-          real GEOSCAPE, real BASES, real GEOSCAPE                     RL3-pre RL3-loss RL3-geo RL3-bases
-    BUILD3 host builds HostBase3 (lever), the client lists it                                    (feeds RL1-pre)
-    RL-1  the host loses HostBase (soldiers stripped, spawn_ufo, trigger_base_defense: setup levers),
-          real OK, real BASES, real GEOSCAPE        RL1-pre RL1-bases RL1-reload RL1-world RL1-cclock RL1-agree
-          (LAST row of boot A: on the unchanged build its GEOSCAPE reverts the host's world)
-  boot B (client acts)
-    SETUP-B client builds ClientBase2 (lever), the host lists it                                 (feeds RL2-pre)
-    RL-2  as RL-1 on the client               RL2-pre RL2-bases RL2-reload RL2-world RL2-clock RL2-agree
-  end   shutdown of both boots                                         CRASH
-RED on the unchanged build: RL1-bases, RL1-reload, RL1-world, RL1-cclock, RL1-agree, RL2-bases, RL2-reload,
-RL2-world, RL2-agree (9 of 17). RL-3 (a second base lost: no defect), every -pre cell, RL2-clock and CRASH pass on both
-builds. The reload needle is the engine log line "[coop-ui] push class OpenXcom::LoadGameState" in the actor's log.
+  boot host_acts
+    setup              the host builds HostBase2 (build_new_base test command), the client lists it (feeds
+                       second_base_lost-pre)
+    second_base_lost   guard: real BASES on HostBase2, the BaseView lift (inject), real OK of the dismantle, real
+                       GEOSCAPE, real BASES, real GEOSCAPE. Cells second_base_lost-pre, -loss, -geo, -bases.
+    third base         the host builds HostBase3 (test command), the client lists it (feeds host_lost_first-pre)
+    host_lost_first    the host loses HostBase (soldiers stripped, spawn_ufo, trigger_base_defense: setup test
+                       commands), real OK, real BASES, real GEOSCAPE. Cells host_lost_first-pre, -bases, -reload,
+                       -world, -client_clock, -agree. The LAST row of this boot: without the fix its GEOSCAPE reverts
+                       the host's world.
+  boot client_acts
+    setup              the client builds ClientBase2 (test command), the host lists it (feeds client_lost_first-pre)
+    client_lost_first  as host_lost_first on the client. Cells client_lost_first-pre, -bases, -reload, -world, -clock,
+                       -agree.
+  end                  shutdown of both boots. Cell CRASH.
+Without the fix host_lost_first-bases, -reload, -world, -client_clock, -agree and client_lost_first-bases, -reload,
+-world, -agree FAIL (9 of 17). second_base_lost (a second base lost: no defect), every -pre cell,
+client_lost_first-clock and CRASH pass with and without it. The reload needle is the engine log line
+"[coop-ui] push class OpenXcom::LoadGameState" in the actor's log.
 
 Each row prints ONE "EVIDENCE <row>:" line, one "PASS <cell>" / "FAIL <cell>: <why>" line per cell and "ROW <row>:
 PASS|FAIL". Every row runs after a failure; a precondition miss ends its row (its later cells FAIL "not reached") with ONE
@@ -47,9 +49,9 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
 KEY = "49692"
-B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)   # second base (land, accepted; TASK 0)
-B3 = (LAND_LON + 0.09, LAND_LAT + 0.03)   # third base (land, accepted; TASK 0)
-LIFT = (80, 80)                           # BaseView tile (2, 2): the access lift of a lever-built base
+B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)   # second base (land, where a build is accepted)
+B3 = (LAND_LON + 0.09, LAND_LAT + 0.03)   # third base (land, where a build is accepted)
+LIFT = (80, 80)                           # BaseView tile (2, 2): the access lift of a base built by test command
 KEY_1 = 49                                # Options::keyBaseSelect1 = SDLK_1
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
@@ -57,9 +59,12 @@ OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 NEEDLE = "[coop-ui] push class OpenXcom::LoadGameState"
 W_BDS, GONE, DEL, POP, RELOAD, AGREE_S = 6.0, 1.0, 3.0, 10.0, 2.0, 15.0
 BUILD_FAC = "BUILD FACILITIES"
-ROWCELLS = (("RL-3", ("RL3-pre", "RL3-loss", "RL3-geo", "RL3-bases")),
-            ("RL-1", ("RL1-pre", "RL1-bases", "RL1-reload", "RL1-world", "RL1-cclock", "RL1-agree")),
-            ("RL-2", ("RL2-pre", "RL2-bases", "RL2-reload", "RL2-world", "RL2-clock", "RL2-agree")))
+ROWCELLS = (("second_base_lost", ("second_base_lost-pre", "second_base_lost-loss", "second_base_lost-geo",
+                                  "second_base_lost-bases")),
+            ("host_lost_first", ("host_lost_first-pre", "host_lost_first-bases", "host_lost_first-reload",
+                                 "host_lost_first-world", "host_lost_first-client_clock", "host_lost_first-agree")),
+            ("client_lost_first", ("client_lost_first-pre", "client_lost_first-bases", "client_lost_first-reload",
+                                   "client_lost_first-world", "client_lost_first-clock", "client_lost_first-agree")))
 CELLS = [c for _, cs in ROWCELLS for c in cs] + ["CRASH"]
 RESULT = {}
 
@@ -68,7 +73,7 @@ class Pre(Exception):
     """A fixture step missed its precondition: ends its row."""
 
 
-# --------------------------------------------------------------------------- probes and presses (copied from docs rewrite/lf23065-cap/cap.py)
+# --------------------------------------------------------------------------- probes and presses
 
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
 def crashes(): return set(glob.glob(os.path.join(harness.CRASH_DIR, "**", "crash_*"), recursive=True))
@@ -214,10 +219,11 @@ def press_through(gc, cap=60.0):
     return steps
 
 
-# --------------------------------------------------------------------------- setup levers (logged)
+# --------------------------------------------------------------------------- setup test commands (logged)
 
 def build(x, actor, name, pos):
-    """build_new_base lever; a BasescapeState it leaves on top is closed by a real GEOSCAPE; the partner lists it within 30 s"""
+    """build_new_base test command; a BasescapeState it leaves on top is closed by a real GEOSCAPE; the partner lists it
+    within 30 s"""
     other = x.client if actor is x.host else x.host
     r = q(actor, {"cmd": "build_new_base", "lon": pos[0], "lat": pos[1], "name": name})
     if not r.get("ok"):
@@ -279,8 +285,9 @@ def watch_agree(x):
 
 # --------------------------------------------------------------------------- rows
 
-def row_rl3(x, ev, v):
-    """SETUP-A + RL-3 (guard): HostBase2 lost by its lift dismantle; BASES / GEOSCAPE stay on HostBase without a reload"""
+def row_second_base_lost(x, ev, v):
+    """setup + second_base_lost (guard): HostBase2 lost by its lift dismantle; BASES / GEOSCAPE stay on HostBase
+    without a reload"""
     h, c = x.host, x.client
     x.hb2 = build(x, h, "HostBase2", B2)
     must_click(h, "BASES", 10)
@@ -295,7 +302,7 @@ def row_rl3(x, ev, v):
     ev["pre"] = "HB2=%s host own %s client mir %s shown %s" % (x.hb2, own_ids(census(h)), cmir, sel)
     if not (x.hb2 and x.hb2 in own_ids(census(h)) and x.hb2 in cmir and sel == "HostBase2"):
         raise Pre("HostBase2 not on both lists or not shown: %s" % ev["pre"])
-    v["RL3-pre"] = (True, "")
+    v["second_base_lost-pre"] = (True, "")
     bv = next((z for z in q(h, {"cmd": "list_widgets"}).get("widgets", []) if (z.get("type") or "").endswith("::BaseView")), None)
     if not bv:
         raise Pre("no BaseView on the host")
@@ -307,15 +314,18 @@ def row_rl3(x, ev, v):
     time.sleep(0.5)
     fb = census(h)["selected"]
     ev["loss"] = "goneS=%s view %s" % (ds if gone else "no", fb)
-    v["RL3-loss"] = (bool(gone) and fb == x.hb[1], "HostBase2 gone within %.0f s: %s; view %r (want %r)" % (DEL, bool(gone), fb, x.hb[1]))
+    v["second_base_lost-loss"] = (bool(gone) and fb == x.hb[1],
+                                  "HostBase2 gone within %.0f s: %s; view %r (want %r)" % (DEL, bool(gone), fb,
+                                                                                            x.hb[1]))
     n0, b0 = len(logl(h)), census(h)
     must_click(h, "GEOSCAPE", 10)
     wait_top(h, "GeoscapeState")
     time.sleep(2.0)
     g = census(h)
     ev["geo"] = "loads=%d own %s funds %s->%s clock %s->%s" % (loads(h, n0), own_ids(g), b0["funds"], g["funds"], b0["clock"], g["clock"])
-    v["RL3-geo"] = (loads(h, n0) == 0 and own_ids(g) == [x.hb[0]] and (g["funds"] or 0) >= (b0["funds"] or 0)
-                    and (g["clock"] or []) >= (b0["clock"] or []), ev["geo"])
+    v["second_base_lost-geo"] = (loads(h, n0) == 0 and own_ids(g) == [x.hb[0]]
+                                 and (g["funds"] or 0) >= (b0["funds"] or 0)
+                                 and (g["clock"] or []) >= (b0["clock"] or []), ev["geo"])
     must_click(h, "BASES", 10)
     wait_top(h, "BasescapeState")
     time.sleep(0.3)
@@ -324,11 +334,13 @@ def row_rl3(x, ev, v):
     wait_top(h, "GeoscapeState")
     time.sleep(1.0)
     ev["bases"] = "sel=%s inside=%s buttons=%s loads=%d" % (r["selected"], ins, bt, loads(h, n0))
-    v["RL3-bases"] = (r["selected"] == x.hb[1] and ins is False and BUILD_FAC in bt and loads(h, n0) == 0, ev["bases"])
+    v["second_base_lost-bases"] = (r["selected"] == x.hb[1] and ins is False and BUILD_FAC in bt and loads(h, n0) == 0,
+                                   ev["bases"])
 
 
 def lost_first(x, ev, v, rid, actor, partner, base, b2name):
-    """RL-1 / RL-2: the actor loses its first base `base` (real OK), then real BASES and real GEOSCAPE; `b2name` = its other base"""
+    """host_lost_first / client_lost_first: the actor loses its first base `base` (real OK), then real BASES and real
+    GEOSCAPE; `b2name` = its other base"""
     pre = rid.replace("-", "") + "-pre"
     ev["lose"] = lose(actor, partner, base)
     ev["ok"] = press_through(actor)
@@ -365,7 +377,7 @@ def lost_first(x, ev, v, rid, actor, partner, base, b2name):
     world = own_ids(w) == [b2] and w["funds"] == funds0
     if actor is x.host:
         v[p + "-world"] = (world and (w["clock"] or []) >= ck0["host"], ev["world"])
-        v[p + "-cclock"] = ((wp["clock"] or []) >= ck0["client"], ev["world"])
+        v[p + "-client_clock"] = ((wp["clock"] or []) >= ck0["client"], ev["world"])
     else:
         v[p + "-world"] = (world, ev["world"])
         v[p + "-clock"] = ((w["clock"] or []) >= ck0["client"] and (wp["clock"] or []) >= ck0["host"], ev["world"])
@@ -374,27 +386,28 @@ def lost_first(x, ev, v, rid, actor, partner, base, b2name):
     v[p + "-agree"] = (ok, msg)
 
 
-def row_rl1(x, ev, v):
-    """BUILD3 + RL-1: the host loses HostBase (its first base) while it owns HostBase3"""
+def row_host_lost_first(x, ev, v):
+    """the third base + host_lost_first: the host loses HostBase (its first base) while it owns HostBase3"""
     x.hb3 = build(x, x.host, "HostBase3", B3)
-    lost_first(x, ev, v, "RL-1", x.host, x.client, x.hb, "HostBase3")
+    lost_first(x, ev, v, "host_lost_first", x.host, x.client, x.hb, "HostBase3")
 
 
-def row_rl2(x, ev, v):
-    """SETUP-B + RL-2: the client loses ClientBase (its first base) while it owns ClientBase2"""
+def row_client_lost_first(x, ev, v):
+    """setup + client_lost_first: the client loses ClientBase (its first base) while it owns ClientBase2"""
     x.cb2 = build(x, x.client, "ClientBase2", B2)
-    lost_first(x, ev, v, "RL-2", x.client, x.host, x.cb, "ClientBase2")
+    lost_first(x, ev, v, "client_lost_first", x.client, x.host, x.cb, "ClientBase2")
 
 
-BOOTS = (("a", (("RL-3", row_rl3), ("RL-1", row_rl1))), ("b", (("RL-2", row_rl2),)))
+BOOTS = (("host_acts", (("second_base_lost", row_second_base_lost), ("host_lost_first", row_host_lost_first))),
+         ("client_acts", (("client_lost_first", row_client_lost_first),)))
 
 # --------------------------------------------------------------------------- driver
 
 
 class X:
     def __init__(self, tag):
-        self.host = GameClient("host", None, make_user_dir("w2h87_%s_host" % tag))
-        self.client = GameClient("client", None, make_user_dir("w2h87_%s_client" % tag))
+        self.host = GameClient("host", None, make_user_dir("lost_first_base_%s_host" % tag))
+        self.client = GameClient("client", None, make_user_dir("lost_first_base_%s_client" % tag))
         self.sc, self.first = {}, {}
         self.hb = self.cb = self.hb2 = self.hb3 = self.cb2 = None
 
