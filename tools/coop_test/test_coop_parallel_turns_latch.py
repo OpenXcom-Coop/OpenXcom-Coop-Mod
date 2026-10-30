@@ -34,7 +34,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
+import session  # noqa: E402
 import shared_fixture  # noqa: E402
+import separate_campaign_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 ON = {"CoopTurnMode": "parallel"}      # the turn-mode option (Options.cpp CoopTurnMode)
