@@ -19767,6 +19767,10 @@ bool connectionTCP::coopPromotionRows(TextList* list)
 	return true;
 }
 
+static std::string coopOverlayGuestRecord(const std::string& ownYaml, const std::string& copyYaml, int hostMissionId,
+	int newMissionId);
+static Soldier* coopBuildSoldierFromYaml(Game* game, SavedGame* save, const std::string& yaml);
+
 // The HOST of a one-world Separate campaign, from DebriefingState::init once the battle is
 // dropped and before the result and the post-battle world go out. A battle resumed from an older two-world save
 // keeps two things the save upgrade leaves for its battle units:
@@ -19774,15 +19778,118 @@ bool connectionTCP::coopPromotionRows(TextList* list)
 //   while a battle is loaded, and the partner's refresh renumbers the adopted world on its own (the two worlds then
 //   differ), so the ids are made unique here first;
 // - the battle copy of the partner's soldier (a co-op seat, no owner; the partner's own soldier is in the world
-//   too), removed here from its base or the memorial and from this debriefing's commendation lists.
+//   too). The copy fought this battle for that soldier, so its record (missions, kills, stats, rank, wounds, diary,
+//   medals, or its death, which puts the soldier in the memorial) goes to the soldier, which also takes the copy's
+//   place in this debriefing's commendation lists and injury list. The copy is then removed from its base or the
+//   memorial.
+// The older save keeps no id that links a copy to its soldier. The copy was made from that soldier, so the soldier
+// is the one of the copy's seat with the copy's name and initial stats (initial stats never change). When no soldier
+// or more than one matches, the copy's record is not given to anyone.
 void connectionTCP::coopSeparateBattleEndRoster(DebriefingState* db)
 {
 	SavedGame* sg = _game ? _game->getSavedGame() : nullptr;
 	if (!db || !sg || !getServerOwner() || !isSeparateCampaign() || sg->getSavedBattle())
 		return;
-	SeparateEcon::normalizeSoldierIds(_game);
 	auto isBattleCopy = [](const Soldier* s) { return s && s->getOwnerPlayerId() == 999 && s->getCoop() != 0; };
-	auto removeFrom = [&](std::vector<Soldier*>* list, const char* where)
+	// Each copy's id before the renumbering below: this mission's injury list names the copy by it.
+	std::map<const Soldier*, int> copyIds;
+	for (Base* base : *sg->getBases())
+	{
+		for (Soldier* s : *base->getSoldiers())
+		{
+			if (isBattleCopy(s))
+				copyIds[s] = s->getId();
+		}
+	}
+	for (Soldier* s : *sg->getDeadSoldiers())
+	{
+		if (isBattleCopy(s))
+			copyIds[s] = s->getId();
+	}
+	SeparateEcon::normalizeSoldierIds(_game);
+	auto sameInitialStats = [](const UnitStats* a, const UnitStats* b)
+	{
+		bool same = true;
+		UnitStats::fieldLoop([&](UnitStats::Ptr p) { same = same && a->*p == b->*p; });
+		return same;
+	};
+	// The partner's living soldier a copy stands for, with the list and index that hold it; null unless exactly one
+	// soldier matches.
+	auto ownSoldierOf = [&](Soldier* copy, std::vector<Soldier*>*& list, size_t& index) -> Soldier*
+	{
+		Soldier* found = nullptr;
+		int matches = 0;
+		for (Base* base : *sg->getBases())
+		{
+			std::vector<Soldier*>* soldiers = base->getSoldiers();
+			for (size_t i = 0; i < soldiers->size(); ++i)
+			{
+				Soldier* s = (*soldiers)[i];
+				if (!s || isBattleCopy(s) || s->getOwnerPlayerId() != copy->getCoop() || s->getName() != copy->getName()
+					|| !sameInitialStats(s->getInitStats(), copy->getInitStats()))
+					continue;
+				found = s;
+				list = soldiers;
+				index = i;
+				++matches;
+			}
+		}
+		return matches == 1 ? found : nullptr;
+	};
+	// The copy's record on its soldier: a soldier rebuilt from the soldier's own record with the copy's record keys
+	// (coopOverlayGuestRecord; one world, so the diary's mission ids already agree), its commendations still new.
+	// It replaces the soldier in its base, or, when the copy died, goes to the memorial in the copy's place (the
+	// caller's job) buried in its default armor as SavedGame::killSoldier does. Returns it, or null (no match).
+	auto giveRecord = [&](Soldier* copy, bool dead) -> Soldier*
+	{
+		std::vector<Soldier*>* ownList = nullptr;
+		size_t ownIndex = 0;
+		Soldier* own = ownSoldierOf(copy, ownList, ownIndex);
+		if (!own)
+		{
+			Log(LOG_WARNING) << "[coop-roster] Separate: no single soldier of seat " << copy->getCoop() << " named '"
+				<< copy->getName() << "' with the battle copy's initial stats - the copy's record is not kept";
+			return nullptr;
+		}
+		Soldier* fresh = coopBuildSoldierFromYaml(_game, sg, coopOverlayGuestRecord(coopSerializeSoldierRecord(_game, own),
+			coopSerializeCommendedRecord(_game, copy), -1, -1));
+		if (!fresh || (fresh->getDeath() != nullptr) != dead)
+		{
+			Log(LOG_ERROR) << "[coop-roster] Separate: the battle copy's record could not be given to soldier "
+				<< own->getId() << " '" << own->getName() << "'";
+			delete fresh;
+			return nullptr;
+		}
+		fresh->setRecentlyPromotedCoop(copy->getRecentlyPromotedCoop());
+		if (dead)
+		{
+			fresh->setArmor(fresh->getRules()->getDefaultArmor());
+			fresh->setReplacedArmor(0);
+			fresh->setTransformedArmor(0);
+			ownList->erase(ownList->begin() + ownIndex);
+		}
+		else
+		{
+			fresh->setCraft(own->getCraft());
+			(*ownList)[ownIndex] = fresh;
+		}
+		if (db->_missionStatistics)
+		{
+			std::map<int, int>& injuries = db->_missionStatistics->injuryList;
+			auto inj = injuries.find(copyIds[copy]);
+			if (inj != injuries.end())
+			{
+				const int days = inj->second;
+				injuries.erase(inj);
+				injuries[fresh->getId()] = days;
+			}
+		}
+		Log(LOG_INFO) << "[coop-roster] Separate: the battle copy's record given to the partner's soldier " << fresh->getId()
+			<< " '" << fresh->getName() << "' seat " << copy->getCoop() << (dead ? ", dead: in the memorial" : "");
+		delete own;
+		return fresh;
+	};
+	auto removeFrom = [&](std::vector<Soldier*>* list, const char* where, bool dead)
 	{
 		for (auto it = list->begin(); it != list->end();)
 		{
@@ -19792,17 +19899,31 @@ void connectionTCP::coopSeparateBattleEndRoster(DebriefingState* db)
 				++it;
 				continue;
 			}
+			Soldier* fresh = giveRecord(s, dead);
 			Log(LOG_INFO) << "[coop-roster] Separate: the battle copy of the partner's soldier removed after its battle: "
 				<< s->getId() << " '" << s->getName() << "' seat " << s->getCoop() << " from " << where;
 			for (std::vector<Soldier*>* commended : { &db->_soldiersCommended, &db->_deadSoldiersCommended })
-				commended->erase(std::remove(commended->begin(), commended->end(), s), commended->end());
+			{
+				if (fresh)
+					std::replace(commended->begin(), commended->end(), s, fresh);
+				else
+					commended->erase(std::remove(commended->begin(), commended->end(), s), commended->end());
+			}
 			delete s;
-			it = list->erase(it);
+			if (fresh && dead)
+			{
+				*it = fresh;
+				++it;
+			}
+			else
+			{
+				it = list->erase(it);
+			}
 		}
 	};
 	for (Base* base : *sg->getBases())
-		removeFrom(base->getSoldiers(), base->getName().c_str());
-	removeFrom(sg->getDeadSoldiers(), "the memorial");
+		removeFrom(base->getSoldiers(), base->getName().c_str(), false);
+	removeFrom(sg->getDeadSoldiers(), "the memorial", true);
 }
 
 // The last statement of DebriefingState::init. The host serializes what
