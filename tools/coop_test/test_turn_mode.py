@@ -1,65 +1,44 @@
-"""W1-P7 deliverable 6 (WAVE1-RUNBOOK.md REV D - owner turn-mode rulings
-D-19..D-27, full text WV-D55; schema SS2.W1's `turnMode`): the TURN MODE option
-and its TRANSPORT. W1-P7 shipped the option and its transport only, under REV
-D's rule "NOTHING in this packet may branch behaviour on the mode". The baton
-logic came later: since W1-P13c traditional mode has a baton (seat 0 first,
-D-23), and since W2-P4 S-E3 (Q2) the HOST also denies an intent from a seat off
-its go (`not_your_go`) - PHASE 4 below passes the baton before its turn.
+"""test_turn_mode.py: the TURN MODE option and its TRANSPORT. Traditional mode has a baton (seat 0, the host, goes
+first), and the HOST denies an intent from a seat off its go (`not_your_go`): BATON TURN PHASE below passes the baton
+before its turn.
 
-That rule is what makes this file's shape unusual and worth reading: because
-nothing branches on the mode, behaviour can NEVER prove the plumbing. Every
-assertion below is therefore on the CARRIED VALUE - the option, the wire field
-and the save key - read back through introspection that reports what each layer
+Behaviour alone would not show which layer carried the mode, so every assertion on the mode below is on the CARRIED
+VALUE - the option, the wire field and the save key - read back through introspection that reports what each layer
 actually holds, never inferred from what the game did.
 
-  PHASE 1  the OPTION (D-20/D-21, WR-25). `Options::CoopTurnMode` is a real
-           `Options.inc.h` declaration + `Options.cpp` OptionInfo registration,
-           NOT a `connectionTCP` static - so it round-trips through the harness
-           lever, defaults to PARALLEL (D-26), normalizes any junk value to
-           parallel, and SURVIVES A RESTART via options.cfg (the same instance's
-           user folder, re-launched).
-  PHASE 2  the WIRE (D-19b / SS2.W1). With the host set TRADITIONAL the
-           `battle_offer` carries `turnMode:"traditional"` and the CLIENT
-           MIRRORS it - proven with the client's OWN option set to the OPPOSITE
-           value, so a mirror that came from the local preference instead of the
-           wire would fail. With nothing remembered the offer carries
-           "parallel". And with the key REMOVED from the offer entirely (the
-           `omit_turn_mode` lever) the client degrades to parallel - D-26's
-           backwards-compatible degrade, exercised over the real wire rather
-           than by unit-testing the parser.
-  PHASE 3  the BATTLE SAVE (D.1, the owner's D-20/D-21 revision). A save taken
-           during a live co-op battle carries `coopTurnMode` INSIDE the
-           `battleGame:` block; the key is ABSENT from the CAMPAIGN block
-           (D-21: the donor's `SavedGame.cpp:1334`/`:1814` shape is NOT ported);
-           the REAL D.1 reader gets the same value back off that saved block;
-           the reader is WIRED into `SavedBattleGame::load`; and `hash_now full`
-           stays all-EQUAL across the save, because the key is on
-           `saveBlobExcludedTopKey`.
+  OPTION PHASE      the OPTION. `Options::CoopTurnMode` is a real `Options.inc.h` declaration + `Options.cpp`
+                    OptionInfo registration, NOT a `connectionTCP` static - so it round-trips through the harness's
+                    set_option command, defaults to PARALLEL, normalizes any junk value to parallel, and SURVIVES A
+                    RESTART via options.cfg (the same instance's user folder, re-launched).
+  WIRE PHASE        the WIRE. With the host set TRADITIONAL the `battle_offer` carries `turnMode:"traditional"` and
+                    the CLIENT MIRRORS it - proven with the client's OWN option set to the OPPOSITE value, so a mirror
+                    that came from the local preference instead of the wire would fail. With nothing remembered the
+                    offer carries "parallel". And with the key REMOVED from the offer entirely (the `omit_turn_mode`
+                    test command) the client degrades to parallel - the backwards-compatible degrade, exercised over
+                    the real wire rather than by unit-testing the parser.
+  SAVE PHASE        the BATTLE SAVE. A save taken during a live co-op battle carries `coopTurnMode` INSIDE the
+                    `battleGame:` block, so a resumed battle keeps the mode it was played in; the key is ABSENT from
+                    the CAMPAIGN block (older versions' campaign key `coop_parallel_turns` is not written either); the
+                    real reader gets the same value back off that saved block; the reader is WIRED into
+                    `SavedBattleGame::load`; and `hash_now full` stays all-EQUAL across the save, because the key is
+                    on `saveBlobExcludedTopKey`.
 
-           HOW THE READ HALF IS PROVEN, AND WHY NOT BY LOADING THE SAVE (fix,
-           WV-D5). The first version of this phase asked the harness to load the
-           file into a throwaway `SavedGame` and then delete it. That killed the
-           HOST PROCESS about one run in three: `SavedBattleGame::load` fills
-           `_mapDataSets` from `Mod::getMapDataSet()`, which is a CACHE handing
-           back the Mod's ONE shared MapDataSet per name - the same objects the
-           LIVE battle uses - and `~SavedBattleGame` then calls
-           `unloadData()` on every one of them, which `delete`s the MapData the
-           live battle's tiles still point at. The lever now parses the saved
-           file as DATA and runs `coopLoadTurnMode()` - the exact function
-           `SavedBattleGame::load` calls - against the exact `battleGame` node it
-           would have been handed, constructing no SavedGame, no
-           SavedBattleGame and no MapDataSet at all. The one thing that detour
-           cannot observe, that the reader is actually CALLED from
-           `SavedBattleGame::load`, is asserted separately and exactly below.
-  PHASE 4  a turn intent in TRADITIONAL mode, sent on its seat's go (re-pointed
-           by W2-P4 S-E3, C1 PR-Q7, chain rule A.10). At battle start the
-           baton is at seat 0, the host (D-23), so the host's END TURN first
-           passes it to seat 1 (as test_seat_pacing.py BOOT C does); the
-           client's turn intent is then admitted and applied exactly the same
-           way as in parallel mode, and all buckets stay EQUAL.
+                    HOW THE READ HALF IS PROVEN, AND WHY NOT BY LOADING THE SAVE. Loading the file into a throwaway
+                    `SavedGame` and then deleting it killed the HOST PROCESS about one run in three:
+                    `SavedBattleGame::load` fills `_mapDataSets` from `Mod::getMapDataSet()`, which is a CACHE handing
+                    back the Mod's ONE shared MapDataSet per name - the same objects the LIVE battle uses - and
+                    `~SavedBattleGame` then calls `unloadData()` on every one of them, which `delete`s the MapData the
+                    live battle's tiles still point at. The test command therefore parses the saved file as DATA and
+                    runs `coopLoadTurnMode()` - the exact function `SavedBattleGame::load` calls - against the exact
+                    `battleGame` node it would have been handed, constructing no SavedGame, no SavedBattleGame and no
+                    MapDataSet at all. The one thing that detour cannot observe, that the reader is actually CALLED
+                    from `SavedBattleGame::load`, is asserted separately and exactly below.
+  BATON TURN PHASE  a turn intent in TRADITIONAL mode, sent on its seat's go. At battle start the baton is at seat 0,
+                    the host, so the host's END TURN first passes it to seat 1 (as test_seat_pacing.py's baton boot
+                    does); the client's turn intent is then admitted and applied exactly the same way as in parallel
+                    mode, and all buckets stay EQUAL.
 
-An SP battle save must NOT carry the key at all - that half is asserted by this
-packet's SP battle smoke, which is where an SP battle already exists.
+An SP battle save must NOT carry the key at all; this file does not check that half (it runs no SP battle).
 
 FIXTURE: the repro_atom_turn.py / test_retry_cancel.py recipe.
 
@@ -142,13 +121,13 @@ def wait_main_menu(gc):
 
 
 # ===========================================================================
-# PHASE 1 - the option (D-20/D-21, WR-25)
+# OPTION PHASE - the option
 # ===========================================================================
 
 def test_option():
     """One instance at the main menu - the option is a plain per-machine user
     preference and needs no battle."""
-    d = make_user_dir("rw_turnmode_option")
+    d = make_user_dir("turn_mode_option")
     g = GameClient("opt", 45991, d)
     g.spawn()
     try:
@@ -157,28 +136,28 @@ def test_option():
 
         raw, norm = get_mode(g)
         assert raw == PARALLEL and norm == PARALLEL, (
-            f"{OPTION} default is {raw!r}/{norm!r}, expected {PARALLEL!r} - ruling D-26 "
-            "makes PARALLEL the default when nothing is remembered; check the "
+            f"{OPTION} default is {raw!r}/{norm!r}, expected {PARALLEL!r} - PARALLEL "
+            "is the default when nothing is remembered; check the "
             "Options.cpp OptionInfo registration")
-        print(f"PASS PHASE 1 (default): {OPTION} defaults to {PARALLEL!r} (D-26)")
+        print(f"PASS OPTION PHASE (default): {OPTION} defaults to {PARALLEL!r}")
 
         for want in (TRADITIONAL, PARALLEL, TRADITIONAL):
             set_mode(g, want)
             raw, norm = get_mode(g)
             assert raw == want and norm == want, \
                 f"{OPTION} did not stay {want!r} on a separate read: {raw!r}/{norm!r}"
-        print(f"PASS PHASE 1 (round-trip): {OPTION} round-trips through set_option - a "
-              "real OptionInfo, not a connectionTCP static (WR-25)")
+        print(f"PASS OPTION PHASE (round-trip): {OPTION} round-trips through set_option - a "
+              "real OptionInfo, not a connectionTCP static")
 
-        # D-26's normalizer: a hand-edited options.cfg can never put a garbage
+        # The normalizer: a hand-edited options.cfg can never put a garbage
         # value on the wire. The RAW value is preserved (this is the user's
         # file), but what the game will actually send is parallel.
         set_mode(g, "banana")
         raw, norm = get_mode(g)
         assert raw == "banana" and norm == PARALLEL, (
-            f"a junk value normalized to {norm!r}, expected {PARALLEL!r} - D-26 says "
-            "anything other than \"traditional\" is parallel")
-        print(f"PASS PHASE 1 (normalize): a junk option value degrades to {PARALLEL!r} "
+            f"a junk value normalized to {norm!r}, expected {PARALLEL!r} - anything "
+            "other than \"traditional\" is parallel")
+        print(f"PASS OPTION PHASE (normalize): a junk option value degrades to {PARALLEL!r} "
               "on the wire while options.cfg keeps what the user wrote")
 
         # ...and it SURVIVES A RESTART. Game::run() ends in Options::save()
@@ -196,14 +175,14 @@ def test_option():
         raw, norm = get_mode(g2)
         assert raw == TRADITIONAL and norm == TRADITIONAL, (
             f"{OPTION} came back as {raw!r} after a restart, expected {TRADITIONAL!r} - "
-            "the choice must be remembered in options.cfg (D-20)")
-        print(f"PASS PHASE 1 (restart): {OPTION}={TRADITIONAL!r} survived a full "
+            "the choice must be remembered in options.cfg")
+        print(f"PASS OPTION PHASE (restart): {OPTION}={TRADITIONAL!r} survived a full "
               "process restart via options.cfg")
     finally:
         g2.shutdown()
 
 
-# ----- fixture bring-up (inline copy, repro_atom_kneel.py precedent) -----
+# ----- fixture bring-up (an inline copy, as repro_atom_kneel.py keeps one) -----
 
 def skirmish_host(host, port, player="HostPlayer"):
     host.ok({"cmd": "open_new_battle"})
@@ -266,20 +245,22 @@ def has_door_within(gc, x, y, z, radius=2):
 
 
 def qualifying_actor(host, soldier_id):
-    """REVIEW4 IR-4 SELECTION RULE, verbatim from repro_atom_turn.py.
+    """SELECTION RULE, as in repro_atom_turn.py: the staged actor qualifies
+    only with no door within 2 tiles of it (the door rule) and no living
+    non-player unit within max view distance (the contact rule).
 
-    Rule (a) removed by SPEC 0e-3: the staging helper leaves nothing
-    within view distance, and the lever does not recompute sight, so the
-    visible list may be stale."""
+    There is no "already spotted" check: the staging helper leaves nothing
+    within view distance, and the staging test hook does not recompute sight,
+    so the visible list may be stale."""
     st = host.cmd({"cmd": "battle_state"})
     if not st.get("ok") or not st.get("inBattle"):
         return None
     for u in units_by_id(st).values():
         if u.get("soldierId") == soldier_id:
             if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
-                return None  # rule (b)
+                return None  # the door rule
             if not session.actor_is_contact_free(st, u, "turn_mode"):
-                return None  # rule (c)
+                return None  # the contact rule
             return u
     return None
 
@@ -293,8 +274,8 @@ def bring_up_qualifying_battle(tag, host_options=None, client_options=None,
     force from the very first frame (harness.make_user_dir). `pre_offer` runs
     on the host after the lobby is up and before the offer goes out."""
     port = str(48436 + 1)
-    host_dir = make_user_dir(f"rw_tm_{tag}_host_1", options=host_options)
-    client_dir = make_user_dir(f"rw_tm_{tag}_client_1", options=client_options)
+    host_dir = make_user_dir(f"turn_mode_{tag}_host_1", options=host_options)
+    client_dir = make_user_dir(f"turn_mode_{tag}_client_1", options=client_options)
     host = GameClient("host", 49280 + 1 * 2, host_dir)
     client = GameClient("client", 49281 + 1 * 2, client_dir)
     seated = {}
@@ -331,7 +312,7 @@ def settle_emits(host, client, timeout=40):
 
 
 def run_a_turn(host, client, actor_id, what):
-    """One admitted client TURN intent, start to finish (PHASE 4: sent on the
+    """One admitted client TURN intent, start to finish (BATON TURN PHASE: sent on the
     client seat's go, admitted and applied as in parallel mode)."""
     settle_emits(host, client)
     a = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
@@ -354,7 +335,7 @@ def run_a_turn(host, client, actor_id, what):
 
 
 # ===========================================================================
-# PHASE 2 + 4 - the wire, and a turn intent on the client seat's go
+# WIRE PHASE and BATON TURN PHASE - the wire, and a turn intent on the client seat's go
 # ===========================================================================
 
 def test_wire_traditional():
@@ -379,36 +360,36 @@ def test_wire_traditional():
             "- offerBattle() must stamp the session's mode onto the battle")
         assert live_mode(client) == TRADITIONAL, (
             f"CLIENT's live battle mode is {live_mode(client)!r}, expected "
-            f"{TRADITIONAL!r}. Its OWN option says {c_raw!r}, so this is exactly the "
-            "case D-19b names: the host decides and the client MIRRORS off the wire.")
+            f"{TRADITIONAL!r}. Its OWN option says {c_raw!r}, but the host decides and "
+            "the client MIRRORS the mode off the wire.")
         assert event_state(client).get("optionTurnMode") == PARALLEL, (
             "the client's own remembered option changed - the mirror must never "
             "write back into options.cfg")
-        print(f"PASS PHASE 2 (traditional): host option={TRADITIONAL!r} -> "
+        print(f"PASS WIRE PHASE (traditional): host option={TRADITIONAL!r} -> "
               f"battle_offer.turnMode -> CLIENT mirror={TRADITIONAL!r}, while the "
-              f"client's own option stayed {PARALLEL!r} (D-19b)")
+              f"client's own option stayed {PARALLEL!r}")
 
         # The host's own log line is the direct evidence the field went out.
         log = log_lines(host)
         assert any("battle_offer sent" in l and 'turnMode=traditional' in l for l in log), (
             "no 'battle_offer sent (... turnMode=traditional ...)' line in the host log")
-        print("PASS PHASE 2 (traditional): the host logged the offer carrying "
+        print("PASS WIRE PHASE (traditional): the host logged the offer carrying "
               "turnMode=traditional")
 
-        # PHASE 4 (W2-P4 S-E3, C1 PR-Q7, chain rule A.10): the baton is at seat 0
-        # at battle start (D-23) and the host denies an off-baton intent
-        # not_your_go (Q2), so the host's END TURN first passes it to seat 1
-        # (test_seat_pacing.py BOOT C), then the turn is sent on seat 1's go.
+        # BATON TURN PHASE: the baton is at seat 0 at battle start and the host denies an
+        # off-baton intent not_your_go, so the host's END TURN first passes it to
+        # seat 1 (as test_seat_pacing.py's baton boot does), then the turn is sent
+        # on seat 1's go.
         seat_h, seat_c = event_state(host).get("coopActiveSeat"), event_state(client).get("coopActiveSeat")
         assert seat_h == 0 and seat_c == 0, (
-            f"PHASE 4 premise: coopActiveSeat is not 0 at entry on both machines "
-            f"(host={seat_h} client={seat_c}) - D-23 gives the host's seat 0 the first go")
+            f"BATON TURN PHASE premise: coopActiveSeat is not 0 at entry on both machines "
+            f"(host={seat_h} client={seat_c}) - the host's seat 0 has the first go")
         host.ok({"cmd": "battle_action", "action": "end_turn_button"})
 
         def baton_at_seat_1():
             return True if (event_state(host).get("coopActiveSeat") == 1
                             and event_state(client).get("coopActiveSeat") == 1) else None
-        host.wait_for("PHASE 4: the host's END TURN hands the baton to seat 1 on both machines",
+        host.wait_for("BATON TURN PHASE: the host's END TURN hands the baton to seat 1 on both machines",
                       baton_at_seat_1, timeout=15)
         actor_id = actor["id"]
         to_dir, tu = run_a_turn(host, client, actor_id, "traditional mode")
@@ -416,7 +397,7 @@ def test_wire_traditional():
                                       what="after a turn in TRADITIONAL mode")
         assert live_mode(host) == TRADITIONAL and live_mode(client) == TRADITIONAL, \
             "the mode drifted during play"
-        print(f"PASS PHASE 4 (traditional): after the host's END TURN passed the baton to "
+        print(f"PASS BATON TURN PHASE (traditional): after the host's END TURN passed the baton to "
               f"seat 1, the client's turn intent was admitted and applied exactly as in "
               f"parallel mode (unit {actor_id} -> dir {to_dir}, TU {tu}), "
               f"{len(post_h)} buckets EQUAL")
@@ -428,56 +409,57 @@ def test_wire_traditional():
 
 def test_wire_default_and_absent():
     """Nothing remembered -> the offer carries "parallel"; and with the key
-    REMOVED from the offer the client degrades to parallel (D-26)."""
+    REMOVED from the offer the client degrades to parallel."""
 
     def arm_omit(host, client):
         # One-shot: the NEXT offer is built WITHOUT the key. Armed after the
         # lobby is up, i.e. after isCoopBattle()'s session gate is satisfied.
         host.ok({"cmd": "omit_turn_mode", "on": True})
 
-    # --- (a) nothing remembered -> parallel, over the real wire ---
+    # --- nothing remembered -> parallel, over the real wire ---
     host, client, actor, soldier_ids, _ = bring_up_qualifying_battle("dflt")
     try:
         assert get_mode(host)[0] == PARALLEL, "fixture host did not start at the default"
         assert live_mode(host) == PARALLEL and live_mode(client) == PARALLEL, (
             f"default-mode battle reports host={live_mode(host)!r} "
-            f"client={live_mode(client)!r}, expected {PARALLEL!r} on both (D-26)")
+            f"client={live_mode(client)!r}, expected {PARALLEL!r} on both")
         log = log_lines(host)
         assert any("battle_offer sent" in l and "turnMode=parallel" in l for l in log), (
-            "the host did not log an offer carrying turnMode=parallel - REQUIRED means "
-            "a wave-1 host ALWAYS sends the key, even for the default")
-        print(f"PASS PHASE 2 (default): nothing remembered -> the offer carries "
-              f"{PARALLEL!r} and both machines agree (D-26)")
+            "the host did not log an offer carrying turnMode=parallel - the key is "
+            "REQUIRED: the host ALWAYS sends it, even for the default")
+        print(f"PASS WIRE PHASE (default): nothing remembered -> the offer carries "
+              f"{PARALLEL!r} and both machines agree")
     finally:
         host.shutdown()
         client.shutdown()
 
-    # --- (b) the key REMOVED from the offer -> the client degrades to parallel ---
+    # --- the key REMOVED from the offer -> the client degrades to parallel ---
     # The host is set TRADITIONAL, so a client that fell back to anything other
-    # than the ruled default would be visible: it can only report "parallel" by
+    # than the parallel default would be visible: it can only report "parallel" by
     # taking the degrade, never by copying the host.
     host, client, actor, soldier_ids, _ = bring_up_qualifying_battle(
         "omit", host_options={OPTION: TRADITIONAL}, pre_offer=arm_omit)
     try:
         log = log_lines(host)
         assert any("omit_turn_mode lever" in l and "WITHOUT turnMode" in l for l in log), (
-            "the omit_turn_mode lever did not fire - the offer still carried the key, "
-            "so the D-26 degrade below would be asserted against nothing")
+            "the omit_turn_mode test command did not fire - the offer still carried "
+            "the key, so the parallel degrade below would be asserted against nothing")
         clog = log_lines(client)
         assert any("key ABSENT - parallel default" in l for l in clog), (
             "the client did not report an ABSENT turnMode key on the offer it accepted")
         assert live_mode(client) == PARALLEL, (
             f"with the key absent the client reports {live_mode(client)!r}, expected "
-            f"{PARALLEL!r} - D-26's degrade is what lets a pre-REV-D peer connect")
-        print(f"PASS PHASE 2 (absent key): an offer built WITHOUT turnMode - proven "
-              f"DELIVERED by both logs - degrades the client to {PARALLEL!r} (D-26)")
+            f"{PARALLEL!r} - this degrade is what lets an older peer that sends no "
+            "turnMode key connect")
+        print(f"PASS WIRE PHASE (absent key): an offer built WITHOUT turnMode - proven "
+              f"DELIVERED by both logs - degrades the client to {PARALLEL!r}")
     finally:
         host.shutdown()
         client.shutdown()
 
 
 # ===========================================================================
-# PHASE 3 - the D.1 battle-save hook
+# SAVE PHASE - the battle-save hook
 # ===========================================================================
 
 def find_save(user_dir, name):
@@ -486,13 +468,13 @@ def find_save(user_dir, name):
 
 
 def assert_reader_is_wired():
-    """The one link the detached-node read cannot observe: that the D.1 reader is
+    """The one link the detached-node read cannot observe: that the reader is
     actually CALLED from `SavedBattleGame::load`.
 
     The runtime detour above proves `coopLoadTurnMode()` parses the real saved
     form correctly; it cannot prove the hook site still exists, because it calls
-    the function directly. Deleting that one line would leave every other PHASE 3
-    assertion green while D.1's read half was silently dead - so it is checked
+    the function directly. Deleting that one line would leave every other SAVE PHASE
+    assertion passing while the read half was silently dead - so it is checked
     here, exactly and at the source, the same way `tools/ci/lint_no_client_mint.py`
     checks a discipline that has no runtime signal.
 
@@ -501,7 +483,7 @@ def assert_reader_is_wired():
     path = os.path.join(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))), "src", "Savegame",
         "SavedBattleGame.cpp")
-    assert os.path.exists(path), f"cannot find {path} to check the D.1 hook site"
+    assert os.path.exists(path), f"cannot find {path} to check the hook site"
     with open(path, "r", errors="replace") as f:
         src = f.read()
     load_at = src.find("void SavedBattleGame::load(")
@@ -510,12 +492,12 @@ def assert_reader_is_wired():
         "could not locate SavedBattleGame::load/save to bound the hook check")
     assert "coopLoadTurnMode(reader);" in src[load_at:save_at], (
         "`coopLoadTurnMode(reader);` is not called inside SavedBattleGame::load - "
-        "D.1's read half is not wired, so a resumed battle would silently come back "
-        "in the wrong turn mode (WV-D55 / D-20/D-21)")
+        "the read half is not wired, so a resumed battle would silently come back "
+        "in the wrong turn mode")
     assert "coopSaveTurnMode(writer);" in src[save_at:], (
         "`coopSaveTurnMode(writer);` is not called inside SavedBattleGame::save - "
-        "D.1's write half is not wired")
-    print("PASS PHASE 3 (wiring): coopLoadTurnMode is called from "
+        "the write half is not wired")
+    print("PASS SAVE PHASE (wiring): coopLoadTurnMode is called from "
           "SavedBattleGame::load and coopSaveTurnMode from ::save")
 
 
@@ -529,8 +511,8 @@ def split_blocks(text):
 
 
 def test_battle_save():
-    """D.1: the mode is persisted in the BATTLE save block, read back by the
-    real loader, absent from the CAMPAIGN block, and hash-neutral."""
+    """The mode is persisted in the BATTLE save block, read back by the real
+    loader, absent from the CAMPAIGN block, and hash-neutral."""
     host, client, actor, soldier_ids, host_dir = bring_up_qualifying_battle(
         "save", host_options={OPTION: TRADITIONAL})
     try:
@@ -538,7 +520,7 @@ def test_battle_save():
         assert live_mode(host) == TRADITIONAL
         pre_h, _ = assert_hash_clean(host, client, full=True, what="before the save")
 
-        name = "w1p7_turnmode.sav"
+        name = "turn_mode.sav"
         r = host.ok({"cmd": "turn_mode_save_roundtrip", "file": name})
         assert not r.get("parseError"), f"the saved file did not parse: {r}"
         assert r.get("hadBattleBlock") is True, (
@@ -555,8 +537,8 @@ def test_battle_save():
         assert r.get("readBack") == TRADITIONAL, (
             f"coopLoadTurnMode() did NOT restore the mode: wrote "
             f"{r.get('written')!r}, poisoned to {r.get('poisoned')!r}, read back "
-            f"{r.get('readBack')!r} (D.1's read half)")
-        print(f"PASS PHASE 3 (round-trip): save wrote {TRADITIONAL!r}, the mirror was "
+            f"{r.get('readBack')!r} (the read half)")
+        print(f"PASS SAVE PHASE (round-trip): save wrote {TRADITIONAL!r}, the mirror was "
               f"poisoned to {PARALLEL!r}, and the REAL coopLoadTurnMode() - fed the "
               f"saved file's own `battleGame` node - restored {TRADITIONAL!r}")
 
@@ -565,7 +547,7 @@ def test_battle_save():
         assert live_mode(host) == TRADITIONAL, \
             "the round-trip left the live session's mode disturbed"
 
-        # ...and the key is where D-21 says, and NOWHERE else.
+        # ...and the key is in the battle block, and NOWHERE else.
         path = find_save(host_dir, name)
         assert path, f"save file {name} not found under {host_dir}"
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -574,19 +556,19 @@ def test_battle_save():
         assert "coopTurnMode: traditional" in battle, (
             "the battleGame: block does not carry `coopTurnMode: traditional`")
         assert "coopTurnMode" not in campaign, (
-            "the CAMPAIGN block carries coopTurnMode - D-21 FORBIDS campaign-block "
-            "persistence; the donor's SavedGame.cpp:1334/:1814 shape is not ported")
+            "the CAMPAIGN block carries coopTurnMode - the mode must never be saved "
+            "in the campaign block")
         assert "coop_parallel_turns" not in text, (
-            "the donor's `coop_parallel_turns` key was ported after all (D-21)")
-        print("PASS PHASE 3 (placement): `coopTurnMode: traditional` is in the "
-              "battleGame: block and NOWHERE in the campaign block (D-21)")
+            "the save carries older versions' campaign key `coop_parallel_turns`")
+        print("PASS SAVE PHASE (placement): `coopTurnMode: traditional` is in the "
+              "battleGame: block and NOWHERE in the campaign block")
 
         # HASH: the key is on saveBlobExcludedTopKey, so writing it moved nothing.
         post_h, _ = assert_hash_clean(host, client, full=True, what="after the save")
         assert post_h == pre_h, (
             f"the save moved a hash bucket: {pre_h} -> {post_h} - `coopTurnMode` must "
             "be on SharedEcon's saveBlobExcludedTopKey list")
-        print(f"PASS PHASE 3 (hash): all {len(post_h)} buckets EQUAL and UNCHANGED "
+        print(f"PASS SAVE PHASE (hash): all {len(post_h)} buckets EQUAL and UNCHANGED "
               "across the save - the key never rides saveBlob")
     finally:
         host.shutdown()
@@ -598,7 +580,7 @@ def main():
     test_wire_traditional()
     test_wire_default_and_absent()
     test_battle_save()
-    print("ALL W1-P7 DELIVERABLE-6 TURN-MODE TESTS PASSED")
+    print("ALL TURN-MODE TESTS PASSED")
 
 
 if __name__ == "__main__":
