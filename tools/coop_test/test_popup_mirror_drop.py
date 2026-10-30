@@ -1,22 +1,27 @@
-"""W2-H81 stage S-A PMD (spec rewrite/prompts/w2h81_popup_mirror_uaf.md (f); TASK 0 rewrite/w2h81-task0/sa/CONSTANTS.md; ruling R-LH76-1-1;
-capture lh76-1-cap F22185-F22188): in a SEPARATE co-op campaign a geoscape popup (UFO detected, destination confirm, target info) keeps a raw
-pointer to the partner's UFO mirror. When the partner drops, deleteAllCoopBases deletes every mirror without looking at those popups; after
-RESUME the popup is on top again over the freed UFO, and INTERCEPT / OK there close the host's game. The fix closes every popup holding a doomed
-mirror right before the delete, as its CANCEL does. Probe popup_mirror_check (read-only pointer compares): holders = popups on the
-stack holding a target, dangling = those holding one in no live list, mirror = those holding a live co-op mirror, queued / queuedDangling = the
-same for GeoscapeState's queued popups; the drop reds are read under the 62, before the rejoin. Owner = client, holder = host (DC: the
-host owns its UFO). Every player press is a real click (globe, INTERCEPT, list rows, the tracker hotkey T, Profile OK, RESUME, CANCEL); levers
-stage only (bases, spawn_ufo, the globe centre, the drop = kill). Binding rule: no press on a popup unless its cell's named top shows and pmc
-dangling 0 was read right before. Each boot is fresh and shut down before the next; key "49507"; the rejoin is a NEW client (ClientPlayer).
-  Boot UD (dirs w2h81_ud_*): the partner drops while the host's UFO-detected popup shows its UFO (D-UD). Cells UD-dangling FIX, UD-held FIX,
-  UD-gone, UD-top FIX, UD-alive.
-  Boot CD (dirs w2h81_cd_*): ... while the host confirms a craft's destination on its UFO (D-CD). Cells CD-dangling FIX, CD-held FIX, CD-below,
-  CD-top FIX, CD-craft, CD-alive.
-  Boot TI (dirs w2h81_ti_*): ... while the host's target-info window shows its UFO (D-TI). Cells TI-dangling FIX, TI-held FIX, TI-top FIX, TI-alive.
-  Boot DC (dirs w2h81_dc_*): ... while the host's popup shows the host's OWN UFO (the targeting guard). Cells DC-kept, DC-top, DC-cancel.
-Red (commit R1): exit 2, RED exactly on UD-dangling, UD-held, UD-top, CD-dangling, CD-held, CD-top, TI-dangling, TI-held, TI-top (9 of 18).
-A guard cell miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS / FAIL line per cell, the
-row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2. one foreground run.
+"""In a SEPARATE co-op campaign a geoscape popup (UFO detected, destination confirm, target info) keeps a raw pointer
+to the partner's UFO mirror. When the partner drops, deleteAllCoopBases deletes every mirror without looking at those
+popups; after RESUME the popup is on top again over the freed UFO, and INTERCEPT / OK there close the host's game. The
+fix closes every popup holding a doomed mirror right before the delete, as its CANCEL does. Probe popup_mirror_check
+(read-only pointer compares): holders = popups on the stack holding a target, dangling = those holding one in no live
+list, mirror = those holding a live co-op mirror, queued / queuedDangling = the same for GeoscapeState's queued popups;
+the drop cells are read under the 62, before the rejoin. Owner = client, holder = host (own_ufo_popup: the host owns
+its UFO). Every player press is a real click (globe, INTERCEPT, list rows, the tracker hotkey T, Profile OK, RESUME,
+CANCEL); test commands only stage (bases, spawn_ufo, the globe centre, the drop = kill). Binding rule: no press on a
+popup unless its cell's named top shows and pmc dangling 0 was read right before. Each boot is fresh and shut down
+before the next; key "49507"; the rejoin is a NEW client (ClientPlayer). Cells marked (fix) fail without the fix.
+  Boot detected_popup (dirs popup_mirror_drop_detected_popup_*): the partner drops while the host's UFO-detected popup
+  shows its UFO. Cells detected_popup-dangling (fix), detected_popup-held (fix), detected_popup-gone,
+  detected_popup-top (fix), detected_popup-alive.
+  Boot confirm_destination (dirs popup_mirror_drop_confirm_destination_*): ... while the host confirms a craft's
+  destination on its UFO. Cells confirm_destination-dangling (fix), confirm_destination-held (fix),
+  confirm_destination-below, confirm_destination-top (fix), confirm_destination-craft, confirm_destination-alive.
+  Boot target_info (dirs popup_mirror_drop_target_info_*): ... while the host's target-info window shows its UFO.
+  Cells target_info-dangling (fix), target_info-held (fix), target_info-top (fix), target_info-alive.
+  Boot own_ufo_popup (dirs popup_mirror_drop_own_ufo_popup_*): ... while the host's popup shows the host's OWN UFO
+  (the targeting guard). Cells own_ufo_popup-kept, own_ufo_popup-top, own_ufo_popup-cancel.
+Without the fix: exit 2, failing exactly the 9 (fix) cells of 18.
+A guard cell miss: ONE CAPTURE line and the row's remaining cells FAIL "guard". ONE EVIDENCE line per row, one PASS /
+FAIL line per cell, the row verdict; every row runs after a failure; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_popup_mirror_drop.py"""
 import json, math, os, sys, time  # noqa: E401
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -74,7 +79,7 @@ def cpu():
 AFF = {}
 
 def note_click(gc, r):
-    """the base -> window affine from two click_widget replies (capture lh76.py)"""
+    """the base -> window affine from two click_widget replies"""
     if r.get("ok") and "baseX" in r:
         pts = AFF.setdefault(gc.name + "_pts", [])
         pts.append((r["baseX"], r["baseY"], r["winX"], r["winY"]))
@@ -120,13 +125,13 @@ def own_now(gc, uid):
     return next((u for u in ufos(gc) if u.get("id") == uid and not u.get("coop")), None)
 
 def craft(gc, cid, ctype="STR_INTERCEPTOR"):
-    """the host's own craft; craft ids are per craft type (SKYRANGER-1 and INTERCEPTOR-1 are both id 1; CONSTANTS.md)"""
+    """the host's own craft; craft ids are per craft type (SKYRANGER-1 and INTERCEPTOR-1 are both id 1)"""
     return next(({k: c.get(k) for k in ("id", "type", "status", "destKind")} for b in geo(gc).get("bases", []) if not b.get("coopIcon")
                  for c in b.get("crafts", []) if c.get("id") == cid and c.get("type") == ctype), None)
 
 def bring_up(row):
-    """SEPARATE campaign (the capture's flow) with the client's base placed near the host's -> H, C"""
-    tag = "w2h81_" + row.rid.lower()
+    """SEPARATE campaign with the client's base placed near the host's -> H, C"""
+    tag = "popup_mirror_drop_" + row.rid.lower()
     row.host = GameClient("host", None, make_user_dir(tag + "_host"))
     row.client = GameClient("client", None, make_user_dir(tag + "_client"))
     host, client = row.host, row.client
@@ -167,7 +172,7 @@ def bring_up(row):
     return H, C
 
 def pick_ufo_point(gc, H, C):
-    """the capture's ring around H (r 0.13 / 0.16 / 0.11 / 0.19 x 16), 0.1 <= dist(C) <= 0.4"""
+    """a ring around H (r 0.13 / 0.16 / 0.11 / 0.19 x 16), 0.1 <= dist(C) <= 0.4"""
     for r in (0.13, 0.16, 0.11, 0.19):
         for k in range(16):
             p = (H[0] + r * math.cos(2 * math.pi * k / 16) / max(0.3, math.cos(H[1])), H[1] + r * math.sin(2 * math.pi * k / 16))
@@ -250,7 +255,7 @@ def pre(row, gc, want_top, holders, mirror):
         raise Guard("guard:pre: %s top %s pmc %s; want %s, holders %d, dangling 0, mirror %d" % (gc.name, t, c, want_top, holders, mirror))
 
 def drop(row):
-    """the common drop sequence (f): kill the owner (client), read U under the 62, rejoin, RESUME (real), read R"""
+    """the common drop sequence: kill the owner (client), read U under the 62, rejoin, RESUME (real), read R"""
     host, ev = row.host, row.ev
     row.client.kill()  # staging: the partner's game drops
     ev["killed client rc"] = row.client.proc.returncode
@@ -258,7 +263,7 @@ def drop(row):
     time.sleep(UNDER62_S)
     U = {"pmc": pmc(host), "stack": stack(host), "coop ufos": [u.get("id") for u in ufos(host) if u.get("coop")]}
     ev["U"] = U
-    row.client2 = GameClient("client", None, make_user_dir("w2h81_%s_client2" % row.rid.lower()))
+    row.client2 = GameClient("client", None, make_user_dir("popup_mirror_drop_%s_client2" % row.rid.lower()))
     row.client2.spawn(); row.client2.connect()
     row.client2.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
     ev["ack s"] = wait("guard:ack host resumeAck", lambda: q(host, {"cmd": "get_coop"}).get("resumeAck"), ACK_S, 0.25)
@@ -269,7 +274,7 @@ def drop(row):
                 press(host, "OK", None, 5)
                 ev["profile"] = "OK"
             except Guard:
-                ev["profile"] = "profile_ok lever (no OK TextButton shown)"
+                ev["profile"] = "profile_ok test command (no OK TextButton shown)"
                 q(host, {"cmd": "profile_ok"})
         time.sleep(0.2)
     if top(host) != "CoopState":
@@ -352,22 +357,26 @@ class Row:
                 failed.append(os.path.basename(gc.user_dir) + " shutdown")
         return failed
 
-def drop_reds(row, U, p):
-    row.cell(p + "-dangling", U["pmc"].get("dangling") == 0, "FIX: under the 62 pmc dangling %s; want 0" % U["pmc"].get("dangling"))
-    row.cell(p + "-held", U["pmc"].get("holders") == 0, "FIX: under the 62 pmc holders %s (the popup closed before the delete); want 0"
-             % U["pmc"].get("holders"))
+def drop_cells(row, U, p):
+    row.cell(p + "-dangling", U["pmc"].get("dangling") == 0,
+             "under the 62 pmc dangling %s; want 0" % U["pmc"].get("dangling"))
+    row.cell(p + "-held", U["pmc"].get("holders") == 0,
+             "under the 62 pmc holders %s (the popup closed before the delete); want 0" % U["pmc"].get("holders"))
 
 def intercept_round(row, p, R):
     """R: top GeoscapeState and dangling 0, then INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real); else FAIL "top", no press"""
     host = row.host
     if row.guarded_press(host, "GeoscapeState", "INTERCEPT", "InterceptState") and \
             row.guarded_press(host, "InterceptState", "CANCEL", "GeoscapeState", exact=True):
-        row.cell(p + "-top", True, "FIX: after RESUME top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState (real)")
+        row.cell(p + "-top", True,
+                 "after RESUME top GeoscapeState, dangling 0; INTERCEPT -> InterceptState -> CANCEL -> GeoscapeState "
+                 "(real)")
     else:
-        row.cell(p + "-top", False, "FIX: top: after RESUME top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (R["top"], R["pmc"]))
+        row.cell(p + "-top", False,
+                 "top: after RESUME top %s, pmc %s; want GeoscapeState, dangling 0 (no press)" % (R["top"], R["pmc"]))
 
-def row_ud(row):
-    """UD - the partner drops while the host's UFO-detected popup shows its UFO (D-UD)"""
+def row_detected_popup(row):
+    """detected_popup - the partner drops while the host's UFO-detected popup shows its UFO"""
     H, C = bring_up(row)
     host = row.host
     ou, m = stage_ufo(row, row.client, host, H, C)
@@ -375,15 +384,16 @@ def row_ud(row):
     open_uds(row, host, lambda: mirror_now(host, m["coopId"]))
     pre(row, host, "UfoDetectedState", 1, 1)
     U, R = drop(row)
-    drop_reds(row, U, "UD")
-    row.cell("UD-gone", not U["coop ufos"] and U["pmc"].get("queued") == 0 and U["pmc"].get("queuedDangling") == 0,
+    drop_cells(row, U, "detected_popup")
+    row.cell("detected_popup-gone",
+             not U["coop ufos"] and U["pmc"].get("queued") == 0 and U["pmc"].get("queuedDangling") == 0,
              "under the 62 host coop ufos %s, pmc queued %s, queuedDangling %s; want none, 0, 0"
              % (U["coop ufos"], U["pmc"].get("queued"), U["pmc"].get("queuedDangling")))
-    intercept_round(row, "UD", R)
-    row.alive_cell("UD-alive", row.client2, ALIVE_S)
+    intercept_round(row, "detected_popup", R)
+    row.alive_cell("detected_popup-alive", row.client2, ALIVE_S)
 
-def row_cd(row):
-    """CD - the partner drops while the host confirms a craft's destination on its UFO (D-CD)"""
+def row_confirm_destination(row):
+    """confirm_destination - the partner drops while the host confirms a craft's destination on its UFO"""
     H, C = bring_up(row)
     host, ev = row.host, row.ev
     ou, m = stage_ufo(row, row.client, host, H, C)
@@ -409,21 +419,24 @@ def row_cd(row):
         raise Guard("guard:pre: host stack %s; want [..., SelectDestinationState, ConfirmDestinationState] (setup failure)" % stack(host))
     pre(row, host, "ConfirmDestinationState", 1, 1)
     U, R = drop(row)
-    drop_reds(row, U, "CD")
-    row.cell("CD-below", "SelectDestinationState" in (U["stack"] or []),
+    drop_cells(row, U, "confirm_destination")
+    row.cell("confirm_destination-below", "SelectDestinationState" in (U["stack"] or []),
              "under the 62 host stack %s; want SelectDestinationState in it" % U["stack"])
     k = craft(host, cid)
     ev["CID after R"] = k
     if row.guarded_press(host, "SelectDestinationState", "CANCEL", "GeoscapeState"):
-        row.cell("CD-top", True, "FIX: after RESUME top SelectDestinationState, dangling 0; CANCEL -> GeoscapeState (real)")
+        row.cell("confirm_destination-top", True,
+                 "after RESUME top SelectDestinationState, dangling 0; CANCEL -> GeoscapeState (real)")
     else:
-        row.cell("CD-top", False, "FIX: top: after RESUME top %s, pmc %s; want SelectDestinationState, dangling 0 (no press)"
+        row.cell("confirm_destination-top", False,
+                 "top: after RESUME top %s, pmc %s; want SelectDestinationState, dangling 0 (no press)"
                  % (R["top"], R["pmc"]))
-    row.cell("CD-craft", k is not None and k.get("status") == "STR_READY", "after R CID %s: %s; want status STR_READY" % (cid, k))
-    row.alive_cell("CD-alive", row.client2, ALIVE_S)
+    row.cell("confirm_destination-craft", k is not None and k.get("status") == "STR_READY",
+             "after R CID %s: %s; want status STR_READY" % (cid, k))
+    row.alive_cell("confirm_destination-alive", row.client2, ALIVE_S)
 
-def row_ti(row):
-    """TI - the partner drops while the host's target-info window shows its UFO (D-TI)"""
+def row_target_info(row):
+    """target_info - the partner drops while the host's target-info window shows its UFO"""
     H, C = bring_up(row)
     host, ev = row.host, row.ev
     ou, m = stage_ufo(row, row.client, host, H, C)
@@ -441,12 +454,12 @@ def row_ti(row):
     list_row_click(row, host, len(sites) + ui, "TargetInfoState")
     pre(row, host, "TargetInfoState", 1, 1)
     U, R = drop(row)
-    drop_reds(row, U, "TI")
-    intercept_round(row, "TI", R)
-    row.alive_cell("TI-alive", row.client2, ALIVE_S)
+    drop_cells(row, U, "target_info")
+    intercept_round(row, "target_info", R)
+    row.alive_cell("target_info-alive", row.client2, ALIVE_S)
 
-def row_dc(row):
-    """DC - the partner drops while the host's popup shows the host's OWN UFO (the targeting guard)"""
+def row_own_ufo_popup(row):
+    """own_ufo_popup - the partner drops while the host's popup shows the host's OWN UFO (the targeting guard)"""
     H, C = bring_up(row)
     host = row.host
     ou, m = stage_ufo(row, host, row.client, H, C)
@@ -455,22 +468,27 @@ def row_dc(row):
     pre(row, host, "UfoDetectedState", 1, 0)
     U, R = drop(row)
     c = U["pmc"]
-    row.cell("DC-kept", c.get("holders") == 1 and c.get("dangling") == 0 and c.get("mirror") == 0,
+    row.cell("own_ufo_popup-kept", c.get("holders") == 1 and c.get("dangling") == 0 and c.get("mirror") == 0,
              "under the 62 pmc %s; want holders 1, dangling 0, mirror 0 (the drop closes only popups on the partner's objects)" % c)
-    row.cell("DC-top", R["top"] == "UfoDetectedState" and R["pmc"].get("dangling") == 0,
+    row.cell("own_ufo_popup-top", R["top"] == "UfoDetectedState" and R["pmc"].get("dangling") == 0,
              "after RESUME top %s, pmc %s; want UfoDetectedState, dangling 0" % (R["top"], R["pmc"]))
     if row.guarded_press(host, "UfoDetectedState", "CANCEL", "GeoscapeState", exact=True):
-        row.alive_cell("DC-cancel", row.client2, ALIVE_DC_S, "CANCEL -> GeoscapeState (real); ")
+        row.alive_cell("own_ufo_popup-cancel", row.client2, ALIVE_DC_S, "CANCEL -> GeoscapeState (real); ")
     else:
-        row.cell("DC-cancel", False, "top: no press (top %s)" % top(host))
+        row.cell("own_ufo_popup-cancel", False, "top: no press (top %s)" % top(host))
 
 def main():
     t0 = time.time()
     print("CPU start: %s" % cpu(), flush=True)
-    plan = (("UD", ["UD-dangling", "UD-held", "UD-gone", "UD-top", "UD-alive"], row_ud),
-            ("CD", ["CD-dangling", "CD-held", "CD-below", "CD-top", "CD-craft", "CD-alive"], row_cd),
-            ("TI", ["TI-dangling", "TI-held", "TI-top", "TI-alive"], row_ti),
-            ("DC", ["DC-kept", "DC-top", "DC-cancel"], row_dc))
+    plan = (("detected_popup", ["detected_popup-dangling", "detected_popup-held", "detected_popup-gone",
+                                "detected_popup-top", "detected_popup-alive"], row_detected_popup),
+            ("confirm_destination", ["confirm_destination-dangling", "confirm_destination-held",
+                                     "confirm_destination-below", "confirm_destination-top",
+                                     "confirm_destination-craft", "confirm_destination-alive"],
+             row_confirm_destination),
+            ("target_info", ["target_info-dangling", "target_info-held", "target_info-top", "target_info-alive"],
+             row_target_info),
+            ("own_ufo_popup", ["own_ufo_popup-kept", "own_ufo_popup-top", "own_ufo_popup-cancel"], row_own_ufo_popup))
     fails, shut_fails, total, walls = [], [], 0, {}
     for rid, cells, fn in plan:
         row = Row(rid, cells)
