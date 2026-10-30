@@ -1,14 +1,14 @@
-"""an in-memory SPEC 16 rejoin re-arms the host's hostile reveal set
-(spec rewrite/prompts/w2h12_rejoin_reveal_rearm.md (f); SD-2; F3603, F3620,
-F3621). ONE boot (test_death_side's default map, lobby PORT_H12): A_ID to
-T1, the client leaves, a fresh process (client2) rejoins, the host presses
-RESUME. H12-1: the host's hostile set is re-armed and baselined to client2.
-H12-2: A_ID to T2 grows it by >= G2 on both machines. H12-3: an END TURN
-cycle's boundary hash carries revealHostile. W2-H12b (D219 b; F3748; spec
-rewrite/prompts/w2h12b_rejoin_keep_hostile_map.md (f)) H12b-1: the leave keeps
-the host's hostile set (pause census == P, at T1); after RESUME the host's is >= P,
-client2's equal, revealHostile == P's on both. A boot/rejoin step past its bound
-is a setup failure (one CAPTURE line; every row FAILs "boot"/"rejoin"). Each
+"""A rejoin into a battle the host kept in memory re-arms the host's hostile reveal set (the tiles the aliens have
+seen) and keeps what that set held before the leave.
+
+ONE boot (test_death_side's default map, this file's LOBBY_PORT): A_ID to FIRST_TILE, the client leaves, a fresh
+process (client2) rejoins, the host presses RESUME. Rows, in run order:
+  hostile_set_rearmed   the host's hostile set is re-armed and baselined to client2.
+  pre_leave_map_kept    the leave keeps the host's hostile set (pause census == P, at FIRST_TILE); after RESUME the
+                        host's is >= P, client2's equal, revealHostile == P's on both.
+  tracking_resumes      A_ID to SECOND_TILE grows it by >= SECOND_TILE_GROWTH on both machines.
+  boundary_hash_reveal  an END TURN cycle's boundary hash carries revealHostile.
+A boot/rejoin step past its bound is a setup failure (one CAPTURE line; every row FAILs "boot"/"rejoin"). Each
 row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>";
 every row runs; a staging failure fails later rows "staging".
 ONE foreground run, no skip path; exit 0 only when all rows pass, 2 otherwise.
@@ -31,12 +31,12 @@ from test_skirmish_rejoin_battle import (drop_client_mid_battle, rejoin_skirmish
                                          states, has, COOP_DLG_WAIT_PLAYERS, COOP_DLG_CLIENT_RESUME_HOLD)
 from test_delta_core import tele_both, end_turn_cycle, short, desync_record
 
-PORT_H12 = "48497"            # this file's lobby port (unused by every other test file)
-# TASK 0 (ledger `## W2-H12 TASK 0`, docs rewrite/w2h12-task0/CONSTANTS.md; F3660: identical on 4 seed-pinned boots)
-T1, D1 = (9, 31, 0), 1        # A_ID's first teleport, facing the map centre: hostile floor 318 -> 1081 (+763)
-T1_FLOOR = 1081               # the T1 bar: the hostile floor TASK 0 measured at T1 (host = client)
-T2, D2 = (31, 9, 0), 5        # H12-2's teleport: hostile floor -> 1724
-G2 = 643                      # the measured T2 growth (H12-2's bar)
+LOBBY_PORT = "48497"          # this file's lobby port (unused by every other test file)
+# Measured values, identical on 4 seed-pinned boots:
+FIRST_TILE, FIRST_DIR = (9, 31, 0), 1      # A_ID's first teleport, facing the map centre: hostile floor 318 -> 1081
+FIRST_TILE_FLOOR = 1081                    # the bar at FIRST_TILE: the hostile floor measured there (host = client)
+SECOND_TILE, SECOND_DIR = (31, 9, 0), 5    # the tracking_resumes row's teleport: hostile floor -> 1724
+SECOND_TILE_GROWTH = 643                   # the measured growth at SECOND_TILE (the tracking_resumes row's bar)
 L0_NEEDLE = "BASELINE hostile restate (first ev after phase Active): absolute base restate sent (side=hostile"
 EMPTY_NEEDLE = "[coop-fog] hostile reveal set allocated EMPTY ("
 BASE_RE = re.compile(r"\[coop-reveal\] applied base restate at seq \d+ \(side=hostile, ")
@@ -104,15 +104,15 @@ def step(name, fn, machines):
         miss(name, short(e, 800), machines)
 
 def boot(host, client):
-    """Copy of test_death_side.boot_default on lobby PORT_H12."""
-    hc.bring_up_lobby_roster_pinned(host, client, PORT_H12)
+    """Copy of test_death_side.boot_default on this file's LOBBY_PORT."""
+    hc.bring_up_lobby_roster_pinned(host, client, LOBBY_PORT)
     session.drive_to_battlescape(host, client, {}, seat_count=2,
                                  pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP_DEFAULT}))
     hs, cs = battle_state(host), battle_state(client)
     assert hs.get("mapFingerprint") == MAP_FP_DEFAULT and cs.get("mapFingerprint") == MAP_FP_DEFAULT, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} "
         f"(baked {MAP_FP_DEFAULT!r})")
-    assert pin_ai_neutral(host, client, tag="w2h12"), "pin_ai_neutral pinned no NONE-seat non-player unit"
+    assert pin_ai_neutral(host, client, tag="rejoin_reveal_rearm"), "pin_ai_neutral pinned no NONE-seat non-player unit"
     ub = session.units_by_id(hs)
     for uid, seat in ((HOST_SOLDIER_ID, COOP_SEAT_0), (CLIENT_SOLDIER_ID, COOP_SEAT_1)):
         u = ub.get(uid) or {}
@@ -128,35 +128,37 @@ def wait_unpublished_clear(host):
                   lambda: (hostile(host)["unpublishedHostile"] is False) or None, timeout=UNPUB_S)
 
 def stage_boot(host, client, ctx):
-    """Boot, A_ID to T1, census and hash with revealHostile; record P (D219 evidence) and L0 (must be 1)."""
+    """Boot, A_ID to FIRST_TILE, census and hash with revealHostile; record P (the map before the leave) and L0 (the
+    host's BASELINE hostile restate count, must be 1)."""
     m = (host, client)
     step("boot", lambda: boot(host, client), m)
-    step("tele_both T1", lambda: tele_both(host, client, A_ID, T1, D1), m)
-    step("wait_host_idle after T1", lambda: session.wait_host_idle(host, client, timeout=IDLE_S), m)
-    step("host unpublishedHostile false after T1", lambda: wait_unpublished_clear(host), m)
+    step("tele_both FIRST_TILE", lambda: tele_both(host, client, A_ID, FIRST_TILE, FIRST_DIR), m)
+    step("wait_host_idle after FIRST_TILE", lambda: session.wait_host_idle(host, client, timeout=IDLE_S), m)
+    step("host unpublishedHostile false after FIRST_TILE", lambda: wait_unpublished_clear(host), m)
     hh, ch = hostile(host), hostile(client)
-    bad = hash_fails(host, client, "after T1")
-    if hh["census"] != ch["census"] or (hh["census"][0] or 0) < T1_FLOOR:
-        bad.insert(0, f"hostile census host {hh['census']} client {ch['census']} (want equal, floor >= {T1_FLOOR})")
+    bad = hash_fails(host, client, "after FIRST_TILE")
+    if hh["census"] != ch["census"] or (hh["census"][0] or 0) < FIRST_TILE_FLOOR:
+        bad.insert(0, f"hostile census host {hh['census']} client {ch['census']} "
+                      f"(want equal, floor >= {FIRST_TILE_FLOOR})")
     time.sleep(LOG_FLUSH_S)
     ctx["P"], ctx["L0"] = {"census": hh["census"], "revealHostile": rh(host)}, log_count(host, L0_NEEDLE)
     if ctx["L0"] != 1:
         bad.append(f"host BASELINE hostile restate count L0 = {ctx['L0']} (want 1)")
     evidence("boot", {"P": ctx["P"], "L0": ctx["L0"], "clientCensus": ch["census"]})
     if bad:
-        miss("T1 census, hash and L0", "; ".join(bad), m)
+        miss("FIRST_TILE census, hash and L0", "; ".join(bad), m)
 
 def stage_rejoin(host, client, ctx):
-    """The spec (f) leave + rejoin steps 1-9, each bounded. Returns client2."""
+    """The leave and rejoin steps 1-9, each bounded. Returns client2."""
     m = [host, client]
     bid0 = (battle_state(host).get("authority") or {}).get("battleId")
     step("1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
     ctx["pause"] = hostile(host)
-    evidence("pause", {"hostHostile": ctx["pause"]})             # H12b: kept
-    client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir("w2h12_rearm_rejoin"))
+    evidence("pause", {"hostHostile": ctx["pause"]})             # pre_leave_map_kept reads it
+    client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir("rejoin_reveal_rearm_rejoin"))
     m.append(client2)
     step("3 client2 spawn and connect", lambda: (client2.spawn(), client2.connect()), m)
-    step("4 rejoin_skirmish", lambda: rejoin_skirmish(client2, PORT_H12), m)
+    step("4 rejoin_skirmish", lambda: rejoin_skirmish(client2, LOBBY_PORT), m)
 
     def s5():
         client2.wait_for("client2 back in the battle", lambda: in_battle_save(client2) or None, timeout=240)
@@ -195,14 +197,15 @@ def stage_rejoin(host, client, ctx):
     step("9 wait_host_idle(host, client2)", lambda: session.wait_host_idle(host, client2, timeout=IDLE_S), m)
     return client2
 
-def h12_1(host, c2, ctx):
+def row_hostile_set_rearmed(host, c2, ctx):
     time.sleep(LOG_FLUSH_S)
     hh, ch = hostile(host), hostile(c2)
     l0n, base = log_count(host, L0_NEEDLE), log_count(c2, BASE_RE)
-    evidence("H12-1", {"host": hh, "client2": ch, "revealHostile": {"host": rh(host), "client2": rh(c2)},
-                       "hostBaseline": {"L0": ctx["L0"], "now": l0n}, "client2BaseHostile": base,
-                       "desyncSeen": [desync_seen(host), desync_seen(c2)],
-                       "D219": {"P": ctx["P"], "hostAllocatedEmpty": log_count(host, EMPTY_NEEDLE)}})
+    evidence("hostile_set_rearmed",
+             {"host": hh, "client2": ch, "revealHostile": {"host": rh(host), "client2": rh(c2)},
+              "hostBaseline": {"L0": ctx["L0"], "now": l0n}, "client2BaseHostile": base,
+              "desyncSeen": [desync_seen(host), desync_seen(c2)],
+              "preLeaveMap": {"P": ctx["P"], "hostAllocatedEmpty": log_count(host, EMPTY_NEEDLE)}})
     f = []
     if not hh["allocated"]:
         f.append(f"host hostile set not re-armed (allocated {hh['allocated']}, size {hh['size']})")
@@ -221,13 +224,14 @@ def h12_1(host, c2, ctx):
         f.append(f"client2 applied hostile base restates {base} (want exactly 2)")
     return f + desync_fails(host, c2)
 
-def h12b_1(host, c2, ctx):
-    """W2-H12b, reads only, after H12-1. Q2 (a): a forced pass at T1 discovers 0 (TASK 0 F4584, 3/3)."""
+def row_pre_leave_map_kept(host, c2, ctx):
+    """Reads only, after hostile_set_rearmed. revealHostile must equal P's exactly: a forced reveal pass at FIRST_TILE
+    discovers no new tile (measured on 3 boots)."""
     p, pz, hh, ch = ctx["P"], ctx.get("pause") or {}, hostile(host), hostile(c2)
     rhh, rhc = rh(host), rh(c2)
-    evidence("H12b-1", {"P": p, "pause": pz, "host": hh, "client2": ch,
-                        "revealHostile": {"host": rhh, "client2": rhc},
-                        "desyncSeen": [desync_seen(host), desync_seen(c2)]})
+    evidence("pre_leave_map_kept", {"P": p, "pause": pz, "host": hh, "client2": ch,
+                                    "revealHostile": {"host": rhh, "client2": rhc},
+                                    "desyncSeen": [desync_seen(host), desync_seen(c2)]})
     lost = []
     if not pz.get("allocated") or pz.get("census") != p["census"]:
         lost.append(f"pause: host hostile allocated {pz.get('allocated')} census {pz.get('census')} "
@@ -242,14 +246,14 @@ def h12b_1(host, c2, ctx):
     if rhc != rhh:
         lost.append(f"after RESUME: client2 revealHostile {rhc} != host's {rhh}")
     f = ["the alien side lost its pre-leave map (" + "; ".join(lost) + ")"] if lost else []
-    return f + hash_fails(host, c2, "H12b-1") + desync_fails(host, c2)
+    return f + hash_fails(host, c2, "pre_leave_map_kept") + desync_fails(host, c2)
 
-def h12_2(host, c2, ctx):
+def row_tracking_resumes(host, c2, ctx):
     c0, a0 = hostile(host)["census"], log_count(c2, ADD_RE)
     try:
-        tele_both(host, c2, A_ID, T2, D2)                      # client2 first
+        tele_both(host, c2, A_ID, SECOND_TILE, SECOND_DIR)     # client2 first
     except Exception as e:
-        ctx["staging"] = f"H12-2 tele_both T2: {short(e)}"
+        ctx["staging"] = f"tracking_resumes tele_both SECOND_TILE: {short(e)}"
         return [f"staging: {ctx['staging']}"]
     notes = []
     for what, fn in (("wait_host_idle", lambda: session.wait_host_idle(host, c2, timeout=IDLE_S)),
@@ -257,28 +261,30 @@ def h12_2(host, c2, ctx):
         try:
             fn()
         except Exception as e:
-            notes.append(f"{what} after T2: {short(e)}")
+            notes.append(f"{what} after SECOND_TILE: {short(e)}")
     time.sleep(LOG_FLUSH_S)
     hh, ch, a1 = hostile(host), hostile(c2), log_count(c2, ADD_RE)
-    evidence("H12-2", {"C0": c0, "host": hh, "client2": ch, "client2AddHostile": [a0, a1], "G2": G2,
-                       "notes": notes, "desyncSeen": [desync_seen(host), desync_seen(c2)]})
+    evidence("tracking_resumes", {"C0": c0, "host": hh, "client2": ch, "client2AddHostile": [a0, a1],
+                                  "SECOND_TILE_GROWTH": SECOND_TILE_GROWTH, "notes": notes,
+                                  "desyncSeen": [desync_seen(host), desync_seen(c2)]})
     f = []
-    if not hh["allocated"] or (hh["census"][0] or 0) < (c0[0] or 0) + G2 or a1 - a0 < 1:
+    if not hh["allocated"] or (hh["census"][0] or 0) < (c0[0] or 0) + SECOND_TILE_GROWTH or a1 - a0 < 1:
         f.append(f"tracking did not resume (host allocated {hh['allocated']}, host floor {c0[0]} -> {hh['census'][0]} "
-                 f"(want >= +{G2}), client2 hostile add deltas +{a1 - a0} (want >= 1))")
+                 f"(want >= +{SECOND_TILE_GROWTH}), client2 hostile add deltas +{a1 - a0} (want >= 1))")
     if hh["census"] != ch["census"]:
         f.append(f"hostile census host {hh['census']} client2 {ch['census']} (want equal)")
-    f += hash_fails(host, c2, "after T2")
+    f += hash_fails(host, c2, "after SECOND_TILE")
     return f + notes + desync_fails(host, c2)
 
-def h12_3(host, c2, ctx):
+def row_boundary_hash_reveal(host, c2, ctx):
     rhv = lambda: (event_state(c2).get("hashVerifyCounts") or {}).get("revealHostile", 0)  # noqa: E731
     v0, t0, notes = rhv(), [battle_state(gc).get("turn") for gc in (host, c2)], []
     end_turn_cycle(host, c2, notes)
     v1, t1 = rhv(), [battle_state(gc).get("turn") for gc in (host, c2)]
-    evidence("H12-3", {"V0": v0, "V1": v1, "hashVerifyCounts": event_state(c2).get("hashVerifyCounts"),
-                       "turn": {"before": t0, "after": t1}, "notes": notes,
-                       "desyncSeen": [desync_seen(host), desync_seen(c2)]})
+    evidence("boundary_hash_reveal",
+             {"V0": v0, "V1": v1, "hashVerifyCounts": event_state(c2).get("hashVerifyCounts"),
+              "turn": {"before": t0, "after": t1}, "notes": notes,
+              "desyncSeen": [desync_seen(host), desync_seen(c2)]})
     f = []
     if v1 < v0 + 1:
         f.append(f"boundary hash carries no revealHostile (client2 hashVerifyCounts.revealHostile {v0} -> {v1}, "
@@ -288,12 +294,13 @@ def h12_3(host, c2, ctx):
     f += hash_fails(host, c2, "after the cycle")
     return f + notes + desync_fails(host, c2)
 
-ROWS = (("H12-1", h12_1), ("H12b-1", h12b_1), ("H12-2", h12_2), ("H12-3", h12_3))
+ROWS = (("hostile_set_rearmed", row_hostile_set_rearmed), ("pre_leave_map_kept", row_pre_leave_map_kept),
+        ("tracking_resumes", row_tracking_resumes), ("boundary_hash_reveal", row_boundary_hash_reveal))
 
 def main():
     t0, results, ctx, c2 = time.time(), {}, {}, None
-    host = GameClient("host", None, make_user_dir("w2h12_rearm_host"))
-    client = GameClient("client", None, make_user_dir("w2h12_rearm_client"))
+    host = GameClient("host", None, make_user_dir("rejoin_reveal_rearm_host"))
+    client = GameClient("client", None, make_user_dir("rejoin_reveal_rearm_client"))
     try:
         try:
             stage_boot(host, client, ctx)
@@ -317,7 +324,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h12] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[rejoin_reveal_rearm] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [r for r, _fn in ROWS if results.get(r)]
     failed = [r for r, _fn in ROWS if not results.get(r)]
     print(f"\ntest_rejoin_reveal_rearm: {len(passed)}/{len(ROWS)} passed (pass={passed} fail={failed}) in "
