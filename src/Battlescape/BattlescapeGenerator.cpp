@@ -1534,6 +1534,9 @@ BattleUnit *BattlescapeGenerator::addXCOMVehicle(Vehicle *v)
 	if (unit)
 	{
 		coopTagGuestVehicleUnit(v, unit); // coop: a SEPARATE partner's tank copy's unit is tagged; a no-op otherwise
+		// coop: a Separate campaign's tank is commanded by its owner's seat (read when the seats are assigned)
+		if (_game->getCoopMod()->isSeparateCampaign())
+			unit->setCoopSeat((CoopSeat)v->getCoop());
 		if (!_save->isPreview())
 		{
 			_save->createItemForUnit(v->getRules(), unit, true);

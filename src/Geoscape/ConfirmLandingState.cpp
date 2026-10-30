@@ -274,11 +274,13 @@ void ConfirmLandingState::btnYesClick(Action *)
 	// touch the shared world. Report the answer; the host does the rest.
 	if (_sharedBroker)
 	{
+		// Close this copy first: on a Separate host the answer to its own craft's prompt
+		// starts the battle at once, and the briefing it pushes must stay on top.
+		_game->popState();
 		if (_game->getCoopMod()->isSharedCampaign())
 			SharedEcon::submitLandReply(_game, _craft, true, false);
 		else
 			SeparateEcon::submitLandReply(_game, _craft, true, false);
-		_game->popState();
 		return;
 	}
 
@@ -313,6 +315,21 @@ void ConfirmLandingState::btnYesClick(Action *)
 		AlienBase *b = dynamic_cast<AlienBase *>(_craft->getDestination());
 
 		SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+		if (coopLanding && _craft->getBase())
+		{
+			// The battle belongs to the player whose craft launched it; a faction's mission
+			// keeps scoring for the faction that owns the mission.
+			bgame->setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName());
+			if (_game->getCoopMod()->isSeparateCampaign()
+				&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+			{
+				std::string factionScoreOwner;
+				if (u && u->getMission()) factionScoreOwner = u->getMission()->getOwnerPlayerName();
+				else if (m) factionScoreOwner = m->getOwnerPlayerName();
+				else if (b) factionScoreOwner = b->getOwnerPlayerName();
+				bgame->setFactionScoreOwnerPlayerName(factionScoreOwner);
+			}
+		}
 		_game->getSavedGame()->setBattleGame(bgame);
 		BattlescapeGenerator bgen(_game);
 		bgen.setWorldTexture(_missionTexture, _globeTexture);

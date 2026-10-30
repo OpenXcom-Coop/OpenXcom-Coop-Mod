@@ -2006,7 +2006,10 @@ void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vect
 			unit->convertToFaction(FACTION_PLAYER);
 
 			Soldier* soldier = unit->getGeoscapeSoldier();
-			const int owner = soldier ? soldier->getCoop() : -1;
+			// A Separate campaign's tank keeps the seat of the player who owns it
+			// (the generator stamps it from the vehicle).
+			const int owner = soldier ? soldier->getCoop()
+				: (connectionTCP::isSeparateCampaignStatic() ? (int)unit->getCoopSeat() : -1);
 			bool ownerValid = false;
 			for (int s : seats)
 			{
@@ -2163,6 +2166,9 @@ void coopStampCraftSeats(Craft* craft)
 		soldier->setCoop(owner == 999 ? 0 : owner);
 	}
 
+	// A Separate campaign's vehicles keep their owners' seats.
+	if (connectionTCP::isSeparateCampaignStatic())
+		return;
 	for (auto* vehicle : *craft->getVehicles())
 	{
 		if (vehicle)
