@@ -43,7 +43,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import session
-import test_pause_on_leave as s16
+import test_pause_on_leave as pause_on_leave
 
 PORT = "47960"
 RESUME_PORT = "47961"
@@ -443,15 +443,15 @@ def stage_alien_and_walk(host, client, walker_id):
     on-screen and vanilla paces every step at battleXcomSpeed - the
     save request lands mid-walk. Returns (elevator, dest, lw, pending) once
     the walk is observed >=2-pending mid-flight."""
-    aliens = s16._find_alien(host)
+    aliens = pause_on_leave._find_alien(host)
     assert aliens, "PRECONDITION: no living alien on this boot"
     alien = aliens[0]
     walker = next(u for u in battle(host)["units"] if u["id"] == walker_id)
 
-    lx, ly, ds_id, ds_info = s16._locate_ufo_lift_column(host)
+    lx, ly, ds_id, ds_info = pause_on_leave._locate_ufo_lift_column(host)
     assert lx is not None, f"PRECONDITION: no rare UFO lift/hull dataset column found: {ds_info}"
     elevator = (lx, ly, 1)
-    away = s16._away_direction(walker, (lx, ly))
+    away = pause_on_leave._away_direction(walker, (lx, ly))
     session.place_deterministic(
         host, client, [{"cmd": "battle_teleport_unit", "unit": alien["id"],
                         "x": lx, "y": ly, "z": 1, "dir": away}],
@@ -510,7 +510,7 @@ def stage_alien_and_walk(host, client, walker_id):
     assert tus[0] == tus[1], f"PRECONDITION: the walker's full TU differs host/client: {tus}"
     assert tus[0] >= tu_cost, f"PRECONDITION: the walker's full TU {tus[0]} < the path's tuCost {tu_cost}"
     session.assert_hash_clean(host, client, full=True, what="walker full TU")
-    assert s16._select_by_tab(host, walker_id), "PRECONDITION: could not TAB-select the walker"
+    assert pause_on_leave._select_by_tab(host, walker_id), "PRECONDITION: could not TAB-select the walker"
     walker = next(u for u in battle(host)["units"] if u["id"] == walker_id)
     assert (walker["x"], walker["y"], walker["z"]) == start, (
         f"PRECONDITION: the walker is not on the start corner {start}: {walker}")
@@ -525,7 +525,7 @@ def stage_alien_and_walk(host, client, walker_id):
     assert pr.get("verified") is True and pr.get("centered") is False, (
         f"PRECONDITION: the destination corner {dest} is not clickable on the roof view: {pr}")
     host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
-    lw, pending = s16._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
+    lw, pending = pause_on_leave._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
     if lw is None:
         # on-timeout diagnostic ONLY. The mid-walk-pending poll
         # gave up (pending stayed < 2 within the window); dump the staging/walk state
