@@ -216,13 +216,14 @@ def h1(x, r):   # craft list: right-click (client, row 1) and shift+right-click 
     h, c = x.host, x.client
     for gc, row, mod, n, o in ((c, 1, None, "H16d-1a client right-click craft row 1", "O-2a"),
                                (h, 0, "shift", "H16d-1b host shift+right-click craft row 0", "O-2b")):
-        L = equip_craft(r, gc, n[:7])
+        L = equip_craft(r, gc, n.split(" ")[0])
         p = (L[0] + L[2] / 2.0, L[1] + 8 * row + 4)
         cell(x, r, n, gc, crafts, lambda: click(gc, *p, button="right", mod=mod),
              f"the {gc.name}'s craft list reordered on its machine only ({o})", shift=bool(mod))
         click(gc, *p)   # the click guard: a left-click on the same row opens the craft
-        r.need(f"guard:{n[:7]} {gc.name} click guard CraftInfoState", wait_until(lambda: top(gc) == "CraftInfoState", 3.0), stack(gc))
-        close(r, gc, n[:7])
+        r.need(f"guard:{n.split(' ')[0]} {gc.name} click guard CraftInfoState",
+               wait_until(lambda: top(gc) == "CraftInfoState", 3.0), stack(gc))
+        close(r, gc, n.split(" ")[0])
 def h2(x, r):   # soldier-list sort box (client)
     c = x.client
     open_screen(r, c, "H16d-2", "soldiers", "SoldiersState")
@@ -265,11 +266,11 @@ def h6(x, r):   # research arrows: client row 0 DOWN, host row 1 UP
            {H: research(h), C: research(c), "P": x.P})
     for gc, row, down, n in ((c, 0, True, "H16d-6a client research row 0 DOWN arrow"),
                              (h, 1, False, "H16d-6b host research row 1 UP arrow")):
-        open_screen(r, gc, n[:7], "research", "ResearchState")
-        L = one(r, gc, "TextList", n[:7])
+        open_screen(r, gc, n.split(" ")[0], "research", "ResearchState")
+        L = one(r, gc, "TextList", n.split(" ")[0])
         arrow(x, r, n, gc, L, ARROW_RESEARCH, row, down,
               f"the {gc.name}'s research list reordered on its machine only (O-4)", probe=research)
-        close(r, gc, n[:7])
+        close(r, gc, n.split(" ")[0])
 def h8(x, r):   # base strip (client) + a command by index (LAST in Boot A)
     h, c = x.host, x.client
     r.need("guard:H16d-8 bases [HostBase, SharedBase2] on both", bases(h) == [HB, SB2] and bases(c) == [HB, SB2],
