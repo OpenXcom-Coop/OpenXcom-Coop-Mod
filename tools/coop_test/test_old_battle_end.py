@@ -1,12 +1,14 @@
-"""A SEPARATE co-op campaign saved mid-battle by an older version and converted at the host's load ends with the
-guest's record back in its owner's world and no copy left in the host's world.
+"""A SEPARATE co-op campaign saved mid-battle by an older version (two worlds), upgraded to one world and converted at
+the host's load, ends with the client's soldier keeping this battle's record in the shared save and no battle copy
+left.
 
 Fixture: tools/coop_test/fixtures/separate_battle.sav (the file test_old_battle_resume.py loads, unedited). Every
 record is found by id and checked by coopName, never by a display name the partner world also has.
 
 One boot, row guest_returns_home (key 46612, dirs old_battle_end_*): the host gets the fixture, the client an EMPTY
-dir. Construction (preconditions, not cells; a miss prints ONE CAPTURE line and FAILs every cell "boot"): host
-load_save_menu -> HostMenu; the one conversion line == CONVERT_LINE (test_old_battle_resume.py's values); the resume
+dir. Construction (preconditions, not cells; a miss prints ONE CAPTURE line and FAILs every cell "boot"): the
+fixture through the save upgrade (test_old_battle_resume.upgrade_save), host load_save_menu of the upgraded save ->
+HostMenu; the one conversion line == CONVERT_LINE (test_old_battle_resume.py's values); the resume
 (test_old_battle_resume.py's resume steps on key 46612); the host's RESUME (CoopState 60 / 62); traditional mode with
 the host's go (coopEndTurnTally.activeSeat 0 on both).
   kill_hostiles           every live hostile killed by the host's kill_unit_real, BES.chain_settled after each: the
@@ -14,17 +16,14 @@ the host's go (coopEndTurnTally.activeSeat 0 on both).
   both_debriefings        host END TURN -> coopEndTurnTally.activeSeat 1 on both; client END TURN; the host's
                           NextTurnState closed; the host's DebriefingState (title DEBRIEF_TITLE) within 60 s; the
                           client's display-only DebriefingState within 20 s
-  client_record_updated   the client's OK through its follow-ups -> its own GeoscapeState; battleEnd.sepReturn ==
-                          SEP_ALIVE; the client's soldier_record {id: OWN_ID}: missions == OWN_MISSIONS + 1, coopName
-                          == OWN_COOPNAME (without the fix: guestsApplied 0, missions unchanged - the older version's
-                          copy carries no coop-origin tag)
-  no_mirror_in_own_world  the client's soldier_record {name} for each host squad name == exactly OWN_TWINS (the
-                          partner's own soldier of that name, coop 0): no host mirror in the client's own world
+  client_record_updated   the client's OK through its follow-ups -> its GeoscapeState; soldier_record {name:
+                          GUEST_NAME} on each machine: exactly one record, living, in a base, the client's (owner
+                          CLIENT_SEAT), with missions == OWN_MISSIONS + 1, the same on both machines (the battle copy
+                          fought this battle; its record is the client's soldier's)
   no_host_copy            the host's OK + BES.drain -> GeoscapeState; no living soldier_record {id: COPY_ID} on the
-                          host
-  common_checks           every hash bucket EQUAL (taken after the kills, the last point both machines hold the
-                          battle: after the debriefing a SEPARATE pair holds two worlds); desyncSeen false on both, no
-                          new lane crash file and the client wrote no save (at the end)
+                          host (the battle copy is gone)
+  common_checks           every hash bucket EQUAL (taken after the kills); desyncSeen false on both, no new lane
+                          crash file and the client wrote no save (at the end)
 
 One EVIDENCE line, then one PASS/FAIL line per cell, then the row verdict. Every cell runs after a failure; a cell whose
 precondition failed FAILs "not reached". ONE run is the result, no skip path; exit 0 only when every cell passes, else
@@ -49,19 +48,14 @@ KEY = "46612"
 CONVERT_LINE = (OBR.PARTNER_SNAPSHOTS, OBR.PARTNER_MIRRORS, OBR.SEATED[0], OBR.SEATED[1], OBR.UNSEATED, "traditional",
                 OBR.DEPLOYMENT)
 GUEST = OBR.GUEST_UNIT            # the guest copy's battle unit (9)
-COPY_ID = 9                       # the host world's older-version copy: "Guest Zzz", coopname "Gaston Faure", owner 999
-OWN_ID, OWN_MISSIONS = 8, 0       # the client's own guest soldier (partner world id 8) and its saved missions
-OWN_COOPNAME = "Gaston Faure"     # its coopName (measured on 4 of 4 boots; "Guest Zzz" is only its display name)
-# (id, coopName, coop) of the partner's own soldiers named as the host squad: no host mirror beside them
-OWN_TWINS = {"Erno Bartok": [(1, "Erno Bartok", 0)], "Robin Berggren": [(2, "Robin Berggren", 0)],
-             "Lyris Kollias": [(3, "Lyris Kollias", 0)]}
+COPY_ID = 9                       # the older version's battle copy of the client's soldier: owner 999, coop 1
+GUEST_NAME, OWN_MISSIONS = "Guest Zzz", 0   # the client's own soldier (one record once upgraded) and its saved missions
+CLIENT_SEAT = 1                   # the client's soldier's owner in the upgraded save
 HOSTILES = list(range(1000000, 1000014))
 DEBRIEF_TITLE = "Aliens defeated"
-SEP_ALIVE = {"ownLoaded": 1, "guestsApplied": 1, "guestsMissing": 0, "pushed": 1}
 STATUS_DEAD = 6
 SETTLE_S, END_S, DEBRIEF_S, CLIENT_DEBRIEF_S = 45, 30, 60, 20
-CELLS = ("kill_hostiles", "both_debriefings", "client_record_updated", "no_mirror_in_own_world", "no_host_copy",
-         "common_checks")
+CELLS = ("kill_hostiles", "both_debriefings", "client_record_updated", "no_host_copy", "common_checks")
 
 
 def hostiles(gc):
@@ -83,10 +77,16 @@ def entry_mode(host, client, ev, tag):
     return ok(), f"(turnMode, activeSeat) host/client {got} after {s} s (want traditional, 0 on both)"
 
 
+def load_upgraded(host, ev, tag):
+    """The fixture through the save upgrade (OBR.upgrade_save), then the host's load of the upgraded save."""
+    up, save, why = OBR.upgrade_save(host, os.path.basename(OBR.FIXTURE), ev, tag)
+    return OBR.load_cell(host, save, ev, tag) if up else (False, why)
+
+
 def enter(host, client, key, ev, tag):
     """The boot's construction: load, the conversion line, the resume, the host's RESUME, the host's go. Returns None,
     or the miss (ONE CAPTURE line printed)."""
-    steps = (("load", lambda: OBR.load_cell(host, os.path.basename(OBR.FIXTURE), ev, tag)),
+    steps = (("load", lambda: load_upgraded(host, ev, tag)),
              ("convert", lambda: OBR.log_cell(host, ev, tag, CONVERT_LINE)),
              ("resume", lambda: OBR.resume_loaded(host, client, key, ev, tag)),
              ("click", lambda: OBR.click_cell(host, client, ev, tag)),
@@ -159,7 +159,7 @@ def end_cell(host, client, ev, tag, client_press=True):
 
 
 def client_ok(client, ev, tag):
-    """The client's OK through its follow-ups (BES.client_ok_through_followups) -> its own clean GeoscapeState."""
+    """The client's OK through its follow-ups (BES.client_ok_through_followups) -> its clean GeoscapeState."""
     ctx = {}
     ok1, geo, s = BES.client_ok_through_followups(client, ctx, "ret")
     ev[f"{tag}ClientOk"] = {"press": ok1, "geo": geo, "s": s, "chain": (ctx.get("ret") or {}).get("clientChain"),
@@ -172,24 +172,22 @@ def own_records(gc, **kw):
             for r in BES.soldier_recs(gc, **kw)[0]]
 
 
-def return_cell(client, ev, tag):
+def guest_records(host, client, ev, tag):
+    """soldier_record {name: GUEST_NAME} on both machines (host first); EVIDENCE."""
+    recs = [own_records(gc, name=GUEST_NAME) for gc in (host, client)]
+    ev[f"{tag}Guest"] = recs
+    return recs
+
+
+def return_cell(host, client, ev, tag):
     geo = client_ok(client, ev, tag)
-    sep = BES.record(client).get("sepReturn") or {}
-    recs = own_records(client, sid=OWN_ID)
-    got_sep = {k: sep.get(k) for k in SEP_ALIVE}
-    rec = recs[0] if len(recs) == 1 else {}
-    ev[f"{tag}Return"] = {"sepReturn": sep, "own": recs}
-    ok = (geo and got_sep == SEP_ALIVE and len(recs) == 1 and rec.get("missions") == OWN_MISSIONS + 1
-          and rec.get("coopName") == OWN_COOPNAME)
-    return ok, geo, (f"client on its own GeoscapeState {geo}; sepReturn {got_sep} (want {SEP_ALIVE}); soldier_record "
-                     f"{{id: {OWN_ID}}} {[(r['where'], r['missions'], r['coopName']) for r in recs]} (want one record "
-                     f"with missions {OWN_MISSIONS + 1}, coopName {OWN_COOPNAME!r})")
-
-
-def own_world_cell(client, ev, tag):
-    got = {n: [(r["id"], r["coopName"], r["coop"]) for r in own_records(client, name=n)] for n in OWN_TWINS}
-    ev[f"{tag}OwnWorld"] = got
-    return got == OWN_TWINS, f"(id, coopName, coop) by host squad name {got} (want exactly {OWN_TWINS})"
+    hrecs, crecs = guest_records(host, client, ev, tag)
+    want = [("base", CLIENT_SEAT, False, OWN_MISSIONS + 1)]
+    got = [[(r["where"], r["owner"], r["dead"], r["missions"]) for r in rr] for rr in (hrecs, crecs)]
+    ok = geo and got == [want, want] and hrecs == crecs
+    return ok, geo, (f"client on its GeoscapeState {geo}; soldier_record {{name: {GUEST_NAME!r}}} (where, owner, dead, "
+                     f"missions) host / client {got} (want {want} on both: the client's soldier keeps this battle); "
+                     f"records equal on both {hrecs == crecs}")
 
 
 def host_ok(host, ev, tag):
@@ -231,12 +229,11 @@ def row_guest_returns_home(host, client, crash0, cells, ev):
     OBR.attempt(cells, "both_debriefings", lambda: end_cell(host, client, ev, "end", client_press=True),
                 (host, client))
     OBR.need(cells, "both_debriefings")
-    ok, geo, detail = return_cell(client, ev, "end")
+    ok, geo, detail = return_cell(host, client, ev, "end")
     cells["client_record_updated"] = (ok, detail)
     if not geo:
         OBR.capture("client_record_updated", detail[:300], (host, client))
-        raise OBR.NotReached("the client's OK did not reach its own geoscape")
-    OBR.attempt(cells, "no_mirror_in_own_world", lambda: own_world_cell(client, ev, "end"))
+        raise OBR.NotReached("the client's OK did not reach its geoscape")
     OBR.attempt(cells, "no_host_copy", lambda: copy_cell(host, ev, "end"))
     cells["common_checks"] = common_cell(host, client, crash0, ev, "end")
 

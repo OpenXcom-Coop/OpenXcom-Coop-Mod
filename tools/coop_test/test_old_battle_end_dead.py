@@ -1,23 +1,23 @@
-"""A SEPARATE co-op campaign saved mid-battle by an older version and converted at the host's load, in which the
-guest dies: its death reaches its owner's world and the host's memorial keeps no copy of it.
+"""A SEPARATE co-op campaign saved mid-battle by an older version (two worlds), upgraded to one world and converted at
+the host's load, in which the client's soldier dies: the shared save records it dead in its owner's (the client's)
+memorial and keeps no battle copy of it.
 
 Fixture: tools/coop_test/fixtures/separate_battle.sav (unedited). Records are found by id, never by a display name the
 partner world also has. The helpers and the construction are test_old_battle_end.py's.
 
 One boot, row dead_guest_returns_home (key 46613, dirs old_battle_end_dead_*): the host gets the fixture, the client
-an EMPTY dir. Construction as in test_old_battle_end.py (load, the conversion line == test_old_battle_resume.py's
-values, the resume, the host's RESUME, the host's go); a miss prints ONE CAPTURE line and FAILs every cell "boot".
+an EMPTY dir. Construction as in test_old_battle_end.py (the save upgrade, load, the conversion line ==
+test_old_battle_resume.py's values, the resume, the host's RESUME, the host's go); a miss prints ONE CAPTURE line and
+FAILs every cell "boot".
   kill_hostiles_and_guest  every live hostile killed (ids == HOSTILES), then the host's kill_unit_real {unit: GUEST};
                            the guest status 6 (DEAD) on both
   both_debriefings         host END TURN only (CLIENT_PRESS False: with seat 1 dead the host's press closes the
                            side); the host's NextTurnState closed; DebriefingState on both (the client's display-only)
-  client_record_dead       the client's OK through its follow-ups -> its own GeoscapeState;
-                           battleEnd.sepReturn.deadApplied 1; the client's soldier_record {id: OWN_ID}: one record,
-                           dead true, where "dead" (the memorial); none in a base (without the fix: deadApplied 0,
-                           the own soldier alive in its base)
+  client_record_dead       the client's OK through its follow-ups -> its GeoscapeState; soldier_record {name:
+                           GUEST_NAME} on each machine: exactly one record, dead, where "dead" (the memorial), the
+                           client's (owner CLIENT_SEAT), none in a base, the same on both machines
   no_host_memorial_copy    the host's OK + BES.drain -> GeoscapeState; the host's soldier_record {id: COPY_ID} returns
-                           no record (the merged memorial copy removed) (without the fix: the untagged older-version
-                           copy stays in the memorial)
+                           no record (the battle copy is gone from the bases and the memorial)
   common_checks            every hash bucket EQUAL (taken after the guest's death, the last point both machines hold
                            the battle); desyncSeen false on both, no new lane crash file and the client wrote no save
                            (at the end)
@@ -44,18 +44,15 @@ CLIENT_PRESS = False  # measured: the host's END TURN alone closes the side
 CELLS = ("kill_hostiles_and_guest", "both_debriefings", "client_record_dead", "no_host_memorial_copy", "common_checks")
 
 
-def dead_return_cell(client, ev, tag):
+def dead_return_cell(host, client, ev, tag):
     geo = OBE.client_ok(client, ev, tag)
-    sep = BES.record(client).get("sepReturn") or {}
-    recs = OBE.own_records(client, sid=OBE.OWN_ID)
-    dead = [r for r in recs if r.get("dead") is True and r.get("where") == "dead"]
-    base = [r for r in recs if r.get("where") == "base"]
-    ev[f"{tag}Return"] = {"sepReturn": sep, "own": recs}
-    ok = geo and sep.get("deadApplied") == 1 and len(recs) == 1 and len(dead) == 1 and not base
-    return ok, geo, (f"client on its own GeoscapeState {geo}; sepReturn.deadApplied {sep.get('deadApplied')!r} "
-                     f"(want 1); soldier_record {{id: {OBE.OWN_ID}}} {[(r['where'], r['dead']) for r in recs]} "
-                     f"(want exactly one, "
-                     f"('dead', True); none in a base)")
+    hrecs, crecs = OBE.guest_records(host, client, ev, tag)
+    want = [("dead", OBE.CLIENT_SEAT, True)]
+    got = [[(r["where"], r["owner"], r["dead"]) for r in rr] for rr in (hrecs, crecs)]
+    ok = geo and got == [want, want] and hrecs == crecs
+    return ok, geo, (f"client on its GeoscapeState {geo}; soldier_record {{name: {OBE.GUEST_NAME!r}}} (where, owner, "
+                     f"dead) host / client {got} (want {want} on both: dead in the client's memorial, none in a base); "
+                     f"records equal on both {hrecs == crecs}")
 
 
 def memorial_cell(host, ev, tag):
@@ -71,11 +68,11 @@ def row_dead_guest_returns_home(host, client, crash0, cells, ev):
     OBR.attempt(cells, "both_debriefings",
                 lambda: OBE.end_cell(host, client, ev, "end_dead", client_press=CLIENT_PRESS), (host, client))
     OBR.need(cells, "both_debriefings")
-    ok, geo, detail = dead_return_cell(client, ev, "end_dead")
+    ok, geo, detail = dead_return_cell(host, client, ev, "end_dead")
     cells["client_record_dead"] = (ok, detail)
     if not geo:
         OBR.capture("client_record_dead", detail[:300], (host, client))
-        raise OBR.NotReached("the client's OK did not reach its own geoscape")
+        raise OBR.NotReached("the client's OK did not reach its geoscape")
     OBR.attempt(cells, "no_host_memorial_copy", lambda: memorial_cell(host, ev, "end_dead"))
     cells["common_checks"] = OBE.common_cell(host, client, crash0, ev, "end_dead")
 

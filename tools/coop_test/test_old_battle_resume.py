@@ -1,13 +1,14 @@
-"""A SEPARATE co-op campaign saved mid-battle by an older version loads on the host without the "different version"
-refusal and resumes for both players: the host's load converts it in memory, with no dialog.
+"""A SEPARATE co-op campaign saved mid-battle by an older version (two worlds) goes through the save upgrade (one
+world, written as <name>_upgraded.sav, the step the load's upgrade dialog runs), then loads on the host without the
+"different version" refusal and resumes for both players: the host's load converts the battle in memory.
 
 Fixture: tools/coop_test/fixtures/separate_battle.sav, made by the released game's own
 test_coop_resume_battle_control.py, committed unedited.
 
 Boot old_save_resumes (key 46610, dirs old_battle_resume_*): the host gets the fixture, the client an EMPTY dir.
-  host_load            host load_save_menu -> HostMenu within 60 s, no ErrorMessageState (without the fix:
-                       ErrorMessageState and the refusal text "different version of the mod" in the host log, in
-                       EVIDENCE)
+  host_load            upgrade_run on the fixture succeeds (its report in EVIDENCE), then host load_save_menu of the
+                       upgraded save -> HostMenu within 60 s, no ErrorMessageState (without the fix: ErrorMessageState
+                       and the refusal text "different version of the mod" in the host log, in EVIDENCE)
   conversion_line      exactly one "[coop-convert] an older version's mid-battle co-op save converted" line whose
                        counts are PARTNER_SNAPSHOTS / PARTNER_MIRRORS / SEATED / UNSEATED, turnMode traditional,
                        deployment DEPLOYMENT
@@ -26,7 +27,7 @@ Boot old_save_resumes (key 46610, dirs old_battle_resume_*): the host gets the f
   common_checks        every hash bucket EQUAL, desyncSeen false on both, no new lane crash file, the client wrote no
                        save
 Boot no_turn_mode_line (host only, dir old_battle_resume_legacy_host): the SEPARATE fixture with its ONE
-coop_parallel_turns line removed (the v2.0.6 shape, line endings kept, asserted).
+coop_parallel_turns line removed (the v2.0.6 shape, line endings kept, asserted), then upgraded as above.
   no_turn_mode_load         as host_load
   no_turn_mode_traditional  event_state.turnMode "traditional" on the host; the conversion line says turnMode
                             traditional
@@ -224,6 +225,15 @@ def derive(src, dst, prefix, new_line):
     return old
 
 
+def upgrade_save(host, save, ev, tag):
+    """The save upgrade on `save` (upgrade_run: the runner the load's upgrade dialog starts). Returns (ok, the
+    upgraded file's name, the failure text)."""
+    r = host.cmd({"cmd": "upgrade_run", "host": save})
+    ev[f"{tag}Upgrade"] = {k: r.get(k) for k in ("ok", "success", "needsUpgrade", "errors", "errorMessage", "report")}
+    return (r.get("success") is True, save[:-4] + "_upgraded.sav",
+            f"upgrade_run {save} {ev[f'{tag}Upgrade']} (want success)")
+
+
 def load_cell(host, save, ev, tag):
     """host load_save_menu -> HostMenu within LOAD_S and no ErrorMessageState."""
     t0 = time.time()
@@ -357,8 +367,8 @@ def tally_seat(gc):
 
 
 def row_old_save_resumes(host, client, crash0, cells, ev):
-    save = os.path.basename(FIXTURE)
-    cells["host_load"] = load_cell(host, save, ev, "resume")
+    up, save, why = upgrade_save(host, os.path.basename(FIXTURE), ev, "resume")
+    cells["host_load"] = load_cell(host, save, ev, "resume") if up else (False, why)
     need(cells, "host_load")
     cells["conversion_line"] = log_cell(host, ev, "resume", (PARTNER_SNAPSHOTS, PARTNER_MIRRORS, SEATED[0], SEATED[1],
                                                              UNSEATED, "traditional", DEPLOYMENT))
@@ -444,7 +454,8 @@ def boot_old_save_resumes():
 
 def row_no_turn_mode_line(host, crash0, removed, cells, ev):
     ev["legacyRemoved"] = removed.decode("ascii", errors="replace").rstrip("\r")
-    cells["no_turn_mode_load"] = load_cell(host, os.path.basename(FIXTURE), ev, "legacy")
+    up, save, why = upgrade_save(host, os.path.basename(FIXTURE), ev, "legacy")
+    cells["no_turn_mode_load"] = load_cell(host, save, ev, "legacy") if up else (False, why)
     lines = convert_line(host) if cells["no_turn_mode_load"][0] else []
     mode = es(host, "turnMode")
     ev["legacyMode"] = {"turnMode": mode, "convert": lines}
