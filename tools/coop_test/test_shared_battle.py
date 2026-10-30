@@ -27,40 +27,24 @@ Two scenarios:
                     battle as a unit-less spectator rather than staying on the
                     geoscape - see session-notes-9.md (PRD-anchor discrepancy).
 
-SPEC 19 S2 (un-skipped, re-pointed): the bring-up now goes through
-`session.bring_up_shared_mixed_battle` (F355's briefing-close-first ordering -
-the old :165-191 shape waited for the client's `inBattle` BEFORE the host
-closed its briefing, which hangs forever, F362), and each scenario now runs
-the spec (f) common tail after the existing control-split assertion:
-T-SPLIT, T-CMD (the host leg only in `mixed` - `solo_client` skips it BY
-CONSTRUCTION, REV E.48 C.4's connected-seat-with-no-live-unit case: the host
-owns no unit to be refused on), T-EXIT.
+The bring-up goes through `session.bring_up_shared_mixed_battle`, which closes the host's briefing
+before it waits for the client's `inBattle` (waiting for the client first hangs forever). After the
+control-split assertion each scenario runs the common tail: control split, seat commands (the host leg
+only in `mixed`: `solo_client` gives the host no unit to be refused on), battle exit.
 
-T-EXIT: `session.coop_abort_battle` was re-pointed
-off the pre-rewrite ABANDON-MISSION VOTE (r4 T3, a logging stub that does not
-exist at this tip: `BattlescapeState::btnAbortClick` refuses only the CLIENT's
-press and otherwise pushes vanilla `AbortMissionState` unconditionally, and
-`AbortMissionState::btnOkClick` has no `requestVote` - W1-P5 D8/WV-D14 make
-ABORT host-authoritative) to the rewrite-era host abort: host btnAbortClick ->
-vanilla `AbortMissionState` -> confirm (`dismiss_popup` -> `btnOkClick`) ->
-setAborted()+finishBattle() -> Debriefing -> geoscape. In a SHARED battle
-finishBattle returns BOTH machines, so S2/S3 keep the common-tail T-EXIT
-unchanged in intent (both on GeoscapeState, no crash, no desyncSeen). This is
-the orchestrator-authorized SS A.10 / R10 re-point of an existing assertion to
-the value the ruled mechanism (D8/WV-D14) implies (measured: SHARED abort
-returns both machines cleanly).
+Battle exit: `session.coop_abort_battle` drives the host's abort: host btnAbortClick -> vanilla
+`AbortMissionState` -> confirm (`dismiss_popup` -> `btnOkClick`) -> setAborted()+finishBattle() ->
+Debriefing -> geoscape. `BattlescapeState::btnAbortClick` refuses only the CLIENT's press and
+`AbortMissionState::btnOkClick` opens no vote: the abort is the host's. In a SHARED battle
+finishBattle returns BOTH machines, so the exit check wants both on GeoscapeState, no crash, no
+desyncSeen.
 
-the battle map was rolled per boot (no set_seed), so T-CMD's
-one-step walk could draw reaction fire; on one roll (W2f verifier, K=2) a
-sectoid's plasma rifle killed the walker and the merge cell reported the
-death as "deleted post-battle (guest cleanup ran!)". Two changes, chain rule
-SS A.10: (1) the map is pinned - set_seed SEED_S2 on the host in
-bring_up_shared_mixed_battle's pre_landing window (the
-test_battle_end_campaign seed_pin precedent), MAP_FP_S2 asserted on both
-machines; on this seed neither scenario's walk draws reaction fire. (2) the
-merge cell re-points to the true condition: a squad soldier missing from the
-roster passes only when soldier_record finds it on the DEAD list of both
-machines (killed in battle); on neither list it is still the
+The battle map is fixed: set_seed SEED on the host in bring_up_shared_mixed_battle's pre_landing
+window (as test_battle_end_campaign fixes its seed), MAP_FP asserted on both machines. On a map rolled
+per boot the seat-command walk could draw reaction fire and the walker die (the merge cell then reported
+the death as "deleted post-battle (guest cleanup ran!)"); on this seed neither scenario's walk draws
+reaction fire. A squad soldier missing from the roster passes the merge cell only when soldier_record
+finds it on the DEAD list of both machines (killed in battle); on neither list it is still the
 guest-cleanup failure.
 
 Run:  python tools/coop_test/test_shared_battle.py
@@ -75,15 +59,15 @@ import shared_fixture
 import session
 import geo
 
-# the pinned S2 terror map. U8 hunt (solo_client, seeds 1-40, one boot each): 39 seeds drew no
-# reaction fire on the T-CMD walk, seed 33 drew one snap that missed. Seed 1 = test_battle_end_campaign's
-# SEED_S (same bring-up, same mapFingerprint).
-SEED_S2 = 1
-MAP_FP_S2 = 5.690100025079999e+18   # host battle_state.mapFingerprint on SEED_S2 (client equal)
+# the fixed terror map. Seeds 1-40 with solo_client, one boot each: 39 drew no reaction fire on the
+# seat-command walk, seed 33 drew one snap that missed. Seed 1 = test_battle_end_campaign's SEED_S
+# (same bring-up, same mapFingerprint).
+SEED = 1
+MAP_FP = 5.690100025079999e+18   # host battle_state.mapFingerprint on SEED (client equal)
 
 
 def _seed_pin(host, client):
-    host.ok({"cmd": "set_seed", "seed": SEED_S2})
+    host.ok({"cmd": "set_seed", "seed": SEED})
 
 
 def _dead_record(gc, sid):
@@ -159,20 +143,20 @@ def _dbg(host, client):
 def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
     """owners: {slot: seat} for the two squad soldiers (slot 0/1 of the roster).
        want_coop: {slot: expected BattleUnit _coop}.
-       host_has_unit: whether the host owns a unit in this squad - T-CMD's host
-       leg (click-select refusal) runs only when True; `solo_client` passes
-       False and skips it BY CONSTRUCTION (no host-owned unit to refuse on)."""
+       host_has_unit: whether the host owns a unit in this squad - the host leg
+       of the seat-command check (click-select refusal) runs only when True;
+       `solo_client` passes False and skips it (no host-owned unit to refuse on)."""
     print(f"\n===== scenario '{label}' =====")
     js = shared_fixture.bring_up(f"jbat_{label}", ports)
     host, client = js.host, js.client
     try:
         _, _, squad = session.bring_up_shared_mixed_battle(js, owners, pre_landing=_seed_pin)
         fp = (_battle(host).get("mapFingerprint"), _battle(client).get("mapFingerprint"))
-        assert fp == (MAP_FP_S2, MAP_FP_S2), (
-            f"FIXTURE: mapFingerprint (host, client) {fp}, want both {MAP_FP_S2!r} (SEED_S2 {SEED_S2})")
+        assert fp == (MAP_FP, MAP_FP), (
+            f"FIXTURE: mapFingerprint (host, client) {fp}, want both {MAP_FP!r} (SEED {SEED})")
         seats = {sid: owners[i] for i, sid in enumerate(squad)}
         print(f"PASS squad: {seats} aboard the shared craft; battle entered live "
-              f"(F355 briefing-close-first ordering)")
+              f"(the host's briefing closed first)")
 
         # ---- control split = ownership, on BOTH machines ------------------
         for tag, gc in (("host", host), ("client", client)):
@@ -189,16 +173,16 @@ def run_scenario(label, owners, want_coop, ports, fail, host_has_unit):
             print("PASS control-split: on BOTH machines the host-owned unit is coop=0 and the "
                   "client-owned unit is coop=1; exactly the squad deployed")
 
-        # ---- SPEC 19 common tail: T-SPLIT / T-CMD / T-EXIT --------
+        # ---- common tail: control split / seat commands / battle exit --------
         expected_seats = {sid: want_coop[i] for i, sid in enumerate(squad)}
-        session.assert_control_split(host, client, expected_seats, what=f"S2 {label}")
+        session.assert_control_split(host, client, expected_seats, what=f"shared battle {label}")
 
         seat1_actor = next(sid for i, sid in enumerate(squad) if want_coop[i] == 1)
         seat0_actor = next((sid for i, sid in enumerate(squad) if want_coop[i] == 0), None)
         session.assert_seat_commands(host, client, seat1_actor, seat0_actor,
-                             host_check=host_has_unit, what=f"S2 {label}")
+                             host_check=host_has_unit, what=f"shared battle {label}")
 
-        session.assert_battle_exit(host, client, what=f"S2 {label}")
+        session.assert_battle_exit(host, client, what=f"shared battle {label}")
 
         # ---- single-world post-battle merge: worlds identical -------------
         def _equal():
@@ -246,12 +230,12 @@ def main():
     run_scenario("solo_client", {0: 1, 1: 1}, {0: 1, 1: 1}, (48772, 48773, 48072), fail,
                  host_has_unit=False)
 
-    print("\n==== PRD-J09 / SPEC 19 (W1-P20) S2 battle summary ====")
+    print("\n==== SHARED battle summary ====")
     if fail:
         print(f"  FAILURES: {fail}")
         sys.exit(2)
     print("  mixed + solo_client: SHARED battles start host-side from the shared world, "
-          "split control by ownership on both machines, admit/deny commands per T-CMD, "
+          "split control by ownership on both machines, admit / refuse each seat's commands, "
           "and merge to identical worlds.")
     sys.exit(0)
 
