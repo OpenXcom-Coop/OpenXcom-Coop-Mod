@@ -1,39 +1,38 @@
-"""OF2 S-A / S-B - a battle mod script on the second player's soldier, or on the weapon and ammo it fires, reads the
-research of the player who owns it (owner D263 (a), D258 (b); spec docs rewrite/prompts/of2_mod_script_player_reads.md,
-AMENDMENT OF2-1 section 6; TASK 0 docs rewrite/of2-task0/sa/CONSTANTS.md and sb/CONSTANTS.md; F1375, F11470-F11480,
-F11920-F11939, F12175-F12194).
-In a SEPARATE campaign with research sync off each player has its own research. Every battle-rule mod script
-today reads the HOST's research, also for the second player's soldier. The test MOD Coop_ScriptResearch_Test
+"""A battle mod script on the second player's soldier, or on the weapon and ammo it fires, reads the research of the
+player who owns it.
+In a SEPARATE campaign with research sync off each player has its own research. Without the fix every battle-rule mod
+script reads the HOST's research, also for the second player's soldier. The test MOD Coop_ScriptResearch_Test
 (both machines) writes one BattleUnit tag per hook = 1 + isResearched(STR_PLASMA_PISTOL), read through
 battle_game.getGeoscapeGame: 0 = the hook never ran, 1 = the host's research (not researched), 2 = the second
-player's (researched). The client researched STR_PLASMA_PISTOL, the host did not (CR's boot).
+player's (researched). The client researched STR_PLASMA_PISTOL, the host did not (test_client_research's boot).
 ONE boot (test_client_research's research-separate guest battle, lobby key 48998, the MOD on both machines);
 five rows in this order:
-  SR0  after battle entry, before any order: SR0-G (G's COOP_SR_TURN == 2 on both machines: the host's equip
-       barrier starts turn 1 after battle_accept stored the second player's research list, so G's first-turn
-       newTurnUnit reads it; R-OF2-A-2, F11983), SR0-all (every other live unit's == 1 on both; 0 = the MOD did
-       not run), SR0-common.
-  SR1  one turn round (test_delta_core.end_turn_cycle, aliens under pin_ai_neutral): SR1-G (G's COOP_SR_TURN
-       == 2 on both), SR1-H (H's == 1 on both), SR1-common.
-  SR2  the client presses G's mod skill (TAB, SKILLS by rect, KEY_SKILL), then the host presses H's: SR2-G (G's
-       COOP_SR_SKILL == 2 on both), SR2-H (H's == 1 on both), SR2-intent (the host's intentsReceivedLog holds G's
-       skill), SR2-common.
-  SR4  G holds the plasma pistol + clip (give_both), the alien A (the lowest live hostile id, the same on both
-       machines) gets reactions 0 and is teleported onto TGT_SR4 (G's tile + TGT_SR4_OFF, facing G), all
-       client first; the client's real-UI snap at A (CR.run_press, the host's set_seed SEED_SR4 right before the
-       click): SR4-guard (one admitted shoot order, the shot cue {actor G, weapon the pistol} and no other shot, A's
+  battle_entry  after battle entry, before any order: battle_entry_guest_reads_own (G's COOP_SR_TURN == 2 on both
+       machines: the host's equip barrier starts turn 1 after battle_accept stored the second player's research list,
+       so G's first-turn newTurnUnit reads it), battle_entry_others_read_host (every other live unit's == 1 on both;
+       0 = the MOD did not run), battle_entry_common.
+  turn_round  one turn round (test_delta_core.end_turn_cycle, aliens under pin_ai_neutral): turn_round_guest_reads_own
+       (G's COOP_SR_TURN == 2 on both), turn_round_host_reads_host (H's == 1 on both), turn_round_common.
+  mod_skill  the client presses G's mod skill (TAB, SKILLS by rect, KEY_SKILL), then the host presses H's:
+       mod_skill_guest_reads_own (G's COOP_SR_SKILL == 2 on both), mod_skill_host_reads_host (H's == 1 on both),
+       mod_skill_order_logged (the host's intentsReceivedLog holds G's skill), mod_skill_common.
+  pistol_shot  G holds the plasma pistol + clip (give_both), the alien A (the lowest live hostile id, the same on both
+       machines) gets reactions 0 and is teleported onto TARGET_TILE (G's tile + TARGET_OFF, facing G), all client
+       first; the client's real-UI snap at A (CR.run_press, the host's set_seed SHOT_SEED right before the click):
+       pistol_shot_lands (one admitted shoot order, the shot cue {actor G, weapon the pistol} and no other shot, A's
        health dropped, >= 1 live hostile after, the battle running, the click outside the SKILLS rect: else the
-       fixture missed), SR4-ammo (G's COOP_SR_AHIT / AMMO / ASPEC == 2 on both: the weapon's ammo scripts read the
-       attacker's player's research, C1-C3), SR4-alien (A's COOP_SR_DMG == 1 on both: its armour reads the host's
-       world), SR4-common.
-  SR3  LAST (it stuns G and H): host battle_action kill_unit_real {stun} on G, then on H: SR3-G (G's COOP_SR_HIT /
-       DMG / SPEC == 2 on both), SR3-H (H's == 1 on both), SR3-state (both stunned, not dead, battle running),
-       SR3-common.
+       fixture missed), pistol_shot_ammo_reads_own (G's COOP_SR_AHIT / AMMO / ASPEC == 2 on both: the weapon's ammo
+       scripts read the attacker's player's research), pistol_shot_alien_reads_host (A's COOP_SR_DMG == 1 on both:
+       its armour reads the host's world), pistol_shot_common.
+  stunned  LAST (it stuns G and H): host battle_action kill_unit_real {stun} on G, then on H: stunned_guest_reads_own
+       (G's COOP_SR_HIT / DMG / SPEC == 2 on both), stunned_host_reads_host (H's == 1 on both), stunned_both_out (both
+       unconscious, not dead, battle running), stunned_common.
 Common cell (every row): after wait_host_idle, test_client_shoot.common_fails empty (hash_now full every bucket
 EQUAL, desyncSeen false on both, the client's coopClientBStatePushes unchanged and the host's 0), every live unit's
 tags equal on both machines (field_poke peek), and no crash file since the boot.
-RED of S-A (A1): exactly SR0-G, SR1-G, SR2-G, SR3-G FAIL (G reads 1). RED of S-B (B1, on A2): exactly SR4-ammo FAILS
-(G's ammo tags read 1). GREEN (B2): every cell PASS.
+Without the fix: exactly battle_entry_guest_reads_own, turn_round_guest_reads_own, mod_skill_guest_reads_own and
+stunned_guest_reads_own fail (G reads 1). With the soldier-script half of the fix but not the weapon and ammo
+half: exactly pistol_shot_ammo_reads_own fails (G's ammo tags read 1). With the whole fix every cell passes.
 Each row prints ONE "EVIDENCE <row>:" line, one PASS/FAIL line per cell, then its verdict; every row runs after a
 failure. A boot failure prints ONE "CAPTURE boot:" line and fails every row "boot"; a missed construction step
 prints ONE "CAPTURE <row>:" line and fails that row's cells.
@@ -59,33 +58,36 @@ from test_turn_baton import click_nth
 from test_seat_pacing import tab_select
 
 PORT = "48998"
-HOST_DIR, CLIENT_DIR = "of2_script_research_host", "of2_script_research_client"
+HOST_DIR, CLIENT_DIR = "script_research_host", "script_research_client"
 MOD_NAME = "Coop_ScriptResearch_Test"
 MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", MOD_NAME)
 MOD_ACTIVE_LINE = "- Coop_ScriptResearch_Test v1.0"
 SKILL = "STR_COOP_TEST_SR_SKILL"
-SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (28 / 29, F11478)
+SKILLS_RECT = (288, 25, 32, 24)   # found by rect: its nth moves per boot (28 / 29)
 KEY_SKILL = 49                    # the first (only) skill row
 # raw field_poke tag index = the MOD's definition order, equal on both machines
 TAG_TURN, TAG_SKILL, TAG_HIT, TAG_DMG, TAG_SPEC, TAG_AHIT, TAG_AMMO, TAG_ASPEC = 0, 1, 2, 3, 4, 5, 6, 7
 TAG_NAMES = {TAG_TURN: "COOP_SR_TURN", TAG_SKILL: "COOP_SR_SKILL", TAG_HIT: "COOP_SR_HIT", TAG_DMG: "COOP_SR_DMG",
              TAG_SPEC: "COOP_SR_SPEC", TAG_AHIT: "COOP_SR_AHIT", TAG_AMMO: "COOP_SR_AMMO", TAG_ASPEC: "COOP_SR_ASPEC"}
-SEED_SR4 = 1                      # the host's set_seed right before the click: the first hitting seed (T0-B3, 4 boots)
-TGT_SR4_OFF = (0, 2, 0)           # TGT_SR4 = G's tile + this, due south (CR TGT_OFF["south_2"] shape; free on 5 boots)
+SHOT_SEED = 1                     # the host's set_seed right before the click: the first hitting seed (4 boots)
+TARGET_OFF = (0, 2, 0)            # TARGET_TILE = G's tile + this, due south (CR TGT_OFF["south_2"]; free on 5 boots)
 ALIEN_DIR = 0                     # A faces north, toward G (side FRONT)
 FACTION_HOSTILE = 1
 HOST_R, OWNER_R = 1, 2            # 1 + isResearched(STR_PLASMA_PISTOL): the host's research / the second player's
-MIN_LIVE_PLAYERS = 3              # SR3 stuns G and H; the battle must keep running
+MIN_LIVE_PLAYERS = 3              # the stunned row stuns G and H; the battle must keep running
 STATUS_UNCONSCIOUS = 7
-SCRIPT_S = 2.0                    # the host's own skill script ran (TASK 0: 0.1 s)
-FOLLOW_S = 5.0                    # the client's tags follow the host's (TASK 0: SR2-H 0.55 / 0.56 s)
-STUN_FOLLOW_S = 10.0              # SR3 (TASK 0: 1.31 s after the lever)
+SCRIPT_S = 2.0                    # the host's own skill script ran (measured 0.1 s)
+FOLLOW_S = 5.0                    # the client's tags follow the host's (measured 0.55 / 0.56 s after H's skill)
+STUN_FOLLOW_S = 10.0              # the stunned row (measured 1.31 s after the stun command)
 POLL_S = 0.1
 MENU_S = 5.0
-CELLS = {"SR0": ("SR0-G", "SR0-all", "SR0-common"), "SR1": ("SR1-G", "SR1-H", "SR1-common"),
-         "SR2": ("SR2-G", "SR2-H", "SR2-intent", "SR2-common"),
-         "SR4": ("SR4-guard", "SR4-ammo", "SR4-alien", "SR4-common"),
-         "SR3": ("SR3-G", "SR3-H", "SR3-state", "SR3-common")}
+CELLS = {"battle_entry": ("battle_entry_guest_reads_own", "battle_entry_others_read_host", "battle_entry_common"),
+         "turn_round": ("turn_round_guest_reads_own", "turn_round_host_reads_host", "turn_round_common"),
+         "mod_skill": ("mod_skill_guest_reads_own", "mod_skill_host_reads_host", "mod_skill_order_logged",
+                       "mod_skill_common"),
+         "pistol_shot": ("pistol_shot_lands", "pistol_shot_ammo_reads_own", "pistol_shot_alien_reads_host",
+                         "pistol_shot_common"),
+         "stunned": ("stunned_guest_reads_own", "stunned_host_reads_host", "stunned_both_out", "stunned_common")}
 
 
 def pairs(host, client):
@@ -176,7 +178,7 @@ def tag_cell(name, uid, vals, idxs, want):
     return joined(f)
 
 
-def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT, plus OF2's boot guards
+def boot(host, client):   # = CR's boot with lobby key PORT, plus this test's boot guards
     ctx, pre_rec = {}, {}
 
     def pre(h, c):
@@ -205,7 +207,7 @@ def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT, pl
                    and u.get("name") != CR.GUEST_NAME and not u.get("isOut"))
     assert hsold, "no host soldier (coop 0, not out)"
     ctx["H"] = hsold[0]
-    pinned = pin_ai_neutral(host, client, tag="of2-sr")
+    pinned = pin_ai_neutral(host, client, tag="script_research")
     assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
     both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": ctx["G"], "stat": "firing",
                         "value": CR.FIRING_PIN}, ("tu",))
@@ -232,7 +234,7 @@ def boot(host, client):   # = CR's boot (CR :1525-:1576) with lobby key PORT, pl
     return ctx
 
 
-def row_sr0(ev, res, host, client, st):
+def row_battle_entry(ev, res, host, client, st):
     ev["boot"] = st["ctx"]
     th, tc = all_tags(host), all_tags(client)
     ev["live"] = len(th)
@@ -242,17 +244,17 @@ def row_sr0(ev, res, host, client, st):
     ev["H"] = {"host": th.get(st["H"]), "client": tc.get(st["H"])}
     # turn 1 starts at the host's equip barrier, after battle_accept stored seat 1's list, so
     # G's first-turn newTurnUnit already reads G's owner's research; every other unit keeps the host's.
-    res["SR0-G"] = tag_cell("G", st["G"], ev["G"], (TAG_TURN,), OWNER_R)
+    res["battle_entry_guest_reads_own"] = tag_cell("G", st["G"], ev["G"], (TAG_TURN,), OWNER_R)
     f = [f"{n} unit {uid} {TAG_NAMES[TAG_TURN]} {tag_val(v, TAG_TURN)} (want {HOST_R}; 0 = the MOD did not run)"
          for n, t in (("host", th), ("client", tc)) for uid, v in sorted(t.items())
          if uid != st["G"] and tag_val(v, TAG_TURN) != HOST_R]
     if not th:
         f.append("no live unit on the host")
-    res["SR0-all"] = joined(f)
-    res["SR0-common"] = joined(common(host, client, st["bootSnap"], "SR0", st["crash0"]))
+    res["battle_entry_others_read_host"] = joined(f)
+    res["battle_entry_common"] = joined(common(host, client, st["bootSnap"], "battle_entry", st["crash0"]))
 
 
-def row_sr1(ev, res, host, client, st):
+def row_turn_round(ev, res, host, client, st):
     G, H = st["G"], st["H"]
     before, notes = snap(host, client), []
     turn0 = battle_state(host).get("turn")
@@ -265,14 +267,14 @@ def row_sr1(ev, res, host, client, st):
                           "BattlescapeState)" for n, v in view.items()
                           if v["turn"] != turn0 + 1 or v["side"] != 0 or v["top"] != "BattlescapeState"]
     if miss:
-        capture(host, client, "SR1")
-        res.update({c: f"construction: {joined(miss)}" for c in CELLS["SR1"]})
+        capture(host, client, "turn_round")
+        res.update({c: f"construction: {joined(miss)}" for c in CELLS["turn_round"]})
         return
     ev["G"] = gv = {n: tags(gc, G) for n, gc in pairs(host, client)}
     ev["H"] = hv = {n: tags(gc, H) for n, gc in pairs(host, client)}
-    res["SR1-G"] = tag_cell("G", G, gv, (TAG_TURN,), OWNER_R)
-    res["SR1-H"] = tag_cell("H", H, hv, (TAG_TURN,), HOST_R)
-    res["SR1-common"] = joined(common(host, client, before, "SR1", st["crash0"]))
+    res["turn_round_guest_reads_own"] = tag_cell("G", G, gv, (TAG_TURN,), OWNER_R)
+    res["turn_round_host_reads_host"] = tag_cell("H", H, hv, (TAG_TURN,), HOST_R)
+    res["turn_round_common"] = joined(common(host, client, before, "turn_round", st["crash0"]))
 
 
 def open_skills(gc, uid, ev):
@@ -297,13 +299,13 @@ def open_skills(gc, uid, ev):
     return None if ev["rows"] == 1 else f"menu_rows({gc.name}) {ev['rows']} (want 1)"
 
 
-def row_sr2(ev, res, host, client, st):
+def row_mod_skill(ev, res, host, client, st):
     G, H = st["G"], st["H"]
     before = snap(host, client)
     seen = max([e.get("iseq", 0) for e in event_state(host).get("intentsReceivedLog") or []] or [0])
     ev["client"], ev["host"] = cev, hev = {}, {}
     miss = open_skills(client, G, cev)
-    if not miss:   # the client presses G's skill: the order path (D147: the host runs the script)
+    if not miss:   # the client presses G's skill: the order path (the host runs the script)
         b2, notes = snap(host, client), []
         press(client, KEY_SKILL)
         cev["out"] = out = await_press(host, client, b2, notes)
@@ -314,7 +316,7 @@ def row_sr2(ev, res, host, client, st):
         cev["notes"] = notes
         if out.get("state") != "sent":
             miss = f"the client's skill order: await_press {out} (want state sent); notes {notes}"
-    if not miss:   # the host presses H's skill (W2-H28: one host action, its ev carries the tag)
+    if not miss:   # the host presses H's skill (one host action, its ev carries the tag)
         miss = open_skills(host, H, hev)
     if not miss:
         t0 = time.time()
@@ -332,31 +334,31 @@ def row_sr2(ev, res, host, client, st):
         except Exception as e:
             miss = f"host top {session.top_state(host)} after its skill press (want BattlescapeState): {short(e)}"
     if miss:
-        capture(host, client, "SR2")
-        res.update({c: f"construction: {miss}" for c in CELLS["SR2"]})
+        capture(host, client, "mod_skill")
+        res.update({c: f"construction: {miss}" for c in CELLS["mod_skill"]})
         return
     logn = [e for e in event_state(host).get("intentsReceivedLog") or [] if e.get("iseq", 0) > seen]
     ev["intentLogNew"] = logn
     ev["G"] = gv = {n: tags(gc, G) for n, gc in pairs(host, client)}
     ev["H"] = hv = {n: tags(gc, H) for n, gc in pairs(host, client)}
-    res["SR2-G"] = tag_cell("G", G, gv, (TAG_SKILL,), OWNER_R)
-    res["SR2-H"] = tag_cell("H", H, hv, (TAG_SKILL,), HOST_R)
+    res["mod_skill_guest_reads_own"] = tag_cell("G", G, gv, (TAG_SKILL,), OWNER_R)
+    res["mod_skill_host_reads_host"] = tag_cell("H", H, hv, (TAG_SKILL,), HOST_R)
     got = [(e.get("kind"), e.get("actorId"), e.get("skill")) for e in logn]
-    res["SR2-intent"] = (None if got == [("skill", G, SKILL)] else
+    res["mod_skill_order_logged"] = (None if got == [("skill", G, SKILL)] else
                          f"host intentsReceivedLog new {logn} (want one {{kind skill, actorId {G}, skill {SKILL}}})")
-    res["SR2-common"] = joined(common(host, client, before, "SR2", st["crash0"]))
+    res["mod_skill_common"] = joined(common(host, client, before, "mod_skill", st["crash0"]))
 
 
-def row_sr4(ev, res, host, client, st):
+def row_pistol_shot(ev, res, host, client, st):
     G = st["G"]
     before = snap(host, client)
     hh, hc = hostiles(host), hostiles(client)
     A = hh[0] if hh and hh == hc else None   # the alien: the lowest live hostile id, the same on both machines
     gu = session.units_by_id(battle_state(host)).get(G) or {}
-    tgt = tuple((gu.get(k) or 0) + o for k, o in zip(("x", "y", "z"), TGT_SR4_OFF))
-    ev.update({"A": A, "liveHostiles": len(hh), "TGT_SR4": tgt})
+    tgt = tuple((gu.get(k) or 0) + o for k, o in zip(("x", "y", "z"), TARGET_OFF))
+    ev.update({"A": A, "liveHostiles": len(hh), "TARGET_TILE": tgt})
     miss = None if A is not None else f"live hostiles host {hh} client {hc} (want the same ids, >= 1)"
-    if not miss:   # staging: every lever client first (both / tele_both), the ids from the lever replies (S25)
+    if not miss:   # staging: every test command client first (both / tele_both), the ids from the command replies
         try:
             ev["pistol"] = wid, _ = give_both(host, client, G, CR.PISTOL, CR.PCLIP)
             both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A, "stat": "reactions",
@@ -365,11 +367,11 @@ def row_sr4(ev, res, host, client, st):
         except AssertionError as e:
             miss = f"staging: {short(e, 400)}"
     if miss:
-        capture(host, client, "SR4")
-        res.update({c: f"construction: {miss}" for c in CELLS["SR4"]})
+        capture(host, client, "pistol_shot")
+        res.update({c: f"construction: {miss}" for c in CELLS["pistol_shot"]})
         return
     a0 = {n: unit(gc, A) for n, gc in pairs(host, client)}
-    b0, rec, pv, out, notes = CR.run_press(host, client, {"G": G}, KEY_SNAP, tgt, SEED_SR4)
+    b0, rec, pv, out, notes = CR.run_press(host, client, {"G": G}, KEY_SNAP, tgt, SHOT_SEED)
     t0 = time.time()
     while time.time() - t0 < FOLLOW_S and (tags(client, G) != tags(host, G) or tags(client, A) != tags(host, A)):
         time.sleep(POLL_S)
@@ -396,7 +398,7 @@ def row_sr4(ev, res, host, client, st):
     if shots != [(G, wid)]:
         f.append(f"`shot` cues (actor, weapon) {shots} (want exactly [({G}, {wid})])")
     if other:
-        f.append(f"other `shot` evs (seq, actionId) {other} (want none: A never reacts, F11033)")
+        f.append(f"other `shot` evs (seq, actionId) {other} (want none: A never reacts)")
     if not (a1["host"].get("health") or 0) < (a0["host"].get("health") or 0) or a1["host"] != a1["client"]:
         f.append(f"A ({A}) before {a0} after {a1} (want its health dropped, equal on both)")
     if not live["host"] or live["host"] != live["client"]:
@@ -405,17 +407,17 @@ def row_sr4(ev, res, host, client, st):
         if "BattlescapeState" not in s or "DebriefingState" in s:
             f.append(f"{n} state stack {s} (want the battle running)")
     if base is None or (x <= base[0] < x + w and y <= base[1] < y + h):
-        f.append(f"the click {cp} base {base} (want verified, outside SKILLS_RECT {SKILLS_RECT}, F1283)")
-    res["SR4-guard"] = joined(f)
+        f.append(f"the click {cp} base {base} (want verified, outside SKILLS_RECT {SKILLS_RECT})")
+    res["pistol_shot_lands"] = joined(f)
     if f:
-        capture(host, client, "SR4")
-    res["SR4-ammo"] = tag_cell("G", G, gv, (TAG_AHIT, TAG_AMMO, TAG_ASPEC), OWNER_R)
-    res["SR4-alien"] = tag_cell("A", A, av, (TAG_DMG,), HOST_R)
-    res["SR4-common"] = joined(common(host, client, before, "SR4", st["crash0"]))
+        capture(host, client, "pistol_shot")
+    res["pistol_shot_ammo_reads_own"] = tag_cell("G", G, gv, (TAG_AHIT, TAG_AMMO, TAG_ASPEC), OWNER_R)
+    res["pistol_shot_alien_reads_host"] = tag_cell("A", A, av, (TAG_DMG,), HOST_R)
+    res["pistol_shot_common"] = joined(common(host, client, before, "pistol_shot", st["crash0"]))
 
 
 def stun(host, client, uid, rec):
-    """Host kill_unit_real {stun} on `uid`, then the F11477 settle: host not busy with pendingStates 0, status
+    """Host kill_unit_real {stun} on `uid`, then the settle: host not busy with pendingStates 0, status
     STATUS_UNCONSCIOUS on both, wait_host_idle, the client's tags equal the host's. Returns a construction miss."""
     t0 = time.time()
     r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid, "stun": True})
@@ -442,19 +444,19 @@ def stun(host, client, uid, rec):
     return None
 
 
-def row_sr3(ev, res, host, client, st):
+def row_stunned(ev, res, host, client, st):
     G, H = st["G"], st["H"]
     before = snap(host, client)
     ev["G"], ev["H"] = grec, hrec = {}, {}
     miss = stun(host, client, G, grec) or stun(host, client, H, hrec)
     if miss:
-        capture(host, client, "SR3")
-        res.update({c: f"construction: {miss}" for c in CELLS["SR3"]})
+        capture(host, client, "stunned")
+        res.update({c: f"construction: {miss}" for c in CELLS["stunned"]})
         return
     gv = grec["tags"] = {n: tags(gc, G) for n, gc in pairs(host, client)}
     hv = hrec["tags"] = {n: tags(gc, H) for n, gc in pairs(host, client)}
-    res["SR3-G"] = tag_cell("G", G, gv, (TAG_HIT, TAG_DMG, TAG_SPEC), OWNER_R)
-    res["SR3-H"] = tag_cell("H", H, hv, (TAG_HIT, TAG_DMG, TAG_SPEC), HOST_R)
+    res["stunned_guest_reads_own"] = tag_cell("G", G, gv, (TAG_HIT, TAG_DMG, TAG_SPEC), OWNER_R)
+    res["stunned_host_reads_host"] = tag_cell("H", H, hv, (TAG_HIT, TAG_DMG, TAG_SPEC), HOST_R)
     f = list(grec.get("waits", [])) + list(hrec.get("waits", []))
     for name, uid in (("G", G), ("H", H)):
         for n, gc in pairs(host, client):
@@ -468,11 +470,12 @@ def row_sr3(ev, res, host, client, st):
     for n, s in stack.items():
         if "BattlescapeState" not in s or "DebriefingState" in s:
             f.append(f"{n} state stack {s} (want the battle running: BattlescapeState, no DebriefingState)")
-    res["SR3-state"] = joined(f)
-    res["SR3-common"] = joined(common(host, client, before, "SR3", st["crash0"]))
+    res["stunned_both_out"] = joined(f)
+    res["stunned_common"] = joined(common(host, client, before, "stunned", st["crash0"]))
 
 
-ROWS = (("SR0", row_sr0), ("SR1", row_sr1), ("SR2", row_sr2), ("SR4", row_sr4), ("SR3", row_sr3))
+ROWS = (("battle_entry", row_battle_entry), ("turn_round", row_turn_round), ("mod_skill", row_mod_skill),
+        ("pistol_shot", row_pistol_shot), ("stunned", row_stunned))
 
 
 def report(rid, ev, res):
@@ -519,7 +522,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[of2-sr] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[script_research] shutdown {gc.name}: {short(e)}", flush=True)
     n = sum(len(v) for v in CELLS.values())
     print(f"\ntest_script_research: {n - len(failed)}/{n} cells passed (fail={failed}) in "
           f"{round(time.time() - t_start, 1)} s", flush=True)
