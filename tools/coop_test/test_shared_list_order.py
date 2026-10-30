@@ -1,25 +1,26 @@
-"""W2-H16d (#65 playtest rule; owner D226 a; spec rewrite/prompts/w2h16d_shared_list_order.md (f) + ORCHESTRATOR RULINGS;
-TASK 0 rewrite/w2h16d-task0/CONSTANTS.md): in a SHARED campaign the base strip, the craft list, the soldier sort boxes and
-arrows and the research arrows must not reorder a shared list on one machine only (SHARED commands address a base by its
-index, F6397). Boot A (SHARED; 49331/49332, lobby 47310): S0 (SharedBase2 built, research P1 / P2 started, both machines'
-four orders equal) + H16d-1..6, H16d-8 (last: it reorders and renames bases). H16d-7 (ORIGINAL ORDER after an arrival) is
-DROPPED (R-H16d-T0-1: the host clock stops while the client sits in a base screen, F6961; the restore fences stand on
-reading). Boot B (SEPARATE; 49333/49334, lobby 47312): H16d-9 (guard row: the vanilla reorders stay local).
+"""In a SHARED campaign the base strip, the craft list, the soldier sort boxes and arrows and the research arrows must
+not reorder a shared list on one machine only (issue #65; SHARED commands address a base by its index). Boot
+shared (SHARED; 49331/49332, lobby 47310): the setup (SharedBase2 built, research P1 / P2 started, both machines'
+four orders equal), then craft_list, soldier_sort, crew_armor_sort, martial_training, psi_training,
+research_arrows and base_strip (last: it reorders and renames bases). There is no ORIGINAL ORDER row after an
+arrival: the host clock stops while the client sits in a base screen, so the test cannot stage one. Boot separate
+(SEPARATE; 49333/49334, lobby 47312): separate_reorders (guard row: the vanilla reorders stay local).
 
-Cell rule: ONE click per cell; both machines' order of the list the click targets, read before and polled every 0.25 s for
-2 s. GREEN = the clicker's order unchanged and both machines equal at the window end; RED (named) = the clicker's order
-changed. "guard:" cells are guards (red and green): the other machine's order unchanged at every poll, the craft-list click
-guard, the equal sort key on the clicker, every screen reached, the 4 own rows of the SHARED training screens (R-H16d-T0-2:
-their arrows swap roster positions at the visible row index, so every cell reads the roster through base_report). The first
-guard miss of a row prints ONE CAPTURE (four orders, stacks, list_widgets of the top state, shared_stats). requests == R0
-at each row end (STOP-IF 5). Every sort cell uses a key EQUAL for every soldier (SOLDIER TYPE; CRAFT on the crew-armor
-screen, the hole of its :193 fence) plus shift: unfenced, the stable sort keeps the order and shift reverses it, so the
-order ALWAYS changes, whatever an earlier red row left behind.
+Cell rule: ONE click per cell; both machines' order of the list the click targets, read before and polled every 0.25 s
+for 2 s. A cell passes when the clicker's order is unchanged and both machines are equal at the window end; it fails
+with its named message when the clicker's order changed. "guard:" cells are guards (with and without the fix): the
+other machine's order unchanged at every poll, the craft-list click guard, the equal sort key on the clicker, every
+screen reached, the 4 own rows of the SHARED training screens (their arrows swap roster positions at the visible row
+index, so every cell reads the roster through base_report). The first guard miss of a row prints ONE CAPTURE (four
+orders, stacks, list_widgets of the top state, shared_stats). requests == R0 at each row end. Every sort cell uses a
+key EQUAL for every soldier (SOLDIER TYPE; CRAFT on the crew-armor screen, the hole of its :193 fence) plus shift:
+unfenced, the stable sort keeps the order and shift reverses it, so the order ALWAYS changes, whatever an earlier
+failed row left behind.
 Pixels: window = int(base x 2.0), bands 0 (checked against the EQUIP CRAFT click_widget reply), from the unrounded
 centre; list row r: y = rect.y + 8r + 4; arrow buttons 11x8 at rect.x + arrowPos (up) / + 12 (down), centre + 5.5,
 arrowPos 238 (training) / 192 (research); ComboBox: the box centre, then dropdown row r at (x + 2 + (w - 17) / 2,
 popupY + 3 + 8r + 4), popupY = y + h (below) or y - 86 (above: 10 rows x 8 + 6).
-RED on the pre-fix build: H16d-1..6 and H16d-8 fail on their named cells, H16d-9 passes. GREEN: all pass.
+Without the fix every boot shared row fails on its named cells and separate_reorders passes; with it all pass.
 ONE run; exit 0 iff every row passes, else 2.
 """
 
@@ -33,15 +34,17 @@ import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients, LAND_LON, LAND_LAT  # noqa: E402
-BOOT_A, BOOT_B = ("w2h16da", (49331, 49332, 47310)), ("w2h16db", (49333, 49334), "47312")
-HB, SB2, CB, RENAME = "HostBase", "SharedBase2", "ClientBase", "H16D"
+BOOT_SHARED, BOOT_SEPARATE = (("list_order_shared", (49331, 49332, 47310)),
+                              ("list_order_separate", (49333, 49334), "47312"))
+HB, SB2, CB, RENAME = "HostBase", "SharedBase2", "ClientBase", "Renamed"
 H, C, GEO = "host", "client", "GeoscapeState"
 SCALE, POLL_S, POLL_I, POPUP_H, OWN_ROWS = 2.0, 2.0, 0.25, 10 * 8 + 3 * 2, 4
 ROW_SS_TYPE, ROW_CAS_CRAFT, ROW_ALLOC_TYPE = 4, 3, 3      # dropdown rows: SOLDIER TYPE / CRAFT / SOLDIER TYPE
 ARROW_TRAINING, ARROW_RESEARCH = 238, 192                 # setArrowColumn: ATS :187, APS :175 / RS :104
 ALLOC = {"martial": "AllocateTrainingState", "psi": "AllocatePsiTrainingState"}
 SS_KEYS = ("cmd", "okCount", "failCount", "applyCount", "applyQueued", "lastFail")
-ORDER = ["H16d-1", "H16d-2", "H16d-3", "H16d-4", "H16d-5", "H16d-6", "H16d-8", "H16d-9"]
+ORDER = ["craft_list", "soldier_sort", "crew_armor_sort", "martial_training", "psi_training", "research_arrows",
+         "base_strip", "separate_reorders"]
 short = lambda e, n=600: (lambda s: s if len(s) <= n else s[:n] + "...")(f"{type(e).__name__}: {e}")  # noqa: E731
 class Miss(Exception):  # a blocking guard missed: the row stops
     pass
@@ -110,7 +113,7 @@ class Row:
         self.rid, self.x, self.ev, self.fails, self.passed, self.captured = rid, x, {}, [], [], False
     def cell(self, name, ok, detail=""):
         (self.passed if ok else self.fails).append(name if ok else f"{name}: {detail}")
-        if not ok and name.startswith("guard:") and not self.captured:   # Setup-failure dump (STOP-IF 3)
+        if not ok and name.startswith("guard:") and not self.captured:   # setup-failure dump
             self.captured = True
             capture(self.rid, self.x, name)
         return ok
@@ -168,8 +171,8 @@ def open_alloc(r, gc, kind, tag):
     return one(r, gc, "TextList", tag)
 
 # --------------------------------------------------------------------------- cells
-def cell(x, r, name, gc, probe, act, red, shift=False, expect_change=False):
-    """ONE click (spec (f) cell rule): `probe(machine)` = the list the click targets."""
+def cell(x, r, name, gc, probe, act, reorder_msg, shift=False, expect_change=False):
+    """ONE click (the cell rule): `probe(machine)` = the list the click targets."""
     o = x.other(gc)
     b = {m.name: probe(m) for m in (x.host, x.client)}
     r.ev[name + " click [bx, by, wx, wy, button, mod]"] = act()
@@ -183,16 +186,16 @@ def cell(x, r, name, gc, probe, act, red, shift=False, expect_change=False):
         if time.time() - t0 >= POLL_S:
             break
         time.sleep(POLL_I)
-    if shift:   # the latch is cleared after the window (TASK 0: consumed within 0.05 s)
+    if shift:   # the latch is cleared after the window (measured: consumed within 0.05 s)
         q(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "none"})
     r.ev[name] = {"before": b, "after": a, "tChange": t_ch}
     r.cell(f"guard:{name}: {o.name} unchanged", not seen, f"{o.name} {b[o.name]} -> {seen}")
-    if expect_change:   # H16d-9: SEPARATE keeps the vanilla reorder
+    if expect_change:   # separate_reorders: SEPARATE keeps the vanilla reorder
         return r.cell(name, a[gc.name] != b[gc.name], f"the {gc.name}'s order did not change in SEPARATE: {a[gc.name]}")
     if a[gc.name] != b[gc.name]:
-        return r.cell(name, False, f"{red}: {gc.name} {b[gc.name]} -> {a[gc.name]}")
+        return r.cell(name, False, f"{reorder_msg}: {gc.name} {b[gc.name]} -> {a[gc.name]}")
     return r.cell(name, a[H] == a[C], f"orders differ: host {a[H]} client {a[C]}")
-def sort_cell(x, r, name, gc, row, above, key, red, expect_change=False):
+def sort_cell(x, r, name, gc, row, above, key, reorder_msg, expect_change=False):
     """The top state's ONE ComboBox: the box, 0.3 s, then dropdown row `row` with shift (equal key: a pure reversal)."""
     sol = soldiers(gc, x.base[gc.name]) or []
     vals = sorted(set(str(s.get(key)) for s in sol))
@@ -206,16 +209,16 @@ def sort_cell(x, r, name, gc, row, above, key, red, expect_change=False):
         k = click(gc, *box)
         time.sleep(0.3)
         return [k, click(gc, *pick, mod="shift")]
-    return cell(x, r, name, gc, x.roster, act, red, shift=True, expect_change=expect_change)
-def arrow(x, r, name, gc, L, pos, row, down, red, probe=None):
+    return cell(x, r, name, gc, x.roster, act, reorder_msg, shift=True, expect_change=expect_change)
+def arrow(x, r, name, gc, L, pos, row, down, reorder_msg, probe=None):
     p = (L[0] + pos + (12 if down else 0) + 5.5, L[1] + 8 * row + 4)
-    return cell(x, r, name, gc, probe or x.roster, lambda: click(gc, *p), red)
+    return cell(x, r, name, gc, probe or x.roster, lambda: click(gc, *p), reorder_msg)
 
-# --------------------------------------------------------------------------- Boot A rows
-def h1(x, r):   # craft list: right-click (client, row 1) and shift+right-click (host, row 0)
+# --------------------------------------------------------------------------- boot shared rows
+def row_craft_list(x, r):   # craft list: right-click (client, row 1) and shift+right-click (host, row 0)
     h, c = x.host, x.client
-    for gc, row, mod, n, o in ((c, 1, None, "H16d-1a client right-click craft row 1", "O-2a"),
-                               (h, 0, "shift", "H16d-1b host shift+right-click craft row 0", "O-2b")):
+    for gc, row, mod, n, o in ((c, 1, None, "craft_client client right-click craft row 1", "right-click"),
+                               (h, 0, "shift", "craft_host host shift+right-click craft row 0", "shift+right-click")):
         L = equip_craft(r, gc, n.split(" ")[0])
         p = (L[0] + L[2] / 2.0, L[1] + 8 * row + 4)
         cell(x, r, n, gc, crafts, lambda: click(gc, *p, button="right", mod=mod),
@@ -224,129 +227,132 @@ def h1(x, r):   # craft list: right-click (client, row 1) and shift+right-click 
         r.need(f"guard:{n.split(' ')[0]} {gc.name} click guard CraftInfoState",
                wait_until(lambda: top(gc) == "CraftInfoState", 3.0), stack(gc))
         close(r, gc, n.split(" ")[0])
-def h2(x, r):   # soldier-list sort box (client)
+def row_soldier_sort(x, r):   # soldier-list sort box (client)
     c = x.client
-    open_screen(r, c, "H16d-2", "soldiers", "SoldiersState")
-    sort_cell(x, r, "H16d-2 client soldier list SOLDIER TYPE + shift", c, ROW_SS_TYPE, False, "type",
-              "the client's soldier-list sort reordered the shared roster on its machine only (O-3a)")
-    close(r, c, "H16d-2")
-def h3(x, r):   # crew-armor sort box, CRAFT (selIdx 3: inside the hole of the :193 fence) (host)
+    open_screen(r, c, "soldier_sort", "soldiers", "SoldiersState")
+    sort_cell(x, r, "soldier_sort client soldier list SOLDIER TYPE + shift", c, ROW_SS_TYPE, False, "type",
+              "the client's soldier-list sort reordered the shared roster on its machine only")
+    close(r, c, "soldier_sort")
+def row_crew_armor_sort(x, r):   # crew-armor sort box, CRAFT (selIdx 3: inside the hole of the :193 fence) (host)
     h = x.host
-    open_screen(r, h, "H16d-3", "craft_armor", "CraftArmorState", craft_id=1)
-    sort_cell(x, r, "H16d-3 host crew-armor CRAFT + shift", h, ROW_CAS_CRAFT, True, "craft",
-              "the host's crew-armor CRAFT sort reordered the shared roster on its machine only (O-3d)")
-    close(r, h, "H16d-3")
-def h4(x, r):   # martial training: arrows (client), sort box (host)
+    open_screen(r, h, "crew_armor_sort", "craft_armor", "CraftArmorState", craft_id=1)
+    sort_cell(x, r, "crew_armor_sort host crew-armor CRAFT + shift", h, ROW_CAS_CRAFT, True, "craft",
+              "the host's crew-armor CRAFT sort reordered the shared roster on its machine only")
+    close(r, h, "crew_armor_sort")
+def row_martial_training(x, r):   # martial training: arrows (client), sort box (host)
     h, c = x.host, x.client
-    L = open_alloc(r, c, "martial", "H16d-4a")
-    arrow(x, r, "H16d-4a client martial row 0 DOWN arrow", c, L, ARROW_TRAINING, 0, True,
-          "the client's martial arrow reordered the shared roster on its machine only (O-3g)")
-    arrow(x, r, "H16d-4b client martial row 1 UP arrow", c, L, ARROW_TRAINING, 1, False,
-          "the client's martial arrow reordered the shared roster on its machine only (O-3g)")
-    close(r, c, "H16d-4b")
-    open_alloc(r, h, "martial", "H16d-4c")
-    sort_cell(x, r, "H16d-4c host martial SOLDIER TYPE + shift", h, ROW_ALLOC_TYPE, True, "type",
-              "the host's martial sort reordered the shared roster on its machine only (O-3f)")
-    close(r, h, "H16d-4c")
-def h5(x, r):   # psi training: arrow + sort box (client), arrow (host)
+    L = open_alloc(r, c, "martial", "martial_client_down")
+    arrow(x, r, "martial_client_down client martial row 0 DOWN arrow", c, L, ARROW_TRAINING, 0, True,
+          "the client's martial arrow reordered the shared roster on its machine only")
+    arrow(x, r, "martial_client_up client martial row 1 UP arrow", c, L, ARROW_TRAINING, 1, False,
+          "the client's martial arrow reordered the shared roster on its machine only")
+    close(r, c, "martial_client_up")
+    open_alloc(r, h, "martial", "martial_host_sort")
+    sort_cell(x, r, "martial_host_sort host martial SOLDIER TYPE + shift", h, ROW_ALLOC_TYPE, True, "type",
+              "the host's martial sort reordered the shared roster on its machine only")
+    close(r, h, "martial_host_sort")
+def row_psi_training(x, r):   # psi training: arrow + sort box (client), arrow (host)
     h, c = x.host, x.client
-    L = open_alloc(r, c, "psi", "H16d-5a")
-    arrow(x, r, "H16d-5a client psi row 1 UP arrow", c, L, ARROW_TRAINING, 1, False,
-          "the client's psi arrow reordered the shared roster on its machine only (O-3i)")
-    sort_cell(x, r, "H16d-5b client psi SOLDIER TYPE + shift", c, ROW_ALLOC_TYPE, True, "type",
-              "the client's psi sort reordered the shared roster on its machine only (O-3h)")
-    close(r, c, "H16d-5b")
-    L = open_alloc(r, h, "psi", "H16d-5c")
-    arrow(x, r, "H16d-5c host psi row 0 DOWN arrow", h, L, ARROW_TRAINING, 0, True,
-          "the host's psi arrow reordered the shared roster on its machine only (O-3i)")
-    close(r, h, "H16d-5c")
-def h6(x, r):   # research arrows: client row 0 DOWN, host row 1 UP
+    L = open_alloc(r, c, "psi", "psi_client_up")
+    arrow(x, r, "psi_client_up client psi row 1 UP arrow", c, L, ARROW_TRAINING, 1, False,
+          "the client's psi arrow reordered the shared roster on its machine only")
+    sort_cell(x, r, "psi_client_sort client psi SOLDIER TYPE + shift", c, ROW_ALLOC_TYPE, True, "type",
+              "the client's psi sort reordered the shared roster on its machine only")
+    close(r, c, "psi_client_sort")
+    L = open_alloc(r, h, "psi", "psi_host_down")
+    arrow(x, r, "psi_host_down host psi row 0 DOWN arrow", h, L, ARROW_TRAINING, 0, True,
+          "the host's psi arrow reordered the shared roster on its machine only")
+    close(r, h, "psi_host_down")
+def row_research_arrows(x, r):   # research arrows: client row 0 DOWN, host row 1 UP
     h, c = x.host, x.client
-    r.need("guard:H16d-6 research [P1, P2] on both", research(h) == x.P and research(c) == x.P,
+    r.need("guard:research_arrows research [P1, P2] on both", research(h) == x.P and research(c) == x.P,
            {H: research(h), C: research(c), "P": x.P})
-    for gc, row, down, n in ((c, 0, True, "H16d-6a client research row 0 DOWN arrow"),
-                             (h, 1, False, "H16d-6b host research row 1 UP arrow")):
+    for gc, row, down, n in ((c, 0, True, "research_client_down client research row 0 DOWN arrow"),
+                             (h, 1, False, "research_host_up host research row 1 UP arrow")):
         open_screen(r, gc, n.split(" ")[0], "research", "ResearchState")
         L = one(r, gc, "TextList", n.split(" ")[0])
         arrow(x, r, n, gc, L, ARROW_RESEARCH, row, down,
-              f"the {gc.name}'s research list reordered on its machine only (O-4)", probe=research)
+              f"the {gc.name}'s research list reordered on its machine only", probe=research)
         close(r, gc, n.split(" ")[0])
-def h8(x, r):   # base strip (client) + a command by index (LAST in Boot A)
+def row_base_strip(x, r):   # base strip (client) + a command by index (LAST in boot shared)
     h, c = x.host, x.client
-    r.need("guard:H16d-8 bases [HostBase, SharedBase2] on both", bases(h) == [HB, SB2] and bases(c) == [HB, SB2],
+    r.need("guard:base_strip bases [HostBase, SharedBase2] on both", bases(h) == [HB, SB2] and bases(c) == [HB, SB2],
            {H: bases(h), C: bases(c)})
-    open_screen(r, c, "H16d-8a", "basescape", "BasescapeState", base=SB2)
-    m = one(r, c, "MiniBaseView", "H16d-8a")
+    open_screen(r, c, "base_strip_client", "basescape", "BasescapeState", base=SB2)
+    m = one(r, c, "MiniBaseView", "base_strip_client")
     p = (m[0] + 24, m[1] + 8)   # MiniBaseView slot 1 centre (test_old_bases MINI_SLOT1_CENTRE)
-    cell(x, r, "H16d-8a client right-click base-strip slot 1", c, bases, lambda: click(c, *p, button="right"),
-         "the base list reordered on the client only (O-1)")
-    r.ev["H16d-8a selectedBase"] = {g.name: q(g, {"cmd": "geo_state"}).get("selectedBase") for g in (h, c)}
-    close(r, c, "H16d-8a")
+    cell(x, r, "base_strip_client client right-click base-strip slot 1", c, bases, lambda: click(c, *p, button="right"),
+         "the base list reordered on the client only")
+    r.ev["base_strip_client selectedBase"] = {g.name: q(g, {"cmd": "geo_state"}).get("selectedBase") for g in (h, c)}
+    close(r, c, "base_strip_client")
     rep = q(c, {"cmd": "base_rename", "base": SB2, "name": RENAME})
-    r.need("guard:H16d-8b client base_rename", rep.get("ok"), rep)
+    r.need("guard:base_rename_client client base_rename", rep.get("ok"), rep)
     time.sleep(POLL_S)
     a, want = {g.name: bases(g) for g in (h, c)}, [HB, RENAME]
-    r.ev["H16d-8b bases after the client's rename of SharedBase2 (2 s)"] = a
-    n = "H16d-8b client renames SharedBase2"
+    r.ev["base_rename_client bases after the client's rename of SharedBase2 (2 s)"] = a
+    n = "base_rename_client client renames SharedBase2"
     if a[H] == [RENAME, SB2] and a[C] == [RENAME, HB]:
-        r.cell(n, False, f"the client's rename of SharedBase2 renamed the host's HostBase (F6397): host {a[H]} client {a[C]}")
+        r.cell(n, False, f"the client's rename of SharedBase2 renamed the host's HostBase: host {a[H]} client {a[C]}")
     else:
         r.cell(n, a[H] == want and a[C] == want, f"bases host {a[H]} client {a[C]} != {want} on both")
 
-# --------------------------------------------------------------------------- Boot B row
-def h9(x, r):   # SEPARATE keeps vanilla: the client's own roster and craft order change; nothing goes over the wire
+# --------------------------------------------------------------------------- boot separate row
+# SEPARATE keeps vanilla: the client's own roster and craft order change; nothing goes over the wire
+def row_separate_reorders(x, r):
     h, c = x.host, x.client
     ss0 = {g.name: sstats(g) for g in (h, c)}
-    r.ev["H16d-9 shared_stats before"] = ss0
-    open_screen(r, c, "H16d-9a", "soldiers", "SoldiersState")
-    sort_cell(x, r, "H16d-9a client soldier list SOLDIER TYPE + shift (SEPARATE)", c, ROW_SS_TYPE, False, "type", "",
+    r.ev["separate_reorders shared_stats before"] = ss0
+    open_screen(r, c, "separate_soldier_sort", "soldiers", "SoldiersState")
+    sort_cell(x, r, "separate_soldier_sort client soldier list SOLDIER TYPE + shift (SEPARATE)", c, ROW_SS_TYPE, False,
+              "type", "",
               expect_change=True)
-    close(r, c, "H16d-9a")
-    L = equip_craft(r, c, "H16d-9b")
+    close(r, c, "separate_soldier_sort")
+    L = equip_craft(r, c, "separate_craft_order")
     p = (L[0] + L[2] / 2.0, L[1] + 8 * 1 + 4)
-    cell(x, r, "H16d-9b client right-click craft row 1 (SEPARATE)", c, crafts, lambda: click(c, *p, button="right"), "",
+    cell(x, r, "separate_craft_order client right-click craft row 1 (SEPARATE)", c, crafts,
+         lambda: click(c, *p, button="right"), "",
          expect_change=True)
-    close(r, c, "H16d-9b")
+    close(r, c, "separate_craft_order")
     ss1 = {g.name: sstats(g) for g in (h, c)}
-    r.ev["H16d-9 shared_stats after"] = ss1
-    r.cell("H16d-9c shared_stats unchanged on both", ss1 == ss0, f"{ss0} -> {ss1}")
+    r.ev["separate_reorders shared_stats after"] = ss1
+    r.cell("separate_no_traffic shared_stats unchanged on both", ss1 == ss0, f"{ss0} -> {ss1}")
 
 # --------------------------------------------------------------------------- boots
-def s0(x):
-    """Boot A S0 (TASK 0 (i)): SharedBase2 through build_new_base, P1 / P2 through res_start, the four orders equal."""
+def shared_setup(x):
+    """Boot shared setup: SharedBase2 through build_new_base, P1 / P2 through res_start, the four orders equal."""
     h, c = x.host, x.client
     h.ok({"cmd": "build_new_base", "lon": LAND_LON + 0.03, "lat": LAND_LAT + 0.03, "name": SB2})
     if not wait_until(lambda: bases(h) == [HB, SB2] and bases(c) == [HB, SB2], 30.0, 0.1):
-        raise RuntimeError(f"S0 bases host {bases(h)} client {bases(c)} != [HostBase, SharedBase2]")
+        raise RuntimeError(f"setup bases host {bases(h)} client {bases(c)} != [HostBase, SharedBase2]")
     if not wait_until(lambda: top(h) == GEO, 10.0):
-        raise RuntimeError(f"S0 host top {stack(h)} after build_new_base")
+        raise RuntimeError(f"setup host top {stack(h)} after build_new_base")
     h.ok({"cmd": "open_screen", "screen": "new_research"})
     projects = q(h, {"cmd": "screen_state"}).get("projects") or []
     h.ok({"cmd": "close_screens"})
     if len(projects) < 2 or not wait_until(lambda: top(h) == GEO, 5.0):
-        raise RuntimeError(f"S0 new_research projects {projects}, host {stack(h)}")
+        raise RuntimeError(f"setup new_research projects {projects}, host {stack(h)}")
     x.P = projects[:2]
     for p in x.P:
         h.ok({"cmd": "shared_cmd", "jcmd": "res_start", "baseId": 0, "payload": {"project": p}})
     if not wait_until(lambda: research(h) == x.P and research(c) == x.P, 30.0, 0.1):
-        raise RuntimeError(f"S0 research host {research(h)} client {research(c)} != {x.P}")
+        raise RuntimeError(f"setup research host {research(h)} client {research(c)} != {x.P}")
     o = {g.name: x.orders(g) for g in (h, c)}
     x.R0 = {g.name: req(g) for g in (h, c)}
-    print(f"EVIDENCE S0: {json.dumps({'orders': o, 'P': x.P, 'R0': x.R0}, sort_keys=True)}", flush=True)
+    print(f"EVIDENCE setup: {json.dumps({'orders': o, 'P': x.P, 'R0': x.R0}, sort_keys=True)}", flush=True)
     if o[H] != o[C]:
-        raise RuntimeError("S0 orders differ (guard)")
-def up_a():
-    js = shared_fixture.bring_up(*BOOT_A)
+        raise RuntimeError("setup orders differ (guard)")
+def up_shared():
+    js = shared_fixture.bring_up(*BOOT_SHARED)
     return X(js.host, js.client, {H: HB, C: HB}), js.shutdown
-def up_b():
-    host = GameClient(H, BOOT_B[1][0], make_user_dir(BOOT_B[0] + "_host"))
-    client = GameClient(C, BOOT_B[1][1], make_user_dir(BOOT_B[0] + "_client"))
+def up_separate():
+    host = GameClient(H, BOOT_SEPARATE[1][0], make_user_dir(BOOT_SEPARATE[0] + "_host"))
+    client = GameClient(C, BOOT_SEPARATE[1][1], make_user_dir(BOOT_SEPARATE[0] + "_client"))
     try:
         host.spawn()
         client.spawn()
         host.connect()
         client.connect()
-        session.new_campaign(host, client, port=BOOT_B[2], campaign_mode="coop")
+        session.new_campaign(host, client, port=BOOT_SEPARATE[2], campaign_mode="coop")
         geo.wait_both_ready(host, client)
     except BaseException:
         shutdown_clients(host, client)
@@ -367,7 +373,7 @@ def run_row(rid, fn, x, results, walls):
             q(g, {"cmd": "close_screens"})
             wait_until(lambda: top(g) == GEO, 5.0)
     now = {g.name: req(g) for g in (x.host, x.client)}
-    r.cell(f"guard:{rid} requests == R0", now == x.R0, f"requests {now} vs R0 {x.R0} (STOP-IF 5)")
+    r.cell(f"guard:{rid} requests == R0", now == x.R0, f"requests {now} vs R0 {x.R0}")
     walls[rid] = round(time.time() - t0, 1)
     r.report(results)
 def boot(results, walls, tag, rows, up, setup=None):
@@ -378,7 +384,7 @@ def boot(results, walls, tag, rows, up, setup=None):
         if setup:
             t1 = time.time()
             setup(x)
-            walls[f"S0 {tag}"] = round(time.time() - t1, 1)
+            walls[f"setup {tag}"] = round(time.time() - t1, 1)
     except Exception as e:   # a boot miss fails its rows "boot" with ONE CAPTURE line
         print(f"CAPTURE boot {tag} (boot miss): {short(e, 1500)}", flush=True)
         if x is not None:
@@ -398,9 +404,11 @@ def boot(results, walls, tag, rows, up, setup=None):
         walls[f"shutdown {tag}"] = round(time.time() - t1, 1)
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(results, walls, "A", [("H16d-1", h1), ("H16d-2", h2), ("H16d-3", h3), ("H16d-4", h4), ("H16d-5", h5),
-                               ("H16d-6", h6), ("H16d-8", h8)], up_a, s0)
-    boot(results, walls, "B", [("H16d-9", h9)], up_b)
+    boot(results, walls, "shared",
+         [("craft_list", row_craft_list), ("soldier_sort", row_soldier_sort), ("crew_armor_sort", row_crew_armor_sort),
+          ("martial_training", row_martial_training), ("psi_training", row_psi_training),
+          ("research_arrows", row_research_arrows), ("base_strip", row_base_strip)], up_shared, shared_setup)
+    boot(results, walls, "separate", [("separate_reorders", row_separate_reorders)], up_separate)
     failed = [rid for rid in ORDER if not results.get(rid)]
     print(f"\ntest_shared_list_order: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) "
           f"walls {json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)
