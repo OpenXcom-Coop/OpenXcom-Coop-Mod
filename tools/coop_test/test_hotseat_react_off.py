@@ -1,37 +1,35 @@
-"""hotseat with REACT FIRE off (the default): no walk draws reaction fire, on either player's turn, and the
-main menu disarms HOTSEAT. Boot B2.
+"""hotseat with REACT FIRE off (the default): no walk draws reaction fire, on either player's turn, and the main menu
+disarms HOTSEAT.
 
-Spec: docs rewrite/prompts/d247u_hotseat_battle.md, (d) Stage S-B and (f) `test_hotseat_react_off.py`. Pins: docs
-rewrite/d247u-task0/sb/CONSTANTS.md (TASK 0 boots Bc / Bd on the S-A green build; every S54 swap is logged there).
+ONE single-player instance (label 49113, user dir hotseat_react_off; the label is not a port when a user dir is
+given), no co-op session. HOTSEAT is armed through the real NEW BATTLE toggle handler (`newbattle_hotseat`); REACT
+FIRE is left untouched (`get_coop.hotseatReactionFire` false, a boot check).
 
-ONE single-player instance (label 49113, user dir d247u_b2; the label is not a port when a user dir is given), no co-op
-session. HOTSEAT is armed through the real NEW BATTLE toggle handler (`newbattle_hotseat`); REACT FIRE is left untouched
-(`get_coop.hotseatReactionFire` false, a boot check).
-
-Bring-up (boot B2): open_new_battle; newbattle_mission MISSION; newbattle_race RACE; newbattle_hotseat on; set_seed SEED_A
-right before newbattle_ok; close_briefing; the battle-start overlays; BattlescapeState on top. Staging (S-B T0-4 (2)-(3),
-every lever reply read, S25): AR teleported to AR_HOME facing SR_HOME, SR to SR_HOME facing AR_HOME (4 tiles apart on a
-straight free line, CONSTANTS.md); SR's hands cleared and a rifle + clip given (S25: soldier loadouts vary per boot); AR
-reactions 100, firing 0; every other unit reactions 0. A staging miss is a boot miss.
+Bring-up: open_new_battle; newbattle_mission MISSION; newbattle_race RACE; newbattle_hotseat on; set_seed SEED_A right
+before newbattle_ok; close_briefing; the battle-start overlays; BattlescapeState on top. Staging (every test command's
+reply read): AR teleported to AR_HOME facing SR_HOME, SR to SR_HOME facing AR_HOME (4 tiles apart on a straight free
+line, as measured); SR's hands cleared and a rifle + clip given (soldier loadouts vary per boot); AR reactions 100,
+firing 0; every other unit reactions 0. A staging miss is a boot miss.
 
 Rows and cells (one EVIDENCE line per row, one PASS/FAIL line per cell, then the row verdict; every row runs after a
 failure; a row whose precondition failed FAILs its cells "blocked: <reason>"; a settle that times out FAILs its value
-cells "not settled", R-D247-SA-3):
-  common       react_off-common  0 new crash files (lane crash folder); battle_state.coopSession false
-  R1  X-COM's walk draws no reaction: the real-UI walk of SR to SR_DEST; settle. R1-walk (SR on SR_DEST, precondition),
-      R1-noreact (AR's TU unchanged)
-  R1b player 2's walk draws no reaction: END TURN; close_nextturn (player 2's turn); SW (= SR) reactions 100, firing 0
-      (lever); the real-UI walk of AR to AR_DEST; settle. R1b-walk (AR on AR_DEST, precondition), R1b-noreact (SW's TU
-      unchanged)
-  AB  back to the main menu disarms HOTSEAT: Escape -> PauseState; ABANDON GAME -> AbandonGameState; YES -> MainMenuState
-      (<= 30 s). Each button is clicked once its popup window has shown it (a hidden button ignores input, TASK 0 F16644).
-      AB-menu (MainMenuState on top, precondition), AB-disarm (`get_coop.hotseat` false)
-Every real-UI walk TABs at least once (a TAB runs calculateFOV for the selected unit, BS :1517-:1524), so the walker has
-spotted what it sees before it steps; a walker that newly spots a unit halts before the walk-step reaction check (UWBS :252).
+cells "not settled"):
+  common: react_off-common, 0 new crash files (this harness slot's crash folder); battle_state.coopSession false.
+  xcom_walk: X-COM's walk draws no reaction: the real-UI walk of SR to SR_DEST; settle. xcom_walk-arrived (SR on
+      SR_DEST, precondition), xcom_walk-no_reaction (AR's TU unchanged).
+  player2_walk: player 2's walk draws no reaction: END TURN; close_nextturn (player 2's turn); SW (= SR) reactions
+      100, firing 0 (test command); the real-UI walk of AR to AR_DEST; settle. player2_walk-arrived (AR on AR_DEST,
+      precondition), player2_walk-no_reaction (SW's TU unchanged).
+  abandon_game: back to the main menu disarms HOTSEAT: Escape -> PauseState; ABANDON GAME -> AbandonGameState; YES ->
+      MainMenuState (<= 30 s). Each button is clicked once its popup window has shown it (a hidden button ignores
+      input). abandon_game-menu (MainMenuState on top, precondition), abandon_game-disarm (`get_coop.hotseat` false).
+Every real-UI walk TABs at least once (a TAB runs calculateFOV for the selected unit, BS :1517-:1524), so the walker
+has spotted what it sees before it steps; a walker that newly spots a unit halts before the walk-step reaction check
+(UWBS :252).
 
-Red (B1, the S-A green base): R1-noreact, R1b-noreact, AB-disarm FAIL; R1-walk, R1b-walk, AB-menu, react_off-common PASS.
-Exit 0 only when every cell passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). run it in the
-foreground to completion.
+When broken: xcom_walk-no_reaction, player2_walk-no_reaction and abandon_game-disarm FAIL; xcom_walk-arrived,
+player2_walk-arrived, abandon_game-menu and react_off-common PASS. Exit 0 only when every cell passes, else 2 (one
+run, no SKIP, no exit 3). Run it in the foreground to completion.
 
 Run: python tools/coop_test/test_hotseat_react_off.py
 """
@@ -44,22 +42,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
 import session  # noqa: E402
 
-# Pins (CONSTANTS.md, boots Bc / Bd; S54 swaps logged there)
+# Measured setup values
 MISSION, RACE, SEED_A = "STR_LARGE_SCOUT", "STR_SECTOID", 2
 AR, SR = 1000000, 14
 SW = SR
 AR_HOME, AR_DIR, AR_DEST = (5, 20, 0), 5, (4, 21, 0)
 SR_HOME, SR_DIR, SR_DEST = (1, 24, 0), 1, (2, 23, 0)
 SR_WEAPON, SR_AMMO = "STR_RIFLE", "STR_RIFLE_CLIP"
-LABEL, UDIR = 49113, "d247u_b2"
+LABEL, UDIR = 49113, "hotseat_react_off"
 
 SDLK_HOME, SDLK_TAB, SDLK_ESCAPE = 278, 9, 27
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 CELLS = {
     "common": ["react_off-common"],
-    "R1": ["R1-walk", "R1-noreact"],
-    "R1b": ["R1b-walk", "R1b-noreact"],
-    "AB": ["AB-menu", "AB-disarm"],
+    "xcom_walk": ["xcom_walk-arrived", "xcom_walk-no_reaction"],
+    "player2_walk": ["player2_walk-arrived", "player2_walk-no_reaction"],
+    "abandon_game": ["abandon_game-menu", "abandon_game-disarm"],
 }
 RES = {}
 T0 = time.time()
@@ -120,10 +118,10 @@ class Boot:
     def units(self):
         return {u["id"]: u for u in self.bst().get("units", [])}
 
-    def lev(self, req):
+    def cmd_ok(self, req):
         r = self.gc.cmd(req)
         if not r.get("ok"):
-            raise RuntimeError("lever refused: %r -> %r" % (req, r))
+            raise RuntimeError("test command refused: %r -> %r" % (req, r))
         return r
 
     def wait(self, desc, pred, timeout, interval=0.1):
@@ -157,13 +155,13 @@ class Boot:
 
     def click_shown(self, match, timeout=5):
         """click_widget once the TextButton captioned `match` is shown: a popup window hides every surface until its popup
-        ends and a hidden button ignores input (TS list_widgets `hidden`; TASK 0 F16644)."""
+        ends and a hidden button ignores input (TestServer list_widgets `hidden`)."""
         end = time.time() + timeout
         while time.time() < end:
             ws = self.gc.cmd({"cmd": "list_widgets"}).get("widgets", [])
             hit = [w for w in ws if w.get("interactive") and match.lower() in (w.get("text") or "").lower()]
             if hit and hit[0].get("visible") and not hit[0].get("hidden"):
-                return self.lev({"cmd": "click_widget", "match": match})
+                return self.cmd_ok({"cmd": "click_widget", "match": match})
             time.sleep(0.05)
         raise TimeoutError("button %r never shown" % match)
 
@@ -225,7 +223,7 @@ class Boot:
 
 def main():
     crash0 = crash_files()
-    gc = harness.GameClient("d247u_b2", LABEL, harness.make_user_dir(UDIR))
+    gc = harness.GameClient("hotseat_react_off", LABEL, harness.make_user_dir(UDIR))
     B = Boot(gc)
     ctx = {}
     coop_session = None
@@ -251,14 +249,15 @@ def main():
             B.wait("BattlescapeState on top", lambda: B.top() == "BattlescapeState", 30)
             ctx["staging"] = stage(B)
         except Exception as e:  # noqa: BLE001
-            B.capture("boot B2: %r" % e)
+            B.capture("boot: %r" % e)
             for row in CELLS:
                 fail_rest(row, "boot")
                 verdict(row)
             return
         coop_session = B.bst().get("coopSession")
         print("bring-up done %.1f s" % (time.time() - T0), flush=True)
-        for name, fn in (("R1", row_r1), ("R1b", row_r1b), ("AB", row_ab)):
+        for name, fn in (("xcom_walk", row_xcom_walk), ("player2_walk", row_player2_walk),
+                         ("abandon_game", row_abandon_game)):
             try:
                 fn(B, ctx)
             except Exception as e:  # noqa: BLE001
@@ -277,20 +276,22 @@ def main():
 
 
 def stage(B):
-    """S-B T0-4 (2)-(3): every lever reply read; raises on a refused lever or a wrong read-back (a boot miss)."""
+    """The staging: every test command's reply read; raises on a refused command or a wrong read-back (a boot miss)."""
     us = B.units()
     al = sorted(u["id"] for u in us.values() if u["originalFaction"] == FACTION_HOSTILE and not u["isOut"])
     if not al or al[0] != AR or SR not in us or not us[SR].get("isPlayerSoldier") or us[SR]["isOut"]:
-        raise RuntimeError("unit layout differs from CONSTANTS.md: aliens %s, SR %r" % (al, ub(us.get(SR))))
-    st = {"AR_to": B.lev({"cmd": "battle_teleport_unit", "unit": AR, "x": AR_HOME[0], "y": AR_HOME[1], "z": AR_HOME[2], "dir": AR_DIR})["to"],
-          "SR_to": B.lev({"cmd": "battle_teleport_unit", "unit": SR, "x": SR_HOME[0], "y": SR_HOME[1], "z": SR_HOME[2], "dir": SR_DIR})["to"]}
-    g = B.lev({"cmd": "battle_give", "unit": SR, "item": SR_WEAPON, "ammo": SR_AMMO, "clear_hands": True})
+        raise RuntimeError("unit layout differs from the measured one: aliens %s, SR %r" % (al, ub(us.get(SR))))
+    st = {"AR_to": B.cmd_ok({"cmd": "battle_teleport_unit", "unit": AR, "x": AR_HOME[0], "y": AR_HOME[1],
+                             "z": AR_HOME[2], "dir": AR_DIR})["to"],
+          "SR_to": B.cmd_ok({"cmd": "battle_teleport_unit", "unit": SR, "x": SR_HOME[0], "y": SR_HOME[1],
+                             "z": SR_HOME[2], "dir": SR_DIR})["to"]}
+    g = B.cmd_ok({"cmd": "battle_give", "unit": SR, "item": SR_WEAPON, "ammo": SR_AMMO, "clear_hands": True})
     st["SR_give"] = [g.get("weaponId"), g.get("weaponSlot"), g.get("ammoId")]
-    B.lev({"cmd": "battle_action", "action": "set_stat", "unit": AR, "stat": "reactions", "value": 100})
-    B.lev({"cmd": "battle_action", "action": "set_stat", "unit": AR, "stat": "firing", "value": 0})
+    B.cmd_ok({"cmd": "battle_action", "action": "set_stat", "unit": AR, "stat": "reactions", "value": 100})
+    B.cmd_ok({"cmd": "battle_action", "action": "set_stat", "unit": AR, "stat": "firing", "value": 0})
     for uid in us:
         if uid != AR:
-            B.lev({"cmd": "battle_action", "action": "set_stat", "unit": uid, "stat": "reactions", "value": 0})
+            B.cmd_ok({"cmd": "battle_action", "action": "set_stat", "unit": uid, "stat": "reactions", "value": 0})
     us = B.units()
     bad = [] if at(us[AR], AR_HOME) and us[AR]["direction"] == AR_DIR and us[AR].get("reactions") == 100 else [ub(us[AR])]
     bad += [] if at(us[SR], SR_HOME) and us[SR]["direction"] == SR_DIR and us[SR].get("weapon") == SR_WEAPON else [ub(us[SR])]
@@ -300,28 +301,29 @@ def stage(B):
     return st
 
 
-def row_r1(B, ctx):
+def row_xcom_walk(B, ctx):
     ar_tu0 = B.units()[AR]["tu"]
     rec = B.walk(SR, SR_DEST)
     boxes = []
     settled, b, st = B.settle(15, boxes)
     us = {u["id"]: u for u in b.get("units", [])}
     sr, ar = us.get(SR, {}), us.get(AR, {})
-    evidence("R1", walk=rec, settled=settled, stack=st, boxes=boxes, ARtu=[ar_tu0, ar.get("tu")], SR=ub(sr), AR=ub(ar))
+    evidence("xcom_walk", walk=rec, settled=settled, stack=st, boxes=boxes, ARtu=[ar_tu0, ar.get("tu")], SR=ub(sr),
+             AR=ub(ar))
     if rec.get("fail"):
-        fail_rest("R1", "blocked: SR's walk failed (%s)" % rec["fail"])
+        fail_rest("xcom_walk", "blocked: SR's walk failed (%s)" % rec["fail"])
         return
     if not settled:
-        fail_rest("R1", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
+        fail_rest("xcom_walk", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
         return
-    cell("R1-walk", at(sr, SR_DEST), "SR at %s" % [sr.get(k) for k in ("x", "y", "z")])
-    if not RES["R1-walk"]:
-        fail_rest("R1", "blocked: SR not on SR_DEST (R1-walk)")
+    cell("xcom_walk-arrived", at(sr, SR_DEST), "SR at %s" % [sr.get(k) for k in ("x", "y", "z")])
+    if not RES["xcom_walk-arrived"]:
+        fail_rest("xcom_walk", "blocked: SR not on SR_DEST (xcom_walk-arrived)")
         return
-    cell("R1-noreact", ar.get("tu") == ar_tu0, "AR TU %r -> %r" % (ar_tu0, ar.get("tu")))
+    cell("xcom_walk-no_reaction", ar.get("tu") == ar_tu0, "AR TU %r -> %r" % (ar_tu0, ar.get("tu")))
 
 
-def row_r1b(B, ctx):
+def row_player2_walk(B, ctx):
     B.gc.ok({"cmd": "battle_action", "action": "end_turn_button"})
     end, nts = time.time() + 40, None
     while time.time() < end:
@@ -331,9 +333,9 @@ def row_r1b(B, ctx):
             break
         time.sleep(0.1)
     if not nts:
-        B.capture("R1b: no side-1 screen")
-        evidence("R1b", reason="no 'Side: Aliens' screen")
-        fail_rest("R1b", "blocked: no 'Side: Aliens' screen in 40 s")
+        B.capture("player2_walk: no side-1 screen")
+        evidence("player2_walk", reason="no 'Side: Aliens' screen")
+        fail_rest("player2_walk", "blocked: no 'Side: Aliens' screen in 40 s")
         return
     nts_txt = B.texts()
     B.gc.ok({"cmd": "close_nextturn"})
@@ -344,38 +346,40 @@ def row_r1b(B, ctx):
                                     if u["originalFaction"] == FACTION_HOSTILE and not u["isOut"])
     hand = {"ntsTexts": nts_txt, "settled": settled, "side": b.get("side"), "turn": b.get("turn"), "stack": st, "p2": p2}
     if not settled:
-        evidence("R1b", handover=hand, boxes=boxes)
-        fail_rest("R1b", "not settled in 10 s after the hand-over: side %r busy %r stack %s" % (b.get("side"), b.get("isBusy"), st))
+        evidence("player2_walk", handover=hand, boxes=boxes)
+        fail_rest("player2_walk", "not settled in 10 s after the hand-over: side %r busy %r stack %s"
+                  % (b.get("side"), b.get("isBusy"), st))
         return
     if not p2:
-        evidence("R1b", handover=hand, boxes=boxes)
-        fail_rest("R1b", "blocked: player 2's turn never started")
+        evidence("player2_walk", handover=hand, boxes=boxes)
+        fail_rest("player2_walk", "blocked: player 2's turn never started")
         return
-    B.lev({"cmd": "battle_action", "action": "set_stat", "unit": SW, "stat": "reactions", "value": 100})
-    B.lev({"cmd": "battle_action", "action": "set_stat", "unit": SW, "stat": "firing", "value": 0})
+    B.cmd_ok({"cmd": "battle_action", "action": "set_stat", "unit": SW, "stat": "reactions", "value": 100})
+    B.cmd_ok({"cmd": "battle_action", "action": "set_stat", "unit": SW, "stat": "firing", "value": 0})
     sw_tu0 = B.units()[SW]["tu"]
     rec = B.walk(AR, AR_DEST)
     settled, b, st = B.settle(15, boxes)
     us = {u["id"]: u for u in b.get("units", [])}
     sw, ar = us.get(SW, {}), us.get(AR, {})
-    evidence("R1b", handover=hand, walk=rec, settled=settled, stack=st, boxes=boxes, SWtu=[sw_tu0, sw.get("tu")], SW=ub(sw), AR=ub(ar))
+    evidence("player2_walk", handover=hand, walk=rec, settled=settled, stack=st, boxes=boxes,
+             SWtu=[sw_tu0, sw.get("tu")], SW=ub(sw), AR=ub(ar))
     if rec.get("fail"):
-        fail_rest("R1b", "blocked: AR's walk failed (%s)" % rec["fail"])
+        fail_rest("player2_walk", "blocked: AR's walk failed (%s)" % rec["fail"])
         return
     if not settled:
-        fail_rest("R1b", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
+        fail_rest("player2_walk", "not settled in 15 s: busy %r stack %s" % (b.get("isBusy"), st))
         return
-    cell("R1b-walk", at(ar, AR_DEST), "AR at %s" % [ar.get(k) for k in ("x", "y", "z")])
-    if not RES["R1b-walk"]:
-        fail_rest("R1b", "blocked: AR not on AR_DEST (R1b-walk)")
+    cell("player2_walk-arrived", at(ar, AR_DEST), "AR at %s" % [ar.get(k) for k in ("x", "y", "z")])
+    if not RES["player2_walk-arrived"]:
+        fail_rest("player2_walk", "blocked: AR not on AR_DEST (player2_walk-arrived)")
         return
-    cell("R1b-noreact", sw.get("tu") == sw_tu0, "SW TU %r -> %r" % (sw_tu0, sw.get("tu")))
+    cell("player2_walk-no_reaction", sw.get("tu") == sw_tu0, "SW TU %r -> %r" % (sw_tu0, sw.get("tu")))
 
 
-def row_ab(B, ctx):
+def row_abandon_game(B, ctx):
     rec = {}
     try:
-        B.lev({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
+        B.cmd_ok({"cmd": "inject_input", "kind": "key", "key": SDLK_ESCAPE})
         B.wait("PauseState", lambda: B.top() == "PauseState", 10)
         rec["pause"] = B.texts()
         rec["abandon"] = B.click_shown("ABANDON").get("text")
@@ -387,15 +391,15 @@ def row_ab(B, ctx):
         rec["menuSecs"] = round(time.time() - t, 2)
     except Exception as e:  # noqa: BLE001
         rec["error"] = repr(e)
-        B.capture("AB: %r" % e)
+        B.capture("abandon_game: %r" % e)
     st = B.states()
     hs = B.gc.cmd({"cmd": "get_coop"}).get("hotseat")
-    evidence("AB", route=rec, stack=st, hotseat=hs)
-    cell("AB-menu", st[-1:] == ["MainMenuState"], "stack %s" % st)
-    if not RES["AB-menu"]:
-        fail_rest("AB", "blocked: the main menu was not reached (AB-menu)")
+    evidence("abandon_game", route=rec, stack=st, hotseat=hs)
+    cell("abandon_game-menu", st[-1:] == ["MainMenuState"], "stack %s" % st)
+    if not RES["abandon_game-menu"]:
+        fail_rest("abandon_game", "blocked: the main menu was not reached (abandon_game-menu)")
         return
-    cell("AB-disarm", hs is False, "hotseat %r" % hs)
+    cell("abandon_game-disarm", hs is False, "hotseat %r" % hs)
 
 
 if __name__ == "__main__":
