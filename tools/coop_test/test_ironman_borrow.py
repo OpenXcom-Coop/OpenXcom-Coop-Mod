@@ -1,20 +1,25 @@
-"""test_ironman_borrow.py: an ironman alien host keeps its ironman rules in a gm3 borrowed battle (lead L-SC5-4).
+"""test_ironman_borrow.py: an ironman alien host keeps its ironman rules in a gm3 borrowed battle.
 
-In a gm3 PvP campaign the host plays the aliens and borrows the X-COM player's world for every battle. R-H49-0 = O1 (vanilla's ironman
-rules; aud-E1-05 "ironman is host-only"): while it borrows, an ironman alien host follows its own (parked) world's ironman rules: the
-battle-start autosave rewrites IronAlien.sav, the pause menu has no SAVE and reads SAVE AND ABANDON GAME (X-COM turn only, QH49-5 (a)),
-F6 / F5 write nothing, after the battle the campaign keeps its name. A non-ironman host and the X-COM client behave as today (boot N,
-C5). Real inputs: ESC and the pause menu's own buttons, F6 / F5 by inject_input, kills + END TURN + both debriefing OKs.
-Spec: docs rewrite/prompts/w2h49_ironman_borrow.md ((f); QH49-1 .. QH49-8 (a)); pins: docs rewrite/w2h49-task0/sa/CONSTANTS.md. Boot A
-(the ironman SAVE AND ABANDON) is OUT by QH49-6 (a): TASK 0's green premise failed (no IronAlien.sav write after YES; lead L-H49-3,
-F17782). Findings F17600-F17609 (capture), F17640-F17659 (spec), F17780-F17799.
-Boot I (key 49143, dirs w2h49_i_*; ironman; host = the aliens), rows: C0 = I-c0 (control); N1 = N1-file, N1-only, N1-borrow (control);
-N2 = N2-x, N2-client (control), N2-a; N3 = N3-f6, N3-f5; N4 = N4-file, N4-only, N4-pause (control), N4-home (control); I-common.
-Boot N (key 49143, dirs w2h49_n_*; no IRONMAN click): row C5 = N-c0, N-start, N-pause, N-f5, N-after, N-common.
-RED (the unchanged build, TASK 0 boot i): N1-file, N1-only, N2-x, N2-a, N3-f6, N3-f5, N4-file, N4-only (8 of 20). GREEN (G1): 20/20.
-A bring-up / landing / side change / battle-end miss: ONE "CAPTURE <boot>:" line (BR's stage_to_prompt prints its own "CAPTURE boot:")
-and every remaining cell of that boot FAILs "boot". A row precondition miss (host never idle) FAILs its cells "blocked: <why>".
-ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
+In a gm3 PvP campaign the host plays the aliens and borrows the X-COM player's world for every battle. While it borrows,
+an ironman alien host follows its own (parked) world's ironman rules (vanilla's ironman rules; ironman is a host-only
+setting): the battle-start autosave rewrites IronAlien.sav, the pause menu has no SAVE and reads SAVE AND ABANDON GAME
+(X-COM turn only), F6 / F5 write nothing, after the battle the campaign keeps its name. A non-ironman host and the X-COM
+client keep their usual behaviour (the plain boot, plain_host). Real inputs: ESC and the pause menu's own buttons, F6 /
+F5 by inject_input, kills + END TURN + both debriefing OKs. The ironman SAVE AND ABANDON itself is not covered: when
+measured, its YES wrote no IronAlien.sav.
+The ironman boot (key 49143, dirs ironman_borrow_ironman_*; ironman; host = the aliens), rows: campaign_start =
+ironman_campaign_start (control); landing_autosave = landing_save_rewritten, landing_only_ironman_save,
+landing_borrow_saved (control); battle_pause = xcom_turn_pause, client_pause (control), alien_turn_pause; save_keys =
+f6_writes_nothing, f5_writes_nothing; after_battle = after_battle_save_rewritten, after_battle_only_ironman_save,
+after_battle_pause (control), after_battle_world_back (control); ironman_common.
+The plain boot (key 49143, dirs ironman_borrow_plain_*; no IRONMAN click): row plain_host = plain_campaign_start,
+plain_battle_autosave, plain_battle_pause, plain_quick_save, plain_after_battle, plain_common.
+Without the ironman borrow rules the FIX cells fail: landing_save_rewritten, landing_only_ironman_save, xcom_turn_pause,
+alien_turn_pause, f6_writes_nothing, f5_writes_nothing, after_battle_save_rewritten, after_battle_only_ironman_save (8
+of 20); with them all 20 pass.
+A bring-up / landing / side change / battle-end miss: ONE "CAPTURE <boot>:" line (BR's stage_to_prompt prints its own
+"CAPTURE boot:") and every remaining cell of that boot FAILs "boot". A row precondition miss (host never idle) FAILs
+its cells "blocked: <why>". ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_ironman_borrow.py
 """
 
@@ -37,19 +42,26 @@ import test_campaign_battle_gm3_end as G3E  # noqa: E402
 import test_campaign_battle_resume as BR  # noqa: E402
 import test_campaign_resume_roles as RR  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/w2h49-task0/sa/CONSTANTS.md) -----
+# ----- measured values -----
 KEY = "49143"
-NAME = "IronAlien"                    # every ListSaveState answered with it (TASK 0: 2 in every ironman boot; F17601, L-H49-1)
-SEED = 1                              # the client's set_seed before its confirm_landing (CAP)
+NAME = "IronAlien"                    # every ListSaveState answered with it (measured: 2 in every ironman boot)
+SEED = 1                              # the client's set_seed before its confirm_landing
 ESC, F5, F6 = 27, 286, 287            # Options keyQuickSave / keyInstaSave (the host's options.cfg reads 286 / 287)
 NGS_SETTLE = 0.2
 SAVE_AND_ABANDON, ABANDON = "SAVE AND ABANDON GAME", "ABANDON GAME"
 GEO_S, LIST_S, ENTRY_S, SETTLE_S, FILE_S, KEY_S, PAUSE_S, SIDE_S, DEBRIEF_S, GEO_BACK_S = 15, 120, 60, 30, 10, 5, 10, 60, 60, 60
-ROWS_I = {"C0": ["I-c0"], "N1": ["N1-file", "N1-only", "N1-borrow"], "N2": ["N2-x", "N2-client", "N2-a"], "N3": ["N3-f6", "N3-f5"],
-          "N4": ["N4-file", "N4-only", "N4-pause", "N4-home"], "I-common": ["I-common"]}
-ROWS_N = {"C5": ["N-c0", "N-start", "N-pause", "N-f5", "N-after", "N-common"]}
-FIX = {"N1-file", "N1-only", "N2-x", "N2-a", "N3-f6", "N3-f5", "N4-file", "N4-only"}
-BOOT = {"tag": "I"}
+ROWS_IRONMAN = {"campaign_start": ["ironman_campaign_start"],
+                "landing_autosave": ["landing_save_rewritten", "landing_only_ironman_save", "landing_borrow_saved"],
+                "battle_pause": ["xcom_turn_pause", "client_pause", "alien_turn_pause"],
+                "save_keys": ["f6_writes_nothing", "f5_writes_nothing"],
+                "after_battle": ["after_battle_save_rewritten", "after_battle_only_ironman_save", "after_battle_pause",
+                                 "after_battle_world_back"],
+                "ironman_common": ["ironman_common"]}
+ROWS_PLAIN = {"plain_host": ["plain_campaign_start", "plain_battle_autosave", "plain_battle_pause", "plain_quick_save",
+                             "plain_after_battle", "plain_common"]}
+FIX = {"landing_save_rewritten", "landing_only_ironman_save", "xcom_turn_pause", "alien_turn_pause",
+       "f6_writes_nothing", "f5_writes_nothing","after_battle_save_rewritten", "after_battle_only_ironman_save"}
+BOOT = {"tag": "ironman"}
 
 
 class FixtureMiss(Exception):
@@ -83,7 +95,7 @@ def capture_boot(err, *machines):
     raise FixtureMiss(err)
 
 
-# ----- CAP's flow helpers (docs rewrite/lsc5-4-cap/lsc54.py, copied) -----
+# ----- flow helpers -----
 def stk(gc):
     try:
         return session.states_stripped(gc)
@@ -168,7 +180,7 @@ def pause_bad(btn, load, save, text, vis):
     return bad + ([f"abandon text {t!r} (want {text!r})"] if t != text else []) + ([f"abandon visible {v} (want {vis})"] if v != vis else [])
 
 
-# ----- the boot flow (CAP's start_campaign / c0_save / c1 / the C3 key / c4, copied with IB's KEY) -----
+# ----- the boot flow: campaign start, landing, side change, key probe, battle end -----
 def start_campaign(host, client, ev, ironman):
     host.ok({"cmd": "open_new_game", "mode": "coop"})
     host.wait_for("difficulty", lambda: PF._has(host, "NewGameState"))
@@ -325,10 +337,10 @@ def fits(h, want):
     return h is not None and all(h.get(k) == v for k, v in want.items())
 
 
-# ----- boot I -----
-def boot_i(host, client, ev):
+# ----- the ironman boot -----
+def boot_ironman(host, client, ev):
     crash0 = RR.crash_set()
-    e = ev["C0"] = {}
+    e = ev["campaign_start"] = {}
     start_campaign(host, client, e, True)
     co, g, f0 = G3E.coop(host), pause_probe(host), files(host)
     hd = header(host, f0[NAME + ".sav"]["rel"]) if NAME + ".sav" in f0 else None
@@ -336,101 +348,117 @@ def boot_i(host, client, ev):
     bad += pause_bad(g, False, False, SAVE_AND_ABANDON, True)
     bad += [f"host gamemode {co.get('gamemode')} noBases {co.get('noBases')}"] if (co.get("gamemode"), co.get("noBases")) != (3, True) else []
     e.update(header=hd, geoPause=g, files=f0, data=files(host, True), coop=co)
-    cell("I-c0", not bad, "; ".join(bad) or f"{NAME}.sav {hd}; geoscape pause LOAD / SAVE hidden, {SAVE_AND_ABANDON!r} shown; gm 3, noBases")
-    close_row("C0", ROWS_I["C0"], e)
-    e = ev["N1"] = {}
+    cell("ironman_campaign_start", not bad, "; ".join(bad) or f"{NAME}.sav {hd}; geoscape pause LOAD / SAVE hidden, "
+                                                              f"{SAVE_AND_ABANDON!r} shown; gm 3, noBases")
+    close_row("campaign_start", ROWS_IRONMAN["campaign_start"], e)
+    e = ev["landing_autosave"] = {}
     land(host, client, e)
     ch, p = changed(host, f0), pvp_short(host)
     want = {"name": NAME, "ironman": True, "borrow": True, "kind": "landing", "turn": 1}
-    cell("N1-file", fits(ch.get(NAME + ".sav"), want), f"{NAME}.sav since C0: {ch.get(NAME + '.sav')} (want rewritten, {want})")
-    cell("N1-only", set(ch) <= {NAME + ".sav"}, f"save files new or changed since C0: {sorted(ch)} (want none but {NAME}.sav)")
-    cell("N1-borrow", (p.get("active"), p.get("savedBorrowed")) == (True, 1), f"pvpBorrow {p} (want active, savedBorrowed 1)")
+    cell("landing_save_rewritten", fits(ch.get(NAME + ".sav"), want), f"{NAME}.sav since campaign_start: "
+                                                                      f"{ch.get(NAME + '.sav')} (want rewritten, "
+                                                                      f"{want})")
+    cell("landing_only_ironman_save", set(ch) <= {NAME + ".sav"}, f"save files new or changed since campaign_start: "
+                                                                  f"{sorted(ch)} (want none but {NAME}.sav)")
+    cell("landing_borrow_saved", (p.get("active"), p.get("savedBorrowed")) == (True, 1), f"pvpBorrow {p} (want active, "
+                                                                                         f"savedBorrowed 1)")
     f1 = files(host)
     e.update(changed=ch, pvp=p, stacks=[stk(host), stk(client)], battle=[battle(host), battle(client)])
-    close_row("N1", ROWS_I["N1"], e)
-    e = ev["N2"] = {}
+    close_row("landing_autosave", ROWS_IRONMAN["landing_autosave"], e)
+    e = ev["battle_pause"] = {}
     if not wait(lambda: idle(host), SETTLE_S)[0]:
-        block(ROWS_I["N2"], f"host never idle at (1, 0): {stk(host)} {battle(host)}")
+        block(ROWS_IRONMAN["battle_pause"], f"host never idle at (1, 0): {stk(host)} {battle(host)}")
     else:
         e["host10"] = b = pause_probe(host)
         bad = pause_bad(b, False, False, SAVE_AND_ABANDON, True)
-        cell("N2-x", not bad, "; ".join(bad) or f"host (1, 0): LOAD / SAVE hidden, {SAVE_AND_ABANDON!r} shown")
+        cell("xcom_turn_pause", not bad, "; ".join(bad) or f"host (1, 0): LOAD / SAVE hidden, {SAVE_AND_ABANDON!r} "
+                                                           f"shown")
         e["clientIdle"] = wait(lambda: idle(client), SETTLE_S)
         e["client10"] = b = pause_probe(client)
         bad = pause_bad(b, False, False, ABANDON, True)
-        cell("N2-client", not bad, "; ".join(bad) or f"client (1, 0): LOAD / SAVE hidden, {ABANDON!r} shown")
+        cell("client_pause", not bad, "; ".join(bad) or f"client (1, 0): LOAD / SAVE hidden, {ABANDON!r} shown")
         client.cmd({"cmd": "battle_action", "action": "end_turn_button"})
         side_change(host, client, 1)
         e["at11"] = battle(host)
         if not wait(lambda: idle(host), SETTLE_S)[0]:
-            block(["N2-a"], f"host never idle at (1, 1): {stk(host)}")
+            block(["alien_turn_pause"], f"host never idle at (1, 1): {stk(host)}")
         else:
             e["host11"] = b = pause_probe(host)
             bad = pause_bad(b, None, False, SAVE_AND_ABANDON, False)
-            cell("N2-a", not bad, "; ".join(bad) or f"host (1, 1): SAVE hidden, {SAVE_AND_ABANDON!r} hidden")
-    close_row("N2", ROWS_I["N2"], e)
-    e = ev["N3"] = {}
+            cell("alien_turn_pause", not bad, "; ".join(bad) or f"host (1, 1): SAVE hidden, {SAVE_AND_ABANDON!r} "
+                                                                f"hidden")
+    close_row("battle_pause", ROWS_IRONMAN["battle_pause"], e)
+    e = ev["save_keys"] = {}
     host.cmd({"cmd": "battle_action", "action": "end_turn_button"})
     side_change(host, client, 0, 2)
     e["at"] = battle(host)
-    for name, key in (("N3-f6", F6), ("N3-f5", F5)):
+    for name, key in (("f6_writes_nothing", F6), ("f5_writes_nothing", F5)):
         if not wait(lambda: idle(host), SETTLE_S)[0]:
-            block(ROWS_I["N3"], f"host never idle at (2, 0) before {name}: {stk(host)}")
+            block(ROWS_IRONMAN["save_keys"], f"host never idle at (2, 0) before {name}: {stk(host)}")
             break
         bad, e[name] = key_probe(host, key)
         cell(name, not bad, "; ".join(bad) or f"key {key}: no save file, no SaveGameState, savedBorrowed unchanged")
-    close_row("N3", ROWS_I["N3"], e)
-    e = ev["N4"] = {}
+    close_row("save_keys", ROWS_IRONMAN["save_keys"], e)
+    e = ev["after_battle"] = {}
     battle_end(host, client, e)
     ch1, ch0, p = changed(host, f1), changed(host, f0), pvp_short(host)
     want = {"name": NAME, "ironman": True, "borrow": False}
-    cell("N4-file", fits(ch1.get(NAME + ".sav"), want), f"{NAME}.sav since N1: {ch1.get(NAME + '.sav')} (want rewritten, {want})")
-    cell("N4-only", set(ch0) == {NAME + ".sav"}, f"save files new or changed since C0: {sorted(ch0)} (want exactly {NAME}.sav)")
+    cell("after_battle_save_rewritten", fits(ch1.get(NAME + ".sav"), want), f"{NAME}.sav since landing_autosave: "
+                                                                            f"{ch1.get(NAME + '.sav')} (want "
+                                                                            f"rewritten, {want})")
+    cell("after_battle_only_ironman_save", set(ch0) == {NAME + ".sav"}, f"save files new or changed since "
+                                                                        f"campaign_start: {sorted(ch0)} (want exactly "
+                                                                        f"{NAME}.sav)")
     e["geoPause"] = g = pause_probe(host)
     bad = pause_bad(g, False, False, SAVE_AND_ABANDON, True)
-    cell("N4-pause", not bad, "; ".join(bad) or f"geoscape pause LOAD / SAVE hidden, {SAVE_AND_ABANDON!r} shown")
-    cell("N4-home", (p.get("swappedBack"), p.get("active")) == (1, False), f"pvpBorrow {p} (want swappedBack 1, active false)")
-    e.update(changedSinceN1=ch1, changedSinceC0=ch0, pvp=p, files=files(host), data=files(host, True))
-    close_row("N4", ROWS_I["N4"], e)
-    common("I-common", host, client, crash0)
+    cell("after_battle_pause", not bad, "; ".join(bad) or f"geoscape pause LOAD / SAVE hidden, {SAVE_AND_ABANDON!r} "
+                                                          f"shown")
+    cell("after_battle_world_back", (p.get("swappedBack"), p.get("active")) == (1, False), f"pvpBorrow {p} (want "
+                                                                                           f"swappedBack 1, active "
+                                                                                           f"false)")
+    e.update(changedSinceLanding=ch1, changedSinceStart=ch0, pvp=p, files=files(host), data=files(host, True))
+    close_row("after_battle", ROWS_IRONMAN["after_battle"], e)
+    common("ironman_common", host, client, crash0)
 
 
-# ----- boot N (the C5 control: every cell passes today and after G1) -----
-def boot_n(host, client, ev):
+# ----- the plain boot (a control: every cell passes with or without the ironman borrow rules) -----
+def boot_plain(host, client, ev):
     crash0 = RR.crash_set()
-    e = ev["C5"] = {}
+    e = ev["plain_host"] = {}
     start_campaign(host, client, e, False)
     e["geoPause"] = g = pause_probe(host)
     bad = ["a host ListSaveState after BEGIN"] if e.get("listSaveSeen") else []
     bad += pause_bad(g, None, True, ABANDON, True)
-    cell("N-c0", not bad, "; ".join(bad) or f"no ListSaveState in {GEO_S} s; geoscape pause SAVE shown, {ABANDON!r} shown")
+    cell("plain_campaign_start", not bad, "; ".join(bad) or f"no ListSaveState in {GEO_S} s; geoscape pause SAVE "
+                                                            f"shown, {ABANDON!r} shown")
     f0 = files(host)
     land(host, client, e)
     e["start"] = ch = changed(host, f0)
     want = {"name": "_autobattle_.asav", "ironmanKey": False, "borrow": True, "turn": 1}
-    cell("N-start", fits(ch.get("_autobattle_.asav"), want) and set(ch) == {"_autobattle_.asav"},
-         f"save files new or changed since C0: {ch} (want only _autobattle_.asav, {want})")
+    cell("plain_battle_autosave", fits(ch.get("_autobattle_.asav"), want) and set(ch) == {"_autobattle_.asav"},
+         f"save files new or changed since campaign_start: {ch} (want only _autobattle_.asav, {want})")
     if not wait(lambda: idle(host), SETTLE_S)[0]:
-        block(["N-pause", "N-f5"], f"host never idle at (1, 0): {stk(host)}")
+        block(["plain_battle_pause", "plain_quick_save"], f"host never idle at (1, 0): {stk(host)}")
     else:
         e["host10"] = b = pause_probe(host)
         bad = pause_bad(b, None, True, ABANDON, True)
-        cell("N-pause", not bad, "; ".join(bad) or f"host (1, 0): SAVE shown, {ABANDON!r} shown")
+        cell("plain_battle_pause", not bad, "; ".join(bad) or f"host (1, 0): SAVE shown, {ABANDON!r} shown")
         wait(lambda: idle(host), SETTLE_S)
         _bad, e["f5"] = key_probe(host, F5)
         q, sb = e["f5"]["changed"].get("_quick_.asav"), e["f5"]["savedBorrowed"]
         want = {"name": "_quick_.asav", "ironmanKey": False, "borrow": True, "turn": 1}
         ok = fits(q, want) and sb[0] is not None and sb[1] == sb[0] + 1
-        cell("N-f5", ok, f"F5: _quick_.asav {q}, savedBorrowed {sb} (want {want}, +1)")
+        cell("plain_quick_save", ok, f"F5: _quick_.asav {q}, savedBorrowed {sb} (want {want}, +1)")
     f1 = files(host)
     battle_end(host, client, e)
     e["after"] = ch = changed(host, f1)
     e["geoPauseAfter"] = g = pause_probe(host)
     bad = [] if fits(ch.get("_autogeo_.asav"), {"name": "_autogeo_.asav", "borrow": False}) else [f"_autogeo_.asav in {ch}"]
     bad += pause_bad(g, None, True, ABANDON, True)
-    cell("N-after", not bad, "; ".join(bad) or f"_autogeo_.asav rewritten (no borrow record); geoscape pause SAVE shown, {ABANDON!r} shown")
+    cell("plain_after_battle", not bad, "; ".join(bad) or f"_autogeo_.asav rewritten (no borrow record); geoscape "
+                                                          f"pause SAVE shown, {ABANDON!r} shown")
     e.update(files=files(host), data=files(host, True), pvp=pvp_short(host))
-    common("N-common", host, client, crash0)
+    common("plain_common", host, client, crash0)
 
 
 def run_boot(tag, label, fn, rows):
@@ -465,11 +493,11 @@ def run_boot(tag, label, fn, rows):
 
 def main():
     t0 = time.time()
-    run_boot("w2h49_i", "I", boot_i, ROWS_I)
-    run_boot("w2h49_n", "N", boot_n, ROWS_N)
-    allc = [c for rows in (ROWS_I, ROWS_N) for v in rows.values() for c in v]
+    run_boot("ironman_borrow_ironman", "ironman", boot_ironman, ROWS_IRONMAN)
+    run_boot("ironman_borrow_plain", "plain", boot_plain, ROWS_PLAIN)
+    allc = [c for rows in (ROWS_IRONMAN, ROWS_PLAIN) for v in rows.values() for c in v]
     fails = [n for n, ok, _ in RESULTS if not ok]
-    print(f"\n==== W2-H49 ironman alien host in a gm3 borrowed battle: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
+    print(f"\n==== ironman alien host in a gm3 borrowed battle: {len(RESULTS) - len(fails)}/{len(allc)} cells PASS, "
           f"wall {time.time() - t0:.1f} s ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
