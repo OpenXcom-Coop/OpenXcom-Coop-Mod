@@ -1,18 +1,26 @@
-"""W2-H85 VLS - tools/coop_test/test_view_latch_seats.py: every visit of the partner's base re-seats the visitor's soldiers on the partner's
-craft, however the last base screen was left (L-H83-2; ruling R-LH83-2-1; veto line VL-H85-1).
-In a SEPARATE campaign a guest's seat on the partner's craft lives in the visitor's own world (coopCraft); BasescapeState::init re-seats the guests in a
-view behind the process-wide latch _coop_base_init, which only the base screen's GEOSCAPE clears. After BUILD NEW BASE, a lift right-click or W2-H73's
-drop the next view skips the seat block: the guest shows off the craft (craft -1, crew one short) and SOLDIERS' OK writes -1 into the view, "basehost",
-the own world and (client) the own-world blob. Fix (b): CoopState 55 clears the latch before it pushes the view.
-Spec docs rewrite/prompts/w2h85_view_latch_seats.md (f); pins rewrite/w2h85-task0/sa/CONSTANTS.md; capture rewrite/lh83-2-cap (helpers copied).
-ONE boot (key 49634), in order: SETUP-H (SEAT, levers: the host's guest H on the client's Skyranger), CTL (guard: real GEOSCAPE), L1 (real BUILD NEW BASE
-+ CANCEL), L1r (right-click on the own access lift), SETUP-G (SEAT the client's guest G; the host's quick save), L3c (the client, BUILD NEW BASE + CANCEL),
-L2 (W2-H73: client.kill() in the host's view, a new client rejoins, real RESUME), CRASH. A row: SEAT (levers), the real exit from the own base screen,
-the real globe visit, READ-VIEW, real SOLDIERS / OK, READ-OK, real GEOSCAPE, READ-OWN. Cells -pre, -exit, -view (craft C, crew crewPre), -ok (view and
-"basehost" C), -own (C), L3c-blob (own-world blob C), CRASH. Red today: L1 / L1r / L2 -view -ok -own, L3c -view -ok -own -blob (13 of 27) FAIL.
-One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a -pre / -exit miss ends its row with ONE CAPTURE line. WV-D95 / WV-D99 /
-WV-D100: ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
-Run: python tools/coop_test/test_view_latch_seats.py   (OXC_HARNESS_SLOT selects the lane)"""
+"""tools/coop_test/test_view_latch_seats.py: every visit of the partner's base re-seats the visitor's soldiers on the
+partner's craft, however the last base screen was left.
+
+In a SEPARATE campaign a guest's seat on the partner's craft lives in the visitor's own world (coopCraft);
+BasescapeState::init re-seats the guests in a view behind the process-wide latch _coop_base_init. CoopState 55 clears
+the latch before it pushes the view. Without that, only the base screen's GEOSCAPE clears it, and after BUILD NEW
+BASE, a lift right-click or a partner drop while the host views its base, the next view skips the seat block: the
+guest shows off the craft (craft -1, crew one short) and SOLDIERS' OK writes -1 into the view, "basehost", the own
+world and (client) the own-world blob.
+
+ONE boot (key 49634), in order: SETUP-H (SEAT, test commands: the host's guest H on the client's Skyranger),
+geoscape_exit (guard: real GEOSCAPE), new_base_exit (real BUILD NEW BASE + CANCEL), lift_exit (right-click on the own
+access lift), SETUP-G (SEAT the client's guest G; the host's quick save), client_new_base_exit (the client, BUILD NEW
+BASE + CANCEL), partner_drop_exit (client.kill() in the host's view, a new client rejoins, real RESUME), CRASH. A row:
+SEAT (test commands), the real exit from the own base screen, the real globe visit, READ-VIEW, real SOLDIERS / OK,
+READ-OK, real GEOSCAPE, READ-OWN. Cells -pre, -exit, -view (craft C, crew crewPre), -ok (view and "basehost" C), -own
+(C), client_new_base_exit-blob (own-world blob C), CRASH. Without the latch clear, 13 of 27 cells fail: -view, -ok and
+-own of new_base_exit, lift_exit and partner_drop_exit, and client_new_base_exit's -view, -ok, -own and -blob.
+
+One EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; a -pre / -exit miss ends its row with ONE
+CAPTURE line. ONE run, no skip; exit 0 only when every cell passes, else 2.
+
+Run: python tools/coop_test/test_view_latch_seats.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 
@@ -23,17 +31,18 @@ import harness  # noqa: E402
 import session  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-KEY, TAG = "49634", "w2h85_vls"                # lobby key (0 hits at the base); user dirs w2h85_vls_*
-ZOOM_MIN, SYM_PLUS = 3, 43                     # real '+' presses until globe zoom >= 3 (CAP), at most 7
+KEY, TAG = "49634", "view_latch_seats"                # lobby key (no other test uses it); user dirs view_latch_seats_*
+ZOOM_MIN, SYM_PLUS = 3, 43                     # real '+' presses until globe zoom >= 3, at most 7
 VISIT, POP, LIFT_S, W62, ACK, HOME, BLOB, GUEST_S = 60.0, 10.0, 5.0, 15.0, 120.0, 30.0, 45.0, 40.0
 S_VIEW, S_SOLD, S_OK, S_RESUME, S_EXIT = 1.0, 0.6, 0.5, 3.0, 0.6
-NOTICE_S = 10.0  # bound: the host's items-received notice (CoopState 150) after the guest transfer (cap-save F23940: it lands 1-16 ms after the reply)
+NOTICE_S = 10.0  # bound: the host's items-received notice (CoopState 150) after the guest transfer (measured: it lands
+                 # 1-16 ms after the reply)
 RC_OK = (0, 3221226505)
-W2H73 = "[coop] the partner dropped while the host views its base"
+PARTNER_DROP_LINE = "[coop] the partner dropped while the host views its base"
 SYNC = "[coop-gift] synced guest craft assignments into own-world blob"
-ORDER = ["CTL", "L1", "L1r", "L3c", "L2"]
+ORDER = ["geoscape_exit", "new_base_exit", "lift_exit", "client_new_base_exit", "partner_drop_exit"]
 CELLS = {r: ["%s-%s" % (r, c) for c in ("pre", "exit", "view", "ok", "own")] for r in ORDER}
-CELLS["L3c"].append("L3c-blob")
+CELLS["client_new_base_exit"].append("client_new_base_exit-blob")
 CELLS["CRASH"] = ["CRASH"]
 T0 = time.time()
 RESULTS = []
@@ -41,7 +50,7 @@ RESULTS = []
 class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
-# ----- probes (copied from docs rewrite/lh83-2-cap/capc.py) -----
+# ----- probes (the same helpers as test_view_base_switch.py) -----
 def now(): return round(time.time() - T0, 2)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def js(v): return json.dumps(v, sort_keys=True, default=str)
@@ -75,7 +84,7 @@ def wait(pred, timeout, interval=0.1):
 def guest(soldiers, name): return next((s for s in soldiers or [] if s.get("name") == name), None)
 
 def blob_guest(gc, key, name):
-    """dump_coop_file key -> parse the YAML -> the guest's entries [base, coopcraft, coopcrafttype, coopbase] (CAP blob_guest)"""
+    """dump_coop_file key -> parse the YAML -> the guest's entries [base, coopcraft, coopcrafttype, coopbase]"""
     d = q(gc, {"cmd": "dump_coop_file", "key": key})
     if not d.get("ok"):
         return {"dump": d.get("error")}
@@ -100,7 +109,7 @@ def blob_cc(b):
     g = b.get("guest")
     return g[0][1] if g and len(g) == 1 else ("absent" if g == [] else b)
 
-# ----- real presses (CAP) -----
+# ----- real presses -----
 def real_click(gc, text, timeout=15.0):
     t0, seen = time.time(), []
     while time.time() - t0 < timeout:
@@ -142,7 +151,8 @@ def click_px(gc, bx, by, sc, offsets=((0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), 
             break
     return tries
 def click_marker(gc, sc, lon, lat, name):
-    """centre the globe on the base (camera lever), zoom by real '+' keys, real clicks at its pixel, the target row if a list opens"""
+    """centre the globe on the base (camera test command), zoom by real '+' keys, real clicks at its pixel, the target
+    row if a list opens"""
     q(gc, {"cmd": "globe_point", "centerLon": lon, "centerLat": lat})
     zs = [q(gc, {"cmd": "globe_point"}).get("zoom")]
     while (zs[-1] or 0) < ZOOM_MIN and len(zs) < 7:
@@ -172,14 +182,14 @@ def visit_real(s, ev):
     if not v:
         raise Stop("real visit: not inside %s within %.0f s (stack %s)" % (s.PB, VISIT, stack(V)))
     time.sleep(S_VIEW)
-def lever_visit(V, pb):
+def command_visit(V, pb):
     session.wait_peer_base_shown(V, pb)
     q(V, {"cmd": "visit_coop_base", "base": pb})
     v, t = wait(lambda: inside(V) is True and top(V) == "BasescapeState", VISIT)
     if not v:
-        raise Stop("lever visit %s: not inside within %.0f s (stack %s)" % (pb, VISIT, stack(V)))
+        raise Stop("visit_coop_base %s: not inside within %.0f s (stack %s)" % (pb, VISIT, stack(V)))
     return t
-def lever_leave(V, label):
+def command_leave(V, label):
     q(V, {"cmd": "leave_base"})
     session.wait_back_on_geoscape(V, label)
     time.sleep(1.0)
@@ -206,8 +216,8 @@ def read_ok(s, n0):
     return d
 
 def seat(x, s):
-    """SEAT (SETUP levers, CAP setup): the first time pick + transfer the guest; every time a lever visit, craft_assign, SOLDIERS' OK lever,
-    leave_base, a CONFIRM lever visit (guest craft, crewPre), leave_base, the own world's coopCraft"""
+    """SEAT (setup test commands): the first time pick + transfer the guest; every time a visit_coop_base, craft_assign,
+    soldiers_ok, leave_base, a CONFIRM visit_coop_base (guest craft, crewPre), leave_base, the own world's coopCraft"""
     V, d = s.V, {}
     if s.name is None:
         rb = session._campaign_own_roster_base(V)
@@ -223,7 +233,7 @@ def seat(x, s):
             if not nt:
                 raise Stop("transfer %s: no host items-received notice (CoopState 150) within %.0f s (stack %s)" % (s.name, NOTICE_S, stack(x.host)))
         session.drain_host_coop_notice(x.host)
-    d["visitS"] = lever_visit(V, s.PB)
+    d["visitS"] = command_visit(V, s.PB)
     rep, t = wait(lambda: (lambda r: r if guest(r.get("soldiers"), s.name) else None)(q(V, {"cmd": "base_report", "coop": True})), GUEST_S)
     if not rep:
         raise Stop("guest %s not listed at %s within %.0f s" % (s.name, s.PB, GUEST_S))
@@ -241,13 +251,13 @@ def seat(x, s):
     q(V, {"cmd": "soldiers_ok"})
     if not wait(lambda: top(V) == "BasescapeState", 30)[0]:
         raise Stop("soldiers_ok: no BasescapeState (stack %s)" % stack(V))
-    d["lever"] = read_view(V, s)
-    lever_leave(V, "seat leave")
-    lever_visit(V, s.PB)
+    d["afterSeat"] = read_view(V, s)
+    command_leave(V, "seat leave")
+    command_visit(V, s.PB)
     time.sleep(S_VIEW)
     d["confirm"] = read_view(V, s)
     s.crewPre = d["confirm"]["crew"]
-    lever_leave(V, "seat leave 2")
+    command_leave(V, "seat leave 2")
     d["own"] = read_own(V, s)
     return d
 
@@ -396,29 +406,29 @@ def own_exit(x, r, s, kind):
     if not ok:
         raise Stop(rid + "-exit")
 
-def body_ctl(x, r, s, n0):
+def body_geoscape_exit(x, r, s, n0):
     if x.setup_h is None:
-        r.cell("CTL-pre", False, "SETUP-H: %s" % x.setup_err)
-        raise Stop("CTL-pre")
+        r.cell("geoscape_exit-pre", False, "SETUP-H: %s" % x.setup_err)
+        raise Stop("geoscape_exit-pre")
     pre_cell(r, s, x.setup_h)
     own_exit(x, r, s, "geoscape")
     tail_cells(r, s, n0)
 
-def body_l1(x, r, s, n0, kind="newbase"):
+def body_new_base_exit(x, r, s, n0, kind="newbase"):
     seat_cell(r, x, s)
     own_exit(x, r, s, kind)
     tail_cells(r, s, n0)
 
-def body_l3c(x, r, s, n0):
+def body_client_new_base_exit(x, r, s, n0):
     if x.setup_g is None:
-        r.cell("L3c-pre", False, "SETUP-G: %s" % x.setup_err)
-        raise Stop("L3c-pre")
+        r.cell("client_new_base_exit-pre", False, "SETUP-G: %s" % x.setup_err)
+        raise Stop("client_new_base_exit-pre")
     b = x.setup_g.get("blob") or {}
     pre_cell(r, s, x.setup_g, "" if b.get("coopcraft") == s.C else "; own-world blob coopcraft %s" % b.get("coopcraft"))
     own_exit(x, r, s, "newbase")
     tail_cells(r, s, n0)
 
-def body_l2(x, r, s, n0):
+def body_partner_drop_exit(x, r, s, n0):
     h = x.host
     seat_cell(r, x, s)
     visit_real(s, r.ev)
@@ -454,13 +464,16 @@ def body_l2(x, r, s, n0):
                 time.sleep(0.05)
         if tr is not None:
             home, home_s = wait(lambda: top(h) == "GeoscapeState" and inside(h) is False, HOME)
-    h73 = [ln.split("\t")[-1][:160] for ln in log(h)[n1:] if W2H73 in ln]
-    r.ev.update(trace=trace[-6:], clientName=cname, ack=[bool(ack), ack_s], resume=tr, home=[bool(home), home_s], h73=h73)
-    ok = got62 and bool(ack) and tr is not None and bool(home) and len(h73) == 1
-    r.cell("L2-exit", ok, "host log W2-H73 lines since the kill %d; 62 %s (trace %s); rejoin %s resumeAck %s in %s s; RESUME %s; home %s in %s s "
-           "(want 1, true, true, clicked, true)" % (len(h73), got62, trace[-2:], cname, bool(ack), ack_s, tr is not None, bool(home), home_s))
+    drop_lines = [ln.split("\t")[-1][:160] for ln in log(h)[n1:] if PARTNER_DROP_LINE in ln]
+    r.ev.update(trace=trace[-6:], clientName=cname, ack=[bool(ack), ack_s], resume=tr, home=[bool(home), home_s],
+                drop_lines=drop_lines)
+    ok = got62 and bool(ack) and tr is not None and bool(home) and len(drop_lines) == 1
+    r.cell("partner_drop_exit-exit", ok,
+           "host log partner-drop lines since the kill %d; 62 %s (trace %s); rejoin %s resumeAck %s in %s s; "
+           "RESUME %s; home %s in %s s (want 1, true, true, clicked, true)"
+           % (len(drop_lines), got62, trace[-2:], cname, bool(ack), ack_s, tr is not None, bool(home), home_s))
     if not ok:
-        raise Stop("L2-exit")
+        raise Stop("partner_drop_exit-exit")
     time.sleep(S_RESUME)
     wait(lambda: any(b.get("name") == s.PB for b in gs(h).get("bases", [])), 20, 0.25)
     geo.slow_clock(h, x.client)
@@ -468,7 +481,8 @@ def body_l2(x, r, s, n0):
     tail_cells(r, s, n0)
 
 def setup_g(x):
-    """SETUP-G: SEAT(client, host, G); the host's quick save (lever); BLOB; both tops GeoscapeState; drain_popups(host); AFF-client"""
+    """SETUP-G: SEAT(client, host, G); the host's quick save (test command); BLOB; both tops GeoscapeState;
+    drain_popups(host); AFF-client"""
     s, V = x.sg, x.client
     d = seat(x, s)
     fi0 = q(V, {"cmd": "coop_file_info", "role": "own_world"})
@@ -513,8 +527,8 @@ def shut(gc):
 
 def run_all():
     c0 = cpu()
-    print("==== W2-H85 VLS (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0),
-          flush=True)
+    print("==== test_view_latch_seats (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY,
+          time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
     x = SimpleNamespace(host=None, client=None, cr0=crashes(), boot_err=None, setup_err=None, setup_h=None, setup_g=None)
     x.sh = SimpleNamespace(V=None, P=None, VB=None, PB=None, name=None, C=None, T=None, crewPre=None, sc=None, client=False)
     x.sg = SimpleNamespace(V=None, P=None, VB=None, PB=None, name=None, C=None, T=None, crewPre=None, sc=None, client=True)
@@ -529,18 +543,18 @@ def run_all():
             x.setup_h = seat(x, x.sh)
             x.sh.sc = aff(x.host)
             x.setup_h["aff"] = x.sh.sc
-        except Exception as e:  # noqa: BLE001 - feeds CTL-pre
+        except Exception as e:  # noqa: BLE001 - feeds geoscape_exit-pre
             x.setup_h, x.setup_err = None, short(e, 300)
-    run_row(x, "CTL", x.sh, body_ctl)
-    run_row(x, "L1", x.sh, body_l1)
-    run_row(x, "L1r", x.sh, lambda x, r, s, n0: body_l1(x, r, s, n0, "lift"))
+    run_row(x, "geoscape_exit", x.sh, body_geoscape_exit)
+    run_row(x, "new_base_exit", x.sh, body_new_base_exit)
+    run_row(x, "lift_exit", x.sh, lambda x, r, s, n0: body_new_base_exit(x, r, s, n0, "lift"))
     if not x.boot_err:
         try:
             x.setup_g = setup_g(x)
-        except Exception as e:  # noqa: BLE001 - feeds L3c-pre
+        except Exception as e:  # noqa: BLE001 - feeds client_new_base_exit-pre
             x.setup_g, x.setup_err = None, short(e, 300)
-    run_row(x, "L3c", x.sg, body_l3c)
-    run_row(x, "L2", x.sh, body_l2)
+    run_row(x, "client_new_base_exit", x.sg, body_client_new_base_exit)
+    run_row(x, "partner_drop_exit", x.sh, body_partner_drop_exit)
     r = Row("CRASH", x)
     al = [alive(x.host), alive(x.client)]
     rc = [shut(x.client), shut(x.host)]
@@ -553,7 +567,8 @@ def run_all():
     fails = [n for n, ok in RESULTS if not ok]
     c1 = cpu()
     print("SUMMARY pass=%d fail=%d" % (len(RESULTS) - len(fails), len(fails)), flush=True)
-    print("==== W2-H85 VLS: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), now(), c0, c1), flush=True)
+    print("==== test_view_latch_seats: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails),
+          len(RESULTS), now(), c0, c1), flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
     return x, (0 if not fails else 2)
