@@ -1,26 +1,28 @@
-"""MG-B S-A rows PG and CB1: a saved co-op Custom Battle hosted from the battle's pause menu continues for both players
-through CONTINUE BATTLE; a loaded single-player Custom Battle's pause-menu CO-OP hides while an action
-runs. Q283-5 (a)'s PvE2 cell is row CB2, test_skirmish_saved_pve2_continue.py. Spec: docs
-repo rewrite/prompts/mgb2_common.md (rulings, R3, QMB2-1 .. QMB2-5 (a)), mgb2_sa_continue.md (this stage, (f)),
-mgb2_sb_convert.md (S-B); constants rewrite/mgb2-task0/sa/CONSTANTS.md (TASK 0 boots a .. g at dfe41388b). main #181's
-file of this name, re-pointed in place to rows PG + CB1; lobby key 49207.
+"""A saved co-op Custom Battle hosted from the battle's pause menu continues for both players through CONTINUE
+BATTLE; a loaded single-player Custom Battle's pause-menu CO-OP hides while an action runs. The saved PvE2 battle's
+row is in test_skirmish_saved_pve2_continue.py. Lobby key 49207.
 
-PG (one solo boot, QMB2-5 (a)): a settled single-player New Battle (set_seed 1). P1 open_pause_coop (a real PauseState and
-its CO-OP click), pop its HostMenu: CO-OP visible. P2 WALK (the first soldier with TU >= 30 to the farthest open tile 6..12
-tiles away on a straight line, pendingStates > 0), then as P1: CO-OP hidden, as vanilla hides Save.
-CB1 (classic gm1): the seed pair (host CoopTurnMode traditional, seat 1 = squad index 0, 1) saves its settled battle; a
-fresh host (CoopTurnMode parallel) loads it, a clean client joins. G1 open_pause_coop: HostMenu, customBattleResumePending.
-G2 host_menu_host + the join: both in LobbyMenu, CONTINUE BATTLE offered. G3 CONTINUE BATTLE: both on the saved battle, no
-dialog 62 / 68, no LobbyMenu or BriefingState on the client (read 2 s later, V1). G4 phase Active, no desync, the
-disk-resume offer and MG-B's line once each. G5 units (coop, faction, isOut, x, y, z) host == client == P, seat counts.
-G6 turnMode traditional under the host option parallel; holder == A0. G7 every bucket EQUAL. G8 host END
-TURN: holder 1; the client walks a staged seat-1 unit one tile; equal on both, every bucket EQUAL, no desync.
-RED on the unchanged product: P2 (CO-OP shows while an action runs), G3 (the client never gets the saved battle), G4-G8
-not reached (G3). GREEN (EA1-EA6): every cell PASS. One EVIDENCE line per row, one PASS / FAIL line per cell, the row
-verdict; every row runs after a failure. A precondition miss (G1, G2, G3, P2's walk, a cell that raised) ends its row:
-later cells FAIL "not reached (<cell>)". A boot step past its bound prints ONE CAPTURE line and fails every cell of that
-row "boot". run in the foreground to completion. ONE run is the result, no skip path; exit 0
-only when every cell passes, else 2.   Run:  python tools/coop_test/test_skirmish_saved_battle_join.py
+coop_button_gate (one solo boot): a settled single-player New Battle (set_seed 1). coop_shown_at_rest: open_pause_coop
+(a real PauseState and its CO-OP click), pop its HostMenu: CO-OP visible. coop_hidden_while_busy: WALK (the first
+soldier with TU >= 30 to the farthest open tile 6..12 tiles away on a straight line, pendingStates > 0), then as
+coop_shown_at_rest: CO-OP hidden, as vanilla hides Save.
+saved_coop_continue (classic gm1): the seed pair (host CoopTurnMode traditional, seat 1 = squad index 0, 1) saves its
+settled battle; a fresh host (CoopTurnMode parallel) loads it, a clean client joins. host_menu_pending:
+open_pause_coop: HostMenu, customBattleResumePending. lobby_offer: host_menu_host + the join: both in LobbyMenu,
+CONTINUE BATTLE offered. both_on_battle: CONTINUE BATTLE: both on the saved battle, no dialog 62 / 68, no LobbyMenu or
+BriefingState on the client (read 2 s later). session_active: phase Active, no desync, the disk-resume offer and the
+CONTINUE BATTLE line once each. units_equal: units (coop, faction, isOut, x, y, z) host == client == P, seat counts.
+turn_mode_kept: turnMode traditional under the host option parallel; holder == the seed's active seat.
+hash_equal: every bucket EQUAL. end_turn_walk: host END TURN: holder 1; the client walks a staged seat-1 unit one
+tile; equal on both, every bucket EQUAL, no desync.
+Without the fix: coop_hidden_while_busy fails (CO-OP shows while an action runs), both_on_battle fails (the client
+never gets the saved battle), session_active .. end_turn_walk are not reached. One EVIDENCE line per row, one PASS /
+FAIL line per cell, the row verdict; every row runs after a failure. A precondition miss (host_menu_pending,
+lobby_offer, both_on_battle, coop_hidden_while_busy's walk, a cell that raised) ends its row: later cells FAIL "not
+reached (<cell>)". A boot step past its bound prints ONE CAPTURE line and fails every cell of that row "boot". ONE run
+is the result, no skip path; exit 0 only when every cell passes, else 2.
+
+Run:  python tools/coop_test/test_skirmish_saved_battle_join.py
 """
 
 import json
@@ -33,15 +35,17 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 import session  # noqa: E402
 import test_skirmish_flow as SK  # noqa: E402
 
-KEY, SAVE = "49207", "mgb_cb1.sav"
-SEED, SEATED = 1, 2      # set_seed right before newbattle_ok (TASK 0 boots a, b, e, f); seat 1 = squad index 0, 1
-CLIENT_S, HOST_S, STEP_S, LOAD_S, BUSY_S = 120, 30, 30, 120, 5   # bounds (s); TASK 0 green: 1.0, 1.4, -, 1.5, 0.05
+KEY, SAVE = "49207", "saved_continue.sav"
+SEED, SEATED = 1, 2      # set_seed right before newbattle_ok; seat 1 = squad index 0, 1
+CLIENT_S, HOST_S, STEP_S, LOAD_S, BUSY_S = 120, 30, 30, 120, 5   # bounds (s); measured: 1.0, 1.4, -, 1.5, 0.05
 TU_WALK, WALK_FAR, WALK_NEAR = 30, 12, 6
 N_REFUSE = "offerRejoinBattle() called while the battle is not paused"
-N_M2 = "disk-resume battle_offer sent"
-N_MGB = "[coop] CONTINUE BATTLE offers the loaded Custom Battle"
+N_DISK_RESUME = "disk-resume battle_offer sent"
+N_CONTINUE = "[coop] CONTINUE BATTLE offers the loaded Custom Battle"
 DLG_WAIT_PLAYERS, DLG_RESUME_HOLD = 62, 68
-PG_CELLS, CB1_CELLS = ("P1", "P2"), ("G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8")
+GATE_CELLS, CONTINUE_CELLS = (("coop_shown_at_rest", "coop_hidden_while_busy"),
+                              ("host_menu_pending", "lobby_offer", "both_on_battle", "session_active", "units_equal",
+                               "turn_mode_kept", "hash_equal", "end_turn_walk"))
 stack, bs, es = session.states_stripped, session.battle_state, session.event_state
 
 
@@ -129,7 +133,7 @@ def shut(*gcs):
     try:
         shutdown_clients(*gcs)
     except RuntimeError as e:
-        print(f"[mgb] shutdown: {str(e)[:300]}", flush=True)
+        print(f"[saved_battle] shutdown: {str(e)[:300]}", flush=True)
 
 
 def report(row, order, cells, ev):
@@ -180,7 +184,8 @@ def load_saved(host, client, save, tag):
 
 
 def continue_battle(host, client, ev, what):
-    """CONTINUE BATTLE, then G3's (and CB2's) arrival read 2 s after the client is in battle (V1)."""
+    """CONTINUE BATTLE, then the arrival read 2 s after the client is in battle (this file's both_on_battle and
+    the saved PvE2 test's arrival cell)."""
     t, c_at, h_at = time.time(), None, None
     host.ok({"cmd": "lobby_action"})
     while time.time() - t < CLIENT_S and (c_at is None or (h_at is None and time.time() - t < HOST_S)):
@@ -203,9 +208,9 @@ def continue_battle(host, client, ev, what):
 def coop_cell(host, ev, key, want, at):
     """open_pause_coop, pop the HostMenu it opened, read the PauseState's CO-OP TextButton `visible` (want `want`)."""
     host.ok({"cmd": "open_pause_coop"})
-    lever = ev.setdefault(key, {})["lever"] = stack(host)
-    if lever[-1] != "HostMenu":
-        raise AssertionError(f"open_pause_coop left {lever} (want HostMenu on top)")
+    opened = ev.setdefault(key, {})["opened"] = stack(host)
+    if opened[-1] != "HostMenu":
+        raise AssertionError(f"open_pause_coop left {opened} (want HostMenu on top)")
     lw = host.ok({"cmd": "pop_state"}) and host.cmd({"cmd": "list_widgets"})
     co = ev[key]["coop"] = [w for w in lw.get("widgets", []) if w.get("text") == "CO-OP"
                             and "TextButton" in str(w.get("type"))]
@@ -213,7 +218,7 @@ def coop_cell(host, ev, key, want, at):
         raise AssertionError(f"list_widgets on {lw.get('state')}: CO-OP buttons {co} (want one on the PauseState)")
     vis = co[0].get("visible")
     return vis is want, (f"{'CO-OP shows while an action runs: ' if vis and not want else ''}CO-OP visible {vis} {at} "
-                         f"(want {want}, D238 (a))")
+                         f"(want {want})")
 
 
 def pop_to_battle(host):
@@ -224,7 +229,7 @@ def pop_to_battle(host):
 
 
 def order_walk(host):
-    """WALK (spec PINNED SETUP VALUES; its own level, then the one below; a refused line moves on to the next)."""
+    """WALK (its own level, then the one below; a refused line moves on to the next)."""
     units, tried = bs(host).get("units", []), []
     occupied = {(u["x"], u["y"], u["z"]) for u in units if not u.get("isOut")}
     for u in [u for u in units if u.get("faction") == 0 and not u.get("isOut") and (u.get("tu") or 0) >= TU_WALK]:
@@ -241,8 +246,8 @@ def order_walk(host):
     return {"unit": None, "refused": tried}
 
 
-def row_pg():
-    host = GameClient("host", 0, make_user_dir("mgb_pg_host"))
+def row_coop_button_gate():
+    host = GameClient("host", 0, make_user_dir("coop_button_gate_host"))
     m, ev = (host,), {}
 
     def boot():
@@ -258,36 +263,39 @@ def row_pg():
         ok, secs = wait_until(lambda: top(host) == "BattlescapeState" and bs(host).get("pendingStates") == 0
                               and bs(host).get("side") == 0, STEP_S)
         if not ok:
-            missed("PG", f"settle: top BattlescapeState, pendingStates 0, side 0 not reached in {secs} s", m)
+            missed("coop_button_gate",
+                   f"settle: top BattlescapeState, pendingStates 0, side 0 not reached in {secs} s", m)
 
-    def p2(ev):
-        ev["p2Pops"] = pop_to_battle(host)
+    def cell_coop_hidden(ev):
+        ev["busyPops"] = pop_to_battle(host)
         ev["walk"] = order_walk(host)
         busy, ev["busyS"] = wait_until(lambda: (bs(host).get("pendingStates") or 0) > 0, BUSY_S, 0.05)
-        ev["pendingAtLever"] = bs(host).get("pendingStates")
+        ev["pendingAtCheck"] = bs(host).get("pendingStates")
         if ev["walk"]["unit"] is None or not busy:
-            capture("PG walk", f"WALK: no walk reached pendingStates > 0 ({ev['walk']}) (FIXTURE)", m)
-            raise AssertionError("WALK: no walk reached pendingStates > 0 (FIXTURE; see the CAPTURE PG walk line)")
-        return coop_cell(host, ev, "p2", False, f"with pendingStates {ev['pendingAtLever']} at the lever")
+            capture("coop_button_gate walk", f"WALK: no walk reached pendingStates > 0 ({ev['walk']}) (FIXTURE)", m)
+            raise AssertionError("WALK: no walk reached pendingStates > 0 (FIXTURE; see the CAPTURE coop_button_gate "
+                                 "walk line)")
+        return coop_cell(host, ev, "busyCheck", False, f"with pendingStates {ev['pendingAtCheck']} at the check")
 
     try:
         try:
-            guarded("PG", boot, m)
+            guarded("coop_button_gate", boot, m)
         except Miss:
-            return boot_failed("PG", PG_CELLS, "PG", {"boot": "miss"})
+            return boot_failed("coop_button_gate", GATE_CELLS, "coop_button_gate", {"boot": "miss"})
         ev["settled"] = {"stack": stack(host), "mapFingerprint": bs(host).get("mapFingerprint")}
-        cells = run_cells(PG_CELLS, {"P1": (False, lambda ev: coop_cell(host, ev, "p1", True, "at rest")),
-                                     "P2": (True, p2)}, ev)
+        cells = run_cells(GATE_CELLS,
+                          {"coop_shown_at_rest": (False, lambda ev: coop_cell(host, ev, "restCheck", True, "at rest")),
+                           "coop_hidden_while_busy": (True, cell_coop_hidden)}, ev)
         ev["endPops"] = pop_to_battle(host)
-        return report("PG", PG_CELLS, cells, ev)
+        return report("coop_button_gate", GATE_CELLS, cells, ev)
     finally:
         shut(host)
 
 
 def seed_pair():
-    """The CB1 seed pair; returns (save path, seed record) or raises Miss after ONE CAPTURE line."""
-    host_dir = make_user_dir("mgb_cb1s_host", options={"CoopTurnMode": "traditional"})
-    host, client = GameClient("host", 0, host_dir), GameClient("client", 0, make_user_dir("mgb_cb1s_client"))
+    """The saved_coop_continue seed pair; returns (save path, seed record) or raises Miss after ONE CAPTURE line."""
+    host_dir = make_user_dir("saved_continue_seed_host", options={"CoopTurnMode": "traditional"})
+    host, client = GameClient("host", 0, host_dir), GameClient("client", 0, make_user_dir("saved_continue_seed_client"))
     m, seated = (host, client), {}
 
     def boot():
@@ -297,118 +305,129 @@ def seed_pair():
         session.drive_to_battlescape(host, client, seated, seat_count=SEATED,
                                      pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED}))
         session.wait_host_idle(host, client, timeout=STEP_S)
-        session.assert_hash_clean(host, client, full=True, what="CB1 seed")
+        session.assert_hash_clean(host, client, full=True, what="saved_coop_continue seed")
 
     try:
-        guarded("CB1 seed", boot, m)
+        guarded("saved_coop_continue seed", boot, m)
         hb, cb = bs(host), bs(client)
         units = hb.get("units", [])
-        rec = {"P": ptable(hb), "S1": sorted(u["id"] for u in units if u.get("coop") == 1), "fp": hb.get("mapFingerprint"),
-               "S0": sorted(u["id"] for u in units if u.get("coop") == 0), "A0": es(host).get("coopActiveSeat"),
+        rec = {"P": ptable(hb), "seat1": sorted(u["id"] for u in units if u.get("coop") == 1),
+               "fp": hb.get("mapFingerprint"), "seat0": sorted(u["id"] for u in units if u.get("coop") == 0),
+               "seedActiveSeat": es(host).get("coopActiveSeat"),
                "sideTurn": [[b.get("side"), b.get("turn")] for b in (hb, cb)], "seated": seated.get("soldierIds")}
         alien = any(u.get("faction") == 1 and not u.get("isOut") for u in units)
-        if rec["sideTurn"] != [[0, 1], [0, 1]] or len(rec["S1"]) != SEATED or not alien or rec["P"] != ptable(cb):
-            missed("CB1 seed", f"seed precondition: {json.dumps(rec, default=str)}; alien alive {alien}; P equal on both "
+        if rec["sideTurn"] != [[0, 1], [0, 1]] or len(rec["seat1"]) != SEATED or not alien or rec["P"] != ptable(cb):
+            missed("saved_coop_continue seed",
+                   f"seed precondition: {json.dumps(rec, default=str)}; alien alive {alien}; P equal on both "
                                f"{rec['P'] == ptable(cb)} (want side 0 turn 1 on both, {SEATED} seat-1 units, an alien)", m)
-        guarded("CB1 seed", lambda: host.ok({"cmd": "save_game", "file": SAVE}), m)
+        guarded("saved_coop_continue seed", lambda: host.ok({"cmd": "save_game", "file": SAVE}), m)
         path = os.path.join(host_dir, "xcom1", SAVE)
         if not wait_until(lambda: os.path.exists(path), 10, 0.2)[0]:
-            missed("CB1 seed", f"save_game wrote no {path} in 10 s", m)
+            missed("saved_coop_continue seed", f"save_game wrote no {path} in 10 s", m)
         return path, rec
     finally:
         shut(host, client)
 
 
-def g8(host, client, ev):
+def cell_end_turn_walk(host, client, ev):
     s1 = [u.get("soldierId") for u in bs(host).get("units", []) if u.get("coop") == 1 and not u.get("isOut")]
     host.ok({"cmd": "battle_action", "action": "end_turn_button"})
     ok, secs = wait_until(lambda: holder(host)[0] == 1 and holder(client)[0] == 1, STEP_S, 0.2)
     if not ok:
         return False, f"holder host/client {[holder(host), holder(client)]} {secs} s after END TURN (want 1 on both)"
-    after, tile, run_dir = session.stage_open_ground_actor(host, client, s1, tag="mgb-g8")
+    after, tile, run_dir = session.stage_open_ground_actor(host, client, s1, tag="end-turn-walk")
     dest, prev = (tile[0] + session.DIR_DX[run_dir], tile[1] + session.DIR_DY[run_dir], tile[2]), session.walk_action_id(
         host)
-    ev["g8Walk"] = {"unit": after["id"], "tile": tile, "dir": run_dir, "dest": dest,
+    ev["endTurnWalk"] = {"unit": after["id"], "tile": tile, "dir": run_dir, "dest": dest,
                     "resp": session.send_walk(client, after["id"], dest)}
     session.wait_walk_settled(host, client, prev, timeout=STEP_S), session.wait_host_idle(host, client, timeout=STEP_S)
     p = [(lambda u: (u["x"], u["y"], u["z"]))(session.unit_of(gc, after["id"])) for gc in (host, client)]
-    hok, hdetail = hash_cell(host, client, "CB1 G8")
+    hok, hdetail = hash_cell(host, client, "saved_coop_continue end_turn_walk")
     ds = [es(host).get("desyncSeen"), es(client).get("desyncSeen")]
     return (p[0] == p[1] == dest and hok and ds == [False, False],
             f"holder 1 on both after END TURN ({secs} s); unit {after['id']} host/client {p} (want {dest} on both); "
             f"{hdetail}; desyncSeen {ds} (want False/False)")
 
 
-def row_cb1():
+def row_saved_coop_continue():
     try:
         save, seed = seed_pair()
     except Miss:
-        return boot_failed("CB1", CB1_CELLS, "CB1 seed", {"boot": "seed pair miss"})
-    host = GameClient("host", 0, make_user_dir("mgb_cb1r_host", saves=[save], options={"CoopTurnMode": "parallel"}))
-    client = GameClient("client", 0, make_user_dir("mgb_cb1r_client"))
+        return boot_failed("saved_coop_continue", CONTINUE_CELLS, "saved_coop_continue seed",
+                           {"boot": "seed pair miss"})
+    host = GameClient("host", 0,
+                      make_user_dir("saved_continue_resume_host", saves=[save], options={"CoopTurnMode": "parallel"}))
+    client = GameClient("client", 0, make_user_dir("saved_continue_resume_client"))
     ev = {"seed": seed}
 
-    def g1(ev):
+    def cell_host_menu(ev):
         host.ok({"cmd": "open_pause_coop"})
         host.wait_for("HostMenu", lambda: session.has_state(host, "HostMenu"), timeout=STEP_S)
-        st, pend = ev["g1"] = stack(host), host.cmd({"cmd": "get_coop"}).get("customBattleResumePending")
+        st, pend = ev["hostMenu"] = stack(host), host.cmd({"cmd": "get_coop"}).get("customBattleResumePending")
         return (st[-1] == "HostMenu" and "ServerList" not in st and pend is True,
                 f"host stack {st} (want HostMenu on top, no ServerList); customBattleResumePending {pend} (want True)")
 
-    def g2(ev):
+    def cell_lobby_offer(ev):
         host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "SavedBattle", "port": KEY, "player": "HostPlayer"})
         host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"), timeout=STEP_S)
         ls = (join(host, client, KEY), time.sleep(2), host.cmd({"cmd": "lobby_state"}))[2]
-        r = ev["g2"] = {"host": stack(host), "client": stack(client), "clientInBattle": bs(client).get("inBattle"),
-                        "button": [ls.get("buttonVisible"), ls.get("buttonText")]}
+        r = ev["lobbyOffer"] = {"host": stack(host), "client": stack(client),
+                                "clientInBattle": bs(client).get("inBattle"),
+                                "button": [ls.get("buttonVisible"), ls.get("buttonText")]}
         return ("LobbyMenu" in r["host"] and "LobbyMenu" in r["client"] and not r["clientInBattle"] and r["button"] == [
             True, "CONTINUE BATTLE"], f"stacks host {r['host']} client {r['client']} (want LobbyMenu on both); client "
                 f"inBattle {r['clientInBattle']} (want False); host button {r['button']} (want visible CONTINUE BATTLE)")
 
-    def g4(ev):
+    def cell_session_active(ev):
         eh, ec = es(host), es(client)
-        r = ev["g4"] = {"phase": [eh.get("phase"), ec.get("phase")], "desync": [eh.get("desyncSeen"), ec.get("desyncSeen")],
-                        "coopSession": client.cmd({"cmd": "get_coop"}).get("coopSession"),
-                        "m2": log_count(host, N_M2), "mgb": log_count(host, N_MGB)}
+        r = ev["sessionState"] = {"phase": [eh.get("phase"), ec.get("phase")],
+                                  "desync": [eh.get("desyncSeen"), ec.get("desyncSeen")],
+                                  "coopSession": client.cmd({"cmd": "get_coop"}).get("coopSession"),
+                                  "diskResume": log_count(host, N_DISK_RESUME),
+                                  "continueLine": log_count(host, N_CONTINUE)}
         return (r["phase"] == ["Active", "Active"] and r["desync"] == [False, False] and r["coopSession"] is True
-                and r["m2"] == 1 and r["mgb"] == 1,
+                and r["diskResume"] == 1 and r["continueLine"] == 1,
                 f"phase {r['phase']} (want Active on both); desyncSeen {r['desync']} (want False/False); client coopSession "
-                f"{r['coopSession']} (want True); host log '{N_M2}' {r['m2']}, '{N_MGB}' {r['mgb']} (want 1, 1)")
+                f"{r['coopSession']} (want True); host log '{N_DISK_RESUME}' {r['diskResume']}, '{N_CONTINUE}' "
+                f"{r['continueLine']} (want 1, 1)")
 
-    def g5(ev):
+    def cell_units_equal(ev):
         ph, pc, p = ptable(bs(host)), ptable(bs(client)), seed["P"]
         s1, s0 = sum(1 for v in ph.values() if v[0] == 1), sum(1 for v in ph.values() if v[0] == 0)
-        diff = ev["g5"] = {k: [ph.get(k), pc.get(k), p.get(k)] for k in set(ph) | set(pc) | set(p)
-                           if not ph.get(k) == pc.get(k) == p.get(k)}
-        return (not diff and s1 == len(seed["S1"]) and s0 == len(seed["S0"]),
+        diff = ev["unitDiff"] = {k: [ph.get(k), pc.get(k), p.get(k)] for k in set(ph) | set(pc) | set(p)
+                                 if not ph.get(k) == pc.get(k) == p.get(k)}
+        return (not diff and s1 == len(seed["seat1"]) and s0 == len(seed["seat0"]),
                 f"units differing host/client/P {diff} (want none); seat-1 / seat-0 {s1} / {s0} (want "
-                f"{len(seed['S1'])} / {len(seed['S0'])})")
+                f"{len(seed['seat1'])} / {len(seed['seat0'])})")
 
-    def g6(ev):
-        eh, ec, a0 = es(host), es(client), seed["A0"]
-        r = ev["g6"] = {"turnMode": [eh.get("turnMode"), ec.get("turnMode")], "option": eh.get("optionTurnMode"),
-                        "holder": [holder(host), holder(client)]}
+    def cell_turn_mode(ev):
+        eh, ec, a0 = es(host), es(client), seed["seedActiveSeat"]
+        r = ev["mode"] = {"turnMode": [eh.get("turnMode"), ec.get("turnMode")], "option": eh.get("optionTurnMode"),
+                          "holder": [holder(host), holder(client)]}
         return (r["turnMode"] == ["traditional"] * 2 and r["option"] == "parallel" and r["holder"] == [[a0, a0]] * 2,
                 f"turnMode {r['turnMode']} (want traditional on both) with the host option {r['option']} (want parallel); "
                 f"holder [coopActiveSeat, tally.activeSeat] host/client {r['holder']} (want {a0} on both)")
 
     try:
         try:
-            load_saved(host, client, SAVE, "CB1 resume")
+            load_saved(host, client, SAVE, "saved_coop_continue resume")
         except Miss:
-            return boot_failed("CB1", CB1_CELLS, "CB1 resume", ev)
-        steps = {"G1": (True, g1), "G2": (True, g2),
-                 "G3": (True, lambda ev: continue_battle(host, client, ev, "the client never got the saved battle")),
-                 "G4": (False, g4), "G5": (False, g5), "G6": (False, g6),
-                 "G7": (False, lambda ev: hash_cell(host, client, "CB1 G7")), "G8": (False, lambda ev: g8(host, client, ev))}
-        return report("CB1", CB1_CELLS, run_cells(CB1_CELLS, steps, ev), ev)
+            return boot_failed("saved_coop_continue", CONTINUE_CELLS, "saved_coop_continue resume", ev)
+        steps = {"host_menu_pending": (True, cell_host_menu), "lobby_offer": (True, cell_lobby_offer),
+                 "both_on_battle": (True, lambda ev: continue_battle(host, client, ev,
+                                                                     "the client never got the saved battle")),
+                 "session_active": (False, cell_session_active), "units_equal": (False, cell_units_equal),
+                 "turn_mode_kept": (False, cell_turn_mode),
+                 "hash_equal": (False, lambda ev: hash_cell(host, client, "saved_coop_continue hash_equal")),
+                 "end_turn_walk": (False, lambda ev: cell_end_turn_walk(host, client, ev))}
+        return report("saved_coop_continue", CONTINUE_CELLS, run_cells(CONTINUE_CELLS, steps, ev), ev)
     finally:
         shut(host, client)
 
 
 def main():
     t0 = time.time()
-    fails = row_pg() + row_cb1()
+    fails = row_coop_button_gate() + row_saved_coop_continue()
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
     print(f"test_skirmish_saved_battle_join: {'PASS' if not fails else 'FAIL'} in {time.time() - t0:.1f}s", flush=True)
     sys.exit(0 if not fails else 2)
