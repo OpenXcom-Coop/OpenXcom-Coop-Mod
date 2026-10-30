@@ -1,34 +1,36 @@
-"""R5-U8 S-D rows SD1, SD2: a saved PvE2 (gamemode 4) co-op Custom Battle, loaded from the menu, hosted from the battle's pause
-menu and continued with CONTINUE BATTLE, comes back on the players' side of the same turn with every unit's record and every
-alien's built values intact, and both players' END TURN then cross the X-COM AI side (owner D233 (a); QU8-5 (a): main #181's
-test of this name, re-pointed in place on the rewrite's probes; QU8B-5 (a); Q283-5 (a) / QSD-1 (a): MG-B's row CB2,
-test_skirmish_saved_pve2_continue.py, owns the resume's arrival, whose reads are boot preconditions or EVIDENCE here).
+"""Rows resume_intact and end_turn_cycle: a saved PvE2 (gamemode 4) co-op Custom Battle, loaded from the menu, hosted
+from the battle's pause menu and continued with CONTINUE BATTLE, comes back on the players' side of the same turn with
+every unit's record and every alien's built values intact, and both players' END TURN then cross the X-COM AI side.
+The file keeps the name of main's test from #181, on the current probes. test_skirmish_saved_pve2_continue.py owns the
+resume's arrival, whose reads are boot preconditions or EVIDENCE here. Lobby key 48864.
 
-Spec: docs repo rewrite/prompts/r5u8_sd_merge_main.md (stage S-D, section (f); rulings QSD-1 .. QSD-6 (a)). Constants:
-rewrite/r5u8-task0/sd/CONSTANTS.md (TASK 0 boot pairs Da, Db at 0b5cdefb6). Lobby key 48864.
-
-Boot D1 (dirs r5u8_d_host / r5u8_d_client): R5-U8's gm4 bring-up (test_pve2 / test_pve2_turns): the host sets
-SEED_ROSTER, the client on Alien (gamemode 2), the host's own row on Alien (gamemode 4); STR_MEDIUM_SCOUT on map seed SEED_MAP;
-both briefings and both pre-battle equip screens; pin_ai_neutral and every live unit's reactions 0; both Turn 1 screens closed
-(client first) and the stable settle on side 0 of turn SAVE_TURN (the opening ran once); C1 staged; the record P read on both
-machines; every bucket EQUAL; the host saves, then the host exits, then the client.
-Boot D2 (the host reuses boot D1's dir, never re-made: make_user_dir would delete the save; a clean client r5u8_d_client2):
-the host's load_save_menu, open_pause_coop, host_menu_host; the client joins; CONTINUE BATTLE; both phase Active and both tops
-BattlescapeState, no dialog 62 / 68, held 2 s (MG-B's arrival: a miss is CAPTURE D2).
-  SD1  SD1-record  every unit's (originalFaction, type, direction) host == client == P
-       SD1-built   every alien's darkVision and armorMax host == client == P
-       SD1-hold    the resumed host's split line 0; side / turn unchanged on both for HOLD_S with no press
-       SD1-order   the client's walk for its alien C1 runs at once (one intent context, no deny, C1 on C1_DEST on both)
-       SD1-common
-  SD2  SD2-cycle   client END TURN, host "END TURN 1/2", host END TURN, each machine closes its own NextTurnState:
-                   side 0 of turn SAVE_TURN + 1 on both, the host's ev kinds = CYCLE_KINDS
-       SD2-once    the host's opening line count stays 0 across the cycle
-       SD2-common
+Boot seed_boot (dirs pve2_end_turn_host / pve2_end_turn_client), in the steps its CAPTURE lines name: the gm4 bring-up
+of test_pve2 / test_pve2_turns: the host sets SEED_ROSTER, the client on Alien (gamemode 2), the host's own row on Alien
+(gamemode 4) (3: both lobby rows Alien); STR_MEDIUM_SCOUT on map seed SEED_MAP (4); both briefings (5) and both
+pre-battle equip screens (6); pin_ai_neutral and every live unit's reactions 0 (7); both Turn 1 screens closed (client
+first) and the stable settle on side 0 of turn SAVE_TURN, the opening ran once (8); C1 staged (9); the record P read on
+both machines, every bucket EQUAL (10); the host saves (11), then the host exits, then the client.
+Boot resume_boot (the host reuses seed_boot's dir, never re-made: make_user_dir would delete the save; a clean client
+pve2_end_turn_client2), in the resume steps its CAPTURE lines name: the host's load_save_menu (1), open_pause_coop (2),
+host_menu_host (3); the client joins (4); CONTINUE BATTLE (5); both phase Active and both tops BattlescapeState, no
+dialog 62 / 68, held 2 s (6: the arrival of test_skirmish_saved_pve2_continue); the crash-folder snapshot (7).
+  resume_intact   unit_record_kept    every unit's (originalFaction, type, direction) host == client == P
+                  alien_built_kept    every alien's darkVision and armorMax host == client == P
+                  resume_holds_still  the resumed host's split line 0; side / turn unchanged on both for HOLD_S with no
+                                      press
+                  client_walk_runs    the client's walk for its alien C1 runs at once (one intent context, no deny, C1
+                                      on C1_DEST on both)
+                  resume_common
+  end_turn_cycle  turn_cycle_runs     client END TURN, host "END TURN 1/2", host END TURN, each machine closes its own
+                                      NextTurnState: side 0 of turn SAVE_TURN + 1 on both, the host's ev kinds =
+                                      CYCLE_KINDS
+                  opening_not_rerun   the host's opening line count stays 0 across the cycle
+                  cycle_common
 Common cell: every hash bucket EQUAL, desyncSeen false on both, no new file in the lane crash folder.
 
-One EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; every row runs after a failure. A boot step past its
-bound prints ONE CAPTURE D1 / CAPTURE D2 line and fails every cell "boot". run in the foreground to completion.
-ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
+One EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; every row runs after a failure. A boot step
+past its bound prints ONE CAPTURE seed_boot / CAPTURE resume_boot line and fails every cell "boot". Run it in the
+foreground to completion. There is no skip path; exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_skirmish_saved_pve2_end_turn.py
 """
@@ -55,12 +57,13 @@ from test_pvp_gm3 import (Miss, stack, top, log_lines, log_count, bview, pos, es
 from test_pve2_turns import side_turn, drive_to_side0, cut_kinds, walk_done, CYCLE_KINDS  # noqa: E402
 
 KEY = "48864"
-HOST_DIR, CLIENT_DIR, CLIENT2_DIR = "r5u8_d_host", "r5u8_d_client", "r5u8_d_client2"
-SAVE = "r5u8_d_pve2.sav"
-SEED_ROSTER, SEED_MAP, MISSION = 1, 1, "STR_MEDIUM_SCOUT"   # R5-U8's gm4 pins (TASK 0 Da = Db)
+HOST_DIR, CLIENT_DIR, CLIENT2_DIR = "pve2_end_turn_host", "pve2_end_turn_client", "pve2_end_turn_client2"
+SAVE = "pve2_end_turn.sav"
+SEED_ROSTER, SEED_MAP, MISSION = 1, 1, "STR_MEDIUM_SCOUT"   # the gm4 constants of test_pve2_turns
 GAMEMODE_PVE2 = 4
-SAVE_TURN = 2                     # the first players' side after the opening (QSD-6 (a); Da = Db)
-C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54   # min(SEAT1_IDS); S-A's C1 staging
+SAVE_TURN = 2                     # the first players' side after the opening
+# C1 = min(test_pve2.SEAT1_IDS), staged as test_pve2 stages it
+C1, C1_TILE, C1_DIR, C1_DEST, C1_TU = 1000000, (27, 11, 0), 2, (28, 11, 0), 54
 BOOT_S, LOAD_S, LOBBY_S, RESUME_S = 60, 60, 60, 120   # briefing <= 1.3 s, load 0.1 s, join 2.1 s, arrival 1.8 s
 STEP_S, SIDE_S, HOLD_S, HELD_S = 30, 60, 5, 2.0       # END TURN 1/2 0.05 s, walk 0.15 s, cycle 2.6 s
 DLG_WAIT_PLAYERS, DLG_RESUME_HOLD = 62, 68
@@ -70,10 +73,11 @@ N_EQUAL = "[coop-handshake] battle_ready saveBlob EQUAL"
 N_REFUSE_RX = "battle_refuse received"
 FIELDS = ("faction", "originalFaction", "coop", "type", "isOut", "x", "y", "z", "direction", "darkVision", "armorMax",
           "hasAI", "tu")
-RECORD, BUILT, CB2 = ("originalFaction", "type", "direction"), ("darkVision", "armorMax"), ("coop", "faction", "isOut", "x",
-                                                                                           "y", "z")
-ROWS = (("SD1", ("SD1-record", "SD1-built", "SD1-hold", "SD1-order", "SD1-common")),
-        ("SD2", ("SD2-cycle", "SD2-once", "SD2-common")))
+RECORD, BUILT, PLACEMENT = (("originalFaction", "type", "direction"), ("darkVision", "armorMax"),
+                            ("coop", "faction", "isOut", "x", "y", "z"))
+ROWS = (("resume_intact",
+         ("unit_record_kept", "alien_built_kept", "resume_holds_still", "client_walk_runs", "resume_common")),
+        ("end_turn_cycle", ("turn_cycle_runs", "opening_not_rerun", "cycle_common")))
 
 
 def dialog(gc):
@@ -127,8 +131,9 @@ def guarded(tag, fn, machines):
 
 
 def settle(host, client):
-    """PV's stable settle: every 0.25 s close any NextTurnState on either machine (each its own); done when, on two polls
-    1.0 s apart, side 0 on both, both tops BattlescapeState, the host's pendingStates 0 and not isBusy, and turn SAVE_TURN."""
+    """test_pve2's stable settle: every 0.25 s close any NextTurnState on either machine (each its own); done when,
+    on two polls 1.0 s apart, side 0 on both, both tops BattlescapeState, the host's pendingStates 0 and not isBusy,
+    and turn SAVE_TURN."""
     t, hits, last, closes = time.time(), [], None, []
     while time.time() - t < BOOT_S:
         for gc in (host, client):
@@ -144,68 +149,73 @@ def settle(host, client):
             continue
         hits = []
         time.sleep(0.25)
-    miss("D1", f"step 8: the stable settle (side 0, turn {SAVE_TURN}) not reached in {BOOT_S} s: {last}", (host, client))
+    miss("seed_boot", f"step 8: the stable settle (side 0, turn {SAVE_TURN}) not reached in {BOOT_S} s: {last}",
+         (host, client))
 
 
-def boot_d1(host, client):
-    """Steps (1)-(11); returns the record P (host and client tables, top, turn mode, the save greps)."""
+def boot_seed(host, client):
+    """Boot steps 1-11; returns the record P (host and client tables, top, turn mode, the save greps)."""
     m, boot = (host, client), {}
-    guarded("D1", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
-    guarded("D1", lambda: host.ok({"cmd": "set_seed", "seed": SEED_ROSTER}), m)
-    boot["gm2"] = guarded("D1", lambda: PF.start_pvp_skirmish_lobby(host, client, KEY, alien_player="client"), m)[0]
-    gm = guarded("D1", lambda: host.ok({"cmd": "lobby_set_team", "row": PF.row_for(host, "HostPlayer"),
-                                        "team": "Alien"}), m).get("gamemode")
+    guarded("seed_boot", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "set_seed", "seed": SEED_ROSTER}), m)
+    boot["gm2"] = guarded("seed_boot", lambda: PF.start_pvp_skirmish_lobby(host, client, KEY, alien_player="client"),
+                          m)[0]
+    gm = guarded("seed_boot", lambda: host.ok({"cmd": "lobby_set_team", "row": PF.row_for(host, "HostPlayer"),
+                                               "team": "Alien"}), m).get("gamemode")
     ok, secs = wait_until(lambda: PF._lobby(host).get("playerTeams") == ["Alien", "Alien"]
                           and PF._lobby(client).get("playerTeams") == ["Alien", "Alien"], 10, 0.25)
     if not ok or gm != GAMEMODE_PVE2:
-        miss("D1", f"step 3: gamemode {gm} (want 4); both lobby rows Alien {ok} in {secs} s", m)
-    guarded("D1", lambda: host.ok({"cmd": "lobby_action"}), m)
-    guarded("D1", lambda: host.wait_for("host at battle settings",
-                                        lambda: (not session.has_state(host, "LobbyMenu")) or None), m)
+        miss("seed_boot", f"step 3: gamemode {gm} (want 4); both lobby rows Alien {ok} in {secs} s", m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "lobby_action"}), m)
+    guarded("seed_boot", lambda: host.wait_for("host at battle settings",
+                                               lambda: (not session.has_state(host, "LobbyMenu")) or None), m)
     if top(host) != "NewBattleState":
-        miss("D1", f"step 4: host stack {stack(host)} (want NewBattleState on top)", m)
-    guarded("D1", lambda: host.ok({"cmd": "newbattle_mission", "type": MISSION}), m)
-    guarded("D1", lambda: host.ok({"cmd": "set_seed", "seed": SEED_MAP}), m)
-    guarded("D1", lambda: host.ok({"cmd": "newbattle_ok"}), m)
+        miss("seed_boot", f"step 4: host stack {stack(host)} (want NewBattleState on top)", m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "newbattle_mission", "type": MISSION}), m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "set_seed", "seed": SEED_MAP}), m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "newbattle_ok"}), m)
     for gc in m:   # step 5: a refusal ends the wait at once
         ok, secs = wait_until(lambda gc=gc: session.has_state(gc, "BriefingState") or log_count(host, N_REFUSE_RX) > 0,
                               BOOT_S, 0.1)
         if not ok or log_count(host, N_REFUSE_RX) > 0:
-            miss("D1", f"step 5: {gc.name} BriefingState {ok} after {secs} s; host '{N_REFUSE_RX}' "
-                       f"{log_count(host, N_REFUSE_RX)}", m)
-    guarded("D1", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)   # step 6
-    guarded("D1", lambda: session.dismiss_client_briefing(client), m)
+            miss("seed_boot", f"step 5: {gc.name} BriefingState {ok} after {secs} s; host '{N_REFUSE_RX}' "
+                              f"{log_count(host, N_REFUSE_RX)}", m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "click_widget", "match": "ok"}), m)   # step 6
+    guarded("seed_boot", lambda: session.dismiss_client_briefing(client), m)
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):
             session.equip_both_ready(host, client)
     except Exception as e:
         print(buf.getvalue(), end="", flush=True)
-        miss("D1", f"step 6: equip_both_ready: {type(e).__name__}: {str(e)[:500]}", m)
+        miss("seed_boot", f"step 6: equip_both_ready: {type(e).__name__}: {str(e)[:500]}", m)
     boot["equal"] = log_count(host, N_EQUAL)
-    boot["pinned"] = guarded("D1", lambda: session.pin_ai_neutral(host, client, tag="r5u8d"), m)   # step 7
-    guarded("D1", lambda: reactions_zero(host, client), m)
-    guarded("D1", lambda: session.dismiss_battle_start_overlays(client), m)   # step 8: the client's Turn 1 close first
-    guarded("D1", lambda: session.dismiss_battle_start_overlays(host), m)
+    # step 7
+    boot["pinned"] = guarded("seed_boot", lambda: session.pin_ai_neutral(host, client, tag="pve2_end_turn"), m)
+    guarded("seed_boot", lambda: reactions_zero(host, client), m)
+    # step 8: the client's Turn 1 close first
+    guarded("seed_boot", lambda: session.dismiss_battle_start_overlays(client), m)
+    guarded("seed_boot", lambda: session.dismiss_battle_start_overlays(host), m)
     boot["settle"] = settle(host, client)
     if boot["settle"]["opening"] != 1:
-        miss("D1", f"step 8: host '{N_OPENING}' lines {boot['settle']['opening']} at the settle (want 1)", m)
+        miss("seed_boot", f"step 8: host '{N_OPENING}' lines {boot['settle']['opening']} at the settle (want 1)", m)
     boot["c1From"] = pos(host, C1)
-    guarded("D1", lambda: tele_both(host, client, C1, C1_TILE, C1_DIR), m)   # step 9
-    guarded("D1", lambda: both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": C1, "stat": "tu",
-                                              "value": C1_TU, "refill": True}, ("tu",)), m)
-    guarded("D1", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
+    guarded("seed_boot", lambda: tele_both(host, client, C1, C1_TILE, C1_DIR), m)   # step 9
+    guarded("seed_boot",
+            lambda: both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": C1, "stat": "tu",
+                                        "value": C1_TU, "refill": True}, ("tu",)), m)
+    guarded("seed_boot", lambda: session.wait_host_idle(host, client, timeout=STEP_S), m)
     P = {"host": table(host), "client": table(client), "top": [bview(host), bview(client)],
          "turnMode": [es(host, "turnMode"), es(client, "turnMode")], "split": log_count(host, N_SPLIT)}   # step 10
     P["diff"] = {i: [P["host"].get(i), P["client"].get(i)] for i in set(P["host"]) | set(P["client"])
                  if P["host"].get(i) != P["client"].get(i)}
     hashed = hash_now(host, client)
     if hashed != "all buckets EQUAL":
-        miss("D1", f"step 10: hash before the save: {hashed}", m)
-    guarded("D1", lambda: host.ok({"cmd": "save_game", "file": SAVE}), m)   # step 11
+        miss("seed_boot", f"step 10: hash before the save: {hashed}", m)
+    guarded("seed_boot", lambda: host.ok({"cmd": "save_game", "file": SAVE}), m)   # step 11
     path = os.path.join(host.user_dir, "xcom1", SAVE)
     if not wait_until(lambda: os.path.exists(path), 10, 0.2)[0]:
-        miss("D1", f"step 11: save_game wrote no {path} in 10 s", m)
+        miss("seed_boot", f"step 11: save_game wrote no {path} in 10 s", m)
     time.sleep(1.0)
     with open(path, encoding="utf-8", errors="replace") as f:
         txt = f.read()
@@ -215,40 +225,43 @@ def boot_d1(host, client):
     return P
 
 
-def boot_d2(host, client):
-    """Steps (R1)-(R7) on the resume pair; returns the arrival evidence and the crash baseline."""
+def boot_resume(host, client):
+    """Resume steps 1-7 on the resume pair; returns the arrival evidence and the crash baseline."""
     m, ev = (host, client), {}
-    guarded("D2", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
-    guarded("D2", lambda: host.ok({"cmd": "load_save_menu", "file": SAVE}), m)   # R1
+    guarded("resume_boot", lambda: (host.spawn(), host.connect(), client.spawn(), client.connect()), m)
+    guarded("resume_boot", lambda: host.ok({"cmd": "load_save_menu", "file": SAVE}), m)   # resume step 1
     ok, secs = wait_until(lambda: battle_state(host).get("inBattle") and top(host) == "BattlescapeState", LOAD_S, 0.25)
     locked = host.cmd({"cmd": "get_coop"}).get("sessionLocked")
     if not ok or locked:
-        miss("D2", f"R1: the loaded battle on top {ok} in {secs} s; sessionLocked {locked} (want False)", m)
-    guarded("D2", lambda: host.ok({"cmd": "open_pause_coop"}), m)   # R2
+        miss("resume_boot",
+             f"resume step 1: the loaded battle on top {ok} in {secs} s; sessionLocked {locked} (want False)", m)
+    guarded("resume_boot", lambda: host.ok({"cmd": "open_pause_coop"}), m)   # resume step 2
     ok, secs = wait_until(lambda: session.has_state(host, "HostMenu"), LOBBY_S, 0.25)
     pend = host.cmd({"cmd": "get_coop"}).get("customBattleResumePending")
     if not ok or pend is not True:
-        miss("D2", f"R2: HostMenu {ok} in {secs} s; customBattleResumePending {pend} (want True)", m)
-    guarded("D2", lambda: host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "SavedPVE2", "port": KEY,
-                                   "player": "HostPlayer"}), m)   # R3
+        miss("resume_boot", f"resume step 2: HostMenu {ok} in {secs} s; customBattleResumePending {pend} (want True)",
+             m)
+    guarded("resume_boot",
+            lambda: host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "SavedPVE2", "port": KEY,
+                             "player": "HostPlayer"}), m)   # resume step 3
     if not wait_until(lambda: session.has_state(host, "LobbyMenu"), LOBBY_S, 0.25)[0]:
-        miss("D2", f"R3: host LobbyMenu not shown in {LOBBY_S} s", m)
+        miss("resume_boot", f"resume step 3: host LobbyMenu not shown in {LOBBY_S} s", m)
 
-    def join():   # R4
+    def join():   # resume step 4
         SK.skirmish_client_at_browser(client)
         client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY, "player": "ClientPlayer"})
         for gc in m:
             gc.wait_for(f"{gc.name} join popup", lambda gc=gc: session.has_state(gc, "Profile"), timeout=LOBBY_S)
             gc.ok({"cmd": "profile_ok"})
-    guarded("D2", join, m)
+    guarded("resume_boot", join, m)
     ok, secs = wait_until(lambda: (lambda ls: ls.get("buttonVisible") and ls.get("buttonText") == "CONTINUE BATTLE")(
         host.cmd({"cmd": "lobby_state"})), LOBBY_S, 0.25)
     ev["button"] = host.cmd({"cmd": "lobby_state"}).get("buttonText")
     if not ok:
-        miss("D2", f"R4: CONTINUE BATTLE not offered in {secs} s (button {ev['button']!r})", m)
-    guarded("D2", lambda: host.ok({"cmd": "lobby_action"}), m)   # R5
+        miss("resume_boot", f"resume step 4: CONTINUE BATTLE not offered in {secs} s (button {ev['button']!r})", m)
+    guarded("resume_boot", lambda: host.ok({"cmd": "lobby_action"}), m)   # resume step 5
     t, first, trace = time.time(), None, []
-    while time.time() - t < RESUME_S:   # R6: held HELD_S continuously
+    while time.time() - t < RESUME_S:   # resume step 6: held HELD_S continuously
         row = [[es(host, "phase"), es(client, "phase")], [top(host), top(client)], [dialog(host), dialog(client)]]
         if not trace or trace[-1][1:] != row:
             trace.append([round(time.time() - t, 2)] + row)
@@ -262,16 +275,16 @@ def boot_d2(host, client):
         time.sleep(0.25)
     ev["arrival"] = trace
     if first is None or time.time() - first < HELD_S:
-        miss("D2", f"R6: both Active, both tops BattlescapeState, no dialog {DLG_WAIT_PLAYERS} / {DLG_RESUME_HOLD} not held "
-                   f"{HELD_S} s within {RESUME_S} s: {trace}", m)
-    crash0 = session._crash_log_snapshot()   # R7
+        miss("resume_boot", f"resume step 6: both Active, both tops BattlescapeState, no dialog {DLG_WAIT_PLAYERS} / "
+                            f"{DLG_RESUME_HOLD} not held {HELD_S} s within {RESUME_S} s: {trace}", m)
+    crash0 = session._crash_log_snapshot()   # resume step 7
     ev.update(dialogs=[dialog(host), dialog(client)], clientStack=stack(client),
               turnMode=[[es(g, "turnMode"), es(g, "optionTurnMode")] for g in m],
               coopSession=client.cmd({"cmd": "get_coop"}).get("coopSession"))
     return ev, crash0
 
 
-def row_sd1(host, client, P, arrival, crash0):
+def row_resume_intact(host, client, P, arrival, crash0):
     th, tc, ph = table(host), table(client), P["host"]
     ids = sorted(set(th) | set(tc) | set(ph))
     aliens = sorted(i for i, u in ph.items() if u["faction"] == 0)
@@ -279,7 +292,7 @@ def row_sd1(host, client, P, arrival, crash0):
     split = log_count(host, N_SPLIT)
     ev = {"P": {"top": P["top"], "turnMode": P["turnMode"], "diff": P["diff"], "greps": P["greps"], "boot": P["boot"],
                 "split": P["split"]}, "arrival": arrival,
-          "resumed": [bview(host), bview(client)], "cb2Diff": differ((th, tc, ph), CB2, ids),
+          "resumed": [bview(host), bview(client)], "placementDiff": differ((th, tc, ph), PLACEMENT, ids),
           "hasAI": {i: [pick(th, i, ("hasAI",))[0], pick(tc, i, ("hasAI",))[0]] for i in ids
                     if (ph.get(i) or {}).get("faction") == 1},
           "logs": {"split": split, "opening": log_count(host, N_OPENING), "equal": log_count(host, N_EQUAL)}}
@@ -296,20 +309,23 @@ def row_sd1(host, client, P, arrival, crash0):
     deny, ps = es(client, "lastDeny") or {}, [pos(host, C1), pos(client, C1)]
     cok, cdetail = ctx_cell(new, "intent", C1)
     ev.update(walk=r, newCtx=new, lastDeny=deny, polls=len(polls))
-    return {"SD1-record": (not rec, f"(originalFaction, type, direction) differing host/client/P {rec} (want none, "
-                                    f"{len(ids)} units)"),
-            "SD1-built": (bool(aliens) and not built, f"aliens {aliens}: (darkVision, armorMax) differing host/client/P "
-                                                      f"{built} (want none)"),
-            "SD1-hold": (split == 0 and bool(polls) and not off,
-                         f"host '{N_SPLIT}' lines after the resume {split} (want 0); {len(polls)} polls over {HOLD_S} s "
-                         f"with no press, off side/turn {want} on either machine {off[:3]} (want none)"),
-            "SD1-order": (cok and deny.get("iseq") != r.get("iseq") and ps == [C1_DEST, C1_DEST],
-                          f"{cdetail}; client lastDeny {deny} for the walk's iseq {r.get('iseq')} (want none); C1 "
-                          f"host/client {ps} (want {C1_DEST} on both; {ev.get('walkS')} s)"),
-            "SD1-common": common(host, client, crash0)}, ev
+    return {"unit_record_kept": (not rec,
+                                 f"(originalFaction, type, direction) differing host/client/P {rec} (want none, "
+                                 f"{len(ids)} units)"),
+            "alien_built_kept": (bool(aliens) and not built,
+                                 f"aliens {aliens}: (darkVision, armorMax) differing host/client/P "
+                                 f"{built} (want none)"),
+            "resume_holds_still": (split == 0 and bool(polls) and not off,
+                                   f"host '{N_SPLIT}' lines after the resume {split} (want 0); {len(polls)} polls "
+                                   f"over {HOLD_S} s with no press, off side/turn {want} on either machine "
+                                   f"{off[:3]} (want none)"),
+            "client_walk_runs": (cok and deny.get("iseq") != r.get("iseq") and ps == [C1_DEST, C1_DEST],
+                                 f"{cdetail}; client lastDeny {deny} for the walk's iseq {r.get('iseq')} "
+                                 f"(want none); C1 host/client {ps} (want {C1_DEST} on both; {ev.get('walkS')} s)"),
+            "resume_common": common(host, client, crash0)}, ev
 
 
-def row_sd2(host, client, crash0, crash_start):
+def row_end_turn_cycle(host, client, crash0, crash_start):
     ev, steps = {}, []
     mark, oc0 = es(host, "lastSeqEmitted"), log_count(host, N_OPENING)
     ev["pressClient"] = client.cmd({"cmd": "battle_action", "action": "end_turn_button"})
@@ -325,13 +341,14 @@ def row_sd2(host, client, crash0, crash_start):
     ev.update(mark=mark, closes=closes, kinds=kinds, opening=[oc0, oc1],
               clientSaves=session.save_files(client.user_dir),
               crashSinceStart=sorted(session._crash_log_snapshot() - crash_start))
-    return {"SD2-cycle": (done and last["side"] == [0, 0] and last["turn"] == [want, want]
-                          and last["tops"] == ["BattlescapeState"] * 2 and kinds == CYCLE_KINDS and not steps,
-                          f"side {last['side']} turn {last['turn']} tops {last['tops']} (want 0 / {want} / BattlescapeState "
-                          f"on both; settled {done} in {secs} s, bound {SIDE_S}); host ev kinds {kinds} "
-                          f"(want {CYCLE_KINDS}); {steps or 'END TURN 1/2 shown'}"),
-            "SD2-once": (oc0 == oc1 == 0, f"host '{N_OPENING}' lines {oc0} -> {oc1} across the cycle (want 0 -> 0)"),
-            "SD2-common": common(host, client, crash0)}, ev
+    return {"turn_cycle_runs": (done and last["side"] == [0, 0] and last["turn"] == [want, want]
+                                and last["tops"] == ["BattlescapeState"] * 2 and kinds == CYCLE_KINDS and not steps,
+                                f"side {last['side']} turn {last['turn']} tops {last['tops']} (want 0 / {want} / "
+                                f"BattlescapeState on both; settled {done} in {secs} s, bound {SIDE_S}); host ev "
+                                f"kinds {kinds} (want {CYCLE_KINDS}); {steps or 'END TURN 1/2 shown'}"),
+            "opening_not_rerun": (oc0 == oc1 == 0,
+                                  f"host '{N_OPENING}' lines {oc0} -> {oc1} across the cycle (want 0 -> 0)"),
+            "cycle_common": common(host, client, crash0)}, ev
 
 
 def main():
@@ -342,31 +359,33 @@ def main():
     client = GameClient("client", None, make_user_dir(CLIENT_DIR))
     P = arrival = None
     try:
-        P = boot_d1(host, client)
+        P = boot_seed(host, client)
     except Miss:
         pass
     except Exception as e:
-        capture("D1", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
+        capture("seed_boot", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
     finally:
         shut(host)     # the host first: it never takes a partner drop
         shut(client)
     if P is None:
-        fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE D1 line)")
+        fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE seed_boot line)")
     else:
-        host = GameClient("host", None, host.user_dir)   # boot D1's dir, NOT re-made
+        host = GameClient("host", None, host.user_dir)   # the seed boot's dir, NOT re-made
         client = GameClient("client", None, make_user_dir(CLIENT2_DIR))
         try:
             try:
-                arrival, crash0 = boot_d2(host, client)
+                arrival, crash0 = boot_resume(host, client)
             except Miss:
                 pass
             except Exception as e:
-                capture("D2", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
+                capture("resume_boot", f"{type(e).__name__}: {str(e)[:600]}", (host, client))
             if arrival is None:
-                fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE D2 line)")
+                fails = fail_all(ROWS, "boot (setup failure, see the CAPTURE resume_boot line)")
             else:
-                fails = run_row("SD1", rows["SD1"], lambda: row_sd1(host, client, P, arrival, crash0))
-                fails += run_row("SD2", rows["SD2"], lambda: row_sd2(host, client, crash0, crash_start))
+                fails = run_row("resume_intact", rows["resume_intact"],
+                                lambda: row_resume_intact(host, client, P, arrival, crash0))
+                fails += run_row("end_turn_cycle", rows["end_turn_cycle"],
+                                 lambda: row_end_turn_cycle(host, client, crash0, crash_start))
         finally:
             shut(host, client)
     print("ALL ROWS PASS" if not fails else f"FAILED: {fails} cell(s)", flush=True)
