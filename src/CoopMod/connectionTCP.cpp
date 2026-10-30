@@ -19769,14 +19769,14 @@ void connectionTCP::coopDebriefHostSend(DebriefingState* db)
 	SavedGame* sg = _game->getSavedGame();
 	if (!sg)
 		return;
-	// A SHARED campaign
-	// sends the world-bearing payload (mode "shared" + the world push); any other campaign (SEPARATE, PvP) sends a
+	// A one-world campaign (SHARED or Separate)
+	// sends the world-bearing payload (mode "shared" + the world push); a PvP campaign sends a
 	// record-bearing payload (mode "separate" + guests[]). A skirmish leaves the send untouched.
 	const bool campaign = sg->getMonthsPassed() != -1;
 	// coop: a gm3 battle in the X-COM player's borrowed world sends the world-bearing
 	// payload (mode "borrowed"): the post-battle world is the X-COM player's own and goes back to it whole.
 	const bool borrowed = campaign && coopPvpBorrowActive();
-	const bool separate = campaign && !isSharedCampaign() && !borrowed;
+	const bool separate = campaign && !isSharedCampaign() && !isSeparateCampaign() && !borrowed;
 	const Json::Value rec = CoopDelta::battleEndRecord();
 	if ((!held && rec.get("emitted", 0).asInt() != 1) || rec.get("resultSent", 0).asInt() != 0)
 		return;
@@ -30363,9 +30363,9 @@ bool connectionTCP::coopDebriefOk(DebriefingState* db)
 	const bool campaign = CoopDelta::debriefIsCampaign();
 	if (campaign && client)
 	{
-		// a SEPARATE campaign client (and
-		// a PvP one) has no host world to adopt - it returns to its OWN world with the guests' record applied.
-		if (!isSharedCampaign() && !g_coopPvpBorrowedReturn) // coop: the gm3 X-COM player adopts the post-battle world
+		// a PvP campaign client has no host world to adopt - it returns to its OWN world with the guests' record
+		// applied. A one-world campaign client (SHARED or Separate) adopts the host's post-battle world.
+		if (!isSharedCampaign() && !isSeparateCampaign() && !g_coopPvpBorrowedReturn) // coop: the gm3 X-COM player adopts the post-battle world
 		{
 			coopSeparateReturn(db, phaseAtOk);
 			return true;
@@ -37331,7 +37331,10 @@ void connectionTCP::updateCoopTask()
 		{
 			const int heldApplies = SharedEcon::applyQueueDepth();
 			g_coopPostBattleWorldReady = false;
-			if (coopAdoptWorldInPlace(pvpClientWorldKey(getHostName())))
+			// the key writeHostMapLoadProgressFile() stored the streamed world under
+			const std::string heldKey = (isSharedCampaign() || isSeparateCampaign())
+				? std::string("authoritative_campaign_world") : pvpClientWorldKey(getHostName());
+			if (coopAdoptWorldInPlace(heldKey))
 			{
 				g_coopPostBattleWorldAdopted = true;
 				coopDebriefPage3Live(deb); // page 3 live at EVERY adoption
@@ -42707,7 +42710,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// a SHARED client holds every
 		// shared_apply until this world is adopted (LoadGameState :279 or the in-place adoption: notifyWorldAdopted).
-		const bool sharedClient = !getServerOwner() && (isSharedCampaign() || g_coopPvpBorrowedReturn); // coop: the gm3 X-COM player's world comes back the SHARED way
+		// A Separate client's post-battle world is adopted the same way (its results wait in the restream hold).
+		const bool sharedClient = !getServerOwner() && (isSharedCampaign() || isSeparateCampaign() || g_coopPvpBorrowedReturn); // coop: the gm3 X-COM player's world comes back the SHARED way
 		if (sharedClient && isSharedCampaign())
 			SharedEcon::setApplyHold(true);
 		// coop: an armed SHARED return holds the world for the pump's in-place adoption (no CoopState(555)).
