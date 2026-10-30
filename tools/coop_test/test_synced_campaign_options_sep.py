@@ -1,19 +1,18 @@
-"""test_synced_campaign_options_sep.py (SEPARATE): row C2, the join takes the host's 14.
+"""test_synced_campaign_options_sep.py (SEPARATE): row separate_join_values, the join takes the host's 14.
 
-Owner D134, D162 a, D163 a, D165 a, D200 a; P10-V1 (one table for every session kind, SEPARATE included: the
-host's value at join governs both players' own worlds for the session). Spec docs
-rewrite/prompts/w2p10_campaign_options_scope.md as re-pinned by AMENDMENT P10-1 (PX-5, section 4.1 C2). Constants:
-docs rewrite/w2p10-task0/CONSTANTS.md (TASK 0 `w2p10-t0`).
+One table for every session kind, SEPARATE included: the host's value at join governs both players' own worlds for the
+session.
 
-ONE SEPARATE boot (PX-5): session.new_campaign(campaign_mode="coop") on lobby key 47246, host user dir = HOST_OPTS,
-client = defaults. OWN_FILE = each machine's options.cfg read after the bring-up, the 16 ids parsed.
+ONE SEPARATE boot: session.new_campaign(campaign_mode="coop") on lobby key 47246, host user dir = HOST_OPTS, client =
+defaults. OWN_FILE = each machine's options.cfg read after the bring-up, the 16 ids parsed.
 
-| row | RED cell on the S-A.1 build |
+| row | cell that fails without the fix |
 |---|---|
-| C2 SEPARATE join | client option_values of the 14 == the client defaults (not the host's); client own lacks the 14 |
+| separate_join_values | client option_values of the 14 == the client defaults (not the host's); client own lacks the 14
+|
 
-Each row prints ONE "EVIDENCE <id>:" line then PASS/FAIL. Exit 0 only when every row passes, 2 otherwise; no exit 3,
-no retry. run in the foreground to completion.
+Each row prints ONE "EVIDENCE <id>:" line then PASS/FAIL. Exit 0 only when every row passes, 2 otherwise; no exit 3, no
+retry; run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_campaign_options_sep.py
 """
@@ -26,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 
-LOBBY_PORT = 47246                      # SEPARATE coop rendezvous (STOP-IF 11: only 47244-47247)
+LOBBY_PORT = 47246                      # SEPARATE coop rendezvous
 CTRL = (49244, 49245)                   # ephemeral control-socket LABELS
 
 IDS14 = ["storageLimitsEnforced", "canSellLiveAliens", "fieldPromotions", "oxceAutomaticPromotions",
@@ -112,15 +111,15 @@ class Row:
         (self.passed if ok else self.fails).append(name if ok else f"{name}: {detail}")
 
 
-def row_c2(r, host, client, own_file):
+def row_separate_join_values(r, host, client, own_file):
     hov, cov = ov(host, IDS14), ov(client, IDS14)
     hs, cs = sos(host), sos(client)
     r.ev.update(host_sos=hs, client_sos=cs, host_ov=ov(host, IDS16), client_ov=ov(client, IDS16), ownFile=own_file)
     # control: host reads its own HOST_OPTS.
     r.cell("host_boot", not vdiff(hov, HOST_14, IDS14), f"host option_values vs HOST_OPTS {vdiff(hov, HOST_14, IDS14)}")
-    # RED: client option_values of the 14 == host's. red -> client defaults differ.
+    # FIX: client option_values of the 14 == host's; without the fix they are the client defaults.
     r.cell("join_values", not vdiff(cov, hov, IDS14), f"client vs host option_values {vdiff(cov, hov, IDS14)}")
-    # RED: client own contains the 14 == client defaults. red -> own lacks the 14.
+    # FIX: client own holds the 14 == client defaults; without the fix own lacks the 14.
     own = cs.get("own") or {}
     r.cell("own_14", all(k in own for k in IDS14) and not vdiff(own, CDEF_14, IDS14),
            f"client own: missing {[k for k in IDS14 if k not in own]} diff {vdiff(own, CDEF_14, IDS14)}")
@@ -143,8 +142,8 @@ def row_c2(r, host, client, own_file):
 
 def main():
     t0 = time.time()
-    host = GameClient("host", CTRL[0], make_user_dir("w2p10cosep_host", options=HOST_OPTS))
-    client = GameClient("client", CTRL[1], make_user_dir("w2p10cosep_client"))
+    host = GameClient("host", CTRL[0], make_user_dir("synced_campaign_options_sep_host", options=HOST_OPTS))
+    client = GameClient("client", CTRL[1], make_user_dir("synced_campaign_options_sep_client"))
     results = {}
     try:
         host.spawn()
@@ -153,31 +152,31 @@ def main():
         client.connect()
         session.new_campaign(host, client, port=str(LOBBY_PORT), campaign_mode="coop")
         own_file = {"host": read_cfg(host), "client": read_cfg(client)}
-        print(f"[w2p10-sa-sep] bring-up {time.time() - t0:.1f}s OWN_FILE {own_file}", flush=True)
-        r = Row("C2")
+        print(f"[synced_campaign_options_sep] bring-up {time.time() - t0:.1f}s OWN_FILE {own_file}", flush=True)
+        r = Row("separate_join_values")
         try:
-            row_c2(r, host, client, own_file)
+            row_separate_join_values(r, host, client, own_file)
         except Exception as e:
             r.cell("exception", False, short(e))
         r.ev["cellsPassed"] = r.passed
         r.ev["wallS"] = round(time.time() - r.t0, 1)
-        print(f"EVIDENCE C2: {r.ev}", flush=True)
+        print(f"EVIDENCE separate_join_values: {r.ev}", flush=True)
         if r.fails:
-            results["C2"] = False
-            print(f"FAIL C2: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
+            results["separate_join_values"] = False
+            print(f"FAIL separate_join_values: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
         else:
-            results["C2"] = True
-            print("PASS C2", flush=True)
+            results["separate_join_values"] = True
+            print("PASS separate_join_values", flush=True)
     except Exception as e:
-        results["C2"] = False
-        print(f"FAIL C2: pre (bring-up) {short(e)}", flush=True)
+        results["separate_join_values"] = False
+        print(f"FAIL separate_join_values: pre (bring-up) {short(e)}", flush=True)
     finally:
         for gc in (host, client):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p10-sa-sep] shutdown {gc.name}: {short(e)}", flush=True)
-    ok = results.get("C2") is True
+                print(f"[synced_campaign_options_sep] shutdown {gc.name}: {short(e)}", flush=True)
+    ok = results.get("separate_join_values") is True
     print(f"\ntest_synced_campaign_options_sep: {'1/1' if ok else '0/1'} passed in {time.time() - t0:.1f}s", flush=True)
     return 0 if ok else 2
 
