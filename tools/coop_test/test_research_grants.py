@@ -1,13 +1,12 @@
-"""research granted outside the lab (a despawned mission site, a monthly arc script)
-reaches the second player, and the monthly roll carries the ended month's research score. Spec docs
-rewrite/prompts/w2h17c_research_grants.md (e)-(f) + ORCHESTRATOR RULINGS; TASK 0 rewrite/w2h17c-task0/CONSTANTS.md
-(R-H17c-T0-1..3). Test mod Coop_ResearchGrant_Test. Boot A (SHARED): H17c-1 a host-only terror site (hours 1) despawns
-untouched (research + getOneFree, diary, counter, score, despawn event); H17c-2 the month-1 arc grants STR_GRANTTEST_ARC and
-opens its article, then the ended month's score after both rolled. Boot B (SEPARATE, research sync off: MG-F, QMC-5): H17c-3 (guard row). Row frame: S0
+"""Research granted outside the lab (a despawned mission site, a monthly arc script) reaches the second player, and the
+monthly roll carries the ended month's research score. Test mod Coop_ResearchGrant_Test.
+SHARED boot: site_despawn: a host-only terror site (hours 1) despawns untouched (research + getOneFree, diary, counter,
+score, despawn event); month_end_arc: the month-1 arc grants STR_GRANTTEST_ARC and opens its article, then the ended
+month's score after both rolled. SEPARATE boot (research sync off): separate_despawn_guard (guard row). Row frame: S0
 (research_probe, geo_event_probe, requests R0); poll both every 0.25 s for 3 s while a host window is open; clean =
-settle + 60 game-min at speed 3 + 4 s: requests == R0, checksum equal. RED (commit 1): H17c-1/2 fail on their named cells,
-H17c-3 passes; "guard:" cells are guards (CAPTURE on a miss). GREEN: all pass. EVIDENCE then PASS / FAIL per row; ONE run;
-exit 0 only if all pass, else 2.
+settle + 60 game-min at speed 3 + 4 s: requests == R0, checksum equal. Without the fix site_despawn and month_end_arc
+fail on their named cells and separate_despawn_guard passes; "guard:" cells are guards (CAPTURE on a miss). With the
+fix all pass. EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
 import json
@@ -23,9 +22,9 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ResearchGrant_Test")
-BOOT_A = ("w2h17ca", (49370, 49371, 47360))      # SHARED; lobby 47360
-BOOT_B = ("w2h17cb", (49372, 49373, 47362))      # SEPARATE; lobby 47362
-SYNC_OFF = {"EnableResearchSync": False}  # H17c-3 guards sync off; main #197 M1 covers sync on
+BOOT_SHARED = ("research_grants_shared", (49370, 49371, 47360))      # SHARED; lobby 47360
+BOOT_SEPARATE = ("research_grants_separate", (49372, 49373, 47362))  # SEPARATE; lobby 47362
+SYNC_OFF = {"EnableResearchSync": False}  # separate_despawn_guard runs with sync off; the #197 tests cover sync on
 DESPAWN, FREE, ARC, CNT = "STR_GRANTTEST_DESPAWN", "STR_GRANTTEST_FREE", "STR_GRANTTEST_ARC", "STR_GRANTTEST_DESPAWN_CNT"
 NAMES = [DESPAWN, FREE, ARC]
 MISSION, FREE_FROM = 3, 1                        # research_probe diary sourceType
@@ -102,7 +101,7 @@ def sample(gc, pedia_too=False):
     return s
 
 def poll(x, pedia_too=False):
-    """Both machines every POLL_I for POLL_S (a sample of both costs ~0.5-0.75 s, TASK 0)."""
+    """Both machines every POLL_I for POLL_S (a sample of both costs ~0.5-0.75 s, measured)."""
     out, t0 = [], time.time()
     while time.time() - t0 < POLL_S:
         ts = time.time()
@@ -161,8 +160,8 @@ def clean(r, x, r0):
     r.cell("clean", cl["requests"] == r0 and bool(cl["chkHost"]) and cl["chkHost"] == cl["chkClient"],
            f"replica requests {r0} -> {cl['requests']}, chk host {cl['chkHost']} / replica {cl['chkClient']}")
 
-def row_1(r, x):
-    """H17c-1 despawn (Boot A): the host-only site despawns untouched; every cell read while both event windows are open."""
+def row_site_despawn(r, x):
+    """The SHARED boot: the host-only site despawns untouched; every cell read while both event windows are open."""
     h, c = x.host, x.client
     sid = spawn_site(h)
     r.guard("listed", wait_until(lambda: sid in sites(h) and sid in sites(c), LIST_S, 0.2),
@@ -184,7 +183,7 @@ def row_1(r, x):
     r.guard("hostScore", p0["h"]["score"] == sc0["h"] + 10, f"S0 {sc0} {ev['score']}", stop=False)
     r.guard("eventStates", all(s["h"]["ev"] == 1 and s["c"]["ev"] == 1 for s in ps), f"{ev['ev']}")
     r.cell("despawn", any(all(s[k]["res"].get(t) for k in "hc" for t in (DESPAWN, FREE)) for s in ps),
-           f"the despawn research never reached the second player (F7222): DESPAWN/FREE {ev['res']}")
+           f"the despawn research never reached the second player: DESPAWN/FREE {ev['res']}")
     r.cell("diary", any(s["c"]["diary"] == s["h"]["diary"] for s in ps),
            f"research diary differs: sizes {ev['diarySize']} (S0 {s0['client']['research_probe']['diary'].get('size')}), "
            f"replica tail {triples(ps[-1]['c']['diary'])}")
@@ -193,8 +192,8 @@ def row_1(r, x):
     r.ev["dismiss"] = {"client": dismiss_to_geo(c), "host": dismiss_to_geo(h)}
     clean(r, x, s0["client"]["requests"])
 
-def row_2(r, x):
-    """H17c-2 arc at the month end (Boot A): the month-1 arc on the host, its article, and the ended month's score."""
+def row_month_end_arc(r, x):
+    """The SHARED boot at the month end: the month-1 arc on the host, its article, and the ended month's score."""
     h, c = x.host, x.client
     r.ev["setDay"] = h.cmd({"cmd": "set_geo_day", "day": 31, "hour": 22})
     r.guard("clientDay31", wait_until(lambda: (geo_s(c).get("time") or {}).get("day") == 31, DAY_S),
@@ -210,20 +209,21 @@ def row_2(r, x):
                          "t": [s["t"] for s in ps]}
     r.guard("hostArc", ps[0]["h"]["res"].get(ARC) and ps[0]["h"]["article"] == ARC, f"{ev['arc']} {ev['article']}")
     r.cell("arc", any(s["c"]["res"].get(ARC) and s["c"]["article"] == ARC for s in ps),
-           f"the arc research and its article never reached the second player (F7224): ARC {ev['arc']} article {ev['article']}")
+           f"the arc research and its article never reached the second player: ARC {ev['arc']} article {ev['article']}")
     r.ev["clientDismiss"] = dismiss_to_geo(c)
     r.guard("bothRolled", wait_until(lambda: nscores(h) == n0 + 1 and nscores(c) == nscores(h), ROLL_S),
             f"S0 length {n0}; host {gp(h).get('researchScores')} / replica {gp(c).get('researchScores')}")
     hs, cs = gp(h).get("researchScores") or [], gp(c).get("researchScores") or []
     r.ev["rolled"] = {"host": hs, "replica": cs, "hostMinusReplica": hs[-2] - cs[-2], "stacks": [stack(h), stack(c)]}
-    r.cell("scoreEnded", hs[-2] == cs[-2], f"the month's research score differs from the host's (F7225): host {hs} / replica {cs}")
+    r.cell("scoreEnded", hs[-2] == cs[-2],
+           f"the month's research score differs from the host's: host {hs} / replica {cs}")
     r.cell("scoreNew", hs[-1] == cs[-1], f"new month: host {hs} / replica {cs}")
-    st = geo.settle(h, c)                     # the host's chain: article, report, save, CoopState wait (R-H17c-T0-2)
+    st = geo.settle(h, c)                     # the host's chain: article, report, save, CoopState wait
     r.ev["hostWindows"] = {"dismissed": st.get("dismissed"), "stalled": st.get("stalled")}
     clean(r, x, s0["client"]["requests"])
 
-def row_3(r, x):
-    """H17c-3 SEPARATE guard (Boot B): a despawn in the host's own world changes only the host's world."""
+def row_separate_despawn_guard(r, x):
+    """The SEPARATE boot: a despawn in the host's own world changes only the host's world."""
     h, c = x.host, x.client
     sid = spawn_site(h)
     s0 = r.ev["S0"] = {gc.name: {"research_probe": rp(gc), "shared_stats": ss(gc), "sites": sites(gc)} for gc in (h, c)}
@@ -264,11 +264,11 @@ def run_row(rid, fn, x, results):
     results[rid] = not r.fails
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
-def boot_a():
-    return shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,))
+def boot_shared():
+    return shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,))
 
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def boot_separate():
+    tag, (hp, cp, lp) = BOOT_SEPARATE
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,), options=SYNC_OFF))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,), options=SYNC_OFF))
     try:
@@ -302,16 +302,16 @@ def boot(tag, up, rows, results, walls):
         try:
             js.shutdown()
         except Exception as e:
-            print(f"[w2h17c] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[test_research_grants] {tag} shutdown: {short(e)}", flush=True)
 
-ROWS_A = (("H17c-1", row_1), ("H17c-2", row_2))
-ROWS_B = (("H17c-3", row_3),)
+ROWS_SHARED = (("site_despawn", row_site_despawn), ("month_end_arc", row_month_end_arc))
+ROWS_SEPARATE = (("separate_despawn_guard", row_separate_despawn_guard),)
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_A[0], boot_a, ROWS_A, results, walls)
-    boot(BOOT_B[0], boot_b, ROWS_B, results, walls)
-    rows = [rid for rid, _ in ROWS_A + ROWS_B]
+    boot(BOOT_SHARED[0], boot_shared, ROWS_SHARED, results, walls)
+    boot(BOOT_SEPARATE[0], boot_separate, ROWS_SEPARATE, results, walls)
+    rows = [rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE]
     failed = [rid for rid in rows if not results.get(rid)]
     print(f"\ntest_research_grants: {len(rows) - len(failed)}/{len(rows)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
