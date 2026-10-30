@@ -1,42 +1,50 @@
-"""W2-H66 SDN (tools/coop_test/test_save_during_naming.py): a co-op host save while the second player names a new base (L-TR7-1,
-ruling R-H66-0; F19207-F19209). Spec docs rewrite/prompts/w2h66_save_during_naming.md (f); TASK 0 values in
-rewrite/w2h66-task0/sa/CONSTANTS.md.
-In a SEPARATE campaign the client's new base sits in its own base list with the name "" while BaseNameState is open, so the memory save
-of the client's answer to a host save request refuses the whole world: the client gets a false 995 over a Disconnect-only "Saving..."
-(53) that never closes (the base can never be named), the host's "Saving." (54) waits with no file, and the client's stream thread
-loopData retries every 10 ms with a crash file each time (~90 / s).
-Boot pair A (dirs w2h66_a_*) = row N; boot pair B (dirs w2h66_b_*) = row C, then row F. Each boot: spawn + connect both;
-session.new_campaign (key KEY, SEPARATE, tcp; host base at HOST_POS); geo.slow_clock; geo.drain_popups; the window mapping per machine
-from INTERCEPT + its CANCEL (real clicks). "Growth" = new crash_*.log files in the lane's crash folder (harness.CRASH_DIR, both machines)
-whose text holds "Error in loopData" (each file read once).
-  Row N  client BASES, BUILD NEW BASE, ONE real globe click at LAND_PICK (globe_point), OK -> BaseNameState, own base X "";
-         host save_game_ui {type: quick} -> 54 within 2 s; the client polled every POLL s for HOLD_S.
-    N-held   (FIX) at +HOLD_S the client's top is BaseNameState, no CoopState over it.
-    N-no995  (FIX) no client poll of the row saw coop_dialog_info code 995.
-    N-noflood(FIX) growth from the trigger to +HOLD_S is 0.
-    N-wait   (GUARD) at +HOLD_S the host's top is CoopState 54, pendingHostSaveName non-empty, no _quick_.asav newer than the trigger.
-         (precondition N-held) NEWNAME by real key presses, OK.
-    N-named  (FIX) the client's top is PlaceLiftState, or a CoopState 53 over it, within 5 s of the OK.
-    N-done   (FIX) within DONE_S of the OK the host's top is GeoscapeState and _quick_.asav is newer than the trigger.
-    N-fresh  (FIX) that file's client blob (coopClientSaves) lists a base named NEWNAME.
-    N-close  (FIX) within DONE_S of the OK the client has no CoopState in its stack.
-    N-lift   (FIX) (client top PlaceLiftState) a real click on LIFT_TILE gives the client top BasescapeState within 5 s.
-    N-calm   (FIX) growth over the whole row is 0.
-  Row C  (the control) the row N construction, NEWNAME, OK, LIFT_TILE, GEOSCAPE (client top GeoscapeState, own list holds NEWNAME);
-         host quick save; the client polled for DONE_S.
-    C-done (GUARD) within DONE_S the host's top is GeoscapeState and _quick_.asav is newer than the trigger.
-    C-fresh (GUARD) its client blob lists NEWNAME.   C-no995 (GUARD) no 995 on the client during DONE_S.   C-calm (GUARD) growth 0.
-  Row F  client force_stream_key_miss {on: true} (P1, TEST-ONLY); host quick save; F_WINDOW; lever off.
-    F-once (FIX) growth in F_WINDOW is exactly 1.   F-wait (GUARD) at +F_WINDOW the host's top is CoopState 54.
-    F-heal (GUARD) within DONE_S of the lever off the host's top is GeoscapeState, _quick_.asav newer than the trigger, no client CoopState.
-    F-calm (FIX) growth over the whole row is exactly 1.
-Red today: the 11 FIX cells FAIL; the 7 GUARD cells PASS. Green: all 18 PASS.
-Every press is a real click_widget or inject_input; only the save trigger and the lever are commands; the client's Disconnect is never
-pressed; the lever is off before shutdown. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition
-miss ends its row (later cells "not reached"); a boot miss fails every row of that boot "boot" with ONE CAPTURE line. The END line
-counts every new crash file by kind (loopData, other, Unhandled, .dmp).
+"""A co-op host save while the second player names a new base.
+In a SEPARATE campaign the client's new base sits in its own base list with the name "" while BaseNameState is open, so
+the memory save of the client's answer to a host save request refuses the whole world: the client gets a false 995
+over a Disconnect-only "Saving..." (53) that never closes (the base can never be named), the host's "Saving." (54)
+waits with no file, and the client's stream thread loopData retries every 10 ms with a crash file each time (~90 / s).
+Boot name_open (dirs save_naming_name_open_*) = row naming; boot name_set (dirs save_naming_name_set_*) = row control,
+then row key_miss. Each boot: spawn + connect both; session.new_campaign (key KEY, SEPARATE, tcp; host base at
+HOST_POS); geo.slow_clock; geo.drain_popups; the window mapping per machine from INTERCEPT + its CANCEL (real clicks).
+"Growth" = new crash_*.log files in this harness slot's crash folder (harness.CRASH_DIR, both machines) whose text holds
+"Error in loopData" (each file read once).
+  Row naming  client BASES, BUILD NEW BASE, ONE real globe click at LAND_PICK (globe_point), OK -> BaseNameState, own
+         base X ""; host save_game_ui {type: quick} -> 54 within 2 s; the client polled every POLL s for HOLD_S.
+    naming_screen_held    (FIX) at +HOLD_S the client's top is BaseNameState, no CoopState over it.
+    naming_no_995         (FIX) no client poll of the row saw coop_dialog_info code 995.
+    naming_no_flood       (FIX) growth from the trigger to +HOLD_S is 0.
+    naming_host_waits     (GUARD) at +HOLD_S the host's top is CoopState 54, pendingHostSaveName non-empty, no
+                          _quick_.asav newer than the trigger.
+         (precondition naming_screen_held) NEWNAME by real key presses, OK.
+    naming_finished       (FIX) the client's top is PlaceLiftState, or a CoopState 53 over it, within 5 s of the OK.
+    naming_save_done      (FIX) within DONE_S of the OK the host's top is GeoscapeState and _quick_.asav is newer than
+                          the trigger.
+    naming_save_has_name  (FIX) that file's client blob (coopClientSaves) lists a base named NEWNAME.
+    naming_client_clear   (FIX) within DONE_S of the OK the client has no CoopState in its stack.
+    naming_lift_placed    (FIX) (client top PlaceLiftState) a real click on LIFT_TILE gives the client top
+                          BasescapeState within 5 s.
+    naming_calm           (FIX) growth over the whole row is 0.
+  Row control  the row naming construction, NEWNAME, OK, LIFT_TILE, GEOSCAPE (client top GeoscapeState, own list holds
+         NEWNAME); host quick save; the client polled for DONE_S.
+    control_save_done     (GUARD) within DONE_S the host's top is GeoscapeState and _quick_.asav is newer than the
+                          trigger.
+    control_save_has_name (GUARD) its client blob lists NEWNAME.
+    control_no_995        (GUARD) no 995 on the client during DONE_S.
+    control_calm          (GUARD) growth 0.
+  Row key_miss  client force_stream_key_miss {on: true} (test-only); host quick save; F_WINDOW; key miss off.
+    key_miss_once         (FIX) growth in F_WINDOW is exactly 1.
+    key_miss_host_waits   (GUARD) at +F_WINDOW the host's top is CoopState 54.
+    key_miss_heals        (GUARD) within DONE_S of the key miss off the host's top is GeoscapeState, _quick_.asav
+                          newer than the trigger, no client CoopState.
+    key_miss_calm         (FIX) growth over the whole row is exactly 1.
+Without the fix: the 11 FIX cells FAIL; the 7 GUARD cells PASS. With the fix: all 18 PASS.
+Every press is a real click_widget or inject_input; only the save trigger and force_stream_key_miss are commands; the
+client's Disconnect is never pressed; force_stream_key_miss is off before shutdown. One EVIDENCE line per row, one
+PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached"); a boot
+miss fails every row of that boot "boot" with ONE CAPTURE line. The END line counts every new crash file by kind
+(loopData, other, Unhandled, .dmp).
 ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
-Run: python tools/coop_test/test_save_during_naming.py   (OXC_HARNESS_SLOT selects the lane)"""
+Run: python tools/coop_test/test_save_during_naming.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import base64, glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -46,22 +54,27 @@ import session  # noqa: E402
 import yaml  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-KEY = "49235"                               # TASK 0 ran on "49236" (rewrite/w2h66-task0/sa)
-HOST_POS = (0.90, -0.60)                    # rad, the capture's host base: both bases on land, >= 0.15 rad apart
+KEY = "49235"                               # the lobby key
+HOST_POS = (0.90, -0.60)                    # rad, the host base: both bases on land, >= 0.15 rad apart
 NEWNAME = "hnew"                            # lowercase: inject_input key = unicode sym
 LIFT_TILE = (2, 2)                          # BaseView tile: base (80, 88) in the 192 x 192 view at (0, 8), 32 px tiles
 HOLD_S, DONE_S, F_WINDOW, POLL, STATE_S = 5.0, 10.0, 3.0, 0.2, 5.0
 QK = "_quick_.asav"
-ROWS = (("N", ("N-held", "N-no995", "N-noflood", "N-wait", "N-named", "N-done", "N-fresh", "N-close", "N-lift", "N-calm")),
-        ("C", ("C-done", "C-fresh", "C-no995", "C-calm")), ("F", ("F-once", "F-wait", "F-heal", "F-calm")))
-FIX = ("N-held", "N-no995", "N-noflood", "N-named", "N-done", "N-fresh", "N-close", "N-lift", "N-calm", "F-once", "F-calm")
+ROWS = (("naming",
+         ("naming_screen_held", "naming_no_995", "naming_no_flood", "naming_host_waits", "naming_finished",
+          "naming_save_done", "naming_save_has_name", "naming_client_clear", "naming_lift_placed", "naming_calm")),
+        ("control", ("control_save_done", "control_save_has_name", "control_no_995", "control_calm")),
+        ("key_miss", ("key_miss_once", "key_miss_host_waits", "key_miss_heals", "key_miss_calm")))
+FIX = ("naming_screen_held", "naming_no_995", "naming_no_flood", "naming_finished", "naming_save_done",
+       "naming_save_has_name", "naming_client_clear", "naming_lift_placed", "naming_calm",
+       "key_miss_once", "key_miss_calm")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
 class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
-# ----- probes and real input (copied from the capture rewrite/ltr6-1-cap/cap.py, never imported; ltr_globe -> globe_point) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -163,7 +176,7 @@ def growth(since, every=False):
         out[kind(p)] += 1
     return out if every else out["loop"]
 
-# ----- saves (MIR / HSD read_save, the capture's copy) -----
+# ----- saves (read_save: the client blobs inside a host save) -----
 def read_save(path):
     loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
     out = {"file": os.path.basename(path), "bytes": os.path.getsize(path), "blobs": []}
@@ -182,7 +195,7 @@ def folder(gc):
         try:
             if os.path.isfile(p):
                 out[os.path.basename(p)] = os.stat(p).st_mtime_ns
-        except FileNotFoundError:  # cap-tail: renamed after the listing (the save's .bak -> .asav move)
+        except FileNotFoundError:  # renamed after the listing (the save's .bak -> .asav move)
             pass
     return out
 def newer(gc, before):
@@ -194,8 +207,8 @@ def has_name(f): return any(b[0] == NEWNAME for x in f["blobs"] for b in x["base
 class Boot:
     def __init__(self, pair):
         self.pair, self.aff = pair, {}
-        self.host = GameClient("host", None, make_user_dir("w2h66_%s_host" % pair.lower()))
-        self.client = GameClient("client", None, make_user_dir("w2h66_%s_client" % pair.lower()))
+        self.host = GameClient("host", None, make_user_dir("save_naming_%s_host" % pair.lower()))
+        self.client = GameClient("client", None, make_user_dir("save_naming_%s_client" % pair.lower()))
 class Row:
     def __init__(self, x, b, rid):
         self.x, self.b, self.rid, self.res, self.s0, self.trig = x, b, rid, {}, crashes(), False
@@ -206,10 +219,10 @@ class Row:
         if not ok:
             raise Stop(what)
     def finish(self, stop=None):
-        calm = self.rid + "-calm"
+        calm = self.rid + "_calm"
         if self.trig and calm not in self.res:  # a whole-row measure, taken once the save was triggered
             g = growth(self.s0, True)
-            want = 1 if self.rid == "F" else 0
+            want = 1 if self.rid == "key_miss" else 0
             self.cell(calm, g["loop"] == want, "growth over the row %s (want loop == %d)" % (js(g), want))
         self.ev["tEnd"] = now()
         if stop:
@@ -301,7 +314,7 @@ def watch(b, t0, secs, trace, codes, stop=None):
         e = [hs, code(b.host) if hs == "CoopState" else None, cs[-2:], cc]
         if not trace or trace[-1][1:] != e:
             trace.append([round(time.time() - t0, 2)] + e)
-def row_n(b, r):
+def row_naming(b, r):
     h, c, ev = b.host, b.client, r.ev
     to_name(b, r)
     trigger(b, r)
@@ -313,15 +326,18 @@ def row_n(b, r):
     cs, gro, hd, gco = stk(c), growth(r.s1, True), dlg(h), q(h, {"cmd": "get_coop"})
     ev["hold"] = {"trace": trace, "clientStack": cs[-3:], "growth": gro, "hostDlg": hd, "pending": gco.get("pendingHostSaveName"),
                   "saveID": gco.get("saveID"), "coopSave": [ln.split("\t")[-1] for ln in logl(c) if "[coop-save]" in ln]}
-    r.cell("N-held", cs[-1:] == ["BaseNameState"] and "CoopState" not in cs, "client stack at +HOLD_S %s (want BaseNameState on top)" % cs[-3:])
-    r.cell("N-noflood", gro["loop"] == 0, "growth trigger -> +HOLD_S %s (want loop 0)" % js(gro))
+    r.cell("naming_screen_held", cs[-1:] == ["BaseNameState"] and "CoopState" not in cs, "client stack at +HOLD_S %s "
+           "(want BaseNameState on top)" % cs[-3:])
+    r.cell("naming_no_flood", gro["loop"] == 0, "growth trigger -> +HOLD_S %s (want loop 0)" % js(gro))
     nf = newer(h, ev["before"])
-    r.cell("N-wait", top(h) == "CoopState" and hd.get("code") == 54 and gco.get("pendingHostSaveName") and not nf,
+    r.cell("naming_host_waits", top(h) == "CoopState" and hd.get("code") == 54 and gco.get("pendingHostSaveName")
+           and not nf,
            "host top %s code %s, pendingHostSaveName %r, %s newer than the trigger %s" % (top(h), hd.get("code"), gco.get("pendingHostSaveName"), QK, nf))
-    if r.res["N-held"][0]:
+    if r.res["naming_screen_held"][0]:
         t_ok = type_ok(c, ev)
         ev["tNamed"] = wait_until(lambda: (lambda s: s[-1:] == ["PlaceLiftState"] or (s[-2:] == ["PlaceLiftState", "CoopState"] and code(c) == 53))(stk(c)), 5.0)
-        r.cell("N-named", ev["tNamed"] is not None, "client top PlaceLiftState (or a 53 over it) %s s after the OK (want <= 5)" % ev["tNamed"])
+        r.cell("naming_finished", ev["tNamed"] is not None, "client top PlaceLiftState (or a 53 over it) %s s after "
+               "the OK (want <= 5)" % ev["tNamed"])
         done, trace2 = {}, []
         def check():
             el = round(time.time() - t_ok, 2)
@@ -332,20 +348,25 @@ def row_n(b, r):
             return len(done) == 2
         watch(b, t_ok, DONE_S, trace2, codes, check)
         ev["afterOk"] = {"done": done, "trace": trace2, "coopSave": [ln.split("\t")[-1] for ln in logl(c) if "[coop-save]" in ln]}
-        r.cell("N-done", "done" in done, "host GeoscapeState with %s newer than the trigger %s s after the OK (want <= %s)" % (QK, done.get("done"), DONE_S))
+        r.cell("naming_save_done", "done" in done, "host GeoscapeState with %s newer than the trigger %s s after the "
+               "OK (want <= %s)" % (QK, done.get("done"), DONE_S))
         f = read_save(os.path.join(h.user_dir, "xcom1", QK)) if "done" in done else None
         ev["file"] = f
-        r.cell("N-fresh", f is not None and has_name(f), "the file's client blob bases %s (want %r)" % ([x["bases"] for x in (f or {}).get("blobs", [])], NEWNAME))
-        r.cell("N-close", "close" in done, "client stack free of CoopState %s s after the OK (want <= %s); now %s" % (done.get("close"), DONE_S, stk(c)[-2:]))
+        r.cell("naming_save_has_name", f is not None and has_name(f), "the file's client blob bases %s (want %r)"
+               % ([x["bases"] for x in (f or {}).get("blobs", [])], NEWNAME))
+        r.cell("naming_client_clear", "close" in done, "client stack free of CoopState %s s after the OK (want <= %s); "
+               "now %s" % (done.get("close"), DONE_S, stk(c)[-2:]))
         if top(c) == "PlaceLiftState":
             ev["tLift"] = lift(b, ev)
-            r.cell("N-lift", ev["tLift"] is not None, "client top BasescapeState %s s after the lift click (want <= 5)" % ev["tLift"])
+            r.cell("naming_lift_placed", ev["tLift"] is not None, "client top BasescapeState %s s after the lift click "
+                   "(want <= 5)" % ev["tLift"])
         else:
-            r.cell("N-lift", False, "not reached: client top %s, not PlaceLiftState" % top(c))
-    r.cell("N-no995", 995 not in codes, "client CoopState codes seen in the row %s (want no 995)" % sorted(x for x in codes if x))
-    if not r.res["N-held"][0]:
-        raise Stop("N-held failed: no NEWNAME typed (the client's top is %s)" % top(c))
-def row_c(b, r):
+            r.cell("naming_lift_placed", False, "not reached: client top %s, not PlaceLiftState" % top(c))
+    r.cell("naming_no_995", 995 not in codes, "client CoopState codes seen in the row %s (want no 995)"
+           % sorted(x for x in codes if x))
+    if not r.res["naming_screen_held"][0]:
+        raise Stop("naming_screen_held failed: no NEWNAME typed (the client's top is %s)" % top(c))
+def row_control(b, r):
     h, c, ev = b.host, b.client, r.ev
     to_name(b, r)
     type_ok(c, ev)
@@ -360,30 +381,35 @@ def row_c(b, r):
     def check():
         if "done" not in done and top(h) == "GeoscapeState" and newer(h, r.ev["before"]):
             done["done"] = round(time.time() - r.tTrig, 2)
-        return False  # C-no995 watches the whole DONE_S
+        return False  # control_no_995 watches the whole DONE_S
     watch(b, r.tTrig, DONE_S, trace, codes, check)
     ev["save"] = {"done": done, "trace": trace}
-    r.cell("C-done", "done" in done, "host GeoscapeState with %s newer than the trigger %s s after it (want <= %s)" % (QK, done.get("done"), DONE_S))
+    r.cell("control_save_done", "done" in done, "host GeoscapeState with %s newer than the trigger %s s after it (want "
+           "<= %s)" % (QK, done.get("done"), DONE_S))
     f = ev["file"] = read_save(os.path.join(h.user_dir, "xcom1", QK)) if newer(h, r.ev["before"]) else None
-    r.cell("C-fresh", f is not None and has_name(f), "the file's client blob bases %s (want %r)" % ([x["bases"] for x in (f or {}).get("blobs", [])], NEWNAME))
-    r.cell("C-no995", 995 not in codes, "client CoopState codes during DONE_S %s (want no 995)" % sorted(x for x in codes if x))
-def row_f(b, r):
+    r.cell("control_save_has_name", f is not None and has_name(f), "the file's client blob bases %s (want %r)"
+           % ([x["bases"] for x in (f or {}).get("blobs", [])], NEWNAME))
+    r.cell("control_no_995", 995 not in codes, "client CoopState codes during DONE_S %s (want no 995)"
+           % sorted(x for x in codes if x))
+def row_key_miss(b, r):
     h, c, ev = b.host, b.client, r.ev
     on = q(c, {"cmd": "force_stream_key_miss", "on": True})
-    ev["leverOn"] = on
+    ev["keyMissOn"] = on
     r.need(on.get("ok") and on.get("on") is True, "force_stream_key_miss on: %s" % on)
     trigger(b, r)
     trace, codes = [], set()
     watch(b, r.tTrig, F_WINDOW, trace, codes)
     gro, ht, hc = growth(r.s1, True), top(h), code(h)
     ev["window"] = {"trace": trace, "growth": gro}
-    r.cell("F-once", gro["loop"] == 1, "growth in F_WINDOW %s (want loop == 1)" % js(gro))
-    r.cell("F-wait", ht == "CoopState" and hc == 54, "host top %s code %s at +F_WINDOW (want CoopState 54)" % (ht, hc))
+    r.cell("key_miss_once", gro["loop"] == 1, "growth in F_WINDOW %s (want loop == 1)" % js(gro))
+    r.cell("key_miss_host_waits", ht == "CoopState" and hc == 54, "host top %s code %s at +F_WINDOW (want CoopState "
+           "54)" % (ht, hc))
     t_off = time.time()
-    off = ev["leverOff"] = q(c, {"cmd": "force_stream_key_miss", "on": False})
+    off = ev["keyMissOff"] = q(c, {"cmd": "force_stream_key_miss", "on": False})
     r.need(off.get("ok") and off.get("on") is False, "force_stream_key_miss off: %s" % off)
     ev["tHeal"] = wait_until(lambda: top(h) == "GeoscapeState" and newer(h, ev["before"]) and "CoopState" not in stk(c), DONE_S, POLL)
-    r.cell("F-heal", ev["tHeal"] is not None, "host GeoscapeState, %s newer than the trigger, no client CoopState %s s after the lever off (want <= %s); now %s / %s"
+    r.cell("key_miss_heals", ev["tHeal"] is not None, "host GeoscapeState, %s newer than the trigger, no client "
+           "CoopState %s s after the key miss is off (want <= %s); now %s / %s"
            % (QK, ev["tHeal"], DONE_S, stk(h)[-1:], stk(c)[-2:]))
     time.sleep(1.0)
 
@@ -417,9 +443,9 @@ def run_pair(x, pair, rows):
             except Exception as e:  # noqa: BLE001 - an unexpected exception ends the row like a precondition miss
                 r.finish("exception %s: %s" % (type(e).__name__, str(e)[:300]))
     finally:
-        lever = q(b.client, {"cmd": "force_stream_key_miss", "on": False}).get("ok") if alive(b.client) else None
+        miss_off = q(b.client, {"cmd": "force_stream_key_miss", "on": False}).get("ok") if alive(b.client) else None
         for gc in (b.client, b.host):
-            rec = [pair, gc.name, alive(gc)] + (["leverOff %s" % lever] if gc is b.client else [])
+            rec = [pair, gc.name, alive(gc)] + (["keyMissOff %s" % miss_off] if gc is b.client else [])
             try:
                 if alive(gc):
                     gc.shutdown(expected_returncodes=OKRC)
@@ -430,8 +456,8 @@ def run_pair(x, pair, rows):
 def main():
     x, crash0 = X(), crashes()
     T0[0] = time.time()
-    run_pair(x, "A", (("N", row_n),))
-    run_pair(x, "B", (("C", row_c), ("F", row_f)))
+    run_pair(x, "name_open", (("naming", row_naming),))
+    run_pair(x, "name_set", (("control", row_control), ("key_miss", row_key_miss)))
     new = crashes() - crash0
     kinds = {}
     for p in new:
@@ -439,8 +465,8 @@ def main():
     print("EVIDENCE END: %s" % js({"newCrashByKind": kinds, "dmp": sorted(os.path.basename(p) for p in new if p.endswith(".dmp")),
                                    "aliveAndShutdownRc": x.alive, "crashDir": harness.CRASH_DIR, "cpu": cpu()}), flush=True)
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H66 SDN: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                           sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_save_during_naming: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
