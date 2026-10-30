@@ -2775,42 +2775,11 @@ def _wait_skyranger_crew(host, client, base_name, craft_id, want, what, timeout=
             raise AssertionError(f"{what}: {label} crew {seen.get(label)}, want {want}") from e
 
 
-def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None, staged=True):
-    """The SEPARATE guest battle fixture: SEPARATE campaign (one world), mixed-ownership
-    squad - 3 of the host's own soldiers plus a CLIENT guest seated on the host's
-    craft (the client's spare soldier is renamed "Guest Zzz", the client transfers
-    it to the host's base, the host's game lands the transfer, and the client seats
-    it on the host's Skyranger) - flown to a fresh terror site and entered LIVE via
-    coop_mission_start.
-
-    `pre_mission_start`: an optional `callable(host,
-    client)` invoked right after the squad is assembled (guest seated, client
-    back on the geoscape) and BEFORE `drain_host_coop_notice`/
-    `spawn_mission_site`/`coop_mission_start` - the window
-    test_coop_separate_guest_battle.py's vacuity guard needs
-    (`event_state.guestContrib` must show the roster travelled
-    BEFORE the battle starts). Default None, nothing runs.
-
-    `pre_landing`: an
-    optional `callable(host, client)` run right before `coop_mission_start`
-    (e.g. the host's `set_seed` map seed). Default None, nothing runs.
-
-    `staged` (default True): the same squad set-up (rename, transfer, visit, seat, soldiers
-    OK, leave: the product's own sync, unchanged) and the same entry; only the flight is staged. The host's notice is
-    drained without the fixed 0.4 s pauses (drain_host_coop_notice_staged) and `craft_force` starts the craft AT the
-    site, so the host's next 5-second geoscape step lands it (MovingTarget::move), instead of 0.01 rad away: in
-    co-op the clock runs fast only when both machines pick the same speed, so that flight took ~32 five-second steps
-    (~2.5 s) behind the host's geo_set_speed. The landing prompt is polled every 0.05 s with no geo_set_speed (a press
-    after the arrival's own speed reset leaves the host at speed 2). At the landing prompt both
-    machines hold the same values as the slow path except the geoscape clock (about 3 game minutes earlier). A caller
-    whose checks read the flight, the notice, the clock or the landing prompt passes staged=False (the full flight).
-
-    Returns (host_squad, guest_id): host_squad is the 3 host soldier ids
-    (coop==0 in battle); guest_id is the soldier id of "Guest Zzz" (the same on
-    both machines in one world). Callers identify the guest's battle unit by
-    name."""
-    new_campaign(host, client, port=port)
-
+def assemble_separate_guest_squad(host, client):
+    """The squad of the Separate guest battle, in the one shared world: 3 of the host's
+    soldiers on the host's Skyranger plus the client's "Guest Zzz", transferred to
+    the host's base and seated there by the client. Returns (host base name,
+    Skyranger id, host squad ids, guest id); both machines show the crew."""
     hb = _campaign_own_roster_base(host)
     host_base_name = hb["name"]
     cid = _campaign_skyranger(host)["id"]
@@ -2872,6 +2841,46 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     _wait_skyranger_crew(host, client, host_base_name, cid, host_squad + [guest_id], "guest seated")
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest "
           f"{guest_id} (coop==1)")
+    return host_base_name, cid, host_squad, guest_id
+
+
+def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None, staged=True):
+    """The SEPARATE guest battle fixture: SEPARATE campaign (one world), mixed-ownership
+    squad - 3 of the host's own soldiers plus a CLIENT guest seated on the host's
+    craft (the client's spare soldier is renamed "Guest Zzz", the client transfers
+    it to the host's base, the host's game lands the transfer, and the client seats
+    it on the host's Skyranger) - flown to a fresh terror site and entered LIVE via
+    coop_mission_start.
+
+    `pre_mission_start`: an optional `callable(host,
+    client)` invoked right after the squad is assembled (guest seated, client
+    back on the geoscape) and BEFORE `drain_host_coop_notice`/
+    `spawn_mission_site`/`coop_mission_start` - the window
+    test_coop_separate_guest_battle.py's vacuity guard needs
+    (`event_state.guestContrib` must show the roster travelled
+    BEFORE the battle starts). Default None, nothing runs.
+
+    `pre_landing`: an
+    optional `callable(host, client)` run right before `coop_mission_start`
+    (e.g. the host's `set_seed` map seed). Default None, nothing runs.
+
+    `staged` (default True): the same squad set-up (rename, transfer, visit, seat, soldiers
+    OK, leave: the product's own sync, unchanged) and the same entry; only the flight is staged. The host's notice is
+    drained without the fixed 0.4 s pauses (drain_host_coop_notice_staged) and `craft_force` starts the craft AT the
+    site, so the host's next 5-second geoscape step lands it (MovingTarget::move), instead of 0.01 rad away: in
+    co-op the clock runs fast only when both machines pick the same speed, so that flight took ~32 five-second steps
+    (~2.5 s) behind the host's geo_set_speed. The landing prompt is polled every 0.05 s with no geo_set_speed (a press
+    after the arrival's own speed reset leaves the host at speed 2). At the landing prompt both
+    machines hold the same values as the slow path except the geoscape clock (about 3 game minutes earlier). A caller
+    whose checks read the flight, the notice, the clock or the landing prompt passes staged=False (the full flight).
+
+    Returns (host_squad, guest_id): host_squad is the 3 host soldier ids
+    (coop==0 in battle); guest_id is the soldier id of "Guest Zzz" (the same on
+    both machines in one world). Callers identify the guest's battle unit by
+    name."""
+    new_campaign(host, client, port=port)
+
+    host_base_name, cid, host_squad, guest_id = assemble_separate_guest_squad(host, client)
 
     if pre_mission_start is not None:
         pre_mission_start(host, client)

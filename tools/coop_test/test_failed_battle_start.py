@@ -189,29 +189,9 @@ def camp(x, key):
     0, the craft forced to it, the landing prompt (geo_set_speed idx 2)"""
     host, client, S = x.host, x.client, session
     S.new_campaign(host, client, port=key)
-    hb = S._campaign_own_roster_base(host)
-    x.cid, rh = S._campaign_skyranger(host)["id"], sorted(s["id"] for s in hb["soldiers"])
-    for sid in rh:
-        host.cmd({"cmd": "craft_assign", "craft_id": x.cid, "soldier_id": sid, "on": False})
-    for sid in rh[:3]:
-        r = host.cmd({"cmd": "craft_assign", "craft_id": x.cid, "soldier_id": sid, "on": True})
-        assert r.get("seated"), "host soldier %s not seated: %r" % (sid, r)
-    spare = next(s for s in S._campaign_own_roster_base(client)["soldiers"] if not s.get("craft"))["name"]
-    client.ok({"cmd": "rename_soldier", "name": spare, "newName": "Guest Zzz"})
-    tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest", "toBase": hb["name"]})
-    assert tr.get("transferred"), "guest transfer failed: %r" % tr
-    client.ok({"cmd": "visit_coop_base", "base": hb["name"]})
-    client.wait_for("client inside host base", lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None, timeout=60)
-    rep = client.wait_for("guest visible at host base", lambda: (lambda r: r if any("Guest" in s["name"] for s in r["soldiers"]) else None)(
-        client.ok({"cmd": "base_report", "coop": True})), timeout=40)
-    guest = next(s for s in rep["soldiers"] if "Guest" in s["name"])["id"]
-    craft = next(c for c in rep["crafts"] if "SKYRANGER" in c["type"])["id"]
-    client.ok({"cmd": "craft_assign", "soldier_id": guest, "craft_id": craft, "coop": True, "on": True})
-    client.ok({"cmd": "open_soldiers", "base": hb["name"]})
-    client.wait_for("client soldiers screen", lambda: S.has_state(client, "SoldiersState") or None, timeout=30)
-    client.ok({"cmd": "soldiers_ok"}); client.ok({"cmd": "leave_base"})
-    S.wait_back_on_geoscape(client, "client back on geoscape")
-    S.drain_host_coop_notice(host)
+    _base, x.cid, _squad, _guest = S.assemble_separate_guest_squad(host, client)
+    for gc in (host, client):
+        S.drain_host_coop_notice(gc)
     x.b0 = (lambda b: (b["lon"], b["lat"]))(S._campaign_base0(host))
     x.site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION",
                       "lon": x.b0[0] + 0.35, "lat": x.b0[1] + 0.10, "race": "STR_SECTOID", "hours": 240})["site_id"]
