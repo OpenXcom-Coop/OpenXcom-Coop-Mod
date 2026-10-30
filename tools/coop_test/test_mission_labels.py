@@ -1,73 +1,47 @@
-"""W1-P2 (WAVE1-RUNBOOK.md SS2.W1, ruling D-4 = shape (d); WV-D9/WV-D28/WV-D42):
-`battle_offer` mission identity on the wire + the ctrl-B gate.
+"""test_mission_labels.py: the mission identity carried in `battle_offer`, and the client's ctrl-B briefing.
 
-WHAT WAS BROKEN. A thin client never runs BriefingState, so it never learned
-what mission it was in: the two display labels vanilla mints inside
-BriefingState (strTarget "LANDING SITE-0" / strCraftOrBase "CRAFT> SKYRANGER-1",
-BriefingState.cpp:151-188) stayed EMPTY on the client - test_hash_now.py's
-own docstring records them as the last unexcluded saveBlob divergence, closed at
-the time by EXCLUDING them from the hash rather than by syncing them. And ctrl-B
-on the client scanned getSavedGame()->getBases() for a craft with
-isInBattlescape() (BattlescapeState.cpp:2841-2854), found none (the client never
-generated the mission), and pushed a BriefingState with a null craft - which
-cannot re-derive the deployment either, so it rendered the "should never happen"
-generic fallback (BriefingState.cpp:104-108) with two empty labels.
+WHY THE OFFER CARRIES IT. A thin client never runs the host's BriefingState, so on its own it never learns what
+mission it is in: the two display labels vanilla mints inside BriefingState (strTarget "LANDING SITE-0" /
+strCraftOrBase "CRAFT> SKYRANGER-1", BriefingState.cpp:151-188) would stay EMPTY on the client (test_hash_now.py
+excludes them from the saveBlob hash). And ctrl-B on the client scans getSavedGame()->getBases() for a craft with
+isInBattlescape() (BattlescapeState.cpp:2841-2854); finding none (the client never generated the mission), it would
+push a BriefingState with a null craft, which cannot re-derive the deployment either and renders the "should never
+happen" generic fallback (BriefingState.cpp:104-108) with two empty labels.
 
 WHAT THIS ASSERTS.
-  1. The host mints the labels BEFORE it builds the offer (the SS2.W1 ORDERING
-     TRAP: offerBattle() snapshots the blob and the CALLER pushes BriefingState
-     only afterwards, so at offer-build time the labels are still empty).
-  2. The client applies target/craftOrBase from the offer and reports them
-     EQUAL to the host's, with a non-empty carried `deployment`. Non-emptiness
-     of the two labels is asserted only on craft-entry paths; on base defense
-     only KEY PRESENCE is asserted, because strTarget is empty there when (and
-     only when) the loaded mod defines no operationNames - the mint block's
-     condition is `if (craft || base)` at BriefingState.cpp:172-186
-     (SS2.W1 / WR-9 / IR2-10).
-  3. RE-MINT SUPPRESSION: the host's own BriefingState does NOT overwrite the
-     labels it minted before the offer. Asserted twice - once deterministically
-     on the host's "label re-mint SUPPRESSED" log line, and once on the VALUE,
-     by comparing the host's live label after BriefingState has run against the
-     one the client received from the offer. The guard covers the WHOLE
-     `if (!_infoOnly)` body (BriefingState.cpp:151-188), not just the
-     operation-name block: this test's first run traced the half-guard failing
-     from the other direction - the craft branch writes strTarget FIRST
-     ("LANDING SITE-0") and the operation-name block then overwrites it, so
-     suppressing only the second half locks in the clobbered value and the two
-     players STILL read different mission names.
-  4. ctrl-B on the CLIENT renders the carried labels instead of the generic
-     fallback: the pushed BriefingState's Text widgets carry the mission target
-     and the craft label, and the coop resolution hook reports a deployment
-     (VANILLA or CARRIED), never NONE - NONE is the generic branch at
-     BriefingState.cpp:104-108. NOTE which of the two wins is FIXTURE-dependent
-     and deliberately not asserted: on this skirmish the client's streamed blob
-     is the host's whole SavedGame, so its ctrl-B craft scan
-     (BattlescapeState.cpp:2841-2854) still finds the in-battlescape Craft and
-     vanilla resolves on its own; the CARRIED path is what covers a client whose
-     world has no such craft. WR-27: the "ctrl-B never rewrites strTarget"
-     assertion is NOT shipped - ctrl-B passes infoOnly=true and the
-     `if (!_infoOnly)` gate at BriefingState.cpp:151 makes it vacuous by
-     construction.
-  5. WR-24: after the ctrl-B BriefingState is dismissed (it swaps the palette
-     and the base resolution to GEOSCAPE and back, BriefingState.cpp:58-60 /
-     :273-274) the client's battlescape is intact - same top state, same
-     BattlescapeState palette, same map fingerprint, and hash_now full still
-     all-buckets EQUAL.
-  6. The whole thing is HASH-NEUTRAL: strTarget/strCraftOrBase are saveBlob-
-     hash-EXCLUDED (SharedEcon.cpp:3974, applied by the tree-walker
-     saveBlobHashTree :4033), so writing them on the client cannot move a
-     bucket. hash_now {full:true} is asserted ALL-BUCKETS-EQUAL (never a
-     hard-coded bucket count - W1-P8 adds a ninth, see the WAVE-1 ADDITIONS
-     "HASH BUCKET COUNT CHANGES MID-WAVE" trap).
+  1. The host mints the labels BEFORE it builds the offer: offerBattle() snapshots the blob and the CALLER pushes
+     BriefingState only afterwards, so at offer-build time the labels would still be empty.
+  2. The client applies target/craftOrBase from the offer and reports them EQUAL to the host's, with a non-empty
+     carried `deployment`. Non-emptiness of the two labels is asserted only on craft-entry paths; on base defense only
+     KEY PRESENCE is asserted, because strTarget is empty there when (and only when) the loaded mod defines no
+     operationNames - the mint block's condition is `if (craft || base)` at BriefingState.cpp:172-186.
+  3. RE-MINT SUPPRESSION: the host's own BriefingState does NOT overwrite the labels it minted before the offer.
+     Asserted twice - once deterministically on the host's "label re-mint SUPPRESSED" log line, and once on the VALUE,
+     by comparing the host's live label after BriefingState has run against the one the client received from the
+     offer. The guard covers the WHOLE `if (!_infoOnly)` body (BriefingState.cpp:151-188), not just the operation-name
+     block: the craft branch writes strTarget FIRST ("LANDING SITE-0") and the operation-name block then overwrites
+     it, so suppressing only the second half locks in the clobbered value and the two players STILL read different
+     mission names.
+  4. ctrl-B on the CLIENT renders the carried labels instead of the generic fallback: the pushed BriefingState's Text
+     widgets carry the mission target and the craft label, and the coop resolution hook reports a deployment (VANILLA
+     or CARRIED), never NONE - NONE is the generic branch at BriefingState.cpp:104-108. NOTE which of the two wins is
+     FIXTURE-dependent and deliberately not asserted: on this skirmish the client's streamed blob is the host's whole
+     SavedGame, so its ctrl-B craft scan (BattlescapeState.cpp:2841-2854) still finds the in-battlescape Craft and
+     vanilla resolves on its own; the CARRIED path is what covers a client whose world has no such craft. There is no
+     "ctrl-B never rewrites strTarget" assertion: ctrl-B passes infoOnly=true and the `if (!_infoOnly)` gate at
+     BriefingState.cpp:151 makes it vacuous by construction.
+  5. After the ctrl-B BriefingState is dismissed (it swaps the palette and the base resolution to GEOSCAPE and back,
+     BriefingState.cpp:58-60 / :273-274) the client's battlescape is intact - same top state, same BattlescapeState
+     palette, same map fingerprint, and hash_now full still all-buckets EQUAL.
+  6. The whole thing is HASH-NEUTRAL: strTarget/strCraftOrBase are saveBlob-hash-EXCLUDED (SharedEcon.cpp:3974,
+     applied by the tree-walker saveBlobHashTree :4033), so writing them on the client cannot move a bucket. hash_now
+     {full:true} is asserted ALL-BUCKETS-EQUAL (never a hard-coded bucket count, which can change).
 
-WHY THE Coop_OperationNames_Test MOD. The shipped xcom1 ruleset defines NO
-operationNamesFirst/Last, so BriefingState's random-operation-name mint never
-fires on the stock skirmish fixture and assertion 3's VALUE half would be
-vacuous (the only other writer on that path is the craft-destination name, which
-is deterministic and re-derives the identical string with or without the guard).
-The mod supplies a 24 x 24 pool, so an unsuppressed re-mint lands on a different
-name with p = 575/576. Both machines get the SAME mod (their rulesets must not
-diverge).
+WHY THE Coop_OperationNames_Test MOD. The shipped xcom1 ruleset defines NO operationNamesFirst/Last, so
+BriefingState's random-operation-name mint never fires on the stock skirmish fixture and assertion 3's VALUE half
+would be vacuous (the only other writer on that path is the craft-destination name, which is deterministic and
+re-derives the identical string with or without the guard). The mod supplies a 24 x 24 pool, so an unsuppressed
+re-mint lands on a different name with p = 575/576. Both machines get the SAME mod (their rulesets must not diverge).
 
 Run:  python tools/coop_test/test_mission_labels.py
 """
@@ -134,20 +108,20 @@ def skirmish_client_at_browser(client):
 
 
 def labels(gc):
-    """battle_state's W1-P2 mission-identity fields (WR-23, additive)."""
+    """battle_state's mission-identity fields."""
     bs = gc.cmd({"cmd": "battle_state"})
     assert bs.get("ok") or bs.get("inBattle") is not None, f"battle_state failed: {bs}"
     return bs
 
 
 def assert_label_keys(bs, who):
-    # SS2.W1 / WR-9: REQUIRED means the KEY IS PRESENT, not that the value is
+    # REQUIRED means the KEY IS PRESENT, not that the value is
     # non-empty. This is the assertion that holds on every entry path,
     # base defense included.
     for key in ("strTarget", "strCraftOrBase", "deployment"):
         assert key in bs, (
-            f"{who} battle_state is missing the W1-P2 mission-identity key "
-            f"'{key}' (WR-23 added all three additively): {sorted(bs.keys())}")
+            f"{who} battle_state is missing the mission-identity key "
+            f"'{key}': {sorted(bs.keys())}")
 
 
 def palette_of(gc, state_name):
@@ -168,8 +142,8 @@ def widget_texts(gc):
 # ------------------------------------------------------------------- main ---
 def main():
     port = "47987"
-    host_dir = make_user_dir("rw_labels_host", mods=[OPNAMES_MOD])
-    client_dir = make_user_dir("rw_labels_client", mods=[OPNAMES_MOD])
+    host_dir = make_user_dir("labels_host", mods=[OPNAMES_MOD])
+    client_dir = make_user_dir("labels_client", mods=[OPNAMES_MOD])
     host = GameClient("host", 48794, host_dir)
     client = GameClient("client", 48795, client_dir)
     try:
@@ -196,7 +170,7 @@ def main():
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host briefing", lambda: session.has_state(host, "BriefingState"), timeout=30)
 
-        # the offer (and its missionLabel) now goes out
+        # the offer (and its missionLabel) goes out
         # at PREPARE, so both briefings are up at once; the host's OK below
         # lands it on its pre-battle equip screen. Assertion 2 probes
         # the TestServer.cpp:5260 guard from the CLIENT's OWN read-only entry
@@ -210,7 +184,7 @@ def main():
         client.wait_for("client briefing",
                         lambda: session.has_state(client, "BriefingState"), timeout=60)
         time.sleep(2)  # let both logs flush the handshake lines
-        print("PASS bring-up: host on the battlescape, client on its own W1-P3 "
+        print("PASS bring-up: host on the battlescape, client on its own "
               "read-only entry briefing")
 
         # === 1. the host minted BEFORE the offer ============================
@@ -218,25 +192,23 @@ def main():
         assert minted, (
             "host log has no 'mission labels minted pre-offer' line - "
             "CoopHandshake::mintMissionLabels() never ran at the offerBattle() call "
-            "site (SS2.W1 ORDERING TRAP / WV-D42)")
+            "site (the labels must be minted before the offer is built)")
         print("HOST LOG:", minted[-1])
 
         applied = grep(client_dir, "[coop-handshake] mission labels applied from battle_offer")
         assert applied, (
             "client log has no 'mission labels applied from battle_offer' line - "
-            "battle_offer.missionLabel never arrived or was not applied (SS2.W1)")
+            "battle_offer.missionLabel never arrived or was not applied")
         print("CLIENT LOG:", applied[-1])
 
         # === 2. probe BOTH machines while the CLIENT SITS IN ITS OWN ENTRY ===
-        # === BriefingState (W1-P3's read-only briefing, WV-D56-adapted) ======
-        # WAVE-1 ADDITIONS / EXIT-REPORT-G5 surprise 30: battle_state against a
-        # machine parked in BriefingState used to hard-kill the process; the
-        # guard is at TestServer.cpp:5260. Under WV-D56 the host can no longer
-        # be caught still sitting in its PRE-battle briefing once the client
-        # has labels (that window is exactly what WV-D56 closes) - but the
-        # CLIENT'S OWN read-only entry BriefingState is still exactly
-        # "a machine parked in BriefingState", so the guard is re-verified
-        # here instead.
+        # === BriefingState (its read-only entry briefing) ====================
+        # battle_state against a machine parked in BriefingState relies on the
+        # guard at TestServer.cpp:5260 (without it the call kills the process).
+        # The host cannot be caught still sitting in its PRE-battle briefing
+        # once the client has labels, but the CLIENT'S OWN read-only entry
+        # BriefingState is exactly "a machine parked in BriefingState", so the
+        # guard is checked here.
         assert top_state(client) == "BriefingState", \
             f"client should still be on its entry BriefingState for this probe, stack={states(client)}"
         hb = labels(host)
@@ -261,11 +233,11 @@ def main():
         assert hb["deployment"] == cb["deployment"], (
             f"carried deployment differs: host={hb['deployment']!r} client={cb['deployment']!r}")
         assert hb["deployment"], (
-            "carried `deployment` is EMPTY - SS2.W1 requires it to always resolve; without "
+            "carried `deployment` is EMPTY - it must always resolve; without "
             "it the client's briefing renders the generic 'should never happen' fallback "
             "(BriefingState.cpp:104-108)")
 
-        # NON-EMPTINESS only on craft-entry paths (SS2.W1 / WR-9 / IR2-10).
+        # NON-EMPTINESS only on craft-entry paths.
         mission = hb.get("missionType", "")
         if mission != "STR_BASE_DEFENSE":
             assert hb["strTarget"], (
@@ -287,7 +259,7 @@ def main():
             "host log has no 'label re-mint SUPPRESSED' line - BriefingState's "
             "UNCONDITIONAL `if (!_infoOnly)` label-write body (BriefingState.cpp:151-188) "
             "was not gated, so the host is free to overwrite the labels the offer already "
-            "shipped (SS2.W1 RE-MINT SUPPRESSION / WV-D42)")
+            "shipped")
         print("HOST LOG:", suppressed[-1])
 
         # (b) by value: the mod defines a 24x24 operation-name pool, so an
@@ -297,16 +269,15 @@ def main():
         # guard has to cover the WHOLE `if (!_infoOnly)` body, not just the
         # operation-name block: the craft branch writes strTarget FIRST (the
         # destination name, "LANDING SITE-0") and the operation-name block then
-        # overwrites it, so a half-guard reds this assertion from the other
-        # direction - host="LANDING SITE-0" vs client="<operation name>". That
-        # is exactly what this assertion caught on its first run.
+        # overwrites it, so a half-guard fails this assertion from the other
+        # direction - host="LANDING SITE-0" vs client="<operation name>".
         assert hb["strTarget"] == cb["strTarget"], "re-mint suppression failed (value)"
         print("PASS re-mint suppression: host's post-BriefingState label still "
               f"{hb['strTarget']!r}, identical to the one the offer shipped")
 
-        # === both machines settle ON the battlescape (W2-P8b S-H: the client's
-        # === entry briefing, both pre-battle equip screens, both Turn-1
-        # === screens); labels must not move ==================================
+        # === both machines settle ON the battlescape (the client's entry
+        # === briefing, both pre-battle equip screens, both Turn-1 screens);
+        # === labels must not move ============================================
         session.dismiss_client_briefing(client)
         session.equip_both_ready(host, client)
         session.dismiss_battle_start_overlays(host)
@@ -338,16 +309,15 @@ def main():
 
         # SDL_GetModState() is what Game::isCtrlPressed() reads (Game.cpp:845-852)
         # and SDL_PushEvent does not update it, so the modifier is LATCHED first
-        # (W1-P2's inject_input "mod") and cleared again below.
+        # (inject_input's "mod") and cleared again below.
         client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_b, "mod": "ctrl"})
         try:
             client.wait_for("client ctrl-B briefing",
                             lambda: session.has_state(client, "BriefingState"), timeout=15)
         finally:
             # kind=modstate clears the latch WITHOUT pushing a key: an ESC here
-            # lands on the BriefingState ctrl-B just opened and closes it again
-            # (observed on this test's first run - the briefing was correct, the
-            # clearing keystroke ate it).
+            # would land on the BriefingState ctrl-B just opened and close it
+            # again.
             client.ok({"cmd": "inject_input", "kind": "modstate", "mod": "none"})
         assert top_state(client) == "BriefingState", \
             f"ctrl-B should push a BriefingState on the client, stack={states(client)}"
@@ -356,19 +326,19 @@ def main():
         # taken. The coop hook logs the resolution outcome of every BriefingState
         # built inside a coop battle - VANILLA (this machine re-derived it),
         # CARRIED (from battle_offer, for a machine with no Craft/Ufo) or NONE
-        # (the generic "should never happen" branch). Post-W1-P3 the client builds
+        # (the generic "should never happen" branch). The client builds
         # TWO BriefingStates in this run - the read-only entry briefing and this
         # ctrl-B one - so the assertion reads the LAST line, which is this one.
         resolved = grep(client_dir, "[coop-handshake] BriefingState deployment:")
         assert resolved, (
             "client log has no '[coop-handshake] BriefingState deployment:' line - the "
-            "W1-P2 resolution hook at BriefingState.cpp did not run for the ctrl-B "
-            "briefing (SS2.W1)")
+            "coop resolution hook at BriefingState.cpp did not run for the ctrl-B "
+            "briefing")
         print("CLIENT LOG:", resolved[-1])
         assert "deployment: NONE" not in resolved[-1], (
             "the ctrl-B briefing on the client fell through to the generic 'should never "
-            "happen' branch (BriefingState.cpp:104-108) - the live trap this packet "
-            f"kills (SS2.W1): {resolved[-1]}")
+            "happen' branch (BriefingState.cpp:104-108): "
+            f"{resolved[-1]}")
 
         raw, texts = widget_texts(client)
         joined = " | ".join(texts)
@@ -381,7 +351,7 @@ def main():
         print(f"PASS ctrl-B on the client: BriefingState renders the CARRIED labels "
               f"({joined})")
 
-        # === 5. WR-24: the battlescape survives the briefing round trip ======
+        # === 5. the battlescape survives the briefing round trip =============
         client.ok({"cmd": "close_briefing"})
         client.wait_for("client back on battlescape",
                         lambda: (top_state(client) == "BattlescapeState") or None, timeout=15)
@@ -390,7 +360,7 @@ def main():
         assert pal_after == pal_before, (
             "the client's BattlescapeState palette CHANGED across the ctrl-B briefing "
             "(BriefingState swaps to PAL_GEOSCAPE and the GEOSCAPE resolution in its "
-            "ctor, BriefingState.cpp:58-60) - WR-24's battlePaletteSource trap shape")
+            "ctor, BriefingState.cpp:58-60; see State::battlePaletteSource)")
         cb2 = labels(client)
         assert (cb2.get("mapFingerprint"), cb2.get("mapObjTiles"), cb2.get("mapSizeXYZ")) \
             == map_before, (
@@ -399,10 +369,10 @@ def main():
             f"{(cb2.get('mapFingerprint'), cb2.get('mapObjTiles'), cb2.get('mapSizeXYZ'))}")
         session.assert_hash_clean(host, client, full=True,
                                   what="after the client's ctrl-B briefing round trip")
-        print("PASS WR-24: client battlescape intact after the ctrl-B briefing "
+        print("PASS ctrl-B round trip: client battlescape intact after the ctrl-B briefing "
               "(same top state, same palette, same map, all buckets still EQUAL)")
 
-        print("ALL W1-P2 MISSION-LABEL TESTS PASSED")
+        print("ALL MISSION-LABEL TESTS PASSED")
     finally:
         host.shutdown()
         client.shutdown()
