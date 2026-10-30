@@ -26,7 +26,11 @@ One world, the host machine runs every battle. Rows:
          worlds, the client's soldier aboard the host's craft) is upgraded to
          one world and resumed: each soldier is on its owner's seat on both
          machines, the hashes are equal, and neither machine sends the old
-         two-world guest roster (one world has no guests to send).
+         two-world guest roster (one world has no guests to send). After the
+         battle ends both machines hold the same soldiers: every soldier id is
+         used once, each player keeps its own eight soldiers, and the battle
+         copy of the client's soldier is gone (the client's soldier is listed
+         once, as the client's).
 
 Run:  py -3 tools/coop_test/test_separate_battle_owner.py [sep1|sep2|sep2c|sep4]
 Exit 0 = pass; anything else = failure.
@@ -48,6 +52,8 @@ from harness import GameClient, make_user_dir
 TANK = "STR_TANK_CANNON"
 SHELLS = "STR_HWP_CANNON_SHELLS"
 WORLD_STREAM = "[coop-shared] streaming authoritative world to client"   # the host's world-stream log line
+GUEST = "Guest Zzz"   # the client's soldier aboard the host's craft in fixtures/separate_battle.sav
+OWNED = {0: 8, 1: 8}  # soldiers each player owns in that save once it is one world (the client's: 7 + GUEST)
 
 
 def _craft(gc, base_name, craft_type="STR_SKYRANGER"):
@@ -68,6 +74,35 @@ def _rosters(gc):
         for s in b["soldiers"]:
             owners[s["id"]] = s["owner"]
     return by_base, owners
+
+
+def _roster_rows(gc):
+    """Sorted (base, id, name, owner) of every soldier in a base on @a gc."""
+    return sorted((b["name"], s["id"], s["name"], s["owner"])
+                  for b in gc.ok({"cmd": "get_soldiers"})["bases"] for s in b["soldiers"])
+
+
+def _check_upgraded_return(host, client, row):
+    """After the battle of an upgraded save: no soldier id twice on either
+    machine, each player owns OWNED soldiers, GUEST is listed once and owned
+    by the client (its battle copy is gone), and both machines list the same
+    soldiers in the same bases."""
+    seen = []
+    for gc, label in ((host, "host"), (client, "client")):
+        rows = _roster_rows(gc)
+        ids = [r[1] for r in rows]
+        dup = sorted({i for i in ids if ids.count(i) > 1})
+        assert not dup, f"{row}: {label} soldier ids used twice {dup}: {rows}"
+        owned = {o: sum(1 for r in rows if r[3] == o) for o in sorted({r[3] for r in rows})}
+        assert owned == OWNED, f"{row}: {label} soldiers per owner {owned}, want {OWNED}: {rows}"
+        guests = [r for r in rows if r[2] == GUEST]
+        assert len(guests) == 1 and guests[0][3] == 1, (
+            f"{row}: {label} {GUEST} rows {guests}, want one, owned by the client (the battle copy removed)")
+        seen.append(rows)
+    assert seen[0] == seen[1], f"{row}: rosters differ host={seen[0]} client={seen[1]}"
+    print(f"PASS {row} return: {len(seen[0])} soldiers, ids used once, the same on both machines, "
+          f"no battle copy of {GUEST} left")
+    fixture.assert_same_world(host, client, f"{row} after the battle")
 
 
 def _board_tank(host, client, base_name, craft_id):
@@ -319,6 +354,8 @@ def sep4():
                 f"{row}: {label} guest roster sent={contrib.get('sent')} recvSeats={contrib.get('recvSeats')}, "
                 f"want 0 and [] (one world has no guests)")
         print(f"PASS {row} guests: neither machine sends a guest roster")
+        _campaign_exit(host, client, row)
+        _check_upgraded_return(host, client, row)
         print(f"ALL {row} PASSED")
     finally:
         old_resume.shut(host, client)
