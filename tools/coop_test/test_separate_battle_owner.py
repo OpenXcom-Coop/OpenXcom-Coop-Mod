@@ -7,8 +7,8 @@ One world, the host machine runs every battle. Rows:
          soldiers are on the host's seat and the client's tank is on the
          client's seat, on both machines. After the abort the client's own
          debriefing stays up until its OK while the host's post-battle world
-         arrives under it, and every soldier is back in its owner's base, none
-         duplicated, the two worlds equal.
+         arrives under it, the host sends that world once, and every soldier is
+         back in its owner's base, none duplicated, the two worlds equal.
   SEP-2  The client's own craft lands (the host brokers the landing, the
          client answers YES). The battle starts on both machines and belongs to
          the client; the client's soldiers and its tank are on the client's
@@ -35,6 +35,7 @@ import test_battle_end_campaign as ending
 
 TANK = "STR_TANK_CANNON"
 SHELLS = "STR_HWP_CANNON_SHELLS"
+WORLD_STREAM = "[coop-shared] streaming authoritative world to client"   # the host's world-stream log line
 
 
 def _craft(gc, base_name, craft_type="STR_SKYRANGER"):
@@ -137,9 +138,13 @@ def _check_seats(host, client, soldier_seat, tank_seat, row):
 def _campaign_exit(host, client, row):
     """The host aborts through the vote and leaves its debriefing. The client's
     own debriefing stays up while the host's post-battle world arrives under
-    it; the client's own OK then takes it to its geoscape on that world."""
+    it; the client's own OK then takes it to its geoscape on that world.
+    The host sends its post-battle world once: the host's return to its
+    geoscape must not send a second one, which would replace the client's
+    screens again."""
     for gc, label in ((host, "host"), (client, "client")):
         assert session.event_state(gc).get("desyncSeen") is False, f"{row}: {label} desync before the abort"
+    streams = ending.log_count(host, WORLD_STREAM)
     session.coop_abort_battle(host, client, expect_both=False)
     ok, secs = ending.wait_until(lambda: ending.top(client) == "DebriefingState", ending.CLIENT_DEBRIEF_S)
     assert ok, f"{row}: the client never showed its debriefing: {ending.stack(client)}"
@@ -154,6 +159,9 @@ def _campaign_exit(host, client, row):
     assert ok, f"{row}: the client's OK did not reach its geoscape: {ending.stack(client)}"
     branch = ending.record(client).get("debriefOkBranch")
     assert branch == "campaign-client-shared", (row, ending.record(client))
+    extra, secs = ending.wait_until(lambda: ending.log_count(host, WORLD_STREAM) - streams != 1, ending.HOST_HOLD_S)
+    assert not extra, (f"{row}: the host streamed its world {ending.log_count(host, WORLD_STREAM) - streams} "
+                       f"times after the battle (want once)")
     for gc, label in ((host, "host"), (client, "client")):
         assert session.event_state(gc).get("desyncSeen") is False, f"{row}: {label} desync after the battle"
     print(f"PASS {row} exit: the client's debriefing stayed until its OK, then its geoscape on the host's world")
