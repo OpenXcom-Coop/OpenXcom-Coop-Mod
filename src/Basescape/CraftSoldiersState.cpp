@@ -854,6 +854,7 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
  */
 void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
 {
+	if (SharedEcon::submitCraftDeassign(_game, _base, nullptr)) return; // coop: SHARED - the host unseats this player's soldiers
 	// One-world campaigns: unseating moves craft/store gear in the host's world,
 	// so each one goes to the host as craft_assign (Separate: own soldiers only).
 	if (submitOneWorldDeassign(nullptr))

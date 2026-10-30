@@ -225,17 +225,20 @@ std::vector<Soldier*>* AllocateTrainingState::shown()
 
 /**
  * Keeps the shown copy in step with the roster: a soldier who left the base is
- * dropped, one who arrived is appended in roster order.
+ * dropped, one who arrived is appended in roster order. In co-op each player
+ * trains only their own soldiers, so the copy holds only this player's own: a
+ * row, assign-all and de-assign-all then act on exactly the soldiers listed.
  */
 void AllocateTrainingState::syncShown()
 {
 	if (!_coopView) return;
 	const std::vector<Soldier*>& roster = *_base->getSoldiers();
 	_shown.erase(std::remove_if(_shown.begin(), _shown.end(),
-		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end(); }),
+		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end()
+			|| !SharedEcon::ownsSoldier(_game, s); }),
 		_shown.end());
 	for (Soldier* s : roster)
-		if (std::find(_shown.begin(), _shown.end(), s) == _shown.end())
+		if (SharedEcon::ownsSoldier(_game, s) && std::find(_shown.begin(), _shown.end(), s) == _shown.end())
 			_shown.push_back(s);
 }
 

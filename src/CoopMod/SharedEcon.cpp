@@ -3413,10 +3413,13 @@ void craftDeploymentApply(Game* game, Json::Value& payload, Base* /*base*/, int 
 // soldier_training payload: { kind: "martial" | "psi", soldiers: [{ id, training,
 // queued }] }. baseId = the soldiers' base. The training screens send the flags a
 // click or assign-all / de-assign-all sets; the host runs the training, so the
-// flags live in its world. SHARED: any soldier, as the screen allows today.
-// Separate: only the requester's own soldiers, also at another player's base.
-// The checks are the screen's: no training for a fully trained soldier, a
-// wounded one is only queued (martial), and the base must have the room.
+// flags live in its world. Both campaigns: only the requester's own soldiers
+// (Separate also at another player's base). The checks are the screen's: no
+// training for a fully trained soldier, a wounded one is only queued (martial),
+// and the base must have the room. Separate refuses a change that fails them.
+// SHARED settles them in the host's apply instead: a change the screen allowed
+// against an older world (the last place taken meanwhile) is undone there with
+// no refusal, and the settled flags go to every machine.
 bool soldierTrainingValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                              int64_t& cost, std::string& failReason)
 {
@@ -3425,6 +3428,7 @@ bool soldierTrainingValidate(Game* game, const Json::Value& payload, Base* base,
 	const std::string kind = payload.get("kind", "").asString();
 	if (kind != "martial" && kind != "psi") { failReason = "unknown training"; return false; }
 	const bool psi = kind == "psi";
+	const bool shared = game && game->getCoopMod() && game->getCoopMod()->isSharedCampaign();
 	const Json::Value& soldiers = payload["soldiers"];
 	if (!soldiers.isArray() || soldiers.empty()) { failReason = "no soldiers"; return false; }
 	int added = 0;
@@ -3433,8 +3437,9 @@ bool soldierTrainingValidate(Game* game, const Json::Value& payload, Base* base,
 	{
 		Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
 		if (!s) { failReason = "soldier not found"; return false; }
-		if (!separateSoldierOwnerOk(game, s, seat))
+		if (s->getOwnerPlayerId() != seat)
 			{ failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
+		if (shared) continue; // the host's apply settles the screen's checks
 		const bool training = entry.get("training", false).asBool();
 		const bool now = psi ? s->isInPsiTraining() : s->isInTraining();
 		if (training && !now)
@@ -3460,6 +3465,35 @@ void soldierTrainingApply(Game* game, Json::Value& payload, Base* base, int /*se
 {
 	if (!base) return;
 	const bool psi = payload.get("kind", "").asString() == "psi";
+	if (connectionTCP::getHost() && game && game->getCoopMod() && game->getCoopMod()->isSharedCampaign())
+	{
+		// SHARED: settle the screen's checks against the host's world before the apply below,
+		// changes that add nobody first so a place they free can be filled; the settled flags
+		// are written into the payload that goes to every machine.
+		for (int pass = 0; pass < 2; ++pass)
+		{
+			for (auto& entry : payload["soldiers"])
+			{
+				Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
+				if (!s) continue;
+				const bool adds = entry.get("training", false).asBool()
+					&& !(psi ? s->isInPsiTraining() : s->isInTraining());
+				if (adds != (pass == 1)) continue;
+				if (adds)
+				{
+					const bool trainable = psi
+						? s->getRules()->getTrainingStatCaps().psiSkill > 0 && !s->isFullyPsiTrained()
+						: !s->isFullyTrained() && !s->isWounded();
+					const int used = psi ? base->getUsedPsiLabs() : base->getUsedTraining();
+					const int room = psi ? base->getAvailablePsiLabs() : base->getAvailableTraining();
+					if (!trainable || used >= room) entry["training"] = false;
+				}
+				if (!psi && entry.get("queued", false).asBool() && s->isFullyTrained()) entry["queued"] = false;
+				if (psi) s->setPsiTraining(entry.get("training", false).asBool());
+				else s->setTraining(entry.get("training", false).asBool());
+			}
+		}
+	}
 	for (const auto& entry : payload["soldiers"])
 	{
 		Soldier* s = findSoldier(base, entry.get("id", -1).asInt());
