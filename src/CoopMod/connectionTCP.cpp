@@ -35777,7 +35777,9 @@ void connectionTCP::sendGuestRosterContrib()
 		return;
 	if (!getCoopStatic() || !getCoopCampaign() || !_game->getSavedGame())
 		return;
-	if (isSharedCampaign())
+	// Shared and Separate campaigns are one world: a soldier on a partner's craft is in that world already,
+	// so there is no guest to send. A guest seat left in an upgraded older save is not one either.
+	if (isSharedCampaign() || isSeparateCampaign())
 		return;
 
 	// After a battle-scope reset every destination's last-sent payload is blanked (the keys stay -
