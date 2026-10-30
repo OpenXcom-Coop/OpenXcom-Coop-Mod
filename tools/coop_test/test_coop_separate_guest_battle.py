@@ -15,15 +15,12 @@ seated by the CLIENT (session.bring_up_separate_guest_battle) must:
     crash and NO desyncSeen on EITHER machine - expect_both=True: the SEPARATE
     second player returns to its OWN geoscape at the end too, so BOTH
     machines reach the geoscape;
-  * satisfy the post-battle roster consumers (post_battle_roster): the host's
-    merged COPY of the guest (coopBase == -1) is gone; the client's own
-    durable "Guest Zzz" survives.
+  * after the battle (post_battle_roster), list "Guest Zzz" exactly once on
+    each machine, at the host's base, still owned by the client (one world:
+    the battle used the soldier itself, no copy).
 
-Vacuity guard: BEFORE coop_mission_start is ever pressed, the
-client's `event_state.guestContrib.sent` must already be >= 1 and the host's
-per-seat stored count for seat 1 must already be >= 1 - proof the
-`battle_roster_contrib` census actually reached the host, not just an absence
-any unrelated bring-up failure would also produce.
+The bring-up itself waits until the guest sits on the host's Skyranger on both
+machines before the mission starts.
 
 The guest's post-battle RECORD (stats/rank/wounds/missions/kills/diary/death)
 returning to the CLIENT's own world is asserted by test_battle_end_separate.py
@@ -45,35 +42,10 @@ import session
 PORT = "48870"
 
 
-def _vacuity_guard(host, client):
-    """Called by bring_up_separate_guest_battle right after the squad is
-    assembled (guest seated, client back on the geoscape) and BEFORE
-    drain_host_coop_notice/spawn_mission_site/coop_mission_start."""
-    es_c = client.cmd({"cmd": "event_state"})
-    gcontrib = es_c.get("guestContrib") or {}
-    sent = gcontrib.get("sent")
-    assert isinstance(sent, int) and sent >= 1, (
-        f"VACUITY: client event_state.guestContrib.sent={sent!r} "
-        f"BEFORE coop_mission_start - the guest roster contribution never "
-        f"travelled: {es_c}")
-
-    es_h = host.cmd({"cmd": "event_state"})
-    hcontrib = es_h.get("guestContrib") or {}
-    soldiers = hcontrib.get("soldiers") or []
-    seat1_stored = soldiers[1] if len(soldiers) > 1 else 0
-    assert seat1_stored >= 1, (
-        f"VACUITY: host's stored guestContrib count for seat 1 = "
-        f"{seat1_stored} BEFORE coop_mission_start - full guestContrib: {hcontrib}")
-    print(f"PASS vacuity guard (before coop_mission_start): client "
-          f"guestContrib.sent={sent}, host seat-1 stored={seat1_stored}")
-
-
-def _guest_present(gc, name_substr="Guest"):
-    for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
-        for s in b["soldiers"]:
-            if name_substr in s["name"]:
-                return True
-    return False
+def _guest_rows(gc, name_substr="Guest"):
+    """(base, id, owner) of every soldier on @a gc whose name holds @a name_substr."""
+    return [(b["name"], s["id"], s["owner"]) for b in gc.ok({"cmd": "get_soldiers"})["bases"]
+            for s in b["soldiers"] if name_substr in s["name"]]
 
 
 def main():
@@ -84,8 +56,7 @@ def main():
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
 
-        host_squad, _guest_local_id = session.bring_up_separate_guest_battle(
-            host, client, port=PORT, pre_mission_start=_vacuity_guard)
+        host_squad, guest_id = session.bring_up_separate_guest_battle(host, client, port=PORT)
 
         # ---- expected roster: 3 host soldiers (seat 0) + the guest, BY NAME
         # (seat 1), on BOTH machines ------------------------------------------
@@ -129,15 +100,14 @@ def main():
                               expect_both=True)
 
         # ---- post-battle roster consumers ------------------------------
-        assert not _guest_present(host), (
-            "post_battle_roster: the host's get_soldiers STILL lists a 'Guest' soldier after "
-            "the battle - the merged copy (coopBase==-1) was not "
-            "deleted post-battle")
-        assert _guest_present(client), (
-            "post_battle_roster: the client's own base no longer lists 'Guest Zzz' - the "
-            "client's durable guest soldier was lost")
-        print("PASS post_battle_roster: the host's merged guest copy is gone; the client's own "
-              "durable guest 'Guest Zzz' survives")
+        want = [("HostBase", guest_id, 1)]
+        for gc, tag in ((host, "host"), (client, "client")):
+            rows = _guest_rows(gc)
+            assert rows == want, (
+                f"post_battle_roster: {tag} lists the guest as {rows}, want {want} "
+                f"(once, at the host's base, owned by the client)")
+        print("PASS post_battle_roster: 'Guest Zzz' is listed once on each machine, at the host's base, "
+              "owned by the client")
 
         session.assert_client_zero_disk(client_dir)
         print("PASS zero-disk: client user dir clean")

@@ -2753,12 +2753,35 @@ def press_back_when_shown(gc, what, codes=None, timeout=60):
     return gc.ok({"cmd": "coop_dialog_back"})
 
 
+def _wait_skyranger_crew(host, client, base_name, craft_id, want, what, timeout=30):
+    """Wait until the Skyranger @a craft_id of @a base_name carries exactly the soldier ids
+    @a want on both machines. A timeout raises with the crew each machine last showed."""
+    want = sorted(want)
+    seen = {}
+
+    def crew(gc):
+        for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+            if b["name"] == base_name:
+                return sorted(s["id"] for s in b["soldiers"]
+                              if s.get("craft") == "STR_SKYRANGER" and s.get("craftId") == craft_id)
+        return None
+
+    for gc, label in ((host, "host"), (client, "client")):
+        try:
+            gc.wait_for(f"{what} ({label})",
+                        lambda gc=gc, label=label: seen.__setitem__(label, crew(gc)) or (seen[label] == want or None),
+                        timeout=timeout, interval=0.1)
+        except Exception as e:
+            raise AssertionError(f"{what}: {label} crew {seen.get(label)}, want {want}") from e
+
+
 def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start=None, pre_landing=None, staged=True):
-    """The SEPARATE guest battle fixture: SEPARATE campaign, mixed-ownership squad -
-    3 of the host's own soldiers plus a CLIENT guest seated on the host's
-    craft (the client renames a spare soldier, transfers it to the host's coop
-    base, and seats it on the host's Skyranger) - flown to a fresh terror site
-    and entered LIVE via coop_mission_start.
+    """The SEPARATE guest battle fixture: SEPARATE campaign (one world), mixed-ownership
+    squad - 3 of the host's own soldiers plus a CLIENT guest seated on the host's
+    craft (the client's spare soldier is renamed "Guest Zzz", the client transfers
+    it to the host's base, the host's game lands the transfer, and the client seats
+    it on the host's Skyranger) - flown to a fresh terror site and entered LIVE via
+    coop_mission_start.
 
     `pre_mission_start`: an optional `callable(host,
     client)` invoked right after the squad is assembled (guest seated, client
@@ -2783,58 +2806,82 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     whose checks read the flight, the notice, the clock or the landing prompt passes staged=False (the full flight).
 
     Returns (host_squad, guest_id): host_squad is the 3 host soldier ids
-    (coop==0 in battle); guest_id is the CLIENT's own local soldier id for
-    "Guest Zzz" - the battle's merged copy of the guest carries
-    a FRESH soldierId (loadWorld(111)'s materialisation shape: `setId(lastId +
-    1)`), so a caller must identify the guest's battle unit BY NAME, never by
-    this id (test_coop_separate_guest_battle.py's vacuity/roster assertions do
-    exactly that)."""
+    (coop==0 in battle); guest_id is the soldier id of "Guest Zzz" (the same on
+    both machines in one world). Callers identify the guest's battle unit by
+    name."""
     new_campaign(host, client, port=port)
 
     hb = _campaign_own_roster_base(host)
     host_base_name = hb["name"]
     cid = _campaign_skyranger(host)["id"]
     rh = sorted(s["id"] for s in hb["soldiers"])
+    # A Separate craft_assign is a command the host's game applies to the one
+    # world a moment later, so its reply cannot show the seat yet: wait for the
+    # crew on both machines.
     for sid in rh:
-        host.cmd({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": False})
+        host.ok({"cmd": "craft_assign", "base": host_base_name, "craft_id": cid,
+                 "craft_type": "STR_SKYRANGER", "soldier_id": sid, "on": False})
     host_squad = rh[:3]
     for sid in host_squad:
-        r = host.cmd({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
-        assert r.get("seated"), f"host soldier {sid} not seated: {r}"
+        host.ok({"cmd": "craft_assign", "base": host_base_name, "craft_id": cid,
+                 "craft_type": "STR_SKYRANGER", "soldier_id": sid, "on": True})
+    _wait_skyranger_crew(host, client, host_base_name, cid, host_squad, "host squad seated")
 
     cb = _campaign_own_roster_base(client)
-    spare = next(s for s in cb["soldiers"] if not s.get("craft"))["name"]
-    client.ok({"cmd": "rename_soldier", "name": spare, "newName": "Guest Zzz"})
+    spare = next(s for s in cb["soldiers"] if not s.get("craft"))["id"]
+    # Both players' starting rosters roll the same names, so the spare is renamed
+    # by id, through the client's own soldier screen.
+    client.ok({"cmd": "soldier_rename", "soldierId": spare, "name": "Guest Zzz"})
+
+    def renamed(gc):
+        return any(s["id"] == spare and s["name"] == "Guest Zzz"
+                   for b in gc.ok({"cmd": "get_soldiers"})["bases"] for s in b["soldiers"]) or None
+
+    for gc in (client, host):
+        gc.wait_for(f"guest renamed ({gc.name})", lambda gc=gc: renamed(gc), timeout=30, interval=0.1)
     tr = client.ok({"cmd": "transfer_to_coop_base", "name": "Guest", "toBase": host_base_name})
     assert tr.get("transferred"), f"guest transfer failed: {tr}"
-    client.ok({"cmd": "visit_coop_base", "base": host_base_name})
-    client.wait_for("client inside host base",
-                    lambda: client.cmd({"cmd": "get_coop"}).get("insideCoopBase") or None,
-                    timeout=60)
-    rep = client.wait_for(
-        "guest visible at host base",
-        lambda: (lambda r: r if any("Guest" in s["name"] for s in r["soldiers"]) else None)(
-            client.ok({"cmd": "base_report", "coop": True})), timeout=40)
-    guest_id = next(s for s in rep["soldiers"] if "Guest" in s["name"])["id"]
-    peer_craft = next(c for c in rep["crafts"] if "SKYRANGER" in c["type"])["id"]
-    client.ok({"cmd": "craft_assign", "soldier_id": guest_id, "craft_id": peer_craft,
-               "coop": True, "on": True})
-    client.ok({"cmd": "open_soldiers", "base": host_base_name})
-    client.wait_for("client soldiers screen",
-                    lambda: has_state(client, "SoldiersState") or None, timeout=30)
-    client.ok({"cmd": "soldiers_ok"})
-    client.ok({"cmd": "leave_base"})
-    wait_back_on_geoscape(client, "client back on geoscape")
+    for gc in (host, client):
+        gc.wait_for("guest transfer en route",
+                    lambda gc=gc: (gc.ok({"cmd": "incoming_transfers",
+                                          "base": host_base_name})["soldiers"] == 1) or None,
+                    timeout=30, interval=0.1)
+    # The host's game lands the transfer; the arrival rows it reports are the
+    # host player's own, so the client's soldier is not among them.
+    arrived = host.ok({"cmd": "force_transfer_arrivals", "base": host_base_name})
+    assert arrived["remaining"] == 0, arrived
+    # The arrival notice opens on the client, the soldier's owner, once the
+    # host's alert reaches it; it holds the shared clock until it is closed.
+    client.wait_for("the guest's arrival notice on the client",
+                    lambda: has_state(client, "ItemsArrivingState") or None, timeout=30, interval=0.1)
+
+    def guest_at_host_base(gc):
+        for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+            if b["name"] == host_base_name:
+                return next((s for s in b["soldiers"] if s["name"] == "Guest Zzz"), None)
+        return None
+
+    guest = host.wait_for("guest arrived at the host base", lambda: guest_at_host_base(host),
+                          timeout=30, interval=0.1)
+    guest_id = guest["id"]
+    client.wait_for("guest arrived at the host base on the client", lambda: guest_at_host_base(client),
+                    timeout=30, interval=0.1)
+    client.ok({"cmd": "craft_assign", "base": host_base_name, "craft_id": cid,
+               "craft_type": "STR_SKYRANGER", "soldier_id": guest_id, "on": True})
+    _wait_skyranger_crew(host, client, host_base_name, cid, host_squad + [guest_id], "guest seated")
     print(f"squad assembled: host soldiers {host_squad} (coop==0) + client guest "
           f"{guest_id} (coop==1)")
 
     if pre_mission_start is not None:
         pre_mission_start(host, client)
 
-    if staged:
-        drain_host_coop_notice_staged(host)
-    else:
-        drain_host_coop_notice(host)
+    # One world: a popup on either machine holds the shared clock, so both are
+    # cleared (the client's holds the guest's arrival notice).
+    for gc in (host, client):
+        if staged:
+            drain_host_coop_notice_staged(gc)
+        else:
+            drain_host_coop_notice(gc)
     b0 = _campaign_base0(host)
     site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
                     "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
@@ -2880,7 +2927,39 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
             "drive_both_to_tactical timed out (host=%s client=%s)"
             % (states(host)[-3:], states(client)[-3:]))
     print("both machines reached the battlescape (live SEPARATE coop battle)")
+    _stage_guest_step(host, client)
     return host_squad, guest_id
+
+
+def _stage_guest_step(host, client, radius=4):
+    """A Separate craft deploys its crew alternating owners (host, client, host,
+    host), so the guest takes the second place, on the Skyranger's closed front
+    row, where no neighbouring tile is open. Callers step the guest one tile, so
+    when it has no open neighbour it is placed on both machines (hashes checked)
+    on the nearest open tile that has an open neighbour, keeping its facing."""
+    st = battle_state(host)
+    units = [u for u in st.get("units", []) if not u.get("isOut")]
+    guest = next(u for u in units if "Guest" in (u.get("name") or ""))
+    try:
+        _adjacent_free_tile(host, guest)
+        return
+    except AssertionError:
+        pass
+    occ = {pos_of(u) for u in units if u["id"] != guest["id"]}
+    x, y, z = pos_of(guest)
+    near = sorted(((x + dx, y + dy, z) for dx in range(-radius, radius + 1) for dy in range(-radius, radius + 1)
+                   if (dx, dy) != (0, 0)), key=lambda t: (max(abs(t[0] - x), abs(t[1] - y)), t[1], t[0]))
+    for t in near:
+        if not tile_walkable(host, t, occ):
+            continue
+        if any(tile_walkable(host, (t[0] + DIR_DX[d], t[1] + DIR_DY[d], z), occ | {t})
+               for d in range(8) if (t[0] + DIR_DX[d], t[1] + DIR_DY[d], z) != (x, y, z)):
+            place_deterministic(host, client, [
+                {"cmd": "battle_teleport_unit", "unit": guest["id"], "x": t[0], "y": t[1], "z": t[2],
+                 "dir": guest.get("direction", 0)}], what=f"guest {guest['id']} to an open tile")
+            print(f"guest {guest['id']} placed from {(x, y, z)} to {t} (no open neighbour at its deployment tile)")
+            return
+    raise AssertionError(f"FIXTURE: no open tile with an open neighbour within {radius} of the guest at {(x, y, z)}")
 
 
 def bring_up_shared_mixed_battle(js, owners, to_tactical=True, pre_landing=None):
