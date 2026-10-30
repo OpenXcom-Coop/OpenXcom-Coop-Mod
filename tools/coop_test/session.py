@@ -2914,7 +2914,10 @@ def bring_up_separate_guest_battle(host, client, port="47900", pre_mission_start
     def landing_prompt():
         if has_state(host, "ConfirmLandingState"):
             return True
-        top = states(host)[-1]
+        stack = states(host)
+        top = stack[-1]
+        if "CoopState" in top or "GeoscapeState" not in top:
+            print(f"[bring-up] landing wait closes {top.split('::')[-1]}; host stack {[s.split('::')[-1] for s in stack]}", flush=True)
         if "CoopState" in top:
             host.cmd({"cmd": "coop_dialog_back"})
         elif "GeoscapeState" not in top:
