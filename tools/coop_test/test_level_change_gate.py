@@ -1,7 +1,6 @@
-"""test_level_change_gate.py: REV E.48 SS.E.3 as
-amended by REV E.58 E58.2 and REV E.61 - WV-D58: the two
+"""test_level_change_gate.py: the two
 caption-less unit up/down buttons (`BattlescapeState::btnUnitUpClick` /
-`btnUnitDownClick`) no longer bypass every coop gate. CLIENT = REFUSAL via
+`btnUnitDownClick`) do not bypass the coop gates. CLIENT = REFUSAL via
 `CoopBattleUi::refuseControl(Control::LevelChange, ...)`, the FIRST statement
 of each button (`connectionTCP.cpp:8007`, Term 1 AUTHORITY, `!hostSim`) -
 armor-independent, refused whatever the selected unit is wearing.
@@ -10,47 +9,38 @@ before `moveUpDown`'s own `statePushBack(new UnitWalkBState(...))`
 (`BattlescapeGame.cpp:2311`) - so a HOST-origin level change streams to the
 client exactly like any other walk.
 
-FIXTURE (REV E.61 E61.1/E61.2, D88 = (b), the supervisor's SECOND amendment;
-D88's first version put the flying suit on a SEAT-1 soldier for BOTH legs and
-was REFUTED BY TRACE - the host cannot command a seat-1 unit at all,
-`refuseControl` Term 2 OWNERSHIP refuses it with `STR_COOP_DENY_NOT_YOUR_UNIT`
-("Not one of your soldiers"), regardless of WV-D58). TWO flying suits
-(`STR_FLYING_SUIT_UC`, F235 - the armors.rul `type:` key, not the store item)
+FIXTURE: each leg needs its own flying suit, because the host cannot command
+a seat-1 unit at all (`refuseControl` Term 2 OWNERSHIP refuses it with
+`STR_COOP_DENY_NOT_YOUR_UNIT`, "Not one of your soldiers"). TWO flying suits
+(`STR_FLYING_SUIT_UC` - the armors.rul `type:` key, not the store item)
 are seeded in ONE `pre_ok` window on the Lightning roof fixture
-(`repro_ghost_stepper.bring_up_roof_battle`, additively extended here with a
-`pre_ok=None` keyword - F278, the two existing callers left byte-unchanged):
-  (i)  the FIRST seat-1 soldier - the CLIENT leg's unit, the exact soldier
-       REV E.48 SS.E.3 names;
+(`repro_ghost_stepper.bring_up_roof_battle`'s `pre_ok=None` keyword):
+  (i)  the FIRST seat-1 soldier - the CLIENT leg's unit;
   (ii) the band `max(seatIds)+1 .. max(seatIds)+11` - only soldiers ABOARD
        the craft become battle units, so this band is seeded BLIND
        and the HOST leg's unit is picked from the battle roster afterward:
        the FIRST live unit with `armor == "STR_FLYING_SUIT_UC" and coop ==
-       0` (a roster with none is a RED naming the step, SS.A.8 - never a
-       skip).
+       0` (a roster with none is a failure naming the step - never a skip).
 `bring_up_roof_battle` does not expose its own internal `seated` dict to the
-`pre_ok` window it now forwards (only the ONE additive keyword was added,
-F278) - the seat-1 id list is read back independently via `get_soldiers`,
-the SAME live SavedGame state `session.py`'s own `seated["soldierIds"]` is
-itself just a cached copy of (R3-P1's `NewBattleState::harnessSeatOneSoldier`
-stamps `Soldier::setCoop()` on the real base roster before `pre_ok` fires).
+`pre_ok` window it forwards - the seat-1 id list is read back independently
+via `get_soldiers`, the SAME live SavedGame state `session.py`'s own
+`seated["soldierIds"]` is itself just a cached copy of
+(`NewBattleState::harnessSeatOneSoldier` stamps `Soldier::setCoop()` on the
+real base roster before `pre_ok` fires).
 
-Both units are staged on the SAME lane row, two tiles apart (S2: never onto
-each other's tile) - the exact door-relative tiles orch43d measured a
-successful z+1 level change on BEFORE this unit existed (NC2/F266 for the
-lane start, CAPTURE 2/F270 for lane start + 2), which is what makes the
-CLIENT leg's `z`-unchanged assertion NON-vacuous: that unit COULD have
+Both units are staged on the SAME lane row, two tiles apart (never onto
+each other's tile) - door-relative tiles where a z+1 level change was
+measured to succeed (the lane start and lane start + 2), which is what makes
+the CLIENT leg's `z`-unchanged assertion NON-vacuous: that unit COULD have
 flown.
 
 `click_widget`'s `match` only matches TextButton captions; the up/down
 buttons are caption-less `BattlescapeButton`s (`BattlescapeState.cpp:155-156`)
 and are pressed by `nth` among the VISIBLE INTERACTIVE surfaces in
-`list_widgets` order (F267.3/F276) - resolved at RUN TIME per machine (never
-hard-coded) and then ASSERTED to equal the pinned values (2 UP / 3 DOWN,
-measured on this build) - a different resolution is a RED that prints the
-whole filtered list, never a silent adaptation.
-
-Cites WV-D58, REV E.48 SS.E.3, REV E.58 E58.2, REV E.61 E61.1-E61.2,
-F235, F267, F269, F270, F271, F274, F276, F278, F279.
+`list_widgets` order - resolved at RUN TIME per machine (never hard-coded)
+and then ASSERTED to equal the pinned values (2 UP / 3 DOWN, measured on
+this build) - a different resolution is a failure that prints the whole
+filtered list, never a silent adaptation.
 
 Run:  python tools/coop_test/test_level_change_gate.py
 """
@@ -72,7 +62,7 @@ REFUSAL_TEXT = "Only the host can move a unit between levels"
 
 
 def resolve_up_down_nth(gc):
-    """F267.3/F276's RULE: keep `interactive and visible` entries, IN
+    """The RULE: keep `interactive and visible` entries, IN
     list_widgets ORDER (never `idx`, which counts non-visible/non-interactive
     surfaces too); among those keep the 32x16 entries; the smallest `x`
     column's two entries are the pair, smaller `y` = UP, larger `y` = DOWN.
@@ -95,7 +85,7 @@ def resolve_up_down_nth(gc):
     up_nth, down_nth = column[0][0], column[1][0]
     assert up_nth == 2 and down_nth == 3, (
         f"{gc.name}: click_widget nth resolution did NOT match the pinned "
-        f"values (UP=2, DOWN=3, F267/F276) - got UP={up_nth} DOWN={down_nth}. "
+        f"values (UP=2, DOWN=3) - got UP={up_nth} DOWN={down_nth}. "
         f"filtered interactive+visible list: {filtered}")
     return up_nth, down_nth
 
@@ -110,15 +100,15 @@ def run():
     seed_state = {}
 
     def seed_two_suits(h):
-        """REV E.61 E61.1: seeds STR_FLYING_SUIT_UC on (i) the first seat-1
+        """Seeds STR_FLYING_SUIT_UC on (i) the first seat-1
         soldier (the CLIENT leg's unit) and (ii) the band
-        max(seatIds)+1..max(seatIds)+11 (F271: only soldiers ABOARD the craft
+        max(seatIds)+1..max(seatIds)+11 (only soldiers ABOARD the craft
         become battle units, so this band is seeded blind). Runs in the
         `pre_ok` window - AFTER `newbattle_seat_soldier` has stamped
         `Soldier::setCoop()` on the real base roster, BEFORE `newbattle_ok`
         snapshots it into the battle - so `get_soldiers` already reports the
-        live seat tags (F272's ordering, read a different way since
-        `bring_up_roof_battle` does not expose its own `seated` dict, F278)."""
+        live seat tags (read this way since `bring_up_roof_battle` does not
+        expose its own `seated` dict)."""
         gs_resp = h.cmd({"cmd": "get_soldiers"})
         assert gs_resp.get("ok"), f"get_soldiers failed: {gs_resp}"
         seat1_ids = sorted(
@@ -150,7 +140,7 @@ def run():
         pinned = pin_ai_neutral(host, client, tag="level_change_gate")
         assert len(pinned) > 0, (
             f"pin_ai_neutral pinned ZERO NONE-seat non-player units on a "
-            f"CLASSIC roof boot - the premise is unexercised (M9a-3)")
+            f"CLASSIC roof boot - the premise is unexercised")
 
         assert "client_soldier_id" in seed_state, "seed_two_suits never ran"
         client_soldier_id = seed_state["client_soldier_id"]
@@ -174,7 +164,7 @@ def run():
              if u.get("armor") == ARMOR and u.get("coop") == COOP_SEAT_0
              and not u.get("isOut")), None)
         assert host_leg_unit is not None, (
-            f"FIX (SS.A.8): no live unit in the battle roster has armor=={ARMOR!r} "
+            f"HOST leg: no live unit in the battle roster has armor=={ARMOR!r} "
             f"and coop==0 - roster: "
             f"{[(u['id'], u.get('soldierId'), u.get('coop'), u.get('armor')) for u in hs0['units']]}")
         host_leg_id = host_leg_unit["id"]
@@ -189,7 +179,7 @@ def run():
                 f"{us[host_leg_id].get('armor')!r}")
 
         # ---- staging: the two measured roof tiles, two apart on the SAME
-        # lane row (S2: never teleport a unit onto its own tile or the
+        # lane row (never teleport a unit onto its own tile or the
         # other's) ----
         client_tile = gs.teleport_to_lane(host, client, client_leg_id, door)
         host_tile = (door["x"] + gs.LANE_DX_START + 2, door["y"] + gs.LANE_DY, door["z"] + gs.ROOF_DZ)
@@ -346,7 +336,7 @@ def run():
 
 def main():
     run()
-    print("ALL SPEC 12 test_level_change_gate TESTS PASSED")
+    print("ALL test_level_change_gate TESTS PASSED")
 
 
 if __name__ == "__main__":
