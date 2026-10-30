@@ -120,6 +120,8 @@ if (-not $onlyNames.Count) {
   foreach ($n in (@($onlyNames) + @("boot_check") | Sort-Object -Unique)) {
     New-Item -ItemType File -Force (Join-Path $stub "tools\coop_test\$n.py") | Out-Null
   }
+  # The planner leaves out the tests local_only_tests.json names, as in a full run.
+  Copy-Item -LiteralPath (Join-Path $repo "tools\coop_test\local_only_tests.json") -Destination (Join-Path $stub "tools\coop_test")
   # The weights the planner would read in the repo: test_weights.json with the -Timings file (if it
   # exists) on top. boot_check's 0 goes into the file the planner reads last, so it wins.
   $wRepo = Join-Path $repo "tools\ci\test_weights.json"
