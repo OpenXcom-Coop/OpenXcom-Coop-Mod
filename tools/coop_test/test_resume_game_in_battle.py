@@ -4,20 +4,13 @@ Reported: in a NEW BATTLE > COOP battle the client left for the main menu, the
 host's coop menu (LobbyMenu) popped up over the tactical map offering RESUME
 GAME - and pressing it dropped the host on the GEOSCAPE with the battle gone.
 
-SPEC 18 (r4 T4) D97/R1(c) ROUTING (2026-09-21): this file used to also cover
-a client dropping mid-battle (FREEZE/STAY-FROZEN/ABANDON). Those scenarios are
-SPEC 16's (test_pause_on_leave.py's S1/S4, test_skirmish_rejoin_
-battle.py) and are REMOVED from this file - their bodies are deleted below;
-the helper functions SAVE-AND-QUIT still uses are kept. R1(c) ran every
-scenario in this file once at the SPEC 18 tip with the skip removed:
-SAVE-AND-QUIT's own assertions pass (un-skipped here, S6 - this unit's, the
-mid-battle save->load-back-into-battle proof, one of the "nine save/resume
-harness tests" SPEC 18 re-points); MENU-HOST/MENU-CLIENT and PRE-BATTLE/
-PRE-GAME were GREEN at the tip and stay, unmodified, no code. The pre-existing
-teardown rc=3 on SAVE-AND-QUIT (F391/F392 family, D120-waived) is OUT OF this
-unit's scope - not fixed here.
+A client dropping mid-battle is covered by test_pause_on_leave.py and
+test_skirmish_rejoin_battle.py; this file keeps only the drop helpers that
+SAVE-AND-QUIT uses. Every scenario below runs; SAVE-AND-QUIT is the mid-battle
+save -> load-back-into-battle check. A teardown rc=3 seen on SAVE-AND-QUIT is a
+separate, known issue.
 
-SCENARIOS (this file, post-routing)
+SCENARIOS
   SAVE-AND-QUIT SAVE & QUIT -> save-slot list -> a .sav that loads back INTO the
                 battle -> main menu.
   MENU-HOST     campaign mission, both players in it, HOST opens the coop menu
@@ -78,10 +71,10 @@ def settle_on_tactical(machines, timeout=180):
     and wait through transient no-button coop holds instead of forcing them.
 
     BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
-    host's pre-battle equip screen now waits for the client's ready (owner
-    D206 c) and the client's briefing is up at once, so settling one
-    machine at a time never finishes. `battle_inventory ok` is the idempotent
-    ready lever (Q11 a): pressing it every round never flaps a seat's ready."""
+    host's pre-battle equip screen waits for the client's ready and the
+    client's briefing is up at once, so settling one machine at a time never
+    finishes. `battle_inventory ok` is the idempotent ready command: pressing
+    it every round never flaps a seat's ready."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         pending = [(gc, tag) for gc, tag in machines if top(gc) != "BattlescapeState"]
@@ -148,10 +141,9 @@ def drop_client_mid_battle(host, client):
 
 
 # ------------------------------------------------------- the drop itself ---
-# (FREEZE/STAY-FROZEN/ABANDON scenario BODIES removed per D97/R1(c): they are
-# SPEC 16's S1/S4, live in test_pause_on_leave.py/test_skirmish_
-# rejoin_battle.py. drop_client_mid_battle/wait_peer_dropped above are KEPT -
-# scenario_save_and_quit below still uses them.)
+# (the mid-battle drop scenarios live in test_pause_on_leave.py and
+# test_skirmish_rejoin_battle.py; drop_client_mid_battle / wait_peer_dropped
+# above stay for scenario_save_and_quit below.)
 
 
 def scenario_save_and_quit():
@@ -337,9 +329,9 @@ def scenario_prebattle_drop_and_lobby_gating():
 
 
 def main():
-    # FREEZE/STAY-FROZEN/ABANDON dropped per D97/R1(c) routing (SPEC 16 owns
-    # them now) - this file runs SAVE-AND-QUIT (S6) + the coop-menu-over-a-
-    # battle + pre-battle/pre-game scenarios only.
+    # SAVE-AND-QUIT, the coop menu over a battle and the pre-battle / pre-game
+    # scenarios; mid-battle drops are covered by test_pause_on_leave.py and
+    # test_skirmish_rejoin_battle.py.
     scenario_save_and_quit()
     scenario_coop_menu_midbattle()
     scenario_prebattle_drop_and_lobby_gating()
