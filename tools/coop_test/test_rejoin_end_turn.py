@@ -1,10 +1,10 @@
-"""a rejoiner's END TURN side-phase counter starts at the host's (spec w2h14_rejoin_endturn_seed.md (f);
-SM-2; F4012). TWO boots on test_death_side's default map, each shut down before the next: P (parallel, PORT_P),
-T (traditional, PORT_T). Each plays one END TURN cycle, the client leaves, a fresh process (client2) rejoins, the host
-presses RESUME. H14-1 (P): an END TURN cycle with client2 completes. H14-2 (T): client2 holds the baton and
-its pass completes the cycle. A boot/rejoin step past its bound is a setup failure (one CAPTURE line; the row FAILs
-"boot"/"rejoin"). Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; both rows run.
-ONE foreground run, no skip path; exit 0 only when both rows pass, 2 otherwise."""
+"""A rejoiner's END TURN side-phase counter starts at the host's. TWO boots on test_death_side's default map, each shut
+down before the next: parallel (PORT_PARALLEL) and traditional (PORT_TRADITIONAL). Each plays one END TURN cycle, the
+client leaves, a fresh process (client2) rejoins, the host presses RESUME. rejoiner_cycle (parallel): an END TURN cycle
+with client2 completes. rejoiner_tally (traditional): client2's tally equals the host's. rejoiner_pass (traditional):
+client2 holds the baton and its pass completes the cycle. A boot/rejoin step past its bound is a setup failure (one
+CAPTURE line; the row FAILs "boot"/"rejoin"). Each row prints ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL
+<id>: <msg>"; every row runs. ONE foreground run, no skip path; exit 0 only when every row passes, 2 otherwise."""
 
 import json
 import os
@@ -25,12 +25,12 @@ from test_delta_core import end_turn_cycle, settle_on_battlescape, short, desync
 from test_turn_baton import drive_full_cycle
 from test_turn_mode import set_mode, live_mode, TRADITIONAL
 
-PORT_P, PORT_T = "48514", "48523"   # this file's lobby ports (unused by every other test file)
-# TASK 0 (ledger `## W2-H14 TASK 0 DONE`, docs rewrite/w2h14-task0/CONSTANTS.md; 2/2 boots each, identical)
-K_P = 3                             # parallel: both counters after one END TURN cycle (the host keeps it at the pause)
-K_T = 3                             # traditional: baton 0 -> 1 -> 0 -> 1; both counters after the cycle
+PORT_PARALLEL, PORT_TRADITIONAL = "48514", "48523"   # this file's lobby ports (unused by every other test file)
+# measured on two boots of each mode, identical
+K_PARALLEL = 3                      # parallel: both counters after one END TURN cycle (the host keeps it at the pause)
+K_TRADITIONAL = 3                   # traditional: baton 0 -> 1 -> 0 -> 1; both counters after the cycle
 SEED_RE = re.compile(r"rejoin END TURN side-phase counter seeded to (-?\d+)")
-BATON_NEEDLE = "[coop-baton] battle save carried coopActiveSeat=1"    # F4058; keep the =1 suffix
+BATON_NEEDLE = "[coop-baton] battle save carried coopActiveSeat=1"    # keep the =1 suffix
 OFFER_NEEDLE = "rejoin battle_offer sent"
 IDLE_S, CYCLE_S, SEAT_S, LOG_FLUSH_S = 30, 60, 15, 3
 PC, TS = "coopEndTurnPhaseCounter", "coopEndTurnTalliesSeen"
@@ -94,7 +94,7 @@ def wait_both(host, other, what, pred, timeout):
                   timeout=timeout, interval=0.25)
 
 def boot(host, client, port, traditional):
-    """Copy of H12's boot() (test_death_side.boot_default) on `port`; T: pre_ok = set_mode TRADITIONAL, set_seed."""
+    """Copy of test_death_side.boot_default on `port`; traditional: pre_ok = set_mode TRADITIONAL, set_seed."""
     hc.bring_up_lobby_roster_pinned(host, client, port)
     session.drive_to_battlescape(host, client, {}, seat_count=2, pre_ok=lambda h: (
         set_mode(h, TRADITIONAL) if traditional else None, h.ok({"cmd": "set_seed", "seed": SEED_MAP_DEFAULT})))
@@ -102,7 +102,7 @@ def boot(host, client, port, traditional):
     assert hs.get("mapFingerprint") == MAP_FP_DEFAULT and cs.get("mapFingerprint") == MAP_FP_DEFAULT, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} "
         f"(baked {MAP_FP_DEFAULT!r})")
-    assert pin_ai_neutral(host, client, tag="w2h14"), "pin_ai_neutral pinned no NONE-seat non-player unit"
+    assert pin_ai_neutral(host, client, tag="rejoin_end_turn"), "pin_ai_neutral pinned no NONE-seat non-player unit"
     ub = session.units_by_id(hs)
     for uid, seat in ((HOST_SOLDIER_ID, COOP_SEAT_0), (CLIENT_SOLDIER_ID, COOP_SEAT_1)):
         u = ub.get(uid) or {}
@@ -113,35 +113,35 @@ def boot(host, client, port, traditional):
     session.wait_host_idle(host, client, timeout=IDLE_S)
     assert_hash_clean(host, client, full=True, what="bring-up")
 
-def stage_p(host, client, ctx):
-    """Boot P preconditions: H12's boot, one END TURN cycle (notes empty), both counters K_P, no desync."""
+def stage_parallel(host, client, ctx):
+    """Parallel boot: boot(), one END TURN cycle (notes empty), both counters K_PARALLEL, no desync."""
     m = (host, client)
-    step("boot P", lambda: boot(host, client, PORT_P, False), m)
+    step("parallel boot", lambda: boot(host, client, PORT_PARALLEL, False), m)
     ctx["booted"] = True
     pre, notes = {"host": snap(host), "client": snap(client)}, []
     end_turn_cycle(host, client, notes)
     post = {"host": snap(host), "client": snap(client)}
-    evidence("boot P cycle", {"pre": pre, "post": post, "notes": notes})
+    evidence("parallel boot cycle", {"pre": pre, "post": post, "notes": notes})
     bad = [f"notes {notes}"] if notes else []
     for who, gc in (("host", host), ("client", client)):
         a, b = pre[who], post[who]
         if a["turn"] is None or b["turn"] != a["turn"] + 1 or b["side"] != FACTION_PLAYER:
             bad.append(f"{who} turn/side {a['turn']}/{a['side']} -> {b['turn']}/{b['side']} (want +1, player)")
-        if b[PC] != K_P:
-            bad.append(f"{who} {PC} {b[PC]} (want K_P = {K_P})")
+        if b[PC] != K_PARALLEL:
+            bad.append(f"{who} {PC} {b[PC]} (want K_PARALLEL = {K_PARALLEL})")
         if b["desyncSeen"]:
             bad.append(f"{who} desyncSeen true: {desync_record(gc, True)}")
-    check("boot P cycle preconditions", bad, m)
+    check("parallel boot cycle preconditions", bad, m)
 
-def stage_t(host, client, ctx):
-    """Boot T preconditions: traditional on both; baton 0 -> 1 -> cycle (counters K_T, baton 0) -> 1."""
+def stage_traditional(host, client, ctx):
+    """Traditional boot: traditional on both; baton 0 -> 1 -> cycle (counters K_TRADITIONAL, baton 0) -> 1."""
     m = (host, client)
-    step("boot T", lambda: boot(host, client, PORT_T, True), m)
+    step("traditional boot", lambda: boot(host, client, PORT_TRADITIONAL, True), m)
     ctx["booted"] = True
     modes, entry = [live_mode(host), live_mode(client)], {"host": snap(host), "client": snap(client)}
-    evidence("boot T entry", {"liveMode": modes, "entry": entry})
+    evidence("traditional boot entry", {"liveMode": modes, "entry": entry})
     seats = [entry["host"]["coopActiveSeat"], entry["client"]["coopActiveSeat"]]
-    check("boot T entry preconditions", [x for x, ok in (
+    check("traditional boot entry preconditions", [x for x, ok in (
         (f"live_mode {modes} (want traditional on both)", modes == [TRADITIONAL, TRADITIONAL]),
         (f"entry coopActiveSeat (host, client) {seats} (want [0, 0])", seats == [0, 0])) if not ok], m)
     turn0 = entry["host"]["turn"]
@@ -156,28 +156,28 @@ def stage_t(host, client, ctx):
         settle_on_battlescape(host)
         settle_on_battlescape(client)
         session.wait_host_idle(host, client, timeout=IDLE_S)
-        wait_both(host, client, f"{PC} K_T, coopActiveSeat 0 and coopPendingTallyTurn -1 on both",
-                  lambda e: (e.get(PC) == K_T and e.get("coopActiveSeat") == 0
+        wait_both(host, client, f"{PC} K_TRADITIONAL, coopActiveSeat 0 and coopPendingTallyTurn -1 on both",
+                  lambda e: (e.get(PC) == K_TRADITIONAL and e.get("coopActiveSeat") == 0
                              and e.get("coopPendingTallyTurn") == -1), SEAT_S)
-    step("T1 host END TURN -> coopActiveSeat 1 on both", host_pass, m)
-    step("T2 client END TURN -> full cycle, settle, idle, counters K_T, baton 0", client_last_pass, m)
+    step("host END TURN -> coopActiveSeat 1 on both", host_pass, m)
+    step("client END TURN -> full cycle, settle, idle, counters K_TRADITIONAL, baton 0", client_last_pass, m)
     cyc = {"host": snap(host), "client": snap(client)}
-    evidence("boot T cycle", cyc)
-    check("boot T cycle preconditions", [f"{w} turn {c['turn']} (want {turn0} + 1), desyncSeen {c['desyncSeen']}"
-                                         for w, c in cyc.items() if c["turn"] != turn0 + 1 or c["desyncSeen"]], m)
-    step("T3 host END TURN -> coopActiveSeat 1 on both", host_pass, m)
+    evidence("traditional boot cycle", cyc)
+    check("traditional boot cycle preconditions", [f"{w} turn {c['turn']} (want {turn0} + 1), desyncSeen "
+          f"{c['desyncSeen']}" for w, c in cyc.items() if c["turn"] != turn0 + 1 or c["desyncSeen"]], m)
+    step("host END TURN again -> coopActiveSeat 1 on both", host_pass, m)
 
 def stage_rejoin(host, client, port, kind, ctx):
-    """H12's leave + rejoin steps 1-9 (copied), each bounded; then S0. Returns client2."""
+    """The leave and rejoin steps 1-9, each bounded; then the afterRejoin snapshot. Returns client2."""
     m = [host, client]
     bid0 = (battle_state(host).get("authority") or {}).get("battleId")
     step("1 drop_client_mid_battle", lambda: drop_client_mid_battle(host, client), m)
     pause = snap(host)
     ctx["pause"] = pause
     evidence(f"pause {kind}", {"host": pause})
-    if kind == "T" and pause["coopActiveSeat"] != 1:
-        miss("host coopActiveSeat 1 at the pause (D91)", f"host coopActiveSeat {pause['coopActiveSeat']}", m)
-    client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir(f"w2h14_end_turn_{kind.lower()}_rejoin"))
+    if kind == "traditional" and pause["coopActiveSeat"] != 1:
+        miss("host coopActiveSeat 1 at the pause", f"host coopActiveSeat {pause['coopActiveSeat']}", m)
+    client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir(f"rejoin_end_turn_{kind.lower()}_rejoin"))
     m.append(client2)
     step("3 client2 spawn and connect", lambda: (client2.spawn(), client2.connect()), m)
     step("4 rejoin_skirmish", lambda: rejoin_skirmish(client2, port), m)
@@ -218,20 +218,21 @@ def stage_rejoin(host, client, port, kind, ctx):
     step("8 phase Active on both, peerAbsent false, battleId unchanged", s8, m)
     step("9 wait_host_idle(host, client2)", lambda: session.wait_host_idle(host, client2, timeout=IDLE_S), m)
     time.sleep(LOG_FLUSH_S)
-    s0 = ctx["S0"] = {"host": snap(host), "client2": snap(client2), "client2Seeded": seeded(client2),
+    s0 = ctx["afterRejoin"] = {"host": snap(host), "client2": snap(client2), "client2Seeded": seeded(client2),
                       "client2BatonLines": log_count(client2, BATON_NEEDLE),
                       "hostOfferLines": log_count(host, OFFER_NEEDLE)}
-    evidence(f"S0 {kind}", s0)
+    evidence(f"afterRejoin {kind}", s0)
     got = (s0["client2"]["coopActiveSeat"], s0["client2"]["coopOffBatonGray"], s0["client2BatonLines"])
-    if kind == "T" and not (got[0] == 1 and got[1] is False and got[2] == 1):
-        miss("client2 holds the baton after the rejoin (F4058)", f"client2 (coopActiveSeat, coopOffBatonGray, "
+    if kind == "traditional" and not (got[0] == 1 and got[1] is False and got[2] == 1):
+        miss("client2 holds the baton after the rejoin", f"client2 (coopActiveSeat, coopOffBatonGray, "
              f"'{BATON_NEEDLE}' lines) = {got} (want (1, False, 1))", m)
     return client2
 
 def verdict(rid, host, c2, s0, h1, c1, k, notes, stale_msg, stale, ev):
-    """EVIDENCE, then the failing GREEN cells both rows share (S0 = (k, k), one seed line of k, turn +1, side player
-    and counters k + 3 on both, full hash clean, no desync). The RED shape (TASK 0's negative control: S0 = (k, 0), host
-    talliesSeen +1 = the stale answer, turn/side unchanged, the row's own `stale` cell) leads as `stale_msg`."""
+    """EVIDENCE, then the failing cells both rows share (afterRejoin = (k, k), one seed line of k, turn +1, side
+    player and counters k + 3 on both, full hash clean, no desync). The shape seen without the fix (afterRejoin =
+    (k, 0), host talliesSeen +1 = the stale answer, turn/side unchanged, the row's own `stale` cell) leads as
+    `stale_msg`."""
     h0, c0, hashf = s0["host"], s0["client2"], []
     try:
         assert_hash_clean(host, c2, full=True, what=f"after {rid}")
@@ -239,11 +240,11 @@ def verdict(rid, host, c2, s0, h1, c1, k, notes, stale_msg, stale, ev):
         hashf = [f"hash after {rid}: {short(e, 500)}"]
     stale = bool(stale and (h0[PC], c0[PC]) == (k, 0) and h1[TS] - h0[TS] == 1
                  and [(x["turn"], x["side"]) for x in (h1, c1)] == [(x["turn"], x["side"]) for x in (h0, c0)])
-    evidence(rid, dict(ev, S0=s0, after={"host": h1, "client2": c1}, notes=notes, hash=hashf, staleShape=stale,
+    evidence(rid, dict(ev, afterRejoin=s0, after={"host": h1, "client2": c1}, notes=notes, hash=hashf, staleShape=stale,
                        hostTalliesSeenDelta=h1[TS] - h0[TS], client2TalliesSeenDelta=c1[TS] - c0[TS]))
     f = [stale_msg] if stale else []
     if (h0[PC], c0[PC]) != (k, k):
-        f.append(f"S0 {PC} (host, client2) = ({h0[PC]}, {c0[PC]}) (want ({k}, {k}))")
+        f.append(f"afterRejoin {PC} (host, client2) = ({h0[PC]}, {c0[PC]}) (want ({k}, {k}))")
     if s0["client2Seeded"] != [k]:
         f.append(f"client2 seeded lines {s0['client2Seeded']} (want exactly [{k}])")
     if notes:
@@ -256,21 +257,24 @@ def verdict(rid, host, c2, s0, h1, c1, k, notes, stale_msg, stale, ev):
     return f, hashf + [f"desyncSeen true on {gc.name}: {desync_record(gc, True)}"
                        for gc in (host, c2) if event_state(gc).get("desyncSeen")]
 
-def h14_1(host, c2, ctx):
-    """Parallel: end_turn_cycle(host, client2); RED cell: client2's tally turn == K_P (the host's stale answer)."""
-    s0, notes = ctx["S0"], []
+def row_rejoiner_cycle(host, c2, ctx):
+    """Parallel: end_turn_cycle(host, client2); the cell that fails without the fix: client2's tally turn ==
+    K_PARALLEL (the host's stale answer)."""
+    s0, notes = ctx["afterRejoin"], []
     end_turn_cycle(host, c2, notes)
     h1, c1 = snap(host), snap(c2)
     tally_turn, c0 = (c1["coopEndTurnTally"] or {}).get("turn"), s0["client2"]
-    f, tail = verdict("H14-1", host, c2, s0, h1, c1, K_P, notes, "the rejoiner's press was dropped as stale",
-                      tally_turn == K_P, {"client2TallyTurn": tally_turn})
+    f, tail = verdict("rejoiner_cycle", host, c2, s0, h1, c1, K_PARALLEL, notes,
+                      "the rejoiner's press was dropped as stale", tally_turn == K_PARALLEL,
+                      {"client2TallyTurn": tally_turn})
     if not c1[TS] > c0[TS]:
         f.append(f"client2 {TS} {c0[TS]} -> {c1[TS]} (want it to grow)")
     return f + tail
 
-def h14_2(host, c2, ctx):
-    """Traditional: client2's pass, full cycle, baton 0; RED cells: host baton still 1, client2 pending == K_T."""
-    s0, notes, t = ctx["S0"], [], time.time()
+def row_rejoiner_pass(host, c2, ctx):
+    """Traditional: client2's pass, full cycle, baton 0; the cells that fail without the fix: host baton still 1,
+    client2 pending == K_TRADITIONAL."""
+    s0, notes, t = ctx["afterRejoin"], [], time.time()
     press = c2.cmd({"cmd": "battle_action", "action": "end_turn_button"})
     try:
         assert press.get("ok"), f"client2 end_turn_button refused: {press}"
@@ -286,8 +290,9 @@ def h14_2(host, c2, ctx):
         notes.append(f"client2 pass cycle: {short(e)}")
     waited = round(time.time() - t, 1)
     h1, c1 = snap(host), snap(c2)
-    f, tail = verdict("H14-2", host, c2, s0, h1, c1, K_T, notes, "the rejoiner's pass was dropped as stale",
-                      h1["coopActiveSeat"] == 1 and c1["coopPendingTallyTurn"] == K_T,
+    f, tail = verdict("rejoiner_pass", host, c2, s0, h1, c1, K_TRADITIONAL, notes,
+                      "the rejoiner's pass was dropped as stale",
+                      h1["coopActiveSeat"] == 1 and c1["coopPendingTallyTurn"] == K_TRADITIONAL,
                       {"press": press, "waitedS": waited})
     if [h1["coopActiveSeat"], c1["coopActiveSeat"]] != [0, 0]:
         f.append(f"coopActiveSeat host {h1['coopActiveSeat']} client2 {c1['coopActiveSeat']} (want 0 on both)")
@@ -295,26 +300,27 @@ def h14_2(host, c2, ctx):
         f.append(f"client2 coopPendingTallyTurn {c1['coopPendingTallyTurn']} (want -1)")
     return f + tail
 
-H14B_TK = ("turn", "side", "count", "needed", "ready", "activeSeat")
-H14B_SK = (TS, "coopEndTurnText", "coopEndTurnArmed", "coopActiveSeat", "coopPendingTallyTurn")
+TALLY_KEYS = ("turn", "side", "count", "needed", "ready", "activeSeat")
+STATE_KEYS = (TS, "coopEndTurnText", "coopEndTurnArmed", "coopActiveSeat", "coopPendingTallyTurn")
 
-def h14b_3(host, c2, ctx):
-    """traditional, display only, on boot T's S0 before H14-2 (no new step).
-    RED cell: no tally rode the rejoin (client2 talliesSeen 0). GREEN: client2's tally equals the host's."""
-    s0, p, drops = ctx["S0"], ctx["pause"], dropped(host)
+def row_rejoiner_tally(host, c2, ctx):
+    """Traditional, display only, on the traditional boot's afterRejoin snapshot before rejoiner_pass (no new
+    step). Without the fix no tally rode the rejoin (client2 talliesSeen 0); with it client2's tally equals the
+    host's."""
+    s0, p, drops = ctx["afterRejoin"], ctx["pause"], dropped(host)
     h0, c0 = s0["host"], s0["client2"]
-    ht, ct = ([(x["coopEndTurnTally"] or {}).get(k) for k in H14B_TK] for x in (h0, c0))
-    evidence("H14b-3", {"hostTally": ht, "client2Tally": ct, "hostDropped": drops, "pauseTalliesSeen": p[TS],
-                        "host": {k: h0[k] for k in H14B_SK}, "client2": {k: c0[k] for k in H14B_SK}})
+    ht, ct = ([(x["coopEndTurnTally"] or {}).get(k) for k in TALLY_KEYS] for x in (h0, c0))
+    evidence("rejoiner_tally", {"hostTally": ht, "client2Tally": ct, "hostDropped": drops, "pauseTalliesSeen": p[TS],
+                        "host": {k: h0[k] for k in STATE_KEYS}, "client2": {k: c0[k] for k in STATE_KEYS}})
     f = [f"no tally rode the rejoin (client2 {TS} 0; host drop lines {drops})"] if c0[TS] == 0 else []
     if c0[TS] not in (0, 1):
         f.append(f"client2 {TS} {c0[TS]} (want 1)")
     if drops != [0]:
         f.append(f"host 'rejoin dropped' counts {drops} (want exactly [0])")
-    if ht != [K_T, "player", 0, 1, [], 1]:
-        f.append(f"host tally {H14B_TK} {ht} (want {[K_T, 'player', 0, 1, [], 1]})")
+    if ht != [K_TRADITIONAL, "player", 0, 1, [], 1]:
+        f.append(f"host tally {TALLY_KEYS} {ht} (want {[K_TRADITIONAL, 'player', 0, 1, [], 1]})")
     if ct != ht:
-        f.append(f"client2 tally {H14B_TK} {ct} != host's {ht}")
+        f.append(f"client2 tally {TALLY_KEYS} {ct} != host's {ht}")
     if [c0["coopEndTurnText"], h0["coopEndTurnText"], c0["coopEndTurnArmed"]] != ["", "", False]:
         f.append(f"(client2 text, host text, client2 armed) "
                  f"{[c0['coopEndTurnText'], h0['coopEndTurnText'], c0['coopEndTurnArmed']]} (want ['', '', False])")
@@ -325,13 +331,15 @@ def h14b_3(host, c2, ctx):
         f.append(f"host {TS} {h0[TS]} (want pause {p[TS]} + 1)")
     return f
 
-BOOTS = (("P", PORT_P, stage_p, (("H14-1", h14_1),)),
-         ("T", PORT_T, stage_t, (("H14b-3", h14b_3), ("H14-2", h14_2))))   # H14b-3 reads S0 before H14-2 moves it
+BOOTS = (("parallel", PORT_PARALLEL, stage_parallel, (("rejoiner_cycle", row_rejoiner_cycle),)),
+         ("traditional", PORT_TRADITIONAL, stage_traditional,
+          (("rejoiner_tally", row_rejoiner_tally), ("rejoiner_pass", row_rejoiner_pass))))
+# rejoiner_tally reads afterRejoin before rejoiner_pass moves it
 
 def run_boot(kind, port, stage_fn, rows, results, walls):
     t0, ctx = time.time(), {}
-    host = GameClient("host", None, make_user_dir(f"w2h14_end_turn_{kind.lower()}_host"))
-    client = GameClient("client", None, make_user_dir(f"w2h14_end_turn_{kind.lower()}_client"))
+    host = GameClient("host", None, make_user_dir(f"rejoin_end_turn_{kind.lower()}_host"))
+    client = GameClient("client", None, make_user_dir(f"rejoin_end_turn_{kind.lower()}_client"))
     try:
         try:
             stage_fn(host, client, ctx)
@@ -353,7 +361,7 @@ def run_boot(kind, port, stage_fn, rows, results, walls):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h14] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[rejoin_end_turn] shutdown {gc.name}: {short(e)}", flush=True)
         walls[kind] = round(time.time() - t0, 1)
 
 def main():

@@ -208,10 +208,10 @@ def open_rejoin_window(host, client, m, options):
     bad = [f"cycle notes {notes}"] if notes else []
     for w in ("host", "client"):
         a, b = pre[w], post[w]
-        if a["turn"] is None or b["turn"] != a["turn"] + 1 or b["side"] != FACTION_PLAYER or b[rej.PC] != rej.K_P \
-                or b["desyncSeen"]:
+        if a["turn"] is None or b["turn"] != a["turn"] + 1 or b["side"] != FACTION_PLAYER \
+                or b[rej.PC] != rej.K_PARALLEL or b["desyncSeen"]:
             bad.append(f"{w} turn/side {a['turn']}/{a['side']} -> {b['turn']}/{b['side']} {rej.PC} {b[rej.PC]} "
-                       f"desyncSeen {b['desyncSeen']} (want +1, player, K_P = {rej.K_P}, false)")
+                       f"desyncSeen {b['desyncSeen']} (want +1, player, K_PARALLEL = {rej.K_PARALLEL}, false)")
     rej.check("pre-leave END TURN cycle", bad, m)
     mover = select_mover(host)
     rej.check("a host soldier with a one-step neighbour (select_mover)", [] if mover else [
