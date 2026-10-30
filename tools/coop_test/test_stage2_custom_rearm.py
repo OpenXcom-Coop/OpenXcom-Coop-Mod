@@ -3,14 +3,15 @@ RULINGS QA-1..QA-6; TASK 0 rewrite/fs2a-task0/sa/CONSTANTS.md): a partner lost b
 mid-stream. Part 2 WAITS on the host; the partner rejoins from the server list, RESUME appears, part 2 is offered again and both play
 it. Moved here from test_stage2_failed_start.py; its Row / run_boot / CAPTURE helpers are copied from there.
 
-ONE boot (boot M, lobby key KEY, dirs w2fs2a_s2m_host / _client / _client2): test_multistage.py's boot_a (imported, unchanged). The
-client arms hold_blob_ack {on: true} (reply armed true) before ms1_trigger, so the host's stage-2 blob waits after its first chunk:
-the window W2 (host phase Handshake battleId 2, client hold_blob_ack.held >= 1); client.kill(); the host observed W; client2 rejoins
-the custom battle (test_skirmish_flow.skirmish_client_at_browser, then join_tcp with this key and the host's clientName); RESUME; part 2
+ONE boot (boot M, lobby key KEY, dirs w2fs2a_s2m_host / _client / _client2): test_multistage.py's boot_landing
+(imported, unchanged). The client arms hold_blob_ack {on: true} (reply armed true) before trigger_stage_change, so the
+host's stage-2 blob waits after its first chunk: the window W2 (host phase Handshake battleId 2, client
+hold_blob_ack.held >= 1); client.kill(); the host observed W; client2 rejoins the custom battle
+(test_skirmish_flow.skirmish_client_at_browser, then join_tcp with this key and the host's clientName); RESUME; part 2
 (session.briefings_to_battlescape(host, client2)).
 
-  S2M-1 GUARD stage-2 offer out (precondition): ms1_trigger guards []; host phase Handshake battleId 2; client hold_blob_ack.held >= 1;
-        host log +1 hand-off; PART2(host) mapFingerprint FP2. A failure ends the row.
+  S2M-1 GUARD stage-2 offer out (precondition): trigger_stage_change guards []; host phase Handshake battleId 2;
+        client hold_blob_ack.held >= 1; host log +1 hand-off; PART2(host) mapFingerprint FP2. A failure ends the row.
   S2M-2 FIX   PARK +1 and UNWIND +0 (red today: PARK 0).
   S2M-3 GUARD the host waits inside part 2: at W the stack ends [BriefingState, CoopState], dialog 62 backVisible false,
         battle_state.inBattle true, phase Idle, mapFingerprint FP2.
@@ -193,8 +194,8 @@ def run_boot(rid, tag, boot, row, failed):
 
 
 def boot_m(host, client, ctx):
-    ms1.PORT_A = KEY  # boot M: MS1's boot A on this file's lobby key
-    info = ms1.boot_a(host, client)
+    ms1.PORT = KEY  # boot M: test_multistage's boot on this file's lobby key
+    info = ms1.boot_landing(host, client)
     ctx["name"] = coop(host).get("clientName") or NAME
     return dict(info, name=ctx["name"])
 
@@ -227,7 +228,7 @@ def row_s2m(host, client, crash0, ctx):
     try:
         hold = q(client, {"cmd": "hold_blob_ack", "on": True})
         n_h = len(log(host))
-        g = ms1.ms1_trigger(host, client, ctx)
+        g = ms1.trigger_stage_change(host, client, ctx)
         t1, held, he = time.time(), None, {}
         while time.time() - t1 < 30.0:
             he, held = ev(host), q(client, {"cmd": "hold_blob_ack"}).get("held")
@@ -237,7 +238,8 @@ def row_s2m(host, client, crash0, ctx):
         win, hp, handoff = round(time.time() - t1, 2), part2(host), since(host, n_h, HANDOFF)
         ok1 = (not g and hold.get("armed") is True and len(handoff) == 1 and he.get("phase") == "Handshake" and he.get("battleId") == 2
                and isinstance(held, int) and held >= 1 and hp.get("mapFingerprint") == FP2)
-        r.cell("S2M-1", "GUARD", "stage-2 offer out (custom battle, mid-stream): ms1_trigger guards [], host Handshake battleId 2, client "
+        r.cell("S2M-1", "GUARD", "stage-2 offer out (custom battle, mid-stream): trigger_stage_change guards [], "
+               "host Handshake battleId 2, client "
                "hold_blob_ack.held >= 1, host log +1 hand-off, PART2(host) mapFingerprint FP2 %r" % FP2, ok1,
                {"guards": g, "hold": hold, "handoff": handoff, "host": {k: v for k, v in he.items() if k != "stage"}, "held": held,
                 "s to the window": win, "hostStack": stack(host), "PART2 host": hp})
