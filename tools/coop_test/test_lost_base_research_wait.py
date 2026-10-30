@@ -1,51 +1,57 @@
-"""W2-H88 LBR (tools/coop_test/test_lost_base_research_wait.py): after a SEPARATE player loses its first base while it owns another,
-a partner's finished research still reaches it at once (ruling R-LH87-2-1, the promise VL-H68-2 "a partner's finished research reaches
-you at the next geoscape tick", veto line VL-H88-1). Spec docs rewrite/prompts/w2h88_lost_base_research_wait.md (f) + its ORCHESTRATOR
-RULINGS; TASK 0 values in docs rewrite/w2h88-task0/sa/CONSTANTS.md; capture lh87-2-cap F23315-F23334 (docs rewrite/lh87-2-cap/).
-Today a partner's research reaches the other player through a memory-only queue that GeoscapeState applies only while the SELECTED base is
-an own base. Losing the first base (BaseDestroyedState erases it without re-pointing the index) leaves the selected index on the partner's
-mirror that sat after it, so the partner's research waits: no topic, no "Research Completed", for as long as the player stays on the
-geoscape. The green (E1-E4, GeoscapeState only) learns the topics at the first own base when the selected base is a partner's base; the
-selected index is NOT moved.
+"""test_lost_base_research_wait.py: after a SEPARATE player loses its first base while it owns another, a partner's
+finished research still reaches it at the next geoscape tick.
+A partner's research reaches the other player through a memory-only queue that GeoscapeState applies at the SELECTED
+base. Losing the first base (BaseDestroyedState erases it without re-pointing the index) leaves the selected index on
+the partner's mirror that sat after it. Without the fix the partner's research then waits: no topic, no "Research
+Completed", for as long as the player stays on the geoscape. With the fix GeoscapeState learns the topics at the first
+own base when the selected base is a partner's base; the selected index is NOT moved.
 TWO boots on key KEY (SEPARATE, Research Sync on, set_seed 1 on both), each shut down before the next:
-  boot A (dirs w2h88_a_*): SETUP-A the host builds HB2 (build_new_base at B2, real GEOSCAPE), the client lists it.
-    RL-3 (GUARD, RL87-2-3) the client researches T1; the host receives before any loss.
-         RL3-pre: start_research ok; KNOWS(client, T1) within ADV_CAP; t0 found; T1 unknown on the host at the row start; host
-         selectedBase an own base. RL3-land: LAND(host) <= W_LAND. RL3-popup: exactly 1 RCP(host, n0), at <= t0 + W_LAND.
-    RL-1 (RL87-2-1) LOSS-A (the host loses HB: STRIP + spawn_ufo + trigger_base_defense, BaseDestroyedState, its real OK), then the client
-         researches T2; the host receives.
-         RL1-pre (GUARD): STRIP / UFO / trigger ok; BaseDestroyedState within W_BDS; host own ids == {HB2's id}; host selectedBase == the
-         client's first base (the mirror: the defect's precondition); host stack [GeoscapeState]; T2 unknown on the host; KNOWS(client, T2)
-         within ADV_CAP; t0 found. RL1-land (FIX): LAND(host) <= W_LAND. RL1-popup (FIX): exactly 1 RCP(host, n0), at <= t0 + W_LAND.
-         RL1-index (GUARD): at the end of WATCH host selectedBase still the mirror and host own ids == {HB2's id} (the index is not moved).
-  boot B (dirs w2h88_b_*): SETUP-B the client builds CB2 at B2, the host lists it.
-    RL-2 (RL87-2-2, the client mirror image) LOSS-B (the client loses CB), then the host researches T2; the client receives.
-         RL2-pre / RL2-land (FIX) / RL2-popup (FIX) / RL2-index as RL-1 with the roles swapped (client own ids == {CB2's id}; client
-         selectedBase == the host's first base).
-  END CRASH (GUARD): no new file in harness.CRASH_DIR since the file start; every process alive until its shutdown; shutdown codes in OKRC.
-RL-4 (the view guard) is NOT a row: its precondition (the researcher's clock advances while the partner views its base) missed both ways
-in TASK 0 (the clock stops while either player is inside a visit), so ruling R-H88-1 / QH88-4 (b) dropped it; the view hold rests on reading.
-RESEARCH(r, T, drained): n0 = both logs' line counts; start_research {T, cost 1, scientists 1} on r; every 0.2 s drain `drained`, speed 4
-on each machine of drained + r whose top is GeoscapeState, until KNOWS(r, T) (cap ADV_CAP); then speed 0 on the same machines. t0 = the
-timestamp of r's first RCP after n0 (the researcher's ResearchCompleteState; its constructor sends the sync, so a receiver may apply a few
-ms before it). WATCH(v, T) = read v every 0.5 s for W_WATCH s, draining v and the researcher after each read; LAND(v) = the first read time
-with KNOWS(v, T) minus t0. KNOWS(m, T) = T in m's geo_state.discoveredResearch. RCP(m, n0) = m's engine-log lines
-"[coop-ui] push class OpenXcom::ResearchCompleteState" after line n0. Every TESTED press is real (click_widget OK on BaseDestroyedState,
-GEOSCAPE on the new base's screen); build_new_base, get_soldiers + set_soldier_dead (STRIP), spawn_ufo, trigger_base_defense, start_research,
-geo_set_speed and dismiss_popup are setup levers. No row presses BASES and no row builds a base after a loss (either re-points the index).
-Red today: RL1-land, RL1-popup, RL2-land, RL2-popup FAIL (4 of 12); every other cell PASS. Green (E1-E4): 12 / 12.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (later cells "not reached")
-with ONE CAPTURE line; a boot miss fails every row of that boot with ONE CAPTURE line. ONE foreground run, no
-skip; exit 0 only when every cell passes, else 2. Helpers copied from docs rewrite/lh87-2-cap/cap2.py (never imported).
-Run: python tools/coop_test/test_lost_base_research_wait.py   (OXC_HARNESS_SLOT selects the lane)"""
+  boot host_loses (dirs lost_base_research_host_loses_*): setup: the host builds HB2 (build_new_base at B2, real
+    GEOSCAPE), the client lists it.
+    before_loss (GUARD) the client researches T1; the host receives before any loss.
+         before_loss-pre: start_research ok; KNOWS(client, T1) within ADV_CAP; t0 found; T1 unknown on the host at the
+         row start; host selectedBase an own base. before_loss-land: LAND(host) <= W_LAND. before_loss-popup: exactly
+         1 RCP(host, n0), at <= t0 + W_LAND.
+    host_lost_base: the host loses HB (STRIP + spawn_ufo + trigger_base_defense, BaseDestroyedState, its real OK),
+         then the client researches T2; the host receives.
+         host_lost_base-pre (GUARD): STRIP / UFO / trigger ok; BaseDestroyedState within W_BDS; host own ids == {HB2's
+         id}; host selectedBase == the client's first base (the mirror: the defect's precondition); host stack
+         [GeoscapeState]; T2 unknown on the host; KNOWS(client, T2) within ADV_CAP; t0 found. host_lost_base-land
+         (FIX): LAND(host) <= W_LAND. host_lost_base-popup (FIX): exactly 1 RCP(host, n0), at <= t0 + W_LAND.
+         host_lost_base-index (GUARD): at the end of WATCH host selectedBase still the mirror and host own ids ==
+         {HB2's id} (the index is not moved).
+  boot client_loses (dirs lost_base_research_client_loses_*): setup: the client builds CB2 at B2, the host lists it.
+    client_lost_base (the client mirror image): the client loses CB, then the host researches T2; the client receives.
+         client_lost_base-pre / client_lost_base-land (FIX) / client_lost_base-popup (FIX) / client_lost_base-index as
+         host_lost_base with the roles swapped (client own ids == {CB2's id}; client selectedBase == the host's first
+         base).
+  END CRASH (GUARD): no new file in harness.CRASH_DIR since the file start; every process alive until its shutdown;
+    shutdown codes in OKRC.
+No row covers a player viewing its base while the partner researches: the clock stops while either player is inside a
+visit, so the researcher's clock never advances there and the case cannot be staged.
+RESEARCH(r, T, drained): n0 = both logs' line counts; start_research {T, cost 1, scientists 1} on r; every 0.2 s drain
+`drained`, speed 4 on each machine of drained + r whose top is GeoscapeState, until KNOWS(r, T) (cap ADV_CAP); then
+speed 0 on the same machines. t0 = the timestamp of r's first RCP after n0 (the researcher's ResearchCompleteState;
+its constructor sends the sync, so a receiver may apply a few ms before it). WATCH(v, T) = read v every 0.5 s for
+W_WATCH s, draining v and the researcher after each read; LAND(v) = the first read time with KNOWS(v, T) minus t0.
+KNOWS(m, T) = T in m's geo_state.discoveredResearch. RCP(m, n0) = m's engine-log lines "[coop-ui] push class
+OpenXcom::ResearchCompleteState" after line n0. Every TESTED press is real (click_widget OK on BaseDestroyedState,
+GEOSCAPE on the new base's screen); build_new_base, get_soldiers + set_soldier_dead (STRIP), spawn_ufo,
+trigger_base_defense, start_research, geo_set_speed and dismiss_popup are setup test commands. No row presses BASES
+and no row builds a base after a loss (either re-points the index).
+Without the fix host_lost_base-land, host_lost_base-popup, client_lost_base-land and client_lost_base-popup FAIL (4 of
+12); every other cell PASS. With it: 12 / 12. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row
+verdict; a precondition miss ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fails every
+row of that boot with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+Run: python tools/coop_test/test_lost_base_research_wait.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import datetime, json, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 
-KEY = "49702"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 82728e215)
-B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # the second base (CAP2 B2; land, accepted on both machines in TASK 0)
+KEY = "49702"                               # lobby key (no other user in src + tools)
+B2 = (LAND_LON + 0.06, LAND_LAT + 0.03)     # the second base (land, where a build is accepted on both machines)
 T1, T2 = "STR_LASER_WEAPONS", "STR_MOTION_SCANNER"
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
@@ -53,9 +59,13 @@ W_LAND, W_WATCH, ADV_CAP, W_BDS, OTHER_HAS, BOOT_S = 5.0, 10.0, 150.0, 6.0, 30.0
 S_LOSS, S_BUILD, SPEED = 2.0, 1.0, 4
 RCP = "[coop-ui] push class OpenXcom::ResearchCompleteState"
 LOGN = ("[coop-ui]", "[coop] removed base: ", "basehost", "delete_base", "LoadGameState")
-ROWS = (("RL3", ("RL3-pre", "RL3-land", "RL3-popup")), ("RL1", ("RL1-pre", "RL1-land", "RL1-popup", "RL1-index")),
-        ("RL2", ("RL2-pre", "RL2-land", "RL2-popup", "RL2-index")), ("END", ("CRASH",)))
-FIX = ("RL1-land", "RL1-popup", "RL2-land", "RL2-popup")
+ROWS = (("before_loss", ("before_loss-pre", "before_loss-land", "before_loss-popup")),
+        ("host_lost_base", ("host_lost_base-pre", "host_lost_base-land", "host_lost_base-popup",
+                            "host_lost_base-index")),
+        ("client_lost_base", ("client_lost_base-pre", "client_lost_base-land", "client_lost_base-popup",
+                              "client_lost_base-index")),
+        ("END", ("CRASH",)))
+FIX = ("host_lost_base-land", "host_lost_base-popup", "client_lost_base-land", "client_lost_base-popup")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -64,7 +74,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes, levers and real input (copied from docs rewrite/lh87-2-cap/cap2.py, never imported) -----
+# ----- probes, test commands and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 3)
 def rel(t): return round(t - T0[0], 3) if t else None
@@ -176,7 +186,7 @@ def cw(gc, match, settle=0.8):
 
 
 def drain(gc):
-    """test_coop_research_sync.drain: close every popup on gc; VIEW REPORTS on research popups"""
+    """as test_coop_research_sync.drain: close every popup on gc; VIEW REPORTS on research popups"""
     seen = []
     for _ in range(30):
         tp = top(gc)
@@ -328,8 +338,8 @@ def capture(b):
 class Boot:
     def __init__(self, tag):
         self.tag = tag
-        self.host = GameClient("host", None, make_user_dir("w2h88_%s_host" % tag))
-        self.client = GameClient("client", None, make_user_dir("w2h88_%s_client" % tag))
+        self.host = GameClient("host", None, make_user_dir("lost_base_research_%s_host" % tag))
+        self.client = GameClient("client", None, make_user_dir("lost_base_research_%s_client" % tag))
 
 
 class Row:
@@ -385,7 +395,8 @@ def bring_up(b, st):
         raise Stop("boot: host %s, client %s" % (h["bases"], c["bases"]))
     b.HB, b.CB = own(h)[0], own(c)[0]
     b.HBm, b.CBm = mir(c)[0][0], mir(h)[0][0]   # the partner's first base, as each machine names it
-    builder, other, name = (b.host, b.client, "HostBase2") if b.tag == "a" else (b.client, b.host, "ClientBase2")
+    builder, other, name = ((b.host, b.client, "HostBase2") if b.tag == "host_loses"
+                            else (b.client, b.host, "ClientBase2"))
     st["setup"] = build_base(builder, name, B2)
     st["setup"]["otherHasS"] = other_has(other, name)
     time.sleep(S_BUILD)
@@ -398,8 +409,8 @@ def bring_up(b, st):
 
 
 def row_receive(b, r, researcher, receiver, topic, pre_ok, lose=None):
-    """RL-3 / RL-1 / RL-2: (LOSE(receiver, its first base)), read the receiver (pre_ok(p) or the row ends), RESEARCH(researcher, topic),
-    WATCH(receiver, topic)"""
+    """before_loss / host_lost_base / client_lost_base: (LOSE(receiver, its first base)), read the receiver (pre_ok(p)
+    or the row ends), RESEARCH(researcher, topic), WATCH(receiver, topic)"""
     ev = r.ev
     if lose:
         ev["loss"] = lose_first_base(receiver, lose)
@@ -423,15 +434,16 @@ def row_receive(b, r, researcher, receiver, topic, pre_ok, lose=None):
 
 def row(b, r, st, rid):
     h, c = b.host, b.client
-    if rid == "RL3":
+    if rid == "before_loss":
         def pre3(p):
             r.need(not p["knows"] and any(z[0] == p["selected"] and not z[1] and not z[2] for z in p["bases"]),
                    "host knew T1 before (%s) or its selectedBase %r is not an own base: %s" % (p["knows"], p["selected"], p["bases"]))
         ev, reads = row_receive(b, r, c, h, T1, pre3)
-        r.cell("RL3-pre", True, "start ok; client knows T1 +%s s; t0 %s; T1 unknown on the host before; host selectedBase %r (own)" % (
-            ev["research"]["knowsS"], ev["t0"], ev["pre"]["selected"]))
+        r.cell("before_loss-pre", True,
+               "start ok; client knows T1 +%s s; t0 %s; T1 unknown on the host before; host selectedBase %r (own)" % (
+                   ev["research"]["knowsS"], ev["t0"], ev["pre"]["selected"]))
     else:
-        recv, rsch, first, loser_mirror = (h, c, b.HB, b.CBm) if rid == "RL1" else (c, h, b.CB, b.HBm)
+        recv, rsch, first, loser_mirror = (h, c, b.HB, b.CBm) if rid == "host_lost_base" else (c, h, b.CB, b.HBm)
 
         def pre12(p):
             r.need(p["ownIds"] == [b.B2[5]] and p["selected"] == loser_mirror and p["stack"] == ["GeoscapeState"] and not p["knows"],
@@ -441,14 +453,14 @@ def row(b, r, st, rid):
         p = ev["pre"]
         r.cell(rid + "-pre", True, "%s lost %s (%s); own ids %s; selectedBase %r (the partner's mirror); stack %s; %s knows T2 +%s s; t0 %s" % (
             recv.name, first[0], ev["loss"], p["ownIds"], p["selected"], p["stack"], rsch.name, ev["research"]["knowsS"], ev["t0"]))
-    recv_name = "host" if rid in ("RL3", "RL1") else "client"
+    recv_name = "host" if rid in ("before_loss", "host_lost_base") else "client"
     r.cell(rid + "-land", ev["land"] is not None and ev["land"] <= W_LAND, "LAND(%s) %s s (W_LAND %.0f s); %d of %d WATCH reads know the topic" % (
         recv_name, ev["land"], W_LAND, sum(1 for z in reads if z[1]), len(reads)))
     r.cell(rid + "-popup", len(ev["rcpMinusT0"]) == 1 and ev["rcpMinusT0"][0] <= W_LAND, "RCP(%s, n0) at t0 + %s s (want exactly 1, <= %.0f s)" % (
         recv_name, ev["rcpMinusT0"], W_LAND))
-    if rid != "RL3":
+    if rid != "before_loss":
         last = reads[-1] if reads else [None, None, None, None]
-        want = b.CBm if rid == "RL1" else b.HBm
+        want = b.CBm if rid == "host_lost_base" else b.HBm
         r.cell(rid + "-index", last[2] == want and last[3] == [b.B2[5]], "end of WATCH: %s selectedBase %r (want %r), own ids %s (want [%s])" % (
             recv_name, last[2], want, last[3], b.B2[5]))
 
@@ -496,8 +508,8 @@ def main():
     x, crash0 = X(), crashes()
     T0[0] = time.time()
     try:
-        run_boot(x, "a", ("RL3", "RL1"))
-        run_boot(x, "b", ("RL2",))
+        run_boot(x, "host_loses", ("before_loss", "host_lost_base"))
+        run_boot(x, "client_loses", ("client_lost_base",))
     finally:
         r, new = Row(x, None, "END"), sorted(crashes() - crash0)
         r.ev.update({"newCrash": [os.path.basename(p) for p in new], "aliveUntilShutdownRc": x.alive, "crashDir": harness.CRASH_DIR, "cpu": cpu()})
@@ -505,8 +517,8 @@ def main():
                "new crash files %d %s; [process, alive until shutdown, rc] %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY pass=%d fail=%d (W2-H88 LBR; failing %s; wall %.1f s)" % (len(cl) - len(set(x.fails)), len(set(x.fails)),
-                                                                            sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY pass=%d fail=%d (lost base research wait; failing %s; wall %.1f s)" % (
+        len(cl) - len(set(x.fails)), len(set(x.fails)), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 
 
