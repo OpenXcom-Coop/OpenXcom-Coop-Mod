@@ -21,8 +21,13 @@ One world, the host machine runs every battle. Rows:
   SEP-2C The client launches its own craft to Cydonia: the host's machine
          runs the battle, which belongs to the client, and the client's
          soldiers are on the client's seat on both machines.
+  SEP-4  A Separate battle saved mid-battle by the previous co-op build (two
+         worlds, the client's soldier aboard the host's craft) is upgraded to
+         one world and resumed: each soldier is on its owner's seat on both
+         machines, the hashes are equal, and neither machine sends the old
+         two-world guest roster (one world has no guests to send).
 
-Run:  py -3 tools/coop_test/test_separate_battle_owner.py [sep1|sep2|sep2c]
+Run:  py -3 tools/coop_test/test_separate_battle_owner.py [sep1|sep2|sep2c|sep4]
 Exit 0 = pass; anything else = failure.
 """
 
@@ -35,6 +40,9 @@ import geo
 import session
 import separate_campaign_fixture as fixture
 import test_battle_end_campaign as ending
+import test_coop_resume_battle_control as resume_control
+import test_old_battle_resume as old_resume
+from harness import GameClient, make_user_dir
 
 TANK = "STR_TANK_CANNON"
 SHELLS = "STR_HWP_CANNON_SHELLS"
@@ -273,10 +281,51 @@ def sep2c():
         js.shutdown()
 
 
+def sep4():
+    """The previous build's mid-battle save (fixtures/separate_battle.sav: the
+    host's Skyranger with three host soldiers and the client's "Guest Zzz"
+    aboard) through the save upgrade, then resumed by both players."""
+    row = "SEP-4"
+    save = os.path.basename(old_resume.FIXTURE)
+    upgraded = save[:-4] + "_upgraded.sav"
+    host = GameClient("host", None, make_user_dir("sep_battle_owner4_host", saves=(old_resume.FIXTURE,)))
+    client = GameClient("client", None, make_user_dir("sep_battle_owner4_client"))
+    ev = {}
+    try:
+        host.spawn(); client.spawn(); host.connect(); client.connect()
+        r = host.ok({"cmd": "upgrade_run", "host": save})
+        assert r.get("success") is True, f"{row}: the save upgrade failed: {r}"
+        ok, why = old_resume.load_cell(host, upgraded, ev, "sep4")
+        assert ok, f"{row}: {why}"
+        ok, why = old_resume.resume_loaded(host, client, "46614", ev, "sep4")
+        assert ok, f"{row}: {why}"
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
+        for gc, label in ((host, "host"), (client, "client")):
+            gc.wait_for(f"{label} back on the battle", lambda gc=gc: session.top_state(gc) == "BattlescapeState" or None,
+                        timeout=60, interval=0.25)
+        split = resume_control.split_report(host, client)
+        for label in ("host", "client"):
+            seats = {name: seat for _sid, name, seat in split[label]["units"]}
+            assert seats == old_resume.SEATS_BY_NAME, (
+                f"{row}: {label} seats {seats}, want {old_resume.SEATS_BY_NAME}")
+        print(f"PASS {row} seats: every soldier on its owner's seat on both machines")
+        session.assert_hash_clean(host, client, full=True, what=row)
+        print(f"PASS {row} hash: every bucket equal")
+        for gc, label in ((host, "host"), (client, "client")):
+            contrib = session.event_state(gc).get("guestContrib") or {}
+            assert contrib.get("sent") == 0 and contrib.get("recvSeats") == [], (
+                f"{row}: {label} guest roster sent={contrib.get('sent')} recvSeats={contrib.get('recvSeats')}, "
+                f"want 0 and [] (one world has no guests)")
+        print(f"PASS {row} guests: neither machine sends a guest roster")
+        print(f"ALL {row} PASSED")
+    finally:
+        old_resume.shut(host, client)
+
+
 def main():
-    rows = sys.argv[1:] or ["sep1", "sep2", "sep2c"]
+    rows = sys.argv[1:] or ["sep1", "sep2", "sep2c", "sep4"]
     for name in rows:
-        {"sep1": sep1, "sep2": sep2, "sep2c": sep2c}[name]()
+        {"sep1": sep1, "sep2": sep2, "sep2c": sep2c, "sep4": sep4}[name]()
 
 
 if __name__ == "__main__":
