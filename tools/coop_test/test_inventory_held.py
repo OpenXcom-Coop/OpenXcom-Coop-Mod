@@ -1,139 +1,92 @@
-"""test_inventory_held.py: parallel mode, the in-battle inventory
-while an action runs (held placements, V11), the host's own inventory changes
-reaching the second player at once (the host `sync`, Q7 (a)), and the client's
-inventory screen closing by itself when its soldier goes down, when the side
-changes and when the battle ends (the force-close, Q9 (a)). Spec docs
-rewrite/prompts/w2p8_inventory.md: owner D130; S-C1 PINNED STAGE TEXT (AMENDMENT
-P8-3); AMENDMENT P8-3a (C1-C7, rulings Q1-Q6); AMENDMENT P8-3b (the S-C1 TASK 0
-pins and rulings 1-6, which move IH6 to its own boot). W2-P8 S-C2 (owner D166 = B,
-D187-D191; AMENDMENT P8-4 section 4.2, P8-4 RULINGS, AMENDMENT P8-4b) re-points
-IH8 (the partner's walk runs under the host's inventory) and adds IH9 (boot 3).
+"""test_inventory_held.py: parallel mode, the in-battle inventory while an action runs (held placements), the host's
+own inventory changes reaching the second player at once (the host `sync`), and the client's inventory screen closing
+by itself when its soldier goes down, when the side changes and when the battle ends (the force-close).
 
-Boot 1 = test_inventory.boot (the roster-pinned terror boot, paperdoll option
-on both). Rows in this order, every row ONE run, every row restages (IH6 kills
-C2 and IH7 ends the battle, so IH7 is last):
-  IH1a  held placement, same unit (V11, Q8 a, OR1 a). T0-4 window: host H snap
-        shot at dial 1. The client opens C's inventory; on the client's first
-        `shot` cue it picks the grenade (belt (1,0)) and drops it on
-        STR_LEFT_HAND: lastDeny busy, coopPendingIntent {inv_move, C},
-        invLastWarning = the held text, invWarningWrites +1, the grenade on the
-        cursor. Then a second drop on belt (2,0). RED: the second drop's
-        invGuard.last.decision "inflight" (S-A's D150 step), invGuard.counts.held
-        +0. GREEN: invGuard.last {site drop, op move, decision held}, counts.held
-        +1, invWarningWrites +1 and invLastWarning the held text again,
-        coopIntentsSent.inv_move unchanged by it. After the host's end the held
-        order resubmits and is admitted: grenade STR_LEFT_HAND owner C, C TU 60 on
-        both, the cursor empty; EQUAL.
-  IH1b  right-click cancels a held order; declared GREEN at red (S-A
-        section 8.1 step 8). The same first drop, then a right-click:
-        coopPendingIntent null, the cursor empty, the grenade STR_BELT (1,0) on
-        both; after the host's end nothing resubmits (coopIntentsSent.inv_move +1
-        over the row, no inv_move context), invWarningWrites +1 over the row; EQUAL.
-  IH1c  a held walk blocks a placement (V11 cross-order, F2404). On the cue: a
-        client walk order for C2 -> lastDeny busy, coopPendingIntent {walk, C2};
-        then the client opens C's inventory and drops the grenade on
-        STR_LEFT_HAND. RED: the drop is sent (invGuard.last decision sent,
-        coopIntentsSent.inv_move +1), the walk is lost; after the host's end the
-        grenade moves and C2 stays. GREEN: invGuard.last decision held, nothing
-        sent, invLastWarning the held text, invWarningWrites +1,
-        coopPendingIntent {walk, C2} unchanged; after the host's end C2 stands on
-        the walk's destination on both and the grenade is still on the cursor; a
-        right-click returns it (STR_BELT (1,0) on both); EQUAL.
-  IH8   the F2329 gate with the partner's walk RUNNING under the host's screen
-        (T0-10; re-pointed by W2-P8 S-C2: AMENDMENT P8-4 section 4.2, the draft
-        rewrite/prompts/w2p8_sc2_sr_sd_draft.md section 1.6, owner D166 = B;
-        P8-4b ruling 1: the host camera on the lane's middle (11,27,0) and the
-        client's xcom dial 40, so the walk lasts ~2.3 s, F2886). Host opens H's
-        inventory; a client walk order for C (12,26,0) -> (9,29,0) is admitted
-        (host contextsOpened.intent +1, isBusy); inside the walk the host moves
-        H's grenade belt (1,0) -> STR_LEFT_HAND with real clicks; both machines
-        are sampled until the walk is over or WALK_UNDER_S. The latch (S-C1,
-        both builds): pending true after the drop, sets.move +1, heldByGate > 0
-        while the walk's context is open. RED (S-C2.1 build: the walk frozen
-        under the host's screen, F2071/F2410): C still on (12,26,0) and the
-        client's H grenade still STR_BELT (1,0) after the window. GREEN: while
-        the host's inventory_view.open is still true, the walk's context is
-        closed, C stands on (9,29,0) on both and the client holds H's grenade
-        STR_LEFT_HAND and H TU 58 - 4 (the walk's evs carried H's change,
-        F2402, D189 c). Then the host closes: pending false, emptyFlushes +>= 1,
-        host syncEvsEmitted +0 over the row; EQUAL. The client's dial goes back
-        to its boot value at the row's end.
-  IH5   V13 side change (T0-7). The client opens C's inventory and picks the
-        grenade; client END TURN ready; host END TURN. RED: at the client's side
-        flip inventory_view.open true (NextTurnState above it) and
-        invForcedCloses.count +0. GREEN: invForcedCloses.byReason.side +1, no
-        InventoryState on the client's stack at the flip, inventory_view.open
-        false, the grenade STR_BELT (1,0) on both; during the alien side the
-        client's INVENTORY key opens nothing (inventory_view.open false,
-        coopWaitText unchanged, OR3 a). Turn 2 through
-        test_turn_baton.drive_full_cycle (P8-3b ruling 2); EQUAL. The red
-        run's cleanup (ruling 3) acts on the rebound screen: inventory_cursor_clear,
-        then battle_close_inventory (a no-op at green: the screen is gone).
-  IH2   host placement sync. (a) the host opens and closes H's
-        inventory with no placement: RED sets.close +0; GREEN sets.close +1,
-        emptyFlushes +1, host syncEvsEmitted +0. (b) the host moves H's grenade
-        belt (1,0) -> STR_LEFT_HAND with real clicks and both machines are sampled
-        with the host's screen open: RED host syncEvsEmitted +0 and the client's H
-        grenade still STR_BELT (1,0); GREEN sets.move +1, host
-        syncEvsEmitted +1, client syncEvsApplied +1, H's grenade STR_LEFT_HAND and
-        H TU 58 - 4 on both while the screen is open. The heal step; EQUAL.
-  IH3   host reload key. H: rifle (no clip) STR_RIGHT_HAND, clip belt
-        (0,0); host TAB-selects H and presses its reload key. RED: host
-        syncEvsEmitted +0, the client's rifle ammo [r, r, r] while the host's is
-        [clip, r, r, r]. GREEN: sets.reload +1, host syncEvsEmitted +1,
-        rifle ammo [clip, r, r, r] and H's TU equal on both before any other host
-        ev. The heal step; EQUAL.
-  IH7   battle end with the client's screen open.
-        The client opens C's inventory and picks the grenade; the host aborts
-        (test_battle_end.end_host_abort). RED: client
-        battleEnd.inventoryOpenAtTeardown true, invForcedCloses.byReason.battle_end
-        +0. GREEN: byReason.battle_end +1, inventoryOpenAtTeardown false. Both:
-        the client's top = the display-only DebriefingState within DEBRIEF_S, no
-        new crash file, host battleEnd.emitted 1 and evsAfter 0, exactly one
-        client `[coop-ui] pop ... InventoryState` line. Never reads inventory_view
-        after the teardown (ruling 5).
-Boot 2 (P8-3b ruling 1, F2802):
-  IH6   unit out under an open screen. C2 on (4,32,0),
-        stripped, a grenade belt (1,0); the client opens C2's inventory and picks
-        the grenade; host battle_action kill_unit_real {C2}. No click (J2). RED:
-        the client dies within 5 s (a new crash log, the client process gone) -
-        a named FAIL carrying the crash log's exception line. GREEN: no crash file,
-        the force-close fires no later than the first applied ev after which C2
-        is out or has no tile (its InventoryState pop line precedes the next
-        applied ev), invForcedCloses.byReason.unit_out +1, C2 dead on both, the
-        grenade where the host's evs put it on both; EQUAL.
-Boot 3 (W2-P8 S-C2: AMENDMENT P8-4 C2-3 and Q1 (a); P8-4b T0-S9 pins, F2884; alone,
-the IH6 precedent, because its red cell ends the client):
-  IH9   a COVERED client inventory whose soldier goes down. C2 on
-        (4,32,0) dir 6, stripped, a grenade belt (1,0), TU 58; the client opens
-        C2's inventory and covers it with the inventory's Ufopaedia key
-        (keyGeoUfopedia from its options.cfg -> UfopaediaStartState); host
-        battle_action kill_unit_real {C2}; then the client closes the cover
-        (keyCancel). RED: the client dies within 5 s of the close (a new crash
-        log, Inventory.cpp:378 via InventoryState::think; the client process
-        gone) - a named FAIL carrying the crash log's exception line. GREEN:
-        invForcedCloses.coveredDetach +1 while covered, byReason.unit_out +1
-        after the close, no InventoryState on the client, no crash file, C2 dead
-        on both; EQUAL.
-The heal step (tail of IH2 and IH3, not a row): the client turns C one octant;
-its context's evs carry whatever host change the client still lacks.
-EVIDENCE prints that context's evs with their delta shapes (ruling 4). Then EQUAL.
+Boot 1 = test_inventory.boot (the roster-pinned terror boot, paperdoll option on both). Rows in this order, every row
+ONE run, every row restages (unit_out_closes kills C2 and battle_end_closes ends the battle, so battle_end_closes is
+last):
+  held_same_unit: a held placement on the same unit. The shot window: the host's H fires a snap shot at fire dial 1.
+      The client opens C's inventory; on the client's first `shot` cue it picks the grenade (belt (1,0)) and drops it
+      on STR_LEFT_HAND: lastDeny busy, coopPendingIntent {inv_move, C}, invLastWarning = the held text,
+      invWarningWrites +1, the grenade on the cursor. Then a second drop on belt (2,0): invGuard.last {site drop, op
+      move, decision held}, counts.held +1, invWarningWrites +1 and invLastWarning the held text again,
+      coopIntentsSent.inv_move unchanged by it. After the host's end the held order resubmits and is admitted:
+      grenade STR_LEFT_HAND owner C, C TU 60 on both, the cursor empty; EQUAL. When broken: the second drop's
+      invGuard.last.decision is "inflight" and invGuard.counts.held +0.
+  right_click_cancels_held: a right-click cancels a held order. The same first drop, then a right-click:
+      coopPendingIntent null, the cursor empty, the grenade STR_BELT (1,0) on both; after the host's end nothing
+      resubmits (coopIntentsSent.inv_move +1 over the row, no inv_move context), invWarningWrites +1 over the row;
+      EQUAL.
+  held_walk_blocks_drop: a held walk blocks a placement (an order of another kind). On the cue: a client walk order
+      for C2 -> lastDeny busy, coopPendingIntent {walk, C2}; then the client opens C's inventory and drops the
+      grenade on STR_LEFT_HAND: invGuard.last decision held, nothing sent, invLastWarning the held text,
+      invWarningWrites +1, coopPendingIntent {walk, C2} unchanged; after the host's end C2 stands on the walk's
+      destination on both and the grenade is still on the cursor; a right-click returns it (STR_BELT (1,0) on both);
+      EQUAL. When broken: the drop is sent (invGuard.last decision sent, coopIntentsSent.inv_move +1) and the walk
+      is lost; after the host's end the grenade moves and C2 stays.
+  partner_walk_under_host_screen: the host inventory latch with the partner's walk RUNNING under the host's screen
+      (the host camera on the walk lane's middle (11,27,0) and the client's xcom dial 40, so the walk lasts ~2.3 s).
+      Host opens H's inventory; a client walk order for C (12,26,0) -> (9,29,0) is admitted (host
+      contextsOpened.intent +1, isBusy); inside the walk the host moves H's grenade belt (1,0) -> STR_LEFT_HAND with
+      real clicks; both machines are sampled until the walk is over or WALK_UNDER_S. The latch: pending true after
+      the drop, sets.move +1, heldByGate > 0 while the walk's context is open. Passes when, while the host's
+      inventory_view.open is still true, the walk's context is closed, C stands on (9,29,0) on both and the client
+      holds H's grenade STR_LEFT_HAND and H TU 58 - 4 (the walk's evs carried H's change). Then the host closes:
+      pending false, emptyFlushes +>= 1, host syncEvsEmitted +0 over the row; EQUAL. The client's dial goes back to
+      its boot value at the row's end. When broken (the walk frozen under the host's screen): C still on (12,26,0)
+      and the client's H grenade still STR_BELT (1,0) after the window.
+  side_change_closes: the side change closes the client's screen. The client opens C's inventory and picks the
+      grenade; client END TURN ready; host END TURN. Passes when invForcedCloses.byReason.side +1, no InventoryState
+      on the client's stack at the flip, inventory_view.open false, the grenade STR_BELT (1,0) on both; during the
+      alien side the client's INVENTORY key opens nothing (inventory_view.open false, coopWaitText unchanged). Turn 2
+      through test_turn_baton.drive_full_cycle; EQUAL. When broken: at the client's side flip inventory_view.open is
+      true (NextTurnState above it) and invForcedCloses.count +0; the row's cleanup then acts on the rebound screen:
+      inventory_cursor_clear, then battle_close_inventory (a no-op when the screen is gone).
+  host_placement_sync: host placement sync, in two steps. Open and close only: the host opens and closes H's
+      inventory with no placement: sets.close +1, emptyFlushes +1, host syncEvsEmitted +0 (when broken sets.close
+      +0). The move: the host moves H's grenade belt (1,0) -> STR_LEFT_HAND with real clicks and both machines are
+      sampled with the host's screen open: sets.move +1, host syncEvsEmitted +1, client syncEvsApplied +1, H's
+      grenade STR_LEFT_HAND and H TU 58 - 4 on both while the screen is open (when broken host syncEvsEmitted +0 and
+      the client's H grenade still STR_BELT (1,0)). The heal step; EQUAL.
+  host_reload_key: host reload key. H: rifle (no clip) STR_RIGHT_HAND, clip belt (0,0); host TAB-selects H and presses
+      its reload key. Passes when sets.reload +1, host syncEvsEmitted +1, rifle ammo [clip, r, r, r] and H's TU
+      equal on both before any other host ev. When broken: host syncEvsEmitted +0, the client's rifle ammo [r, r, r]
+      while the host's is [clip, r, r, r]. The heal step; EQUAL.
+  battle_end_closes: battle end with the client's screen open. The client opens C's inventory and picks the grenade;
+      the host aborts (test_battle_end.end_host_abort). Passes when byReason.battle_end +1 and
+      inventoryOpenAtTeardown false. When broken: client battleEnd.inventoryOpenAtTeardown true,
+      invForcedCloses.byReason.battle_end +0. Either way: the client's top = the display-only DebriefingState within
+      DEBRIEF_S, no new crash file, host battleEnd.emitted 1 and evsAfter 0, exactly one client `[coop-ui] pop ...
+      InventoryState` line. Never reads inventory_view after the teardown.
+Boot 2 (alone, because when broken its row ends the client):
+  unit_out_closes: unit out under an open screen. C2 on (4,32,0), stripped, a grenade belt (1,0); the client opens
+      C2's inventory and picks the grenade; host battle_action kill_unit_real {C2}. No click (the unit may be dead).
+      Passes when there is no crash file, the force-close fires no later than the first applied ev after which C2 is
+      out or has no tile (its InventoryState pop line precedes the next applied ev),
+      invForcedCloses.byReason.unit_out +1, C2 dead on both, the grenade where the host's evs put it on both; EQUAL.
+      When broken: the client dies within 5 s (a new crash log, the client process gone) - a named FAIL carrying the
+      crash log's exception line.
+Boot 3 (alone, like boot 2, because when broken its row ends the client):
+  covered_unit_out: a COVERED client inventory whose soldier goes down. C2 on (4,32,0) dir 6, stripped, a grenade
+      belt (1,0), TU 58; the client opens C2's inventory and covers it with the inventory's Ufopaedia key
+      (keyGeoUfopedia from its options.cfg -> UfopaediaStartState); host battle_action kill_unit_real {C2}; then the
+      client closes the cover (keyCancel). Passes when invForcedCloses.coveredDetach +1 while covered,
+      byReason.unit_out +1 after the close, no InventoryState on the client, no crash file, C2 dead on both; EQUAL.
+      When broken: the client dies within 5 s of the close (a new crash log, Inventory.cpp:378 via
+      InventoryState::think; the client process gone) - a named FAIL carrying the crash log's exception line.
+The heal step (tail of host_placement_sync and host_reload_key, not a row): the client turns C one octant; its
+context's evs carry whatever host change the client still lacks. EVIDENCE prints that context's evs with their delta
+shapes. Then EQUAL.
 
-Common asserts (after wait_host_idle): hash_now full EQUAL; desyncSeen false on
-both; client coopClientBStatePushes unchanged and host 0; client invLocalWrites 0;
-host inventory_view.open false; client invGuard as the row names it.
+Common asserts (after wait_host_idle): hash_now full EQUAL; desyncSeen false on both; client coopClientBStatePushes
+unchanged and host 0; client invLocalWrites 0; host inventory_view.open false; client invGuard as the row names it.
 
-Constants: the P8-3b pin table (T0-4, T0-6, T0-7, T0-9, T0-10, T0-11 rows; evidence
-and scripts docs rewrite/w2p8-task0/sc1/, t0_sc1.py) and P8-2 T0-1 (tiles, max TU);
-S-C2's IH8 / IH9 pins: the P8-4b pin table (T0-S1, T0-S9 rows; docs
-rewrite/w2p8-task0/sc2/, t0_sc2.py). Item ids come from each row's staging record
-(C7), never literals. Every lever pair goes to the CLIENT first, except the
-teleports IH8 and IH9 stage (P8-4b ruling 3: host leg first, checked, then the
-client leg; place_host_first). Each row prints ONE "EVIDENCE <id>:" line with both
-machines' fields before its conditions are checked; every row runs after an earlier
-failure; "PASS <id>" / "FAIL <id>: <message>". Exit 0 only when every row passes, 2
-otherwise (a bring-up failure is also 2). one run is the result.
-run in the foreground to completion.
+Constants: measured values (tiles, max TU, timing windows; each block below quotes what was measured). Item ids come
+from each row's staging record, never literals. Every staging command pair goes to the CLIENT first, except the
+teleports partner_walk_under_host_screen and covered_unit_out stage (host leg first, checked, then the client leg;
+place_host_first). Each row prints ONE "EVIDENCE <id>:" line with both machines' fields before its conditions are
+checked; every row runs after an earlier failure; "PASS <id>" / "FAIL <id>: <message>". Exit 0 only when every row
+passes, 2 otherwise (a bring-up failure is also 2). One run is the result; run it in the foreground to completion.
 
 Run:  python tools/coop_test/test_inventory_held.py
 """
@@ -168,102 +121,104 @@ from test_seat_pacing import tab_select
 from test_thin_client_tripwire import read_reload_key
 from test_battle_end import end_host_abort, DEBRIEF_S
 
-# ----- units and TU (test_inventory.py :154-:156; P8-2 T0-1) -----
-C2_ID = 9                         # test_inventory.py SEATED [8, 9] (:154); P8-3a Q5 (a)
-H_TU_MAX = 58                     # P8-2 T0-1: "Max TU C 64, H 58"
-C2_TU_MAX = 58                    # P8-3b T0-6 row: C2 "TU 58"
+# ----- units and TU (test_inventory.py C_ID / H_ID / SEATED; measured max TU) -----
+C2_ID = 9                         # test_inventory.py SEATED [8, 9]
+H_TU_MAX = 58                     # measured: "Max TU C 64, H 58"
+C2_TU_MAX = 58                    # measured: C2 "TU 58"
 STATUS_DEAD = 6                   # src/Mod/Unit.h UnitStatus (test_host_combat.py STATUS_DEAD)
 STATUS_UNCONSCIOUS = 7
 
-# ----- P8-3b T0-4 row (IH1a/b/c): "fire dial 1 on seat 0 (wait_seat_dial); H (14,24,0) dir 2, rifle + clip via
-# give_both; set_seed 1 before each fire; battle_fire snap at (34,24,0), tuCost 14 (impact tile (40,25,0)); C
-# belt_and_ground on STAGE_C (2,33,0) (window A) / (0,34,0) (window B); C2 (4,32,0) dir 6, walk dest (1,32,0)";
-# window 8775-10206 ms (3 boots) >= 3 x the longest in-window sequence 814 ms -----
+# ----- the host's shot window (held_same_unit, right_click_cancels_held, held_walk_blocks_drop), measured: "fire dial
+# 1 on seat 0 (wait_seat_dial); H (14,24,0) dir 2, rifle + clip via give_both; set_seed 1 before each fire;
+# battle_fire snap at (34,24,0), tuCost 14 (impact tile (40,25,0)); C belt_and_ground on STAGE_C (2,33,0) (window A) /
+# (0,34,0) (window B); C2 (4,32,0) dir 6, walk dest (1,32,0)"; window 8775-10206 ms (3 boots) >= 3 x the longest
+# in-window sequence 814 ms -----
 FIRE_DIAL = 1
 FIRE_SEED = 1
 FIRE_MODE = "snap"
 H_FIRE_TILE, H_FIRE_DIR = (14, 24, 0), 2
 H_FIRE_TARGET = (34, 24, 0)
 FIRE_TU = 14
-IH1A_TILE = (2, 33, 0)            # T0-4 window A (STAGE_C)
-IH1B_TILE = (0, 33, 0)            # T0-4 pins no window-2 tile: P8-2 T0-1's IV1 tile (an empty open row tile), so C
-                                  # never teleports onto its own tile (CLAUDE.local.md S2)
-IH1C_TILE = (0, 34, 0)            # T0-4 window B
-C2_TILE, C2_DIR = (4, 32, 0), 6   # T0-4 (IH1c) and T0-6 (IH6, Q5 a)
-C2_DEST = (1, 32, 0)              # T0-4: 3 tiles west along y=32
-# ----- P8-3b T0-10 row (IH8): "C tele (12,26,0) dir 2, TU 64; walk dest (9,29,0) (T0-2's read_lane, dir 5); H = T0-11
-# shape 2 staging; H's grenade belt (1,0) -> STR_LEFT_HAND"; the walk froze 0.124 s after the send; host lastSeqEmitted
-# and syncEvsEmitted flat 4.56 s -----
-IH8_C_TILE, IH8_C_DIR = (12, 26, 0), 2
-IH8_WALK_DEST = (9, 29, 0)
-IH8_SAMPLE_EVERY_S = 0.1
-# ----- W2-P8 S-C2 (P8-4b pin table): T0-S1 row: "C (12,26,0) dir 2 -> (9,29,0) 3 tiles / (10,28,0) 2 tiles; host
-# camera battle_camera_center (11,27,0) (on-screen) + client battleXcomSpeed 40 + wait_seat_dial(seat 1, "xcom",
-# 40)"; measured "on-screen dial 40: 3 tiles 2339 ms, 2 tiles 1554-1559 ms (3 boots); off-screen walks run at
-# interval 0 (~270 ms) at any dial; longest host sequence inside a window = IH8's pick+drop 202 ms".
-# P8-4b ruling 1: every S-C2 walk-window row (IH8 included) pins the camera and the dial. -----
-LANE_MID = (11, 27, 0)            # the host camera's centre for an on-screen partner walk (t0_sc2.py LANE_MID)
-WALK_DIAL = 40                    # the client's battleXcomSpeed = seat 1's xcom dial (CoopSpeed, t0_sc2.dial_xcom)
+HELD_SAME_UNIT_TILE = (2, 33, 0)  # window A (STAGE_C)
+RIGHT_CLICK_TILE = (0, 33, 0)     # no measured second-window tile: test_inventory's open_and_look tile (an empty open
+                                  # row tile), so C never teleports onto its own tile
+HELD_WALK_TILE = (0, 34, 0)       # window B
+C2_TILE, C2_DIR = (4, 32, 0), 6   # measured for held_walk_blocks_drop and unit_out_closes
+C2_DEST = (1, 32, 0)              # 3 tiles west along y=32
+# ----- partner_walk_under_host_screen, measured: "C tele (12,26,0) dir 2, TU 64; walk dest (9,29,0) (read_lane, dir
+# 5); H = the host_placement_sync staging; H's grenade belt (1,0) -> STR_LEFT_HAND"; when broken the walk froze 0.124 s
+# after the send and host lastSeqEmitted and syncEvsEmitted stayed flat for 4.56 s -----
+PARTNER_WALK_C_TILE, PARTNER_WALK_C_DIR = (12, 26, 0), 2
+PARTNER_WALK_DEST = (9, 29, 0)
+PARTNER_WALK_SAMPLE_S = 0.1
+# ----- the on-screen partner walk, measured: "C (12,26,0) dir 2 -> (9,29,0) 3 tiles / (10,28,0) 2 tiles; host camera
+# battle_camera_center (11,27,0) (on-screen) + client battleXcomSpeed 40 + wait_seat_dial(seat 1, "xcom", 40)";
+# "on-screen dial 40: 3 tiles 2339 ms, 2 tiles 1554-1559 ms (3 boots); off-screen walks run at interval 0 (~270 ms) at
+# any dial; longest host sequence inside a window = partner_walk_under_host_screen's pick+drop 202 ms".
+# Every walk-window row pins the camera and the dial. -----
+LANE_MID = (11, 27, 0)            # the host camera's centre for an on-screen partner walk
+WALK_DIAL = 40                    # the client's battleXcomSpeed = seat 1's xcom dial (CoopSpeed)
 WALK_UNDER_S = 6.0                # a 3-tile walk (2339 ms uncovered) must end under the host's screen within this;
                                   # a covered BattlescapeState steps at most once per frame, so > 2.5 x
-KEY_SETTLE_S = 0.3                # P8-4b ruling 2: a key injected right after a state opens is lost
-# ----- W2-P8 S-C2 (P8-4b pin table) T0-S9 row (IH9): "C2 (4,32,0) dir 6, stripped, grenade belt (1,0), TU 58;
-# client opens C2's inventory; cover = keyGeoUfopedia 117 (UfopaediaStartState, 0.102 s), close = keyCancel 27";
-# "covered client inventory, host kill_unit_real {C2} -> notOnTop +2, then closing the cover crashes the
-# client 0.527 s later (Inventory.cpp:378 via InventoryState::think)". The keys are read from the machine's own
-# options.cfg (117 and 27 in T0-S9). -----
+KEY_SETTLE_S = 0.3                # a key injected right after a state opens is lost
+# ----- covered_unit_out, measured: "C2 (4,32,0) dir 6, stripped, grenade belt (1,0), TU 58; client opens C2's
+# inventory; cover = keyGeoUfopedia 117 (UfopaediaStartState, 0.102 s), close = keyCancel 27"; when broken: "covered
+# client inventory, host kill_unit_real {C2} -> notOnTop +2, then closing the cover crashes the client 0.527 s later
+# (Inventory.cpp:378 via InventoryState::think)". The keys are read from the machine's own options.cfg (117 and 27
+# when measured). -----
 COVER_KEY = "keyGeoUfopedia"      # InventoryState :227 (_btnOk -> btnUfopaediaClick)
 CLOSE_KEY = "keyCancel"           # UfopaediaStartState :114 (_btnOk -> btnOkClick)
-COVER_WAIT_S = 2.0                # T0-S9: covered 0.102 s after the key
-# ----- P8-3b T0-11 row (IH2 a): "shape 2: restage_h STAGE_H (48,24,0) dir 2, belt_and_ground, H TU 58" -----
-# ----- P8-3b T0-7 row (IH5): "C belt_and_ground on (1,33,0) dir 2"; the client stack at the flip [.., BattlescapeState,
-# InventoryState, NextTurnState]; at turn 2 the screen rebinds to C2 with C's grenade on the cursor --
-IH5_TILE = (1, 33, 0)
+COVER_WAIT_S = 2.0                # measured: covered 0.102 s after the key
+# ----- host_placement_sync, measured: "restage_h STAGE_H (48,24,0) dir 2, belt_and_ground, H TU 58" -----
+# ----- side_change_closes, measured: "C belt_and_ground on (1,33,0) dir 2"; when broken the client stack at the flip
+# is [.., BattlescapeState, InventoryState, NextTurnState] and at turn 2 the screen rebinds to C2 with C's grenade on
+# the cursor --
+SIDE_CHANGE_TILE = (1, 33, 0)
 TURN0 = 1                         # the boot's first player turn (battle_state.turn at bring-up)
-# ----- P8-3b T0-9 row (IH7): "C belt_and_ground on STAGE_C (2,33,0); host abort + dismiss_popup"; the client's
+# ----- battle_end_closes, measured: "C belt_and_ground on STAGE_C (2,33,0); host abort + dismiss_popup"; the client's
 # display-only DebriefingState 0.103 s after the confirm -----
-IH7_TILE = (2, 33, 0)
-# ----- P8-3b T0-6 row + ruling 1 (IH6): "C2 (4,32,0) dir 6 (Q5 a), stripped, grenade belt (1,0), TU 58; host
-# kill_unit_real {C2}"; RED = "the client dies within 5 s of the host kill_unit_real" -----
+BATTLE_END_TILE = (2, 33, 0)
+# ----- unit_out_closes, measured: "C2 (4,32,0) dir 6, stripped, grenade belt (1,0), TU 58; host kill_unit_real
+# {C2}"; when broken "the client dies within 5 s of the host kill_unit_real" -----
 CRASH_WATCH_S = 5.0
 
 # ----- texts (en-US; exact text) -----
-TEXT_HELD = "Please wait for HostPlayer's action to finish"   # OR1 (a) = showPending's STR_COOP_WAIT_FOR_PLAYER_ACTION
-                                                               # (F1965); T0-4 A atDeny invLastWarning
+TEXT_HELD = "Please wait for HostPlayer's action to finish"   # showPending's STR_COOP_WAIT_FOR_PLAYER_ACTION; the
+                                                               # measured invLastWarning at the busy deny
 
 # ----- waits -----
-CUE_WAIT_S = 30.0                 # the host's fire -> the client's first shot cue (T0-4: 124 ms)
-DENY_WAIT_S = 3.0                 # T0-4: the busy deny 125-315 ms after the cue
+CUE_WAIT_S = 30.0                 # the host's fire -> the client's first shot cue (measured: 124 ms)
+DENY_WAIT_S = 3.0                 # measured: the busy deny 125-315 ms after the cue
 CLICK_WAIT_S = 2.0
 ORDER_TIMEOUT_S = 30.0            # the window (<= 10.2 s) plus the held order's resubmit / walk
-FREEZE_WAIT_S = 5.0               # T0-10: frozen 0.124 s after the walk's send
+FREEZE_WAIT_S = 5.0               # when broken the walk froze 0.124 s after its send
 WALK_WAIT_S = 15.0
 FLIP_WAIT_S = 30.0
-SYNC_WAIT_S = 3.0                 # P8-2 T0-3: the F1133 negative control sampled at 0 s and 3 s
-LATCH_WAIT_S = 2.0                # C3: the close latch runs at ~InventoryState, one frame after the pop
+SYNC_WAIT_S = 3.0                 # measured: the no-sync negative control sampled at 0 s and 3 s
+LATCH_WAIT_S = 2.0                # the close latch runs at ~InventoryState, one frame after the pop
 KEY_READ_S = 0.5                  # a text is read within 0.5 s of the press
 
 HELD_PROBE_KEYS = ("invHostDirty", "invForcedCloses", "invWarningWrites", "syncEvsEmitted", "syncEvsApplied",
-            "contextsOpened", "cueCounts", "battleEnd", "deltaEvsEmitted")
+                   "contextsOpened", "cueCounts", "battleEnd", "deltaEvsEmitted")
 
 
 # ===================== probes =====================
 
 
-def probes_sc1(gc):
-    """test_inventory.probes()' keys plus the S-C1 probes."""
+def probes_held(gc):
+    """test_inventory.probes()' keys plus the held-inventory probes (HELD_PROBE_KEYS)."""
     es = event_state(gc)
     assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
     return {k: es.get(k) for k in inv.PROBE_KEYS + HELD_PROBE_KEYS}
 
 
-def snap_sc1(host, client):
-    return {"host": probes_sc1(host), "client": probes_sc1(client)}
+def snap_held(host, client):
+    return {"host": probes_held(host), "client": probes_held(client)}
 
 
-def collect_sc1(host, client, seq0):
+def collect_held(host, client, seq0):
     rec = inv.collect(host, client, seq0)
-    rec["host"], rec["client"] = probes_sc1(host), probes_sc1(client)
+    rec["host"], rec["client"] = probes_held(host), probes_held(client)
     return rec
 
 
@@ -314,8 +269,6 @@ def ms_since(t0):
 
 
 # ===================== logs + crash files =====================
-# Copied verbatim from docs rewrite/w2p8-task0/sc1/t0_sc1.py :77-:138 (P8-3a ruling: helpers outside session.py are
-# copied with a source-line comment, never re-implemented).
 
 TS_RE = re.compile(r"^\[(\d\d-\d\d-\d{4}_\d\d-\d\d-\d\d\.\d{3})\]")
 DELTA_RE = re.compile(r"\[coop-delta\] attached to seq (\d+) kind=(\S+) \((\d+) bytes\): (.*)$")
@@ -382,8 +335,8 @@ def delta_shape(d):
 
 
 def crash_files():
-    """t0_sc1.py :145-:149: every crash_*.log (session._crash_log_snapshot) and every .dmp, in this lane's own crash
-    folder and under this lane's own user dirs (W2-U8h F9563: never another lane's)."""
+    """Every crash_*.log (session._crash_log_snapshot) and every .dmp, in this harness slot's own crash folder and
+    under this slot's own user dirs (never another slot's)."""
     hits = set(session._crash_log_snapshot())
     for root in (harness.CRASH_DIR, os.path.join(harness.TEST_ROOT, "s%d_*" % harness.HARNESS_SLOT)):
         hits |= set(glob.glob(os.path.join(root, "**", "*.dmp"), recursive=True))
@@ -409,7 +362,7 @@ def ui_lines(gc, mark, needle="[coop-ui] p"):
     return [ln for ln in log_lines_since(gc, mark) if needle in ln]
 
 
-# ===================== staging (client first, F607) =====================
+# ===================== staging (client first) =====================
 
 
 def settle(host, client):
@@ -418,17 +371,17 @@ def settle(host, client):
 
 
 def restage_c(host, client, key, tile):
-    """test_inventory.restage (ST5 a, kit belt_and_ground) with C's tile for this file's row `key` (the P8-3b pin)."""
+    """test_inventory.restage (kit belt_and_ground) with C's tile for this file's row `key` (a measured tile)."""
     inv.ROW_TILE[key] = tile
     return inv.restage(host, client, key, "belt_and_ground")
 
 
 def place_host_first(host, client, uid, tile, d):
-    """W2-P8 S-C2 (AMENDMENT P8-4b ruling 3, F2888): test_client_shoot.place (re-entrant: a unit already on the
-    tile on both keeps its facing, CLAUDE.local.md S2) with the HOST leg first and checked, then the client leg: a
-    host refusal (e.g. "not STATUS_STANDING") never leaves the client teleported alone (both() sends the client
-    first, F607). The tile's own check is the lever's refusal. Only for player units: a host-first teleport
-    of an ALIEN makes the host's next reveal ev carry state the client lacks (F607, reproduced for S-C2)."""
+    """test_client_shoot.place (re-entrant: a unit already on the tile on both keeps its facing) with the HOST leg
+    first and checked, then the client leg: a host refusal (e.g. "not STATUS_STANDING") never leaves the client
+    teleported alone (both() sends the client first). The tile's own check is the teleport command's refusal. Only
+    for player units: a host-first teleport of an ALIEN makes the host's next reveal ev carry state the client
+    lacks."""
     uh, uc = units(host).get(uid) or {}, units(client).get(uid) or {}
     if all((u.get("x"), u.get("y"), u.get("z")) == tuple(tile) for u in (uh, uc)):
         return {"kept": tuple(tile), "dir": (uh.get("direction"), uc.get("direction"))}
@@ -444,8 +397,8 @@ def place_host_first(host, client, uid, tile, d):
 
 
 def read_key(user_dir, name):
-    """Options::<name> as the process wrote it to its own options.cfg (docs rewrite/w2p8-task0/sc2/t0_sc2.py
-    :64-:69, copied: test_inventory.read_inventory_key's pattern for any key)."""
+    """Options::<name> as the process wrote it to its own options.cfg (test_inventory.read_inventory_key's pattern
+    for any key)."""
     with open(os.path.join(user_dir, "options.cfg"), "r", encoding="utf-8") as f:
         m = re.search(r"^\s*" + name + r":\s*(-?\d+)\s*$", f.read(), re.M)
     assert m, f"PREMISE: no {name} in {user_dir}/options.cfg"
@@ -453,30 +406,28 @@ def read_key(user_dir, name):
 
 
 def xcom_dial_of(gc, seat=1):
-    """Seat `seat`'s xcom dial in this machine's SPEC 17 speed table (event_state `speed`)."""
+    """Seat `seat`'s xcom dial in this machine's co-op speed table (event_state `speed`)."""
     ent = [s for s in ((event_state(gc).get("speed") or {}).get("seats") or []) if s.get("seat") == seat]
     return ent[0].get("xcom") if ent else None
 
 
 def set_xcom_dial(host, client, value):
-    """The partner's walk pace is seat 1's xcom dial: set it on the client and wait until both tables hold it
-    (docs rewrite/w2p8-task0/sc2/t0_sc2.py dial_xcom :340-:344, copied; P8-4b ruling 1)."""
+    """The partner's walk pace is seat 1's xcom dial: set it on the client and wait until both tables hold it."""
     client.ok({"cmd": "set_option", "name": "battleXcomSpeed", "value": value})
     return cs.wait_seat_dial(host, client, 1, "xcom", value)
 
 
 def camera_lane(host, tile=LANE_MID):
-    """P8-4b ruling 1: the host camera on the partner's walk lane (battle_camera_center, camera-only), so
-    the walk steps at the dial's pace instead of UnitWalkBState's off-screen interval 0."""
+    """The host camera on the partner's walk lane (battle_camera_center, camera-only), so the walk steps at the
+    dial's pace instead of UnitWalkBState's off-screen interval 0."""
     r = host.cmd({"cmd": "battle_camera_center", "x": tile[0], "y": tile[1], "z": tile[2]})
     assert r.get("ok"), f"battle_camera_center {tile} failed on the host: {r}"
     return {k: r.get(k) for k in ("centerX", "centerY", "centerZ", "viewLevel")}
 
 
 def cover_inventory(gc, rec):
-    """P8-4b T0-S9 row: the inventory's Ufopaedia key (keyGeoUfopedia from `gc`'s own options.cfg) puts
-    UfopaediaStartState over the open InventoryState (docs rewrite/w2p8-task0/sc2/t0_sc2.py cover_inventory
-    :90-:100, the pinned key path; P8-4b ruling 2: KEY_SETTLE_S after the screen opened). Fills `rec`; returns
+    """The inventory's Ufopaedia key (keyGeoUfopedia from `gc`'s own options.cfg) puts UfopaediaStartState over
+    the open InventoryState (KEY_SETTLE_S after the screen opened: a key sent sooner is lost). Fills `rec`; returns
     True when the InventoryState is on the stack and another state is on top of it."""
     time.sleep(KEY_SETTLE_S)
     key = read_key(gc.user_dir, COVER_KEY)
@@ -489,11 +440,10 @@ def cover_inventory(gc, rec):
 
 
 def restage_h(host, client, tile, kit, placer=None):
-    """test_inventory.restage (:356-:391) for unit H, copied: kit "belt_and_ground" (rifle RH, rifle clip belt
-    (0,0), grenade belt (1,0), primed grenade belt (3,0), a rifle clip and a pistol clip on the tile) or "IV6"
-    (rifle RH with no clip, rifle clip belt (0,0)). The teleport is test_client_shoot.place (re-entrant: a unit
-    already on the tile is not teleported onto it, CLAUDE.local.md S2) instead of tele_both; W2-P8 S-C2's rows pass
-    `placer=place_host_first` (P8-4b ruling 3)."""
+    """test_inventory.restage for unit H, copied: kit "belt_and_ground" (rifle RH, rifle clip belt (0,0), grenade
+    belt (1,0), primed grenade belt (3,0), a rifle clip and a pistol clip on the tile) or "load_rifle" (rifle RH with
+    no clip, rifle clip belt (0,0)). The teleport is test_client_shoot.place (re-entrant: a unit already on the tile
+    is not teleported onto it) instead of tele_both; the walk-window rows pass `placer=place_host_first`."""
     rec = {"tile": tile}
     rec["place"] = (placer or cs.place)(host, client, H_ID, tile, ROW_DIR)
     rec["stripped"] = strip_both(host, client, H_ID)
@@ -505,7 +455,7 @@ def restage_h(host, client, tile, kit, placer=None):
         ids["primed"] = give_primed(host, client, H_ID, 3, 0)
         ids["groundClip"] = drop(host, client, tile, RIFLE_CLIP)
         ids["groundPistolClip"] = drop(host, client, tile, PISTOL_CLIP)
-    elif kit == "IV6":
+    elif kit == "load_rifle":
         ids["rifle"] = give(host, client, H_ID, RIFLE, "right")
         ids["beltClip"] = give(host, client, H_ID, RIFLE_CLIP, BELT, 0, 0)
     else:
@@ -526,8 +476,8 @@ def staged_fails(rec, diff, tu_want, who):
 
 def ensure_closed_safe(client, notes):
     """A client inventory an earlier row left open: its cursor item returned through inventory_cursor_clear (no
-    click: never a click on a screen whose unit may be dead, J2), then closed when it is the top state (a
-    battle_close_inventory under another state would pop that state, F2734). Recorded, never silent."""
+    click: never a click on a screen whose unit may be dead), then closed when it is the top state (a
+    battle_close_inventory under another state would pop that state). Recorded, never silent."""
     v = inv_view(client)
     if not v.get("open"):
         return None
@@ -543,11 +493,11 @@ def ensure_closed_safe(client, notes):
     return rec
 
 
-# ===================== the T0-4 window =====================
+# ===================== the host's shot window =====================
 
 
 def fire_setup(host, client):
-    """T0-4's staging for H's shot (P8-3b T0-4 row); re-entrant per row."""
+    """The measured staging for H's shot; re-entrant per row."""
     rec = {}
     host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": FIRE_DIAL})
     dial = cs.wait_seat_dial(host, client, 0, "fire", FIRE_DIAL)
@@ -579,7 +529,7 @@ def fire_fails(win, what):
     fails = []
     f = win.get("fire") or {}
     if not f.get("ok") or f.get("tuCost") != FIRE_TU:
-        fails.append(f"precondition ({what}): host battle_fire {f} (want ok, tuCost {FIRE_TU}; P8-3b T0-4)")
+        fails.append(f"precondition ({what}): host battle_fire {f} (want ok, tuCost {FIRE_TU})")
     if not (win.get("cue") or {}).get("ok"):
         fails.append(f"precondition ({what}): no client `shot` cue within {CUE_WAIT_S} s of the fire ({win.get('cue')})")
     return fails
@@ -606,7 +556,7 @@ def first_drop(client, ev, win, g, before):
 
 
 def first_drop_fails(win, g, before, what):
-    """The first drop inside the window: denied busy and held (Q2 a: the item stays on the cursor)."""
+    """The first drop inside the window: denied busy and held (the item stays on the cursor)."""
     fails = []
     a = win.get("atDeny") or {}
     if not win.get("busyDeny"):
@@ -643,14 +593,14 @@ def guard_decision_fails(g_after, want_last, what):
 # ===================== rows =====================
 
 
-def ih1a_held_same_unit(host, client, ctx):
+def held_same_unit(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
     ws = fire_setup(host, client)
-    st = restage_c(host, client, "IH1a", IH1A_TILE)
+    st = restage_c(host, client, "held_same_unit", HELD_SAME_UNIT_TILE)
     staged = settle(host, client)
     g = st["ids"]["grenade"]
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
     win = {}
@@ -671,58 +621,61 @@ def ih1a_held_same_unit(host, client, ctx):
         win["endCursor"] = selected(client)
         close_client(client, ev)
     win.pop("tCue", None)
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH1a", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "ui": ev, "window": win,
-                      "row": rec_view(before, rec, st["ids"]), "notes": notes})
+    rec = collect_held(host, client, seq0)
+    evidence("held_same_unit", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "ui": ev, "window": win,
+                                "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged, C_TU_MAX, "C")
     if not opened:
-        fails += open_fails(ev, "IH1a")
-        finish(fails + common_fails(host, client, before, {}, None, "IH1a"))
-    fails += fire_fails(win, "IH1a")
+        fails += open_fails(ev, "held_same_unit")
+        finish(fails + common_fails(host, client, before, {}, None, "held_same_unit"))
+    fails += fire_fails(win, "held_same_unit")
     if not dropped:
-        fails.append(f"IH1a: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
-                     f"(want the grenade {g})")
+        fails.append(f"held_same_unit: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the "
+                     f"cursor (want the grenade {g})")
     else:
-        fails += first_drop_fails(win, g, before, "IH1a")
+        fails += first_drop_fails(win, g, before, "held_same_unit")
         a, b = win["atDeny"], win.get("afterDrop2") or {}
-        # the RED cell (S-C1.1): S-A's silent D150 `inflight`; GREEN (S-C1.2, V11 / Q8 a): `held`
+        # when broken the second drop gets a silent `inflight`; otherwise `held`
         fails += guard_decision_fails(b.get("invGuard"), {"site": "drop", "op": "move", "decision": "held",
-                                                           "itemId": g, "actorId": C_ID}, "IH1a second drop")
+                                                           "itemId": g, "actorId": C_ID}, "held_same_unit second drop")
         dh = dnum(held_of(a), held_of(b))
         if dh != 1:
-            fails.append(f"IH1a second drop: client invGuard.counts.held {held_of(a)} -> {held_of(b)} (want +1)")
+            fails.append(f"held_same_unit second drop: client invGuard.counts.held {held_of(a)} -> {held_of(b)} (want "
+                         f"+1)")
         dw = dnum(a.get("invWarningWrites"), b.get("invWarningWrites"))
         if dw != 1 or b.get("invLastWarning") != TEXT_HELD:
-            fails.append(f"IH1a second drop: client invWarningWrites +{dw}, invLastWarning {b.get('invLastWarning')!r} "
-                         f"(want +1 and {TEXT_HELD!r}: the held text shown again)")
+            fails.append(f"held_same_unit second drop: client invWarningWrites +{dw}, invLastWarning "
+                         f"{b.get('invLastWarning')!r} (want +1 and {TEXT_HELD!r}: the held text shown again)")
         if count_of(b.get("sent"), "inv_move") != count_of(a.get("sent"), "inv_move"):
-            fails.append(f"IH1a second drop: client coopIntentsSent {a.get('sent')} -> {b.get('sent')} (want inv_move "
-                         f"unchanged: nothing sent)")
+            fails.append(f"held_same_unit second drop: client coopIntentsSent {a.get('sent')} -> {b.get('sent')} (want "
+                         f"inv_move unchanged: nothing sent)")
         if b.get("cursor") != g:
-            fails.append(f"IH1a second drop: client selectedItem {b.get('cursor')} (want the grenade {g})")
+            fails.append(f"held_same_unit second drop: client selectedItem {b.get('cursor')} (want the grenade {g})")
         # after the host's end: the held order resubmitted and admitted
         new = new_contexts(before["host"]["closedContexts"], rec["host"]["closedContexts"])
         mv = [c for c in new if c.get("origin") == "intent" and c.get("kind") == "inv_move" and c.get("actorId") == C_ID]
         if len(mv) != 1:
-            fails.append(f"IH1a: host closedContexts gained {len(mv)} {{intent, inv_move, {C_ID}}} (want 1: the "
-                         f"resubmitted held order; new contexts {new})")
+            fails.append(f"held_same_unit: host closedContexts gained {len(mv)} {{intent, inv_move, {C_ID}}} (want 1: "
+                         f"the resubmitted held order; new contexts {new})")
         if win.get("endCursor") != -1:
-            fails.append(f"IH1a: client selectedItem after the resubmit's answer {win.get('endCursor')} (want -1)")
-        fails += item_fails(rec, g, {"owner": C_ID, "slot": LH, "onTile": False}, "IH1a")
-        fails += tu_fails(rec, C_TU_MAX - TU_BELT_TO_HAND, "IH1a")
+            fails.append(f"held_same_unit: client selectedItem after the resubmit's answer {win.get('endCursor')} "
+                         f"(want -1)")
+        fails += item_fails(rec, g, {"owner": C_ID, "slot": LH, "onTile": False}, "held_same_unit")
+        fails += tu_fails(rec, C_TU_MAX - TU_BELT_TO_HAND, "held_same_unit")
     fails += common_fails(host, client, before, {"sent": 1},
-                          {"site": "drop", "op": "move", "decision": "held", "itemId": g, "actorId": C_ID}, "IH1a")
+                          {"site": "drop", "op": "move", "decision": "held", "itemId": g, "actorId": C_ID},
+                          "held_same_unit")
     finish(fails)
 
 
-def ih1b_right_click_cancel(host, client, ctx):
+def right_click_cancels_held(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
     ws = fire_setup(host, client)
-    st = restage_c(host, client, "IH1b", IH1B_TILE)
+    st = restage_c(host, client, "right_click_cancels_held", RIGHT_CLICK_TILE)
     staged = settle(host, client)
     g = st["ids"]["grenade"]
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
     win = {}
@@ -740,54 +693,59 @@ def ih1b_right_click_cancel(host, client, ctx):
         win["orderWait"] = wait_order(host, client, notes)
         close_client(client, ev)
     win.pop("tCue", None)
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH1b", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "ui": ev, "window": win,
-                      "row": rec_view(before, rec, st["ids"]), "notes": notes})
+    rec = collect_held(host, client, seq0)
+    evidence("right_click_cancels_held", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "ui": ev, "window": win,
+                                          "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged, C_TU_MAX, "C")
     if not opened:
-        fails += open_fails(ev, "IH1b")
-        finish(fails + common_fails(host, client, before, {}, None, "IH1b"))
-    fails += fire_fails(win, "IH1b")
+        fails += open_fails(ev, "right_click_cancels_held")
+        finish(fails + common_fails(host, client, before, {}, None, "right_click_cancels_held"))
+    fails += fire_fails(win, "right_click_cancels_held")
     want_belt = {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}
     if not dropped:
-        fails.append(f"IH1b: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
-                     f"(want the grenade {g})")
+        fails.append(f"right_click_cancels_held: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on "
+                     f"the cursor (want the grenade {g})")
     else:
-        fails += first_drop_fails(win, g, before, "IH1b")
+        fails += first_drop_fails(win, g, before, "right_click_cancels_held")
         r = win.get("afterRightClick") or {}
         if not returned or r.get("cursor") != -1:
-            fails.append(f"IH1b: client selectedItem after the right-click {r.get('cursor')} (want -1)")
+            fails.append(f"right_click_cancels_held: client selectedItem after the right-click {r.get('cursor')} (want "
+                         f"-1)")
         if r.get("pending") is not None:
-            fails.append(f"IH1b: client coopPendingIntent after the right-click {r.get('pending')} (want null: the held "
-                         f"order cancelled)")
+            fails.append(f"right_click_cancels_held: client coopPendingIntent after the right-click {r.get('pending')} "
+                         f"(want null: the held order cancelled)")
         for m in ("host", "client"):
             got = {k: ((win.get("grenadeAfterRightClick") or {}).get(m) or {}).get(k) for k in want_belt}
             if got != want_belt:
-                fails.append(f"IH1b: {m} grenade after the right-click {win['grenadeAfterRightClick'][m]} "
-                             f"(want {want_belt})")
+                fails.append(f"right_click_cancels_held: {m} grenade after the right-click "
+                             f"{win['grenadeAfterRightClick'][m]} (want {want_belt})")
         new = new_contexts(before["host"]["closedContexts"], rec["host"]["closedContexts"])
         mv = [c for c in new if c.get("kind") == "inv_move"]
         if mv:
-            fails.append(f"IH1b: host closedContexts gained inv_move context(s) {mv} (want none: nothing resubmits)")
+            fails.append(f"right_click_cancels_held: host closedContexts gained inv_move context(s) {mv} (want none: "
+                         f"nothing resubmits)")
         ds = count_of(rec["client"]["coopIntentsSent"], "inv_move") - count_of(
             before["client"]["coopIntentsSent"], "inv_move")
         if ds != 1:
-            fails.append(f"IH1b: client coopIntentsSent.inv_move +{ds} over the row (want +1: the first send only)")
+            fails.append(f"right_click_cancels_held: client coopIntentsSent.inv_move +{ds} over the row (want +1: the "
+                         f"first send only)")
         dw = dnum(before["client"]["invWarningWrites"], rec["client"]["invWarningWrites"])
         if dw != 1:
-            fails.append(f"IH1b: client invWarningWrites +{dw} over the row (want +1: the first drop's held text)")
-        fails += item_fails(rec, g, want_belt, "IH1b")
-        fails += tu_fails(rec, C_TU_MAX, "IH1b")
+            fails.append(f"right_click_cancels_held: client invWarningWrites +{dw} over the row (want +1: the first "
+                         f"drop's held text)")
+        fails += item_fails(rec, g, want_belt, "right_click_cancels_held")
+        fails += tu_fails(rec, C_TU_MAX, "right_click_cancels_held")
     fails += common_fails(host, client, before, {"sent": 1},
-                          {"site": "drop", "op": "move", "decision": "sent", "itemId": g, "actorId": C_ID}, "IH1b")
+                          {"site": "drop", "op": "move", "decision": "sent", "itemId": g, "actorId": C_ID},
+                          "right_click_cancels_held")
     finish(fails)
 
 
-def ih1c_held_walk_blocks(host, client, ctx):
+def held_walk_blocks_drop(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
     ws = fire_setup(host, client)
-    st = restage_c(host, client, "IH1c", IH1C_TILE)
+    st = restage_c(host, client, "held_walk_blocks_drop", HELD_WALK_TILE)
     st["c2Place"] = cs.place(host, client, C2_ID, C2_TILE, C2_DIR)
     st["c2Tu"] = cs.set_tu_both(host, client, C2_ID, TU_MAX)
     occ = {(u["x"], u["y"], u["z"]) for u in battle_state(host)["units"] if not u.get("isOut")}
@@ -795,7 +753,7 @@ def ih1c_held_walk_blocks(host, client, ctx):
     st["laneOpen"] = [session.tile_is_open_ground(host, t[0], t[1], t[2], occ - {tuple(C2_TILE)}) for t in lane]
     staged = settle(host, client)
     g = st["ids"]["grenade"]
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
     win = {}
@@ -832,72 +790,75 @@ def ih1c_held_walk_blocks(host, client, ctx):
     if opened:
         close_client(client, ev)
     win.pop("tCue", None)
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH1c", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "ui": ev, "window": win,
-                      "row": rec_view(before, rec, st["ids"]), "notes": notes})
+    rec = collect_held(host, client, seq0)
+    evidence("held_walk_blocks_drop", {"fireSetup": ws, "staging": st, "stagedDiff": staged, "ui": ev, "window": win,
+                                       "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged, C_TU_MAX, "C")
     if st["c2Tu"] != C2_TU_MAX or not all(st["laneOpen"]):
         fails.append(f"precondition: C2 TU {st['c2Tu']} (want {C2_TU_MAX}), lane {lane} open {st['laneOpen']}")
-    fails += fire_fails(win, "IH1c")
+    fails += fire_fails(win, "held_walk_blocks_drop")
     wd = win.get("atWalkDeny") or {}
     if not win.get("busyDeny") or (wd.get("pending") or {}).get("kind") != "walk" or \
             (wd.get("pending") or {}).get("actorId") != C2_ID:
-        fails.append(f"precondition (IH1c): the walk for C2 was not held busy inside the window (lastDeny "
+        fails.append(f"precondition (held_walk_blocks_drop): the walk for C2 was not held busy inside the window "
+                     f"(lastDeny "
                      f"{wd.get('lastDeny')}, coopPendingIntent {wd.get('pending')}; want {{kind walk, actorId {C2_ID}}})")
     if not opened:
-        fails += open_fails(ev, "IH1c")
+        fails += open_fails(ev, "held_walk_blocks_drop")
     elif not picked:
-        fails.append(f"IH1c: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
-                     f"(want the grenade {g})")
+        fails.append(f"held_walk_blocks_drop: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on "
+                     f"the cursor (want the grenade {g})")
     else:
         b0, b1 = win.get("beforeDrop") or {}, win.get("afterDrop") or {}
-        # the RED cell (S-C1.1): the drop is sent and the walk is lost; GREEN (S-C1.2, V11 / Q8 a): held
+        # when broken the drop is sent and the walk is lost; otherwise the drop is held
         fails += guard_decision_fails(b1.get("invGuard"), {"site": "drop", "op": "move", "decision": "held",
-                                                           "itemId": g, "actorId": C_ID}, "IH1c drop")
+                                                           "itemId": g, "actorId": C_ID}, "held_walk_blocks_drop drop")
         if count_of(b1.get("sent"), "inv_move") != count_of(b0.get("sent"), "inv_move"):
-            fails.append(f"IH1c drop: client coopIntentsSent {b0.get('sent')} -> {b1.get('sent')} (want inv_move "
-                         f"unchanged: nothing sent)")
+            fails.append(f"held_walk_blocks_drop drop: client coopIntentsSent {b0.get('sent')} -> {b1.get('sent')} "
+                         f"(want inv_move unchanged: nothing sent)")
         p = b1.get("pending") or {}
         if p.get("kind") != "walk" or p.get("actorId") != C2_ID:
-            fails.append(f"IH1c drop: client coopPendingIntent after the drop {b1.get('pending')} (want {{kind walk, "
-                         f"actorId {C2_ID}}} unchanged: the held walk kept)")
+            fails.append(f"held_walk_blocks_drop drop: client coopPendingIntent after the drop {b1.get('pending')} "
+                         f"(want {{kind walk, actorId {C2_ID}}} unchanged: the held walk kept)")
         dw = dnum(b0.get("invWarningWrites"), b1.get("invWarningWrites"))
         if dw != 1 or b1.get("invLastWarning") != TEXT_HELD:
-            fails.append(f"IH1c drop: client invWarningWrites +{dw}, invLastWarning {b1.get('invLastWarning')!r} "
-                         f"(want +1 and {TEXT_HELD!r})")
+            fails.append(f"held_walk_blocks_drop drop: client invWarningWrites +{dw}, invLastWarning "
+                         f"{b1.get('invLastWarning')!r} (want +1 and {TEXT_HELD!r})")
         # after the host's end
         if win["c2End"] != {"host": C2_DEST, "client": C2_DEST}:
-            fails.append(f"IH1c: C2 after the host's end {win['c2End']} (want {C2_DEST} on both: the held walk "
-                         f"resubmitted)")
+            fails.append(f"held_walk_blocks_drop: C2 after the host's end {win['c2End']} (want {C2_DEST} on both: the "
+                         f"held walk resubmitted)")
         if win.get("endCursor") != g:
-            fails.append(f"IH1c: client selectedItem after the host's end {win.get('endCursor')} (want the grenade "
-                         f"{g} still on the cursor: nothing was sent for it)")
+            fails.append(f"held_walk_blocks_drop: client selectedItem after the host's end {win.get('endCursor')} "
+                         f"(want the grenade {g} still on the cursor: nothing was sent for it)")
         if (ev.get("rightClick") or {}).get("cursor") != -1:
-            fails.append(f"IH1c: the right-click {ev.get('rightClick')} (want the cursor -1)")
-        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}, "IH1c")
-        fails += tu_fails(rec, C_TU_MAX, "IH1c")
+            fails.append(f"held_walk_blocks_drop: the right-click {ev.get('rightClick')} (want the cursor -1)")
+        fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False},
+                            "held_walk_blocks_drop")
+        fails += tu_fails(rec, C_TU_MAX, "held_walk_blocks_drop")
     fails += common_fails(host, client, before, {},
-                          {"site": "drop", "op": "move", "decision": "held", "itemId": g, "actorId": C_ID}, "IH1c")
+                          {"site": "drop", "op": "move", "decision": "held", "itemId": g, "actorId": C_ID},
+                          "held_walk_blocks_drop")
     dh = dnum(held_of(before["client"]), held_of(rec["client"]))
     if dh != 1:
-        fails.append(f"IH1c: client invGuard.counts.held +{dh} over the row (want +1)")
+        fails.append(f"held_walk_blocks_drop: client invGuard.counts.held +{dh} over the row (want +1)")
     finish(fails)
 
 
-def ih8_open_context_gate(host, client, ctx):
+def partner_walk_under_host_screen(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
     hst = restage_h(host, client, STAGE_H, "belt_and_ground", placer=place_host_first)
-    ct = place_host_first(host, client, C_ID, IH8_C_TILE, IH8_C_DIR)
+    ct = place_host_first(host, client, C_ID, PARTNER_WALK_C_TILE, PARTNER_WALK_C_DIR)
     ctu = cs.set_tu_both(host, client, C_ID, TU_MAX)
     staged = settle(host, client)
     gh = hst["ids"]["grenade"]
     ev = {"leftover": leftover, "cPlace": ct, "cTu": ctu}
-    # P8-4b ruling 1: the walk steps at the dial's pace only on-screen on the host
+    # the walk steps at the dial's pace only when it is on-screen on the host
     dial0 = xcom_dial_of(host)
     ev["camera"] = camera_lane(host)
     ev["dial"] = {"boot": dial0, "set": WALK_DIAL, "tables": set_xcom_dial(host, client, WALK_DIAL)}
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ro = host.cmd({"cmd": "battle_open_inventory", "unit": H_ID})
     ev["hostOpen"] = {k: ro.get(k) for k in ("ok", "opened", "error")}
@@ -911,7 +872,7 @@ def ih8_open_context_gate(host, client, ctx):
         cc0 = before["host"]["closedContexts"]
         t_send = time.time()
         rw = client.cmd({"cmd": "battle_intent", "kind": "walk", "actor": C_ID,
-                         "dest": {"x": IH8_WALK_DEST[0], "y": IH8_WALK_DEST[1], "z": IH8_WALK_DEST[2]}})
+                         "dest": {"x": PARTNER_WALK_DEST[0], "y": PARTNER_WALK_DEST[1], "z": PARTNER_WALK_DEST[2]}})
         ev["walk"] = {k: rw.get(k) for k in ("ok", "iseq", "error")}
         ci0 = (before["host"]["contextsOpened"] or {}).get("intent") or 0
 
@@ -945,101 +906,107 @@ def ih8_open_context_gate(host, client, ctx):
                      "walkCtx": walk_ctx, "hostScreenOpen": hvs.get("open"), "hostScreenTop": hvs.get("top"),
                      "clientH": {"grenade": iview(items_by_id(client), gh), "tu": inv.tu_of(client, H_ID)}}
                 samples.append(s)
-                if (walk_ctx and s["C"] == {"host": IH8_WALK_DEST, "client": IH8_WALK_DEST}
+                if (walk_ctx and s["C"] == {"host": PARTNER_WALK_DEST, "client": PARTNER_WALK_DEST}
                         and s["clientApplied"] == s["hostSeq"] and ec.get("queueDepth") == 0):
                     done = s
                     break
-                time.sleep(IH8_SAMPLE_EVERY_S)
+                time.sleep(PARTNER_WALK_SAMPLE_S)
         rc = host.cmd({"cmd": "battle_close_inventory"})
         gone, _ = wait_until(lambda: "InventoryState" not in stack(host), CLICK_WAIT_S)
         ev["hostClose"] = {"ok": rc.get("ok"), "error": rc.get("error"), "gone": bool(gone),
                            "msAfterSend": ms_since(t_send)}
-        arrived, ev["walkWaited"] = wait_until(lambda: unit_pos(host, C_ID) == IH8_WALK_DEST
-                                               and unit_pos(client, C_ID) == IH8_WALK_DEST, WALK_WAIT_S)
+        arrived, ev["walkWaited"] = wait_until(lambda: unit_pos(host, C_ID) == PARTNER_WALK_DEST
+                                               and unit_pos(client, C_ID) == PARTNER_WALK_DEST, WALK_WAIT_S)
         ev["walkArrived"] = bool(arrived)
         try:
             session.wait_host_idle(host, client, timeout=30)
         except Exception as e:
-            notes.append(f"IH8: host never idle after the walk: {short(e)}")
+            notes.append(f"partner_walk_under_host_screen: host never idle after the walk: {short(e)}")
         # the pump consumer's pass after the walk's context closed (a no-op wait while the latch is clear)
-        _, ev["latchClearWaited"] = wait_until(lambda: dirty(probes_sc1(host)).get("pending") is False, LATCH_WAIT_S)
+        _, ev["latchClearWaited"] = wait_until(lambda: dirty(probes_held(host)).get("pending") is False, LATCH_WAIT_S)
     try:
         ev["dialBack"] = set_xcom_dial(host, client, dial0) if dial0 is not None else "no boot dial read"
     except Exception as e:
-        notes.append(f"IH8: the client's dial did not go back to {dial0}: {short(e)}")
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH8", {"staging": {"H": hst, "C": ct}, "stagedDiff": staged, "ui": ev, "samples": samples,
-                     "doneUnderScreen": done,
-                     "hostDirty": {"before": before["host"]["invHostDirty"], "after": rec["host"]["invHostDirty"]},
-                     "hostSync": (before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"]),
-                     "row": rec_view(before, rec, {"hGrenade": gh}), "notes": notes})
+        notes.append(f"partner_walk_under_host_screen: the client's dial did not go back to {dial0}: {short(e)}")
+    rec = collect_held(host, client, seq0)
+    evidence("partner_walk_under_host_screen",
+             {"staging": {"H": hst, "C": ct}, "stagedDiff": staged, "ui": ev, "samples": samples,
+              "doneUnderScreen": done,
+              "hostDirty": {"before": before["host"]["invHostDirty"], "after": rec["host"]["invHostDirty"]},
+              "hostSync": (before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"]),
+              "row": rec_view(before, rec, {"hGrenade": gh}), "notes": notes})
     fails = list(notes) + staged_fails(hst, staged, H_TU_MAX, "H")
     if ctu != C_TU_MAX:
         fails.append(f"precondition: C's TU after the staging {ctu} (want {C_TU_MAX})")
     if not host_open:
         fails.append(f"precondition: the host's inventory did not open on H ({ev['hostOpen']}, {ev['hostOpenView']})")
     elif not admitted:
-        fails.append(f"precondition (T0-10): C's walk was not admitted under the host's screen ({ev.get('admitted')}, "
+        fails.append(f"precondition: C's walk was not admitted under the host's screen ({ev.get('admitted')}, "
                      f"walk {ev.get('walk')})")
     elif not (picked and dropped):
-        fails.append(f"IH8: the host's clicks did not move H's grenade belt (1,0) -> STR_LEFT_HAND (pick "
-                     f"{ev.get('pick')}, drop {ev.get('drop')})")
+        fails.append(f"partner_walk_under_host_screen: the host's clicks did not move H's grenade belt (1,0) -> "
+                     f"STR_LEFT_HAND (pick {ev.get('pick')}, drop {ev.get('drop')})")
     else:
         d0 = before["host"]["invHostDirty"] or {}
         after_drop = [s for s in samples if s["t"] * 1000 >= (ev["drop"].get("msAfterSend") or 0)]
         first = after_drop[0] if after_drop else None
         open_ctx = [s for s in samples if not s["walkCtx"]]
         held_open = [dnum(d0.get("heldByGate"), dirty(s).get("heldByGate")) for s in open_ctx]
-        # the S-C1 latch (both builds): set by the drop, held by the gate while the walk's context is open
+        # the latch: set by the drop, held by the gate while the walk's context is open
         if not first or dirty(first).get("pending") is not True:
-            fails.append(f"IH8: host invHostDirty.pending at the first sample after the drop "
-                         f"{dirty(first).get('pending') if first else None} (want true)")
+            fails.append(f"partner_walk_under_host_screen: host invHostDirty.pending at the first sample after the "
+                         f"drop {dirty(first).get('pending') if first else None} (want true)")
         dm = dnum(dirty_sets(before["host"], "move"), dirty_sets(rec["host"], "move"))
         if dm != 1:
-            fails.append(f"IH8: host invHostDirty.sets.move +{dm} (want +1)")
+            fails.append(f"partner_walk_under_host_screen: host invHostDirty.sets.move +{dm} (want +1)")
         held_ints = [h for h in held_open if isinstance(h, int)]
         if not held_ints or max(held_ints) <= 0:
-            fails.append(f"IH8: host invHostDirty.heldByGate while the walk's context was open {held_open} (want > 0)")
-        # the RED cell (S-C2.1, D166 today): the walk frozen under the host's screen; GREEN: it
-        # runs to its end while the host's screen is open, and its evs carry H's change
+            fails.append(f"partner_walk_under_host_screen: host invHostDirty.heldByGate while the walk's context was "
+                         f"open {held_open} (want > 0)")
+        # when broken the walk is frozen under the host's screen; otherwise it runs to its end while the host's
+        # screen is open, and its evs carry H's change
         if done is None:
             last = samples[-1] if samples else {}
-            fails.append(f"IH8: the walk did not end under the host's open inventory within {WALK_UNDER_S} s of the "
+            fails.append(f"partner_walk_under_host_screen: the walk did not end under the host's open inventory within "
+                         f"{WALK_UNDER_S} s of the "
                          f"send (last sample: C {last.get('C')}, walk context closed {bool(last.get('walkCtx'))}, "
                          f"host screen open {last.get('hostScreenOpen')}, client H {last.get('clientH')})")
         else:
             if done["hostScreenOpen"] is not True:
-                fails.append(f"IH8: the walk ended with the host's inventory_view.open {done['hostScreenOpen']} "
-                             f"(want true: under the screen)")
+                fails.append(f"partner_walk_under_host_screen: the walk ended with the host's inventory_view.open "
+                             f"{done['hostScreenOpen']} (want true: under the screen)")
             cg = done["clientH"]["grenade"] or {}
             if {k: cg.get(k) for k in ("owner", "slot")} != {"owner": H_ID, "slot": LH}:
-                fails.append(f"IH8: the client's H grenade when the walk ended under the host's screen {cg} (want "
+                fails.append(f"partner_walk_under_host_screen: the client's H grenade when the walk ended under the "
+                             f"host's screen {cg} (want "
                              f"owner {H_ID} slot {LH}: the walk's evs carried the host's change)")
             if done["clientH"]["tu"] != H_TU_MAX - TU_BELT_TO_HAND:
-                fails.append(f"IH8: the client's H TU when the walk ended under the host's screen "
-                             f"{done['clientH']['tu']} (want {H_TU_MAX - TU_BELT_TO_HAND})")
+                fails.append(f"partner_walk_under_host_screen: the client's H TU when the walk ended under the host's "
+                             f"screen {done['clientH']['tu']} (want {H_TU_MAX - TU_BELT_TO_HAND})")
         if not ev.get("walkArrived"):
-            fails.append(f"IH8: C did not reach {IH8_WALK_DEST} on both (host {unit_pos(host, C_ID)}, client "
-                         f"{unit_pos(client, C_ID)})")
+            fails.append(f"partner_walk_under_host_screen: C did not reach {PARTNER_WALK_DEST} on both (host "
+                         f"{unit_pos(host, C_ID)}, client {unit_pos(client, C_ID)})")
         da = rec["host"]["invHostDirty"] or {}
         if da.get("pending") is not False:
-            fails.append(f"IH8: host invHostDirty.pending after the walk {da.get('pending')} (want false)")
+            fails.append(f"partner_walk_under_host_screen: host invHostDirty.pending after the walk "
+                         f"{da.get('pending')} (want false)")
         de = dnum((d0 or {}).get("emptyFlushes"), da.get("emptyFlushes"))
         if not isinstance(de, int) or de < 1:
-            fails.append(f"IH8: host invHostDirty.emptyFlushes +{de} over the row (want >= 1: the walk's evs carried "
-                         f"H's change)")
+            fails.append(f"partner_walk_under_host_screen: host invHostDirty.emptyFlushes +{de} over the row (want >= "
+                         f"1: the walk's evs carried H's change)")
         dsync = dnum(before["host"]["syncEvsEmitted"], rec["host"]["syncEvsEmitted"])
         if dsync != 0:
-            fails.append(f"IH8: host syncEvsEmitted +{dsync} over the row (want +0)")
+            fails.append(f"partner_walk_under_host_screen: host syncEvsEmitted +{dsync} over the row (want +0)")
         ih, ic = iview(rec["ih"], gh), iview(rec["ic"], gh)
         want = {"owner": H_ID, "slot": LH, "onTile": False}
         for m, it in (("host", ih), ("client", ic)):
             if {k: (it or {}).get(k) for k in want} != want:
-                fails.append(f"IH8: {m} H grenade {it} (want {want})")
+                fails.append(f"partner_walk_under_host_screen: {m} H grenade {it} (want {want})")
         th, tc = (rec["uh"].get(H_ID) or {}).get("tu"), (rec["uc"].get(H_ID) or {}).get("tu")
         if (th, tc) != (H_TU_MAX - TU_BELT_TO_HAND,) * 2:
-            fails.append(f"IH8: H tu host={th} client={tc} (want {H_TU_MAX - TU_BELT_TO_HAND} on both)")
-    fails += common_fails(host, client, before, {}, None, "IH8")
+            fails.append(f"partner_walk_under_host_screen: H tu host={th} client={tc} (want "
+                         f"{H_TU_MAX - TU_BELT_TO_HAND} on both)")
+    fails += common_fails(host, client, before, {}, None, "partner_walk_under_host_screen")
     finish(fails)
 
 
@@ -1053,13 +1020,13 @@ def dismiss_nts_all(gc):
     return {"counted": n, "closed": out, "stack": stack(gc)}
 
 
-def ih5_side_change(host, client, ctx):
+def side_change_closes(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
-    st = restage_c(host, client, "IH5", IH5_TILE)
+    st = restage_c(host, client, "side_change_closes", SIDE_CHANGE_TILE)
     staged = settle(host, client)
     g = st["ids"]["grenade"]
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
     opened = open_client(client, ev)
@@ -1085,8 +1052,8 @@ def ih5_side_change(host, client, ctx):
                     "invForcedCloses": event_state(client).get("invForcedCloses"),
                     "side": battle_state(client).get("side"), "hostStack": stack(host)}
             flip["grenade"] = item_both(host, client, g)
-        # OR3 (a): the client's INVENTORY key during the alien side opens nothing - pressed only once the force-close
-        # closed the screen (at red it is still open under NextTurnState, which the key would close instead)
+        # the client's INVENTORY key during the alien side opens nothing - pressed only once the force-close closed
+        # the screen (when broken it is still open under NextTurnState, which the key would close instead)
         if flip and flip["view"].get("open") is False:
             key_row = {"dismiss": dismiss_next_turn_if_present(client), "stack": stack(client),
                        "side": battle_state(client).get("side")}
@@ -1096,7 +1063,7 @@ def ih5_side_change(host, client, ctx):
             time.sleep(KEY_READ_S)
             key_row.update({"key": key, "view": inv_view(client), "bannerAfter": battle_state(client).get("coopWaitText"),
                             "stackAfter": stack(client), "sideAfter": battle_state(client).get("side")})
-        # turn 2 on both (P8-3b ruling 2: test_turn_baton.drive_full_cycle)
+        # turn 2 on both (test_turn_baton.drive_full_cycle)
         try:
             drive_full_cycle(host, client, turn0, timeout=60)
             cycle["returned"] = True
@@ -1107,7 +1074,8 @@ def ih5_side_change(host, client, ctx):
         cycle["turn2"] = {"host": {k: battle_state(host).get(k) for k in ("side", "turn")},
                           "client": {k: battle_state(client).get(k) for k in ("side", "turn")},
                           "clientStack": stack(client), "clientView": inv_view(client)}
-        # the red run's cleanup (ruling 3): the rebound screen's cursor item back, then closed (a no-op at green)
+        # cleanup when the screen was not force-closed: the rebound screen's cursor item back, then closed
+        # (otherwise a no-op)
         v = inv_view(client)
         if v.get("open"):
             cycle["cleanup"] = {"view": {k: v.get(k) for k in ("top", "unitId", "selectedItem")},
@@ -1115,60 +1083,61 @@ def ih5_side_change(host, client, ctx):
             if v.get("top"):
                 close_client(client, cycle["cleanup"])
     cycle["uiLines"] = {"client": ui_lines(client, cmark), "host": ui_lines(host, hmark)}
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH5", {"staging": st, "stagedDiff": staged, "ui": ev, "flip": flip, "alienKey": key_row,
-                     "cycle": cycle, "row": rec_view(before, rec, st["ids"]), "notes": notes})
+    rec = collect_held(host, client, seq0)
+    evidence("side_change_closes", {"staging": st, "stagedDiff": staged, "ui": ev, "flip": flip, "alienKey": key_row,
+                                    "cycle": cycle, "row": rec_view(before, rec, st["ids"]), "notes": notes})
     fails = list(notes) + staged_fails(st, staged, C_TU_MAX, "C")
     if not opened:
-        fails += open_fails(ev, "IH5")
+        fails += open_fails(ev, "side_change_closes")
     elif not picked:
-        fails.append(f"IH5: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
-                     f"(want the grenade {g})")
+        fails.append(f"side_change_closes: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the "
+                     f"cursor (want the grenade {g})")
     elif not ev.get("host1of2"):
-        fails.append(f"precondition (T0-7): the host never showed END TURN 1/2 after the client's ready "
+        fails.append(f"precondition: the host never showed END TURN 1/2 after the client's ready "
                      f"({ev.get('ready')})")
     elif flip is None:
-        fails.append(f"precondition (T0-7): no NextTurnState on the client within {FLIP_WAIT_S} s of the host's END "
+        fails.append(f"precondition: no NextTurnState on the client within {FLIP_WAIT_S} s of the host's END "
                      f"TURN ({ev.get('hostEndTurn')}, client stack {stack(client)})")
     else:
-        # the RED cell (S-C1.1): the screen stays open under NextTurnState, no force-close
+        # when broken the screen stays open under NextTurnState, with no force-close
         if "InventoryState" in flip["stack"] or flip["view"].get("open") is not False:
-            fails.append(f"IH5: at the client's side flip the stack is {flip['stack']} and inventory_view.open "
-                         f"{flip['view'].get('open')} (want no InventoryState: force-closed)")
+            fails.append(f"side_change_closes: at the client's side flip the stack is {flip['stack']} and "
+                         f"inventory_view.open {flip['view'].get('open')} (want no InventoryState: force-closed)")
         dsd = dnum(forced_reason(before["client"], "side"), forced_reason({"invForcedCloses": flip["invForcedCloses"]},
                                                                            "side"))
         if dsd != 1:
-            fails.append(f"IH5: client invForcedCloses.byReason.side +{dsd} at the flip (want +1; invForcedCloses "
-                         f"{flip['invForcedCloses']})")
+            fails.append(f"side_change_closes: client invForcedCloses.byReason.side +{dsd} at the flip (want +1; "
+                         f"invForcedCloses {flip['invForcedCloses']})")
         want_belt = {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}
         for m in ("host", "client"):
             got = {k: (flip["grenade"][m] or {}).get(k) for k in want_belt}
             if got != want_belt:
-                fails.append(f"IH5: {m} grenade at the flip {flip['grenade'][m]} (want {want_belt})")
+                fails.append(f"side_change_closes: {m} grenade at the flip {flip['grenade'][m]} (want {want_belt})")
         if key_row is not None:
             if key_row["view"].get("open") is not False or key_row["bannerAfter"] != key_row["bannerBefore"] or \
                     key_row["side"] == 0:
-                fails.append(f"IH5: the client's INVENTORY key during the alien side {key_row} (want the screen "
-                             f"closed and coopWaitText unchanged, OR3 a, on the alien side)")
+                fails.append(f"side_change_closes: the client's INVENTORY key during the alien side {key_row} (want "
+                             f"the screen closed and coopWaitText unchanged, on the alien side)")
         if "err" in cycle:
-            fails.append(f"SETUP-FAILURE (P8-3b ruling 2): drive_full_cycle failed: {cycle['err']} (host "
+            fails.append(f"SETUP-FAILURE: drive_full_cycle failed: {cycle['err']} (host "
                          f"{cycle.get('hostNts')}, client {cycle.get('clientNts')}, NTS push/pop lines "
                          f"{cycle['uiLines']})")
         t2 = cycle.get("turn2") or {}
         if t2.get("host") != {"side": 0, "turn": TURN0 + 1} or t2.get("client") != {"side": 0, "turn": TURN0 + 1}:
-            fails.append(f"IH5: after the cycle {t2} (want side 0, turn {TURN0 + 1} on both)")
+            fails.append(f"side_change_closes: after the cycle {t2} (want side 0, turn {TURN0 + 1} on both)")
     if inv_view(client).get("open") is not False:
-        fails.append(f"IH5: the client's inventory is still open at the row's end ({inv_view(client)}, stack "
-                     f"{stack(client)})")
-    fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False}, "IH5")
-    fails += common_fails(host, client, before, {}, None, "IH5")
+        fails.append(f"side_change_closes: the client's inventory is still open at the row's end ({inv_view(client)}, "
+                     f"stack {stack(client)})")
+    fails += item_fails(rec, g, {"owner": C_ID, "slot": BELT, "slotX": 1, "slotY": 0, "onTile": False},
+                        "side_change_closes")
+    fails += common_fails(host, client, before, {}, None, "side_change_closes")
     finish(fails)
 
 
 def heal_step(host, client):
-    """The tail of IH2 and IH3 (not a row): the client turns C one octant (session.send_turn, F394/F395). Its
-    context's evs carry any host change the client still lacks; returns that context's evs with the delta
-    shape each one carried (host openxcom.log, P8-3b ruling 4)."""
+    """The tail of host_placement_sync and host_reload_key (not a row): the client turns C one octant
+    (session.send_turn). Its context's evs carry any host change the client still lacks; returns that context's
+    evs with the delta shape each one carried (host openxcom.log)."""
     out = {}
     hmark = log_mark(host)
     es0 = event_state(host)
@@ -1197,36 +1166,36 @@ def heal_step(host, client):
     return out
 
 
-def ih2_host_placement_sync(host, client, ctx):
+def host_placement_sync(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
     hst = restage_h(host, client, STAGE_H, "belt_and_ground")
     staged = settle(host, client)
     gh = hst["ids"]["grenade"]
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
-    # (a) open and close with no placement (T0-11)
+    # open and close only: no placement
     ra = host.cmd({"cmd": "battle_open_inventory", "unit": H_ID})
-    ev["aOpen"] = {k: ra.get(k) for k in ("ok", "opened", "error")}
+    ev["emptyOpen"] = {k: ra.get(k) for k in ("ok", "opened", "error")}
     rca = host.cmd({"cmd": "battle_close_inventory"})
-    gone_a, _ = wait_until(lambda: "InventoryState" not in stack(host), CLICK_WAIT_S)
-    ev["aClose"] = {"ok": rca.get("ok"), "error": rca.get("error"), "gone": bool(gone_a)}
+    empty_gone, _ = wait_until(lambda: "InventoryState" not in stack(host), CLICK_WAIT_S)
+    ev["emptyClose"] = {"ok": rca.get("ok"), "error": rca.get("error"), "gone": bool(empty_gone)}
     c0 = dirty_sets(before["host"], "close")
 
     def latched_and_consumed():
-        p = probes_sc1(host)
+        p = probes_held(host)
         return dirty_sets(p, "close") != c0 and dirty(p).get("pending") is False
-    _, ev["aLatchWaited"] = wait_until(latched_and_consumed, LATCH_WAIT_S)
+    _, ev["emptyLatchWaited"] = wait_until(latched_and_consumed, LATCH_WAIT_S)
     session.wait_host_idle(host, client, timeout=30)
-    mid = snap_sc1(host, client)
-    # (b) a real host placement, sampled with the host's screen open
+    mid = snap_held(host, client)
+    # the move: a real host placement, sampled with the host's screen open
     rb = host.cmd({"cmd": "battle_open_inventory", "unit": H_ID})
-    ev["bOpen"] = {k: rb.get(k) for k in ("ok", "opened", "error")}
-    b_open = bool(rb.get("opened")) and inv_view(host).get("top") is True
+    ev["moveOpen"] = {k: rb.get(k) for k in ("ok", "opened", "error")}
+    move_open = bool(rb.get("opened")) and inv_view(host).get("top") is True
     picked = dropped = False
     sample = {}
-    if b_open:
+    if move_open:
         ev["pick"] = click(host, slot=BELT, x=1, y=0)
         picked, _ = wait_until(lambda: selected(host) == gh, CLICK_WAIT_S)
         ev["pick"]["cursor"] = selected(host)
@@ -1243,73 +1212,76 @@ def ih2_host_placement_sync(host, client, ctx):
             _, sample["waited"] = wait_until(synced, SYNC_WAIT_S, 0.1)
             sample["grenade"] = item_both(host, client, gh)
             sample["tu"] = {"host": inv.tu_of(host, H_ID), "client": inv.tu_of(client, H_ID)}
-            sample["host"] = probes_sc1(host)
-            sample["client"] = probes_sc1(client)
+            sample["host"] = probes_held(host)
+            sample["client"] = probes_held(client)
             sample["hostViewOpen"] = inv_view(host).get("open")
     rcb = host.cmd({"cmd": "battle_close_inventory"})
-    gone_b, _ = wait_until(lambda: "InventoryState" not in stack(host), CLICK_WAIT_S)
-    ev["bClose"] = {"ok": rcb.get("ok"), "error": rcb.get("error"), "gone": bool(gone_b)}
+    move_gone, _ = wait_until(lambda: "InventoryState" not in stack(host), CLICK_WAIT_S)
+    ev["moveClose"] = {"ok": rcb.get("ok"), "error": rcb.get("error"), "gone": bool(move_gone)}
     session.wait_host_idle(host, client, timeout=30)
     heal = heal_step(host, client)
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH2", {"staging": hst, "stagedDiff": staged, "ui": ev,
-                     "a": {"hostDirty": (before["host"]["invHostDirty"], mid["host"]["invHostDirty"]),
-                           "hostSync": (before["host"]["syncEvsEmitted"], mid["host"]["syncEvsEmitted"])},
-                     "b": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in HELD_PROBE_KEYS[:5]})
-                           for k, v in sample.items()},
-                     "heal": heal, "row": rec_view(before, rec, {"hGrenade": gh}), "notes": notes})
+    rec = collect_held(host, client, seq0)
+    evidence("host_placement_sync",
+             {"staging": hst, "stagedDiff": staged, "ui": ev,
+              "openCloseOnly": {"hostDirty": (before["host"]["invHostDirty"], mid["host"]["invHostDirty"]),
+                                "hostSync": (before["host"]["syncEvsEmitted"], mid["host"]["syncEvsEmitted"])},
+              "move": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in HELD_PROBE_KEYS[:5]})
+                       for k, v in sample.items()},
+              "heal": heal, "row": rec_view(before, rec, {"hGrenade": gh}), "notes": notes})
     fails = list(notes) + staged_fails(hst, staged, H_TU_MAX, "H")
-    # (a) the RED cell (S-C1.1): sets.close +0
-    if not (ra.get("opened") and gone_a):
-        fails.append(f"IH2 (a): the host's open/close did not run ({ev['aOpen']}, {ev['aClose']})")
+    # open and close only: when broken sets.close +0
+    if not (ra.get("opened") and empty_gone):
+        fails.append(f"host_placement_sync open/close: the host's open/close did not run ({ev['emptyOpen']}, "
+                     f"{ev['emptyClose']})")
     dc = dnum(dirty_sets(before["host"], "close"), dirty_sets(mid["host"], "close"))
     de = dnum(dirty(before["host"]).get("emptyFlushes"), dirty(mid["host"]).get("emptyFlushes"))
     dsa = dnum(before["host"]["syncEvsEmitted"], mid["host"]["syncEvsEmitted"])
     if (dc, de, dsa) != (1, 1, 0):
-        fails.append(f"IH2 (a): host invHostDirty.sets.close +{dc}, emptyFlushes +{de}, syncEvsEmitted +{dsa} (want "
-                     f"+1 / +1 / +0: the close latched, its flush found an empty delta)")
-    # (b) the RED cell (S-C1.1): no sync, the client's H lags
-    if not b_open:
-        fails.append(f"IH2 (b): the host's inventory did not open on H ({ev['bOpen']})")
+        fails.append(f"host_placement_sync open/close: host invHostDirty.sets.close +{dc}, emptyFlushes +{de}, "
+                     f"syncEvsEmitted +{dsa} (want +1 / +1 / +0: the close latched, its flush found an empty delta)")
+    # the move: when broken there is no sync and the client's H lags
+    if not move_open:
+        fails.append(f"host_placement_sync move: the host's inventory did not open on H ({ev['moveOpen']})")
     elif not (picked and dropped):
-        fails.append(f"IH2 (b): the host's clicks did not move H's grenade (pick {ev.get('pick')}, drop "
-                     f"{ev.get('drop')})")
+        fails.append(f"host_placement_sync move: the host's clicks did not move H's grenade (pick {ev.get('pick')}, "
+                     f"drop {ev.get('drop')})")
     else:
         dm = dnum(dirty_sets(mid["host"], "move"), dirty_sets(sample["host"], "move"))
         dsb = dnum(mid["host"]["syncEvsEmitted"], sample["host"]["syncEvsEmitted"])
         dap = dnum(mid["client"]["syncEvsApplied"], sample["client"]["syncEvsApplied"])
         if (dm, dsb, dap) != (1, 1, 1):
-            fails.append(f"IH2 (b): with the host's screen open: host invHostDirty.sets.move +{dm}, host "
-                         f"syncEvsEmitted +{dsb}, client syncEvsApplied +{dap} (want +1 / +1 / +1)")
+            fails.append(f"host_placement_sync move: with the host's screen open: host invHostDirty.sets.move +{dm}, "
+                         f"host syncEvsEmitted +{dsb}, client syncEvsApplied +{dap} (want +1 / +1 / +1)")
         want = {"owner": H_ID, "slot": LH, "onTile": False}
         for m in ("host", "client"):
             got = {k: (sample["grenade"][m] or {}).get(k) for k in want}
             if got != want:
-                fails.append(f"IH2 (b): {m} H grenade with the host's screen open {sample['grenade'][m]} "
-                             f"(want {want})")
+                fails.append(f"host_placement_sync move: {m} H grenade with the host's screen open "
+                             f"{sample['grenade'][m]} (want {want})")
         if sample["tu"] != {"host": H_TU_MAX - TU_BELT_TO_HAND, "client": H_TU_MAX - TU_BELT_TO_HAND}:
-            fails.append(f"IH2 (b): H tu with the host's screen open {sample['tu']} (want "
+            fails.append(f"host_placement_sync move: H tu with the host's screen open {sample['tu']} (want "
                          f"{H_TU_MAX - TU_BELT_TO_HAND} on both)")
         if sample.get("hostViewOpen") is not True:
-            fails.append(f"IH2 (b): the host's screen was not open at the sample ({sample.get('hostViewOpen')})")
-    if not gone_b:
-        fails.append(f"IH2: the host's screen did not close ({ev['bClose']})")
+            fails.append(f"host_placement_sync move: the host's screen was not open at the sample "
+                         f"({sample.get('hostViewOpen')})")
+    if not move_gone:
+        fails.append(f"host_placement_sync: the host's screen did not close ({ev['moveClose']})")
     if "waitErr" in heal:
-        fails.append(f"IH2 heal step: {heal['waitErr']}")
-    fails += common_fails(host, client, before, {}, None, "IH2")
+        fails.append(f"host_placement_sync heal step: {heal['waitErr']}")
+    fails += common_fails(host, client, before, {}, None, "host_placement_sync")
     finish(fails)
 
 
-def ih3_host_reload_key(host, client, ctx):
+def host_reload_key(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
-    hst = restage_h(host, client, STAGE_H, "IV6")
+    hst = restage_h(host, client, STAGE_H, "load_rifle")
     staged = settle(host, client)
     rifle, clip = hst["ids"]["rifle"], hst["ids"]["beltClip"]
     ev = {"leftover": leftover, "tab": tab_select(host, H_ID)}
     key = read_reload_key(host.user_dir)
     ev["key"] = key
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev["rifleBefore"] = item_both(host, client, rifle)
     host.ok({"cmd": "inject_input", "kind": "key", "key": key})
@@ -1324,14 +1296,15 @@ def ih3_host_reload_key(host, client, ctx):
     _, ev["syncWaited"] = wait_until(synced, SYNC_WAIT_S, 0.1)
     sample = {"rifle": item_both(host, client, rifle), "tu": {"host": inv.tu_of(host, H_ID),
                                                               "client": inv.tu_of(client, H_ID)},
-              "hostEvs": ev_tuples(evs_since(host, seq0)), "host": probes_sc1(host), "client": probes_sc1(client)}
+              "hostEvs": ev_tuples(evs_since(host, seq0)), "host": probes_held(host), "client": probes_held(client)}
     session.wait_host_idle(host, client, timeout=30)
     heal = heal_step(host, client)
-    rec = collect_sc1(host, client, seq0)
-    evidence("IH3", {"staging": hst, "stagedDiff": staged, "ui": ev,
-                     "sample": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in HELD_PROBE_KEYS[:5]})
-                                for k, v in sample.items()},
-                     "heal": heal, "row": rec_view(before, rec, {"rifle": rifle, "clip": clip}), "notes": notes})
+    rec = collect_held(host, client, seq0)
+    evidence("host_reload_key",
+             {"staging": hst, "stagedDiff": staged, "ui": ev,
+              "sample": {k: (v if k not in ("host", "client") else {kk: v.get(kk) for kk in HELD_PROBE_KEYS[:5]})
+                         for k, v in sample.items()},
+              "heal": heal, "row": rec_view(before, rec, {"rifle": rifle, "clip": clip}), "notes": notes})
     fails = list(notes) + staged_fails(hst, staged, H_TU_MAX, "H")
     r_empty = [rifle, rifle, rifle]                 # an empty rifle [r, r, r]
     r_loaded = [clip, rifle, rifle, rifle]          # a loaded one [clip, r, r, r]
@@ -1340,32 +1313,34 @@ def ih3_host_reload_key(host, client, ctx):
     if (ev["rifleBefore"]["host"] or {}).get("ammo") != r_empty or (ev["rifleBefore"]["client"] or {}).get("ammo") != r_empty:
         fails.append(f"precondition: H's rifle before the key {ev['rifleBefore']} (want ammo {r_empty} on both)")
     if not loaded:
-        fails.append(f"IH3: the host's reload key (key {key}) did not load H's rifle on the host "
+        fails.append(f"host_reload_key: the host's reload key (key {key}) did not load H's rifle on the host "
                      f"({sample['rifle']['host']})")
     else:
-        # the RED cell (S-C1.1): no sync, the client's rifle stays [r, r, r]
+        # when broken there is no sync and the client's rifle stays [r, r, r]
         dr = dnum(dirty_sets(before["host"], "reload"), dirty_sets(sample["host"], "reload"))
         dsy = dnum(before["host"]["syncEvsEmitted"], sample["host"]["syncEvsEmitted"])
         if (dr, dsy) != (1, 1):
-            fails.append(f"IH3: host invHostDirty.sets.reload +{dr}, host syncEvsEmitted +{dsy} (want +1 / +1)")
+            fails.append(f"host_reload_key: host invHostDirty.sets.reload +{dr}, host syncEvsEmitted +{dsy} (want +1 / "
+                         f"+1)")
         for m in ("host", "client"):
             if (sample["rifle"][m] or {}).get("ammo") != r_loaded:
-                fails.append(f"IH3: {m} rifle ammo {(sample['rifle'][m] or {}).get('ammo')} before any other host ev "
-                             f"(want {r_loaded})")
+                fails.append(f"host_reload_key: {m} rifle ammo {(sample['rifle'][m] or {}).get('ammo')} before any "
+                             f"other host ev (want {r_loaded})")
         if sample["tu"]["host"] != sample["tu"]["client"]:
-            fails.append(f"IH3: H tu {sample['tu']} (want equal on both)")
+            fails.append(f"host_reload_key: H tu {sample['tu']} (want equal on both)")
         if [e[1] for e in sample["hostEvs"]] != ["sync"] or any(e[2] != 0 for e in sample["hostEvs"]):
-            fails.append(f"IH3: host evs since the key {sample['hostEvs']} (want exactly one `sync`, actionId 0)")
+            fails.append(f"host_reload_key: host evs since the key {sample['hostEvs']} (want exactly one `sync`, "
+                         f"actionId 0)")
     if "waitErr" in heal:
-        fails.append(f"IH3 heal step: {heal['waitErr']}")
-    fails += common_fails(host, client, before, {}, None, "IH3")
+        fails.append(f"host_reload_key heal step: {heal['waitErr']}")
+    fails += common_fails(host, client, before, {}, None, "host_reload_key")
     finish(fails)
 
 
-def ih7_battle_end(host, client, ctx):
+def battle_end_closes(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
-    st = restage_c(host, client, "IH7", IH7_TILE)
+    st = restage_c(host, client, "battle_end_closes", BATTLE_END_TILE)
     staged = settle(host, client)
     g = st["ids"]["grenade"]
     ev = {"leftover": leftover}
@@ -1373,10 +1348,10 @@ def ih7_battle_end(host, client, ctx):
     picked = pick(client, ev, "pick", BELT, 1, 0, g) if opened else False
     pre = []
     try:
-        assert_hash_clean(host, client, full=True, what="IH7 before the ending")
+        assert_hash_clean(host, client, full=True, what="battle_end_closes before the ending")
     except AssertionError as e:
-        pre.append(f"IH7: hash_now full before the ending: {short(e, 600)}")
-    before = snap_sc1(host, client)
+        pre.append(f"battle_end_closes: hash_now full before the ending: {short(e, 600)}")
+    before = snap_held(host, client)
     for name in ("host", "client"):
         be = before[name]["battleEnd"] or {}
         if be.get("emitted") != 0 or be.get("applied") != 0 or be.get("inventoryOpenAtTeardown") is not False:
@@ -1403,43 +1378,46 @@ def ih7_battle_end(host, client, ctx):
         out["host"] = {"battleEnd": eh.get("battleEnd"), "stack": stack(host)}
     out["popLines"] = {"client": ui_lines(client, cmark), "host": ui_lines(host, hmark)}
     out["newCrashFiles"] = sorted(crash_files() - crash0)
-    evidence("IH7", {"staging": st, "stagedDiff": staged, "ui": ev, "ending": ending, "out": out,
-                     "invForcedClosesBefore": before["client"]["invForcedCloses"], "notes": notes})
+    evidence("battle_end_closes", {"staging": st, "stagedDiff": staged, "ui": ev, "ending": ending, "out": out,
+                                   "invForcedClosesBefore": before["client"]["invForcedCloses"], "notes": notes})
     fails = list(notes) + list(pre) + staged_fails(st, staged, C_TU_MAX, "C") + list(ending)
     if not opened:
-        fails += open_fails(ev, "IH7")
+        fails += open_fails(ev, "battle_end_closes")
     elif not picked:
-        fails.append(f"IH7: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
-                     f"(want the grenade {g})")
+        fails.append(f"battle_end_closes: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the "
+                     f"cursor (want the grenade {g})")
     else:
         cbe = (out.get("client") or {}).get("battleEnd") or {}
         hbe = (out.get("host") or {}).get("battleEnd") or {}
         if not out.get("applied"):
-            fails.append(f"IH7: the client never applied battle_end within {DEBRIEF_S} s ({cbe})")
-        # the RED cell (S-C1.1): the teardown found the InventoryState; no force-close
+            fails.append(f"battle_end_closes: the client never applied battle_end within {DEBRIEF_S} s ({cbe})")
+        # when broken the teardown finds the InventoryState, with no force-close
         dbe = dnum(forced_reason(before["client"], "battle_end"),
                    forced_reason({"invForcedCloses": (out.get("client") or {}).get("invForcedCloses")}, "battle_end"))
         if dbe != 1:
-            fails.append(f"IH7: client invForcedCloses.byReason.battle_end +{dbe} (want +1; "
+            fails.append(f"battle_end_closes: client invForcedCloses.byReason.battle_end +{dbe} (want +1; "
                          f"{(out.get('client') or {}).get('invForcedCloses')})")
         if cbe.get("inventoryOpenAtTeardown") is not False:
-            fails.append(f"IH7: client battleEnd.inventoryOpenAtTeardown {cbe.get('inventoryOpenAtTeardown')} "
-                         f"(want false: the screen closed before the teardown)")
+            fails.append(f"battle_end_closes: client battleEnd.inventoryOpenAtTeardown "
+                         f"{cbe.get('inventoryOpenAtTeardown')} (want false: the screen closed before the teardown)")
         deb = (out.get("client") or {}).get("debrief") or {}
         if out.get("clientDebriefAt") is None or not (deb.get("shown") and deb.get("onTop") and deb.get("displayOnly")):
-            fails.append(f"IH7: the client's top is not the display-only DebriefingState within {DEBRIEF_S} s "
-                         f"(debrief_state {deb}, stack {(out.get('client') or {}).get('stack')})")
+            fails.append(f"battle_end_closes: the client's top is not the display-only DebriefingState within "
+                         f"{DEBRIEF_S} s (debrief_state {deb}, stack {(out.get('client') or {}).get('stack')})")
         if hbe.get("emitted") != 1 or hbe.get("evsAfter") != 0:
-            fails.append(f"IH7: host battleEnd emitted {hbe.get('emitted')} evsAfter {hbe.get('evsAfter')} (want 1 / 0)")
+            fails.append(f"battle_end_closes: host battleEnd emitted {hbe.get('emitted')} evsAfter "
+                         f"{hbe.get('evsAfter')} (want 1 / 0)")
         inv_pops = [ln for ln in out["popLines"]["client"] if "[coop-ui] pop" in ln and "InventoryState" in ln]
         if len(inv_pops) != 1:
-            fails.append(f"IH7: the client's `[coop-ui] pop ... InventoryState` lines {inv_pops} (want exactly one)")
+            fails.append(f"battle_end_closes: the client's `[coop-ui] pop ... InventoryState` lines {inv_pops} (want "
+                         f"exactly one)")
     if out["newCrashFiles"]:
-        fails.append(f"IH7: new crash file(s) {out['newCrashFiles']}: {crash_exception_lines(out['newCrashFiles'])}")
+        fails.append(f"battle_end_closes: new crash file(s) {out['newCrashFiles']}: "
+                     f"{crash_exception_lines(out['newCrashFiles'])}")
     finish(fails)
 
 
-def ih6_unit_out(host, client, ctx):
+def unit_out_closes(host, client, ctx):
     notes = []
     leftover = ensure_closed_safe(client, notes)
     st = {"c2Place": cs.place(host, client, C2_ID, C2_TILE, C2_DIR), "c2Stripped": strip_both(host, client, C2_ID)}
@@ -1447,7 +1425,7 @@ def ih6_unit_out(host, client, ctx):
     st["ids"] = {"grenade": g2}
     st["tu"] = cs.set_tu_both(host, client, C2_ID, TU_MAX)
     staged = settle(host, client)
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     ev = {"leftover": leftover}
     r = client.cmd({"cmd": "battle_open_inventory", "unit": C2_ID})
@@ -1465,7 +1443,7 @@ def ih6_unit_out(host, client, ctx):
         t_kill = time.time()
         kr = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": C2_ID})
         out["kill"] = {k: kr.get(k) for k in ("ok", "killed", "error")}
-        # the RED cell (P8-3b ruling 1, F2802): the client dies within CRASH_WATCH_S of the kill
+        # when broken the client dies within CRASH_WATCH_S of the kill
         while time.time() - t_kill < CRASH_WATCH_S:
             rc_ = client.proc.poll() if client.proc else None
             if rc_ is not None:
@@ -1499,7 +1477,7 @@ def ih6_unit_out(host, client, ctx):
             out["invForcedCloses"] = event_state(client).get("invForcedCloses")
             out["C2"] = {"host": unit_view(units(host).get(C2_ID)), "client": unit_view(units(client).get(C2_ID))}
             out["grenade"] = item_both(host, client, g2)
-            # the force-close's timing (ruling 1): the first host ev after which C2 is out or has no tile
+            # the force-close's timing: the first host ev after which C2 is out or has no tile
             dl = deltas_since(host, hmark)
             out_seq = None
             for s in sorted(dl):
@@ -1520,51 +1498,54 @@ def ih6_unit_out(host, client, ctx):
             at = [i for i, ln in enumerate(lines) if applied_re.search(ln)
                   and out_seq is not None and int(applied_re.search(ln).group(1)) == out_seq]
             out["order"] = {"popAt": pop_i, "outSeqAppliedAt": at, "nextAppliedAt": nxt[:1]}
-            rec = collect_sc1(host, client, seq0)
+            rec = collect_held(host, client, seq0)
             out["row"] = rec_view(before, rec, {"grenade": g2})
-    evidence("IH6", {"staging": st, "stagedDiff": staged, "ui": ev, "died": died, "out": out, "notes": notes})
+    evidence("unit_out_closes",
+                         {"staging": st, "stagedDiff": staged, "ui": ev, "died": died, "out": out, "notes": notes})
     fails = list(notes) + staged_fails(st, staged, C2_TU_MAX, "C2")
     if not opened:
-        fails.append(f"IH6: the client's inventory did not open on C2 ({ev['open']}, {ev['openView']})")
+        fails.append(f"unit_out_closes: the client's inventory did not open on C2 ({ev['open']}, {ev['openView']})")
     elif not picked:
-        fails.append(f"IH6: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the cursor "
-                     f"(want C2's grenade {g2})")
+        fails.append(f"unit_out_closes: the click on STR_BELT (1,0) put {ev.get('pick', {}).get('cursor')} on the "
+                     f"cursor (want C2's grenade {g2})")
     elif died is not None:
-        # the RED cell
-        fails.append(f"IH6: the client DIED {died['afterS']} s after the host's kill_unit_real {{C2}} with its "
-                     f"inventory open (exit code {died.get('exitCode')}; new crash file(s) {out['newCrashFiles']}; "
+        # broken: the client died
+        fails.append(f"unit_out_closes: the client DIED {died['afterS']} s after the host's kill_unit_real {{C2}} with "
+                     f"its inventory open (exit code {died.get('exitCode')}; new crash file(s) {out['newCrashFiles']}; "
                      f"exception {out['crashLines']})")
     else:
         if out["newCrashFiles"]:
-            fails.append(f"IH6: new crash file(s) {out['newCrashFiles']}: {out['crashLines']}")
+            fails.append(f"unit_out_closes: new crash file(s) {out['newCrashFiles']}: {out['crashLines']}")
         c2 = out.get("C2") or {}
         if (c2.get("host") or {}).get("status") != STATUS_DEAD or (c2.get("client") or {}).get("status") != STATUS_DEAD:
-            fails.append(f"IH6: C2 {c2} (want dead on both)")
+            fails.append(f"unit_out_closes: C2 {c2} (want dead on both)")
         duo = dnum(forced_reason(before["client"], "unit_out"),
                    forced_reason({"invForcedCloses": out.get("invForcedCloses")}, "unit_out"))
         if duo != 1:
-            fails.append(f"IH6: client invForcedCloses.byReason.unit_out +{duo} (want +1; {out.get('invForcedCloses')})")
+            fails.append(f"unit_out_closes: client invForcedCloses.byReason.unit_out +{duo} (want +1; "
+                         f"{out.get('invForcedCloses')})")
         if (out.get("clientView") or {}).get("open") is not False:
-            fails.append(f"IH6: client inventory_view after the death {out.get('clientView')} (want open false)")
+            fails.append(f"unit_out_closes: client inventory_view after the death {out.get('clientView')} (want open "
+                         f"false)")
         gr = out.get("grenade") or {}
         if gr.get("host") != gr.get("client") or gr.get("host") is None:
-            fails.append(f"IH6: C2's grenade host={gr.get('host')} client={gr.get('client')} (want where the host's evs "
-                         f"put it, equal on both)")
+            fails.append(f"unit_out_closes: C2's grenade host={gr.get('host')} client={gr.get('client')} (want where "
+                         f"the host's evs put it, equal on both)")
         o = out.get("order") or {}
         if out.get("outSeq") is None:
-            fails.append(f"IH6: no host ev put C2 out or off its tile ({out.get('hostDeltas')})")
+            fails.append(f"unit_out_closes: no host ev put C2 out or off its tile ({out.get('hostDeltas')})")
         elif len(o.get("popAt") or []) != 1 or (o.get("nextAppliedAt") and o["popAt"][0] > o["nextAppliedAt"][0]):
-            fails.append(f"IH6: the client's InventoryState pop {o} (want exactly one, before the first ev applied "
-                         f"after seq {out.get('outSeq')})")
+            fails.append(f"unit_out_closes: the client's InventoryState pop {o} (want exactly one, before the first ev "
+                         f"applied after seq {out.get('outSeq')})")
         if "idleErr" in out:
-            fails.append(f"IH6: {out['idleErr']}")
-        fails += common_fails(host, client, before, {}, None, "IH6")
+            fails.append(f"unit_out_closes: {out['idleErr']}")
+        fails += common_fails(host, client, before, {}, None, "unit_out_closes")
     finish(fails)
 
 
-def ih9_covered_unit_out(host, client, ctx):
-    """the client's inventory is
-    covered by another screen when its soldier dies; the crash comes when the cover closes."""
+def covered_unit_out(host, client, ctx):
+    """The client's inventory is covered by another screen when its soldier dies; when broken the client crashes
+    when the cover closes."""
     notes = []
     leftover = ensure_closed_safe(client, notes)
     st = {"c2Place": place_host_first(host, client, C2_ID, C2_TILE, C2_DIR),
@@ -1582,7 +1563,7 @@ def ih9_covered_unit_out(host, client, ctx):
     cov = {}
     covered = cover_inventory(client, cov) if opened else False
     ev["cover"] = cov
-    before = snap_sc1(host, client)
+    before = snap_held(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0
     out = {}
     died = None
@@ -1611,11 +1592,11 @@ def ih9_covered_unit_out(host, client, ctx):
                 lambda: (units(host).get(C2_ID) or {}).get("status") == STATUS_DEAD
                 and not battle_state(host).get("isBusy"), 30.0, 0.1)
             out["hostDead"] = bool(hd)
-            time.sleep(0.5)          # the client applies the host's death + corpse evs (T0-S9: 0.66 s)
+            time.sleep(0.5)          # the client applies the host's death + corpse evs (measured: 0.66 s)
             out["whileCovered"] = {"invForcedCloses": event_state(client).get("invForcedCloses"),
                                    "stack": stack(client), "view": inv_view(client),
                                    "C2": unit_view(units(client).get(C2_ID))}
-            # close the cover (P8-4b T0-S9: keyCancel), then watch the client for CRASH_WATCH_S
+            # close the cover (keyCancel), then watch the client for CRASH_WATCH_S
             time.sleep(KEY_SETTLE_S)
             k_close = read_key(client.user_dir, CLOSE_KEY)
             out["closeKey"] = k_close
@@ -1649,63 +1630,66 @@ def ih9_covered_unit_out(host, client, ctx):
                 out["idleErr"] = short(e)
             out["C2"] = {"host": unit_view(units(host).get(C2_ID)), "client": unit_view(units(client).get(C2_ID))}
             out["grenade"] = item_both(host, client, g2)
-            rec = collect_sc1(host, client, seq0)
+            rec = collect_held(host, client, seq0)
             out["row"] = rec_view(before, rec, {"grenade": g2})
-    evidence("IH9", {"staging": st, "stagedDiff": staged, "ui": ev, "died": died, "out": out,
-                     "invForcedClosesBefore": before["client"]["invForcedCloses"], "notes": notes})
+    evidence("covered_unit_out", {"staging": st, "stagedDiff": staged, "ui": ev, "died": died, "out": out,
+                                  "invForcedClosesBefore": before["client"]["invForcedCloses"], "notes": notes})
     fails = list(notes) + staged_fails(st, staged, C2_TU_MAX, "C2")
     f0 = before["client"]["invForcedCloses"] or {}
     if not opened:
-        fails.append(f"IH9: the client's inventory did not open on C2 ({ev['open']}, {ev['openView']})")
+        fails.append(f"covered_unit_out: the client's inventory did not open on C2 ({ev['open']}, {ev['openView']})")
     elif not covered:
-        fails.append(f"SETUP-FAILURE (P8-4b T0-S9): the client's {COVER_KEY} did not cover its inventory ({cov})")
+        fails.append(f"SETUP-FAILURE: the client's {COVER_KEY} did not cover its inventory ({cov})")
     elif died is not None:
-        # the RED cell: the covered screen thinks before the next pump pass and draws a
-        # tileless unit (Inventory.cpp:378)
-        fails.append(f"IH9: the client DIED at {died.get('at')} ({died}) with its inventory covered and C2 dead "
+        # broken: the covered screen thinks before the next pump pass and draws a tileless unit
+        # (Inventory.cpp:378)
+        fails.append(f"covered_unit_out: the client DIED at {died.get('at')} ({died}) with its inventory covered and "
+                     f"C2 dead "
                      f"(new crash file(s) {out['newCrashFiles']}; exception {out['crashLines']}; invForcedCloses while "
                      f"covered {(out.get('whileCovered') or {}).get('invForcedCloses')})")
     else:
         if out["newCrashFiles"]:
-            fails.append(f"IH9: new crash file(s) {out['newCrashFiles']}: {out['crashLines']}")
+            fails.append(f"covered_unit_out: new crash file(s) {out['newCrashFiles']}: {out['crashLines']}")
         wc = (out.get("whileCovered") or {})
         dcd = dnum(f0.get("coveredDetach"), (wc.get("invForcedCloses") or {}).get("coveredDetach"))
         if dcd != 1:
-            fails.append(f"IH9: client invForcedCloses.coveredDetach +{dcd} while covered (want +1; "
+            fails.append(f"covered_unit_out: client invForcedCloses.coveredDetach +{dcd} while covered (want +1; "
                          f"{wc.get('invForcedCloses')}, stack {wc.get('stack')})")
         if "UfopaediaStartState" not in (wc.get("stack") or []) or "InventoryState" not in (wc.get("stack") or []):
-            fails.append(f"IH9: the client's stack while covered {wc.get('stack')} (want InventoryState under "
-                         f"UfopaediaStartState: the detach happens under the cover)")
+            fails.append(f"covered_unit_out: the client's stack while covered {wc.get('stack')} (want InventoryState "
+                         f"under UfopaediaStartState: the detach happens under the cover)")
         ac = out.get("afterClose") or {}
         duo = dnum(forced_reason(before["client"], "unit_out"),
                    forced_reason({"invForcedCloses": ac.get("invForcedCloses")}, "unit_out"))
         if duo != 1:
-            fails.append(f"IH9: client invForcedCloses.byReason.unit_out +{duo} after the cover closed (want +1; "
-                         f"{ac.get('invForcedCloses')})")
+            fails.append(f"covered_unit_out: client invForcedCloses.byReason.unit_out +{duo} after the cover closed "
+                         f"(want +1; {ac.get('invForcedCloses')})")
         if "InventoryState" in (ac.get("stack") or []) or (ac.get("view") or {}).get("open") is not False:
-            fails.append(f"IH9: the client's inventory after the cover closed: stack {ac.get('stack')}, view "
-                         f"{ac.get('view')} (want closed)")
+            fails.append(f"covered_unit_out: the client's inventory after the cover closed: stack {ac.get('stack')}, "
+                         f"view {ac.get('view')} (want closed)")
         c2 = out.get("C2") or {}
         if (c2.get("host") or {}).get("status") != STATUS_DEAD or (c2.get("client") or {}).get("status") != STATUS_DEAD:
-            fails.append(f"IH9: C2 {c2} (want dead on both)")
+            fails.append(f"covered_unit_out: C2 {c2} (want dead on both)")
         if "idleErr" in out:
-            fails.append(f"IH9: {out['idleErr']}")
-        fails += common_fails(host, client, before, {}, None, "IH9")
+            fails.append(f"covered_unit_out: {out['idleErr']}")
+        fails += common_fails(host, client, before, {}, None, "covered_unit_out")
     finish(fails)
 
 
-BOOT1 = (("IH1a", ih1a_held_same_unit), ("IH1b", ih1b_right_click_cancel), ("IH1c", ih1c_held_walk_blocks),
-         ("IH8", ih8_open_context_gate), ("IH5", ih5_side_change), ("IH2", ih2_host_placement_sync),
-         ("IH3", ih3_host_reload_key), ("IH7", ih7_battle_end))
-BOOT2 = (("IH6", ih6_unit_out),)
-BOOT3 = (("IH9", ih9_covered_unit_out),)   # W2-P8 S-C2 (P8-4 section 4.2: "IH9 ... BOOT3, alone")
+MAIN_BOOT_ROWS = (("held_same_unit", held_same_unit), ("right_click_cancels_held", right_click_cancels_held),
+                  ("held_walk_blocks_drop", held_walk_blocks_drop),
+                  ("partner_walk_under_host_screen", partner_walk_under_host_screen),
+                  ("side_change_closes", side_change_closes), ("host_placement_sync", host_placement_sync),
+                  ("host_reload_key", host_reload_key), ("battle_end_closes", battle_end_closes))
+UNIT_OUT_BOOT_ROWS = (("unit_out_closes", unit_out_closes),)
+COVERED_BOOT_ROWS = (("covered_unit_out", covered_unit_out),)   # alone: when broken the row ends the client
 
 
 # ===================== bring-up =====================
 
 
 def boot(host, client):
-    """test_inventory.boot (the held boot, P8-3b) plus the S-C1 probes' presence (zeros)."""
+    """test_inventory.boot plus a check that the held-inventory probes are present (zeros)."""
     ctx = inv.boot(host, client)
     for gc in (host, client):
         es = event_state(gc)
@@ -1714,18 +1698,18 @@ def boot(host, client):
                                                                                or {})
                 and "inventoryOpenAtTeardown" in (es.get("battleEnd") or {})
                 and "coveredDetach" in (es.get("invForcedCloses") or {})), (
-            f"{gc.name} event_state lacks the W2-P8 S-C1/S-C2 probes: invHostDirty={es.get('invHostDirty')!r} "
+            f"{gc.name} event_state lacks the held-inventory probes: invHostDirty={es.get('invHostDirty')!r} "
             f"invForcedCloses={es.get('invForcedCloses')!r} invWarningWrites={es.get('invWarningWrites')!r} "
             f"invGuard={es.get('invGuard')!r}")
     assert battle_state(host).get("turn") == TURN0, f"host turn {battle_state(host).get('turn')} (want {TURN0})"
-    print(f"[w2p8-sc1] boot ok: invHostDirty host={event_state(host).get('invHostDirty')} invForcedCloses client="
+    print(f"[inventory_held] boot ok: invHostDirty host={event_state(host).get('invHostDirty')} invForcedCloses client="
           f"{event_state(client).get('invForcedCloses')}", flush=True)
     return ctx
 
 
 def run_boot(tag, rows, results):
-    host = GameClient("host", 49930, make_user_dir(f"w2p8_held_{tag}_host", options=OPTS))
-    client = GameClient("client", 49931, make_user_dir(f"w2p8_held_{tag}_client", options=OPTS))
+    host = GameClient("host", 49930, make_user_dir(f"inventory_held_{tag}_host", options=OPTS))
+    client = GameClient("client", 49931, make_user_dir(f"inventory_held_{tag}_client", options=OPTS))
     try:
         try:
             ctx = boot(host, client)
@@ -1749,16 +1733,16 @@ def run_boot(tag, rows, results):
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p8-sc1] shutdown {gc.name} (boot {tag}): {short(e)}", flush=True)
+                print(f"[inventory_held] shutdown {gc.name} (boot {tag}): {short(e)}", flush=True)
 
 
 def main():
     t0 = time.time()
     results = {}
-    run_boot("b1", BOOT1, results)
-    run_boot("b2", BOOT2, results)
-    run_boot("b3", BOOT3, results)
-    order = [n for n, _ in BOOT1 + BOOT2 + BOOT3]
+    run_boot("main", MAIN_BOOT_ROWS, results)
+    run_boot("unit_out", UNIT_OUT_BOOT_ROWS, results)
+    run_boot("covered", COVERED_BOOT_ROWS, results)
+    order = [n for n, _ in MAIN_BOOT_ROWS + UNIT_OUT_BOOT_ROWS + COVERED_BOOT_ROWS]
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_inventory_held: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
