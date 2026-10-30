@@ -1,42 +1,50 @@
-"""W2-H80 S-A LBU (tools/coop_test/test_lost_base_undefended.py): GUARD - a base the host loses undefended leaves no marker on the
-partner's globe (lead L-BH2, ruling R-LBH2-1; capture lbh2-cap C1-ctl F21832, here on the host's FIRST base HB).
-Spec docs rewrite/prompts/w2h80_lost_base_ghost.md (f) LBU; TASK 0 values in rewrite/w2h80-task0/sa/CONSTANTS.md.
-In a SEPARATE campaign the host owns HB (its first base) and SPARE. STRIP empties HB (set_soldier_dead on every HB soldier, host only:
-staging, no relay), so trigger_base_defense on HB finds no defender and pops BaseDestroyedState, whose constructor sends delete_base: the
-client erases its marker of HB at once. E1 (the W2-H80 green, TCP) does not touch this path (no battle world): this file passes on both builds.
-ONE boot (key KEY, dirs w2h80_u_*). Bring-up: spawn + connect both; session.new_campaign (HB at HOST_POS); geo.slow_clock; geo.drain_popups;
-the window mapping per machine from INTERCEPT + CANCEL (real clicks). SPARE: BASES, BUILD NEW BASE, one globe click at PICK, OK, the name keys,
-OK, LIFTS, GEOSCAPE (real clicks). P0: client INTERCEPT + CANCEL, 3 s: host own [HB, SPARE], host mirrors [CB], client mirrors {HB, SPARE}.
-STRIP (levers: get_soldiers, set_soldier_dead); U-mark; spawn_ufo; trigger_base_defense (T_TRIG = its reply); GONE: poll the client's mirrors
-every 0.05 s for GONE_S and the host's top for W_BDS; B0 (BaseDestroyedState open); HOST OK (real clicks to GeoscapeState); A0 both
-GeoscapeState; A1 client INTERCEPT + CANCEL + RT_SETTLE; A2 >= PLUS10_S after A0. GHOST(host) = host mirrors with id LOST or within POS_TOL of
-LOST_POS.
-  Row R4  R4-pre (GUARD) P0; HB had >= 1 soldier and 0 after STRIP (every reply ok, dead true); the trigger reply ok naming HB;
-          BaseDestroyedState on the host's top within W_BDS of T_TRIG (no BriefingState).  R4-gone (GUARD) LOST gone from the client's
-          mirrors within GONE_S of T_TRIG and absent at B0, A0, A1, A2.  R4-host (GUARD) the host's own list lacks LOST at A0; the host's
-          mirrors == [CB] at A0 and A2; GHOST(host) empty at A0 and A2.  R4-skip0 (GUARD) 0 SKIP lines on either machine since U-mark.
-  END     CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today and green (E1): all 5 PASS (a guard file).
-Every press is a real click_widget or inject_input except the logged levers named above. One EVIDENCE line per row, one PASS / FAIL line per
-cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails R4-pre with ONE
-CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
-Run: python tools/coop_test/test_lost_base_undefended.py   (OXC_HARNESS_SLOT selects the lane)"""
+"""test_lost_base_undefended.py: GUARD - a base the host loses undefended (here its FIRST base HB) leaves no marker on
+the partner's globe.
+In a SEPARATE campaign the host owns HB (its first base) and SPARE. STRIP empties HB (set_soldier_dead on every HB
+soldier, host only: staging, no relay), so trigger_base_defense on HB finds no defender and pops BaseDestroyedState,
+whose constructor sends delete_base: the client erases its marker of HB at once. The fix that test_lost_base_ghost.py
+covers does not touch this path (no battle world): this file passes with and without it.
+ONE boot (key KEY, dirs lost_base_undefended_*). Bring-up: spawn + connect both; session.new_campaign (HB at
+HOST_POS); geo.slow_clock; geo.drain_popups; the window mapping per machine from INTERCEPT + CANCEL (real clicks).
+SPARE: BASES, BUILD NEW BASE, one globe click at PICK, OK, the name keys, OK, LIFTS, GEOSCAPE (real clicks). P0:
+client INTERCEPT + CANCEL, 3 s: host own [HB, SPARE], host mirrors [CB], client mirrors {HB, SPARE}. STRIP (test
+commands: get_soldiers, set_soldier_dead); the trigger mark; spawn_ufo; trigger_base_defense (T_TRIG = its reply);
+GONE: poll the client's mirrors every 0.05 s for GONE_S and the host's top for W_BDS; B0 (BaseDestroyedState open);
+HOST OK (real clicks to GeoscapeState); A0 both GeoscapeState; A1 client INTERCEPT + CANCEL + RT_SETTLE; A2 >=
+PLUS10_S after A0. GHOST(host) = host mirrors with id LOST or within POS_TOL of LOST_POS.
+  Row undefended_loss:
+      undefended_loss-pre (GUARD) P0; HB had >= 1 soldier and 0 after STRIP (every reply ok, dead true); the trigger
+        reply ok naming HB; BaseDestroyedState on the host's top within W_BDS of T_TRIG (no BriefingState).
+      undefended_loss-client_marker_gone (GUARD) LOST gone from the client's mirrors within GONE_S of T_TRIG and
+        absent at B0, A0, A1, A2.
+      undefended_loss-host_globe_clean (GUARD) the host's own list lacks LOST at A0; the host's mirrors == [CB] at A0
+        and A2; GHOST(host) empty at A0 and A2.
+      undefended_loss-no_skip_lines (GUARD) 0 SKIP lines on either machine since the trigger mark.
+  END CRASH (GUARD): no new crash file in the harness slot's crash folder since the file start; both processes alive
+      until their shutdown.
+All 5 cells PASS with and without the fix (a guard file). Every press is a real click_widget or inject_input except
+the logged test commands named above. One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict;
+a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails undefended_loss-pre with
+ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+Run: python tools/coop_test/test_lost_base_undefended.py   (OXC_HARNESS_SLOT selects the harness slot)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo, harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-KEY = "49493"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 4aaaff0c0)
+KEY = "49493"                               # lobby key (no other user in src + tools)
 HOST_POS = (0.90, -0.60)                    # rad: HB; SPARE is picked >= 0.15 rad away on land
 SPARE_NAME = "spare"
 LIFTS = ((2, 2), (3, 2), (2, 3), (3, 3))    # the lift tile, then its replacement tiles in row order
 RT_SETTLE, PLUS10_S, GONE_S, W_BDS, POS_TOL, BOOT_S = 3.0, 10.0, 1.0, 2.0, 1e-4, 240.0
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
        "race": "STR_SECTOID", "trajectory": "P0", "state": "flying"}
-SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # E1 (the green's log line)
+SKIP_N = "[coop] baseRequest not answered - the live world is the SEPARATE battle world"   # a skipped base request
 NEEDLES = ("baseRequest not answered", "coopBase3 marker", "coop-ui] push", "coop-ui] pop", "[coop-session]", "coop-debrief")
-ROWS = (("R4", ("R4-pre", "R4-gone", "R4-host", "R4-skip0")), ("END", ("CRASH",)))
+ROWS = (("undefended_loss", ("undefended_loss-pre", "undefended_loss-client_marker_gone",
+                             "undefended_loss-host_globe_clean", "undefended_loss-no_skip_lines")),
+        ("END", ("CRASH",)))
 FIX = ()
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
@@ -44,7 +52,7 @@ T0 = [time.time()]
 class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
-# ----- probes and real input (copied from the capture rewrite/lbh2-cap/cap.py, never imported) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -137,8 +145,8 @@ def capture(b):
 # ----- the boot and the construction steps -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h80_u_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h80_u_client"))
+        self.host = GameClient("host", None, make_user_dir("lost_base_undefended_host"))
+        self.client = GameClient("client", None, make_user_dir("lost_base_undefended_client"))
         self.aff = {}
 class Row:
     def __init__(self, x, b, rid):
@@ -258,8 +266,9 @@ def press_through(gc, cap=90.0):
                 break
     return {"steps": steps, "secs": round(time.time() - t1, 2)}
 # ----- the row -----
-def row_r4(b, r, st):
-    """R4: the boot, SPARE, P0, STRIP, the base defence on the emptied HB -> BaseDestroyedState, GONE, B0, HOST OK, A0 / A1 / A2"""
+def row_undefended_loss(b, r, st):
+    """undefended_loss: the boot, SPARE, P0, STRIP, the base defence on the emptied HB -> BaseDestroyedState, GONE, B0,
+    HOST OK, A0 / A1 / A2"""
     h, c, ev = b.host, b.client, r.ev
     bring_up(b, r)
     st["spare"] = build_base(b, r, h, SPARE_NAME)
@@ -273,7 +282,7 @@ def row_r4(b, r, st):
     ev["strip"] = {"ids": sids, "replies": [[x[0], x[1].get("ok"), x[1].get("dead"), x[1].get("error")] for x in replies], "after": after}
     r.need(sids and all(x[1].get("ok") and x[1].get("dead") for x in replies) and after == [0],
            "STRIP: HB soldiers %s, replies %s, after %s (want >= 1, every ok + dead, [0])" % (sids, ev["strip"]["replies"], after))
-    nh, nc = len(logl(h)), len(logl(c))  # U-mark
+    nh, nc = len(logl(h)), len(logl(c))  # the trigger mark
     ufo = q(h, UFO)
     t_send = time.time()
     reply = q(h, {"cmd": "trigger_base_defense", "ufo_id": ufo.get("ufo_id")})
@@ -301,8 +310,8 @@ def row_r4(b, r, st):
     r.need(ufo.get("ok") and reply.get("ok") and reply.get("base") == st["lostName"], "trigger: %s (want ok, base %r)" % (reply, st["lostName"]))
     r.need(bds_at is not None and not any("BriefingState" in x[1] for x in host_tr),
            "BaseDestroyedState on the host within W_BDS (host trace %s)" % host_tr)
-    r.cell("R4-pre", True, "P0 %s; STRIP %d soldiers -> %s; trigger %s; BaseDestroyedState at +%.3f s" % (ev["P0"]["hostOwn"], len(sids), after,
-                                                                                                         reply, bds_at))
+    r.cell("undefended_loss-pre", True, "P0 %s; STRIP %d soldiers -> %s; trigger %s; BaseDestroyedState at +%.3f s" % (
+        ev["P0"]["hostOwn"], len(sids), after, reply, bds_at))
     st["B0"] = both(b)
     ev["hostOk"] = press_through(h)
     st["A0"] = both(b)
@@ -319,16 +328,19 @@ def row_r4(b, r, st):
     ev["censuses"] = {k: {"host": [x[:4] for x in st[k]["host"]["bases"]], "hostStack": st[k]["host"]["stack"],
                           "client": [x[:4] for x in st[k]["client"]["bases"]], "clientStack": st[k]["client"]["stack"]} for k in ks}
     cm = {k: mir_ids(st[k]["client"]) for k in ks}
-    r.cell("R4-gone", gone_at is not None and not gone[-1][1] and all(st["lost"] not in v for v in cm.values()),
+    r.cell("undefended_loss-client_marker_gone",
+           gone_at is not None and not gone[-1][1] and all(st["lost"] not in v for v in cm.values()),
            "LOST %s gone from the client's mirrors at +%s s of T_TRIG (GONE trace %s); client mirrors at B0 / A0 / A1 / A2 %s" % (
                st["lost"], gone_at, gone, cm))
     a0, a2 = st["A0"]["host"], st["A2"]["host"]
-    r.cell("R4-host", st["lost"] not in [x[0] for x in own(a0)] and mir_ids(a0) == [st["cb"]] and mir_ids(a2) == [st["cb"]]
-           and not ghost(a0, st) and not ghost(a2, st), "host own at A0 %s; host mirrors at A0 %s, A2 %s (want [%s]); GHOST(host) A0 %s, A2 %s" % (
+    r.cell("undefended_loss-host_globe_clean",
+           st["lost"] not in [x[0] for x in own(a0)] and mir_ids(a0) == [st["cb"]] and mir_ids(a2) == [st["cb"]]
+           and not ghost(a0, st) and not ghost(a2, st),
+           "host own at A0 %s; host mirrors at A0 %s, A2 %s (want [%s]); GHOST(host) A0 %s, A2 %s" % (
                own(a0), mir_ids(a0), mir_ids(a2), st["cb"], ghost(a0, st), ghost(a2, st)))
     sk = ev["skip"] = {"host": hits(h, SKIP_N, nh), "client": hits(c, SKIP_N, nc)}
-    r.cell("R4-skip0", not sk["host"] and not sk["client"], "SKIP lines since U-mark: host %d, client %d (want 0)" % (len(sk["host"]),
-                                                                                                                len(sk["client"])))
+    r.cell("undefended_loss-no_skip_lines", not sk["host"] and not sk["client"],
+           "SKIP lines since the trigger mark: host %d, client %d (want 0)" % (len(sk["host"]), len(sk["client"])))
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
 def main():
@@ -336,9 +348,9 @@ def main():
     T0[0] = time.time()
     try:
         b = Boot()
-        r = Row(x, b, "R4")
+        r = Row(x, b, "undefended_loss")
         try:
-            row_r4(b, r, st)
+            row_undefended_loss(b, r, st)
             r.finish()
         except Stop as e:
             r.finish(str(e))
@@ -359,8 +371,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H80 S-A LBU: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                               sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY lost base undefended: %d/%d cells pass; failing %s; wall %.1f s" % (
+        len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
