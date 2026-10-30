@@ -1,17 +1,22 @@
-"""test_solo_ironman_pause.py (SIP): a single-player ironman game's pause menu hides LOAD GAME and SAVE GAME (lead L-H63-1).
-R-LT8-1, R-H67-1 (QH67-1 .. QH67-5 (a)): vanilla hides both in an ironman pause menu and shows SAVE AND ABANDON GAME; the
-co-op build's "truly solo" re-show blocks (constructor, init()) turn both back on in every single-player game, ironman included (F19821,
-measured F19941). Spec: docs rewrite/prompts/w2h67_solo_ironman_hide.md (f); pins: docs rewrite/w2h67-task0/sa/CONSTANTS.md (TASK 0, 0ef641b8f).
-Boot I (w2h67_i_sp, solo, the real IRONMAN toggle; precondition 2 start save lists, Cancel hidden on each):
-  row G: geoscape OPTIONS click -> settled PauseState -> ONE list_widgets -> CANCEL: G-load, G-save, G-abandon.
-  row B: seat 3, site, forced craft, ConfirmLandingState, confirm_landing, briefing OK, the equip screen's OK (ESC, F19940), close_nextturn,
-         idle at turn 1 side 0, no SaveGameState / CoopState in the stack (SAVE_IRONMAN, F19832); ESC read: B-load, B-save, B-abandon.
-Boot N (w2h67_n_sp, solo, no IRONMAN; precondition 0 lists): row N geoscape read: N-load, N-save, N-abandon.
-Boot C (w2h67_c_host / _client, SEPARATE ironman co-op, key 49246; precondition host 2 lists, client 0): row C reads: C-host, C-client.
-X-crash: no new file in harness.CRASH_DIR. Captions read by `visible`; CO-OP / GAME OPTIONS EVIDENCE only. RED: G-load, G-save, B-load, B-save
-(4 of 12); GREEN (E1-E2) 12/12. Per row one EVIDENCE line, a PASS / FAIL line per cell, the verdict; every row runs after a failure; a miss
-ends its row ("not reached (<step>)") or its boot ("boot"), ONE CAPTURE line. WV-D95 (foreground to completion), WV-D99 / WV-D100 (ONE run,
-no skip path): exit 0 only when every cell passes, else 2.   Run:  python tools/coop_test/test_solo_ironman_pause.py
+"""A single-player ironman game's pause menu hides LOAD GAME and SAVE GAME. Vanilla hides both in an ironman pause menu
+and shows SAVE AND ABANDON GAME; without the fix, the co-op build's "truly solo" re-show blocks (constructor, init())
+turn both back on in every single-player game, ironman included.
+Boot iron_solo (user dir iron_solo_sp, solo, the real IRONMAN toggle; precondition 2 start save lists, Cancel hidden on
+each):
+  row iron_geo: geoscape OPTIONS click -> settled PauseState -> ONE list_widgets -> CANCEL: iron_geo-load,
+         iron_geo-save, iron_geo-abandon.
+  row iron_battle: seat 3, site, forced craft, ConfirmLandingState, confirm_landing, briefing OK, the equip screen's
+         OK (ESC), close_nextturn, idle at turn 1 side 0, no SaveGameState / CoopState in the stack (SAVE_IRONMAN); ESC
+         read: iron_battle-load, iron_battle-save, iron_battle-abandon.
+Boot plain_solo (plain_solo_sp, solo, no IRONMAN; precondition 0 lists): row plain_solo geoscape read: plain_solo-load,
+plain_solo-save, plain_solo-abandon.
+Boot iron_coop (iron_coop_host / _client, SEPARATE ironman co-op, key 49246; precondition host 2 lists, client 0): row
+iron_coop reads: iron_coop-host, iron_coop-client.
+crash-free: no new file in harness.CRASH_DIR. Captions read by `visible`; CO-OP / GAME OPTIONS EVIDENCE only. Without
+the fix iron_geo-load, iron_geo-save, iron_battle-load and iron_battle-save fail (4 of 12); with it all 12 pass. Per
+row one EVIDENCE line, a PASS / FAIL line per cell, the verdict; every row runs after a failure; a miss ends its row
+("not reached (<step>)") or its boot ("boot"), ONE CAPTURE line. Run it in the foreground to completion; one run, no
+skip path: exit 0 only when every cell passes, else 2.   Run:  python tools/coop_test/test_solo_ironman_pause.py
 """
 
 import glob
@@ -26,18 +31,20 @@ from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT  # noqa: E402
 import session  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
 
-# ----- TASK 0 pins (docs rewrite/w2h67-task0/sa/CONSTANTS.md) -----
+# ----- lobby key, save and base names, timings -----
 KEY = "49246"
-NAME_I, NAME_N, NAME_C = "IronH67", "PlainH67", "IronH67C"
+NAME_IRON_SOLO, NAME_PLAIN_SOLO, NAME_IRON_COOP = "IronSolo", "PlainSolo", "IronCoop"
 BASE_FALLBACK = (0.706, -0.507)        # session.HOST_LON / HOST_LAT is not land for a first base
 NGS_SETTLE, QUIET_SOLO, QUIET_COOP = 0.2, 4.0, 8.0
 DRIVE_S, ARRIVAL_S, ENTRY_S, SETTLE_S, PAUSE_S, SETTLE_W = 150, 60, 60, 30, 10, 5
 ESC = 27
 LOAD, SAVE, SAA, ABANDON = "LOAD GAME", "SAVE GAME", "SAVE AND ABANDON GAME", "ABANDON GAME"
-ROWS = {"G": ["G-load", "G-save", "G-abandon"], "B": ["B-load", "B-save", "B-abandon"], "N": ["N-load", "N-save", "N-abandon"],
-        "C": ["C-host", "C-client"], "X": ["X-crash"]}
-BOOTS = {"I": ["G", "B"], "N": ["N"], "C": ["C"]}
-FIX = {"G-load", "G-save", "B-load", "B-save"}
+ROWS = {"iron_geo": ["iron_geo-load", "iron_geo-save", "iron_geo-abandon"],
+        "iron_battle": ["iron_battle-load", "iron_battle-save", "iron_battle-abandon"],
+        "plain_solo": ["plain_solo-load", "plain_solo-save", "plain_solo-abandon"],
+        "iron_coop": ["iron_coop-host", "iron_coop-client"], "crash": ["crash-free"]}
+BOOTS = {"iron_solo": ["iron_geo", "iron_battle"], "plain_solo": ["plain_solo"], "iron_coop": ["iron_coop"]}
+FIX = {"iron_geo-load", "iron_geo-save", "iron_battle-load", "iron_battle-save"}
 RESULTS = {}
 
 class Miss(Exception):
@@ -56,7 +63,7 @@ def finish_row(row, ev, step="not reached"):
     bad = [n for n in ROWS[row] if not RESULTS[n][0]]
     print(f"ROW {row}: {'PASS' if not bad else 'FAIL'}" + (f" ({len(bad)} failing: {bad})" if bad else ""), flush=True)
 
-# ----- probes (copied from test_ironman_save_paths.py, test_client_landing_controls.py H9-5, test_ironman_borrow.py) -----
+# ----- probes (copied from test_ironman_save_paths.py, test_client_landing_controls.py, test_ironman_borrow.py) -----
 def stk(gc):
     try:
         return session.states_stripped(gc)
@@ -80,7 +87,8 @@ def tbuttons(gc):
                                   if "TextButton" in (w.get("type") or "")]
 
 def settled(gc, name, timeout):
-    def ok():  # `name` on top, every interactive widget hidden false (a Window popup hides them; a hidden button ignores input, F18080)
+    # `name` on top, every interactive widget hidden false (a Window popup hides them; a hidden button ignores input)
+    def ok():
         r = gc.cmd({"cmd": "list_widgets"})
         ws = [w for w in r.get("widgets", []) if w.get("interactive")]
         return bool(name in (r.get("state") or "") and ws and all(w.get("hidden") is False for w in ws))
@@ -112,7 +120,7 @@ def capture(tag, err, *machines):
             cap[gc.name] = f"probe failed: {e!r}"[:300]
     print(f"CAPTURE {tag}: missed {err}; {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
 
-# ----- the start (H53 start / drive, copied: solo and SEPARATE co-op branches) -----
+# ----- the start (start / drive copied from test_ironman_save_paths.py: solo and SEPARATE co-op branches) -----
 def start(host, client, mode, ironman, ev):
     host.ok({"cmd": "open_new_game", "mode": mode})
     host.wait_for("difficulty", lambda: PF._has(host, "NewGameState"))
@@ -128,7 +136,7 @@ def start(host, client, mode, ironman, ev):
             raise Miss("START", f"IRONMAN click {ev['ironmanClick']} toggle {ev['ironmanToggle']}")
     host.ok({"cmd": "newgame_ok"})
     if mode == "solo":
-        return {"host": "H67Base", "client": None, "begin": False}
+        return {"host": "HostBase", "client": None, "begin": False}
     host.wait_for("host window", lambda: PF._has(host, "HostMenu"))
     host.ok({"cmd": "host_tcp", "server": "TestSrv", "port": KEY, "player": "HostPlayer"})
     host.wait_for("host lobby", lambda: PF._has(host, "LobbyMenu"))
@@ -140,7 +148,7 @@ def start(host, client, mode, ironman, ev):
     host.wait_for("start eligible", lambda: PF._lobby(host).get("startEligible") or None)
     host.wait_for("START CAMPAIGN shown", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
     session.start_campaign_via_button(host)
-    return {"host": "H67Base", "client": "H67Client", "begin": True}
+    return {"host": "HostBase", "client": "ClientBase", "begin": True}
 
 def drive(host, client, ev, plan, name, quiet):
     t0, last, seen = time.time(), time.time(), {}
@@ -292,54 +300,59 @@ def row(name, gc, ev, fn):
         capture(name, why, gc)
         finish_row(name, ev, f"not reached ({step}: {why[:160]})")
 
-def boot_i(x, evs):
+def boot_iron_solo(x, evs):
     sp = x["sp"]
-    ls = drive(sp, None, evs["G"], start(sp, None, "solo", True, evs["G"]), NAME_I, QUIET_SOLO)["host"]
+    ls = drive(sp, None, evs["iron_geo"], start(sp, None, "solo", True, evs["iron_geo"]), NAME_IRON_SOLO,
+               QUIET_SOLO)["host"]
     if len(ls) != 2 or any(c is not False for _w, _n, _t, c, _ok in ls):
         raise Miss("boot", f"start save lists {ls} (want 2, Cancel visible false on each)")
 
     def g():
-        iron_cells("G", evs["G"].setdefault("read", pause_read(sp, "geo")), "geoscape")
+        iron_cells("iron_geo", evs["iron_geo"].setdefault("read", pause_read(sp, "geo")), "geoscape")
     def b():
-        to_battle(sp, evs["B"])
-        iron_cells("B", evs["B"].setdefault("read", pause_read(sp, "battle")), "battle")
-    row("G", sp, evs["G"], g)
+        to_battle(sp, evs["iron_battle"])
+        iron_cells("iron_battle", evs["iron_battle"].setdefault("read", pause_read(sp, "battle")), "battle")
+    row("iron_geo", sp, evs["iron_geo"], g)
     if "PauseState" in (top(sp) or ""):
         sp.cmd({"cmd": "click_widget", "match": "cancel"})
-    row("B", sp, evs["B"], b)
+    row("iron_battle", sp, evs["iron_battle"], b)
 
-def boot_n(x, evs):
+def boot_plain_solo(x, evs):
     sp = x["sp"]
-    ls = drive(sp, None, evs["N"], start(sp, None, "solo", False, evs["N"]), NAME_N, QUIET_SOLO)["host"]
+    ls = drive(sp, None, evs["plain_solo"], start(sp, None, "solo", False, evs["plain_solo"]), NAME_PLAIN_SOLO,
+               QUIET_SOLO)["host"]
     if ls:
         raise Miss("boot", f"start save lists {ls} in a non-ironman game (want 0)")
 
     def n():
-        r = evs["N"]["read"] = pause_read(sp, "geo")
+        r = evs["plain_solo"]["read"] = pause_read(sp, "geo")
         for cap in (LOAD, SAVE):
-            cell(f"N-{cap.split()[0].lower()}", vis(r, cap) is True, f"{cap} visible {vis(r, cap)} in a non-ironman solo game (want True)")
-        cell("N-abandon", vis(r, ABANDON) is True and SAA not in r["buttons"],
+            cell(f"plain_solo-{cap.split()[0].lower()}", vis(r, cap) is True,
+                 f"{cap} visible {vis(r, cap)} in a non-ironman solo game (want True)")
+        cell("plain_solo-abandon", vis(r, ABANDON) is True and SAA not in r["buttons"],
              f"{ABANDON!r} visible {vis(r, ABANDON)}, {SAA!r} caption present {SAA in r['buttons']} (want True, False)")
-    row("N", sp, evs["N"], n)
+    row("plain_solo", sp, evs["plain_solo"], n)
 
-def boot_c(x, evs):
+def boot_iron_coop(x, evs):
     host, client = x["host"], x["client"]
-    ls = drive(host, client, evs["C"], start(host, client, "coop", True, evs["C"]), NAME_C, QUIET_COOP)
+    ls = drive(host, client, evs["iron_coop"], start(host, client, "coop", True, evs["iron_coop"]), NAME_IRON_COOP,
+               QUIET_COOP)
     if len(ls["host"]) != 2 or ls["client"]:
         raise Miss("boot", f"start save lists host {ls['host']}, client {ls['client']} (want 2, 0)")
 
     def c():
-        rh = evs["C"]["host"] = pause_read(host, "geo")
-        cell("C-host", (vis(rh, LOAD), vis(rh, SAVE), vis(rh, SAA)) == (False, False, True),
+        rh = evs["iron_coop"]["host"] = pause_read(host, "geo")
+        cell("iron_coop-host", (vis(rh, LOAD), vis(rh, SAVE), vis(rh, SAA)) == (False, False, True),
              f"host LOAD {vis(rh, LOAD)}, SAVE {vis(rh, SAVE)}, {SAA!r} {vis(rh, SAA)} (want False, False, True)")
-        rc = evs["C"]["client"] = pause_read(client, "geo")
-        cell("C-client", (vis(rc, LOAD), vis(rc, SAVE)) == (False, False),
+        rc = evs["iron_coop"]["client"] = pause_read(client, "geo")
+        cell("iron_coop-client", (vis(rc, LOAD), vis(rc, SAVE)) == (False, False),
              f"client LOAD {vis(rc, LOAD)}, SAVE {vis(rc, SAVE)} (want False, False); abandon caption EVIDENCE")
-    row("C", host, evs["C"], c)
+    row("iron_coop", host, evs["iron_coop"], c)
 
 def run_boot(tag, fn):
     t0 = time.time()
-    dirs = {"I": {"sp": "w2h67_i_sp"}, "N": {"sp": "w2h67_n_sp"}, "C": {"host": "w2h67_c_host", "client": "w2h67_c_client"}}[tag]
+    dirs = {"iron_solo": {"sp": "iron_solo_sp"}, "plain_solo": {"sp": "plain_solo_sp"},
+            "iron_coop": {"host": "iron_coop_host", "client": "iron_coop_client"}}[tag]
     x, evs = {nm: GameClient(nm, None, make_user_dir(d)) for nm, d in dirs.items()}, {r: {} for r in BOOTS[tag]}
     try:
         for gc in x.values():
@@ -360,15 +373,15 @@ def run_boot(tag, fn):
 
 def main():
     t0, crash0, walls = time.time(), crash_set(), {}
-    for tag, fn in (("I", boot_i), ("N", boot_n), ("C", boot_c)):
+    for tag, fn in (("iron_solo", boot_iron_solo), ("plain_solo", boot_plain_solo), ("iron_coop", boot_iron_coop)):
         walls[tag] = run_boot(tag, fn)
     new = sorted(crash_set() - crash0)
-    cell("X-crash", not new, f"new crash files {new} in {harness.CRASH_DIR} (want none)")
-    finish_row("X", {"crashDir": harness.CRASH_DIR, "new": new, "bootWalls": walls})
+    cell("crash-free", not new, f"new crash files {new} in {harness.CRASH_DIR} (want none)")
+    finish_row("crash", {"crashDir": harness.CRASH_DIR, "new": new, "bootWalls": walls})
     allc = [c for v in ROWS.values() for c in v]
     fails = [n for n in allc if not RESULTS.get(n, (False,))[0]]
-    print(f"\n==== W2-H67 solo ironman pause menu: {len(allc) - len(fails)}/{len(allc)} cells PASS, wall {time.time() - t0:.1f} s "
-          f"(boots {walls}) ====", flush=True)
+    print(f"\n==== solo ironman pause menu: {len(allc) - len(fails)}/{len(allc)} cells PASS, "
+          f"wall {time.time() - t0:.1f} s (boots {walls}) ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
     sys.exit(0 if not fails else 2)
