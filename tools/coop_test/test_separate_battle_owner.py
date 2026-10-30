@@ -15,8 +15,11 @@ One world, the host machine runs every battle. Rows:
          seat on both machines; the client moves its own soldier, the host's
          selection of it is refused, the hashes stay equal. The battle ends as
          in SEP-1: the client's soldiers are back in the client's base.
+  SEP-2C The client launches its own craft to Cydonia: the host's machine
+         runs the battle, which belongs to the client, and the client's
+         soldiers are on the client's seat on both machines.
 
-Run:  py -3 tools/coop_test/test_separate_battle_owner.py [sep1|sep2]
+Run:  py -3 tools/coop_test/test_separate_battle_owner.py [sep1|sep2|sep2c]
 Exit 0 = pass; anything else = failure.
 """
 
@@ -229,10 +232,37 @@ def sep2():
         js.shutdown()
 
 
+def sep2c():
+    row = "SEP-2C"
+    js = fixture.bring_up("sep_battle_owner3", (49988, 49989, 49288),
+                          host_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2},
+                          client_options={"battleXcomSpeed": 2, "battleAlienSpeed": 2})
+    host, client = js.host, js.client
+    try:
+        fixture.assert_fresh_named_world(host, client)
+        geo.slow_clock(host, client)
+        craft = _craft(host, "ClientBase")
+        client.ok({"cmd": "open_cydonia", "craft_id": craft["id"], "craft_type": craft["type"]})
+        client.wait_for("the client's Cydonia confirmation",
+                        lambda: any("ConfirmCydoniaState" in s for s in session.states(client)) or None,
+                        timeout=30, interval=0.3)
+        client.ok({"cmd": "confirm_cydonia"})
+        for gc, label in ((host, "host"), (client, "client")):
+            gc.wait_for(f"{label} entered the Cydonia battle",
+                        lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
+                        timeout=180, interval=1.0)
+        _check_owner(host, client, "ClientPlayer", row)
+        _to_tactical(host, client, row)
+        _check_seats(host, client, lambda u: 1, None, row)
+        print(f"ALL {row} PASSED")
+    finally:
+        js.shutdown()
+
+
 def main():
-    rows = sys.argv[1:] or ["sep1", "sep2"]
+    rows = sys.argv[1:] or ["sep1", "sep2", "sep2c"]
     for name in rows:
-        {"sep1": sep1, "sep2": sep2}[name]()
+        {"sep1": sep1, "sep2": sep2, "sep2c": sep2c}[name]()
 
 
 if __name__ == "__main__":

@@ -14997,7 +14997,10 @@ std::string TestServer::execute(const std::string& line)
 			// Exercise the real final-mission confirmation state without requiring a
 			// months-long research setup. The requested craft still supplies the real
 			// campaign roster, equipment and BattlescapeGenerator input.
+			// Craft ids are numbered per craft type, so a world can hold an
+			// interceptor and a transport with the same id: "craft_type" picks one.
 			int craftId = req.get("craft_id", -1).asInt();
+			const std::string craftType = req.get("craft_type", "").asString();
 			Craft* craft = nullptr;
 			SavedGame* sg = _game->getSavedGame();
 			if (sg)
@@ -15006,7 +15009,8 @@ std::string TestServer::execute(const std::string& line)
 				{
 					for (auto* candidate : *base->getCrafts())
 					{
-						if (candidate->getId() == craftId)
+						if (candidate->getId() == craftId
+							&& (craftType.empty() || candidate->getRules()->getType() == craftType))
 						{
 							craft = candidate;
 							break;
