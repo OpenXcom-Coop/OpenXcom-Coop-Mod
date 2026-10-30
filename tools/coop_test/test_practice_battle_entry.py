@@ -1,26 +1,28 @@
-"""W2-H21d S-2 (F8980 routed, F9198; spec rewrite/prompts/w2h21d_preview_battle_paths.md (f), QH21d-4 a, QH21d-5 a, ruling
-R-H21d-S2-T0-1 a; TASK 0 rewrite/w2h21d-task0/s2/CONSTANTS.md): a SEPARATE second player whose practice screen (a Ufopaedia craft
-preview, a base craft equipment screen) is open when the host's joint battle starts loses its own-world progress when the battle ends.
-coopSepEntrySnapshot reads the practice battle as a started battle and skips the battle-entry snapshot (sepSnapshot 0); at its OK the
-return loads the stale own-world blob and the pre-mission MARKER funds are lost (TASK 0: E1 2/2, E2 2/2 on the gated drive; the C28P-shape
-control passes).
-  Boot E1 GameClient 49536 / 49537, bring_up_separate_guest_battle(port "46974"), dirs w2h21ena_host / _client:
-    H21d-E1 (named RED) guard: setup (pre_mission_start) + MARKER = the client's funds + 1234567; pre_landing PV(client), non-vacuity (top
-        BattlescapeState, isPreview true, inBattle true); the entry. guard: the practice screen still open at the entry (CL: its top's pop
-        after LABELS). RED 1: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP (TASK 0: 0, absent). guard: every hostile killed by
-        the host (chains settled), END TURN both, NextTurnState, the host's DebriefingState; H0 = the host's host_copy_of_client fnv; guard:
-        the client's display-only DebriefingState; its OK through its follow-ups. RED 2: the client top GeoscapeState with no CoopState /
-        LoadGameState, geo_state.funds == MARKER, inBattle false, sepReturn.ownLoaded 1 (TASK 0: funds == funds0). Within W the host
-        copy's fnv != H0, its dump has no `battleGame:` and no `inBattlescape: true` line; the host's OK + drain -> [GeoscapeState]; the
-        client zero-disk.
-  Boot E2 49538 / 49539, port "46975", dirs w2h21enb_host / _client:
-    H21d-E2 (named RED) as E1 with the client's P4 (open_craft_equipment, craft_inventory; non-vacuity top InventoryState over
-        CraftEquipmentState, inBattle true). R-H21d-S2-T0-1 (a): the fixture's drive_both_to_tactical OKs any top InventoryState and
-        closed the practice inventory before the battle blob landed, so this row's drive first waits <= W for the client's
-        battle_state.phase "Active" (its entry ran), then runs the fixture's own drive.
-W = 10 s at 0.25 s polls; the host's debriefing 60 s, the client's 20 s. CL = the client's openxcom.log from the size noted at
-pre_landing. A boot / guard cell miss ends the row (later cells "not reached", one CAPTURE line); RED 1 does not end it. EVIDENCE before each
-verdict; a failed row prints ONE CAPTURE line; every row runs after a failure; ONE run; exit 0 iff every row passes, else 2.
+"""A SEPARATE second player whose practice screen (a Ufopaedia craft preview, a base craft equipment screen) is open
+when the host's joint battle starts must keep its own-world progress when the battle ends. Without the fix,
+coopSepEntrySnapshot reads the practice battle as a started battle and skips the battle-entry snapshot (sepSnapshot 0);
+at its OK the return loads the stale own-world blob and the pre-mission MARKER funds are lost (measured: 2 of 2 runs on
+each boot, with the gated drive).
+  Boot preview_open: GameClient 49536 / 49537, bring_up_separate_guest_battle(port "46974"), dirs
+  practice_entry_preview_host / _client:
+    guard: setup (pre_mission_start) + MARKER = the client's funds + 1234567; pre_landing PV(client), non-vacuity (top
+    BattlescapeState, isPreview true, inBattle true); the entry. guard: the practice screen still open at the entry
+    (CL: its top's pop after LABELS). Cell snapshot (fails without the fix, measured sepSnapshot 0 and no SNAP line):
+    the client's battleEnd.sepSnapshot == 1 and CL holds SNAP. guard: every hostile killed by the host (chains
+    settled), END TURN both, NextTurnState, the host's DebriefingState; H0 = the host's host_copy_of_client fnv; guard:
+    the client's display-only DebriefingState; its OK through its follow-ups. Cell own_world_return (fails without the
+    fix, measured funds == funds0): the client top GeoscapeState with no CoopState / LoadGameState, geo_state.funds ==
+    MARKER, inBattle false, sepReturn.ownLoaded 1. Within W the host copy's fnv != H0, its dump has no `battleGame:`
+    and no `inBattlescape: true` line; the host's OK + drain -> [GeoscapeState]; the client zero-disk.
+  Boot craft_equipment_open: 49538 / 49539, port "46975", dirs practice_entry_equipment_host / _client:
+    as preview_open with the client's craft equipment screen (open_craft_equipment, craft_inventory; non-vacuity top
+    InventoryState over CraftEquipmentState, inBattle true). The fixture's drive_both_to_tactical OKs any top
+    InventoryState and so closed the practice inventory before the battle blob landed; this row's drive first waits
+    <= W for the client's battle_state.phase "Active" (its entry ran), then runs the fixture's own drive.
+W = 10 s at 0.25 s polls; the host's debriefing 60 s, the client's 20 s. CL = the client's openxcom.log from the size
+noted at pre_landing. A boot / guard cell miss ends the row (later cells "not reached", one CAPTURE line); the snapshot
+cell does not end it. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs after a
+failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json
@@ -42,7 +44,7 @@ SNAP = "[coop-debrief] client: SEPARATE battle-entry own-world snapshot taken"
 LABELS = "mission labels applied from battle_offer"
 POP = "pop  class OpenXcom::"
 KEYS = ("[coop-debrief]", "[coop-ui]", "battle_offer", LABELS)
-FIX = "named red: TASK 0 2/2 sepSnapshot 0, no SNAP line, funds after the return == funds0 (the MARKER lost)"
+BASELINE = "without the fix: 2 of 2 runs sepSnapshot 0, no SNAP line, funds after the return == funds0 (MARKER lost)"
 q, stack, short, wait_until = pr.q, pr.stack, pr.short, pr.wait_until
 
 
@@ -105,28 +107,29 @@ def host_copy(host):
 
 
 def practice(r, x, kind):
-    """pre_landing: P1 = W2-H21c's PV(client); P4 = the client's own base's first craft, its inventory. The non-vacuity cell."""
+    """pre_landing: preview = test_preview_restream's PV(client); equipment = the client's own base's first craft, its
+    inventory. The non-vacuity cell."""
     c = x.client
     r.ev["pre_landing stacks"] = {"host": stack(x.host), "client": stack(c)}
-    if kind == "P1":
+    if kind == "preview":
         ok, r.ev["PV(client)"] = pr.pv(c, x.keys)
         x.top = BS
     else:
         a = q(c, {"cmd": "open_craft_equipment"})
         b = wait_until(lambda: CES in stack(c), W) and q(c, {"cmd": "craft_inventory"})
         ok = bool(a.get("ok") and b and b.get("opened") and wait_until(lambda: pr.on_top(c, INV), W))
-        r.ev["P4(client)"], x.top = {"open_craft_equipment": a, "craft_inventory": b}, INV
+        r.ev["equipment(client)"], x.top = {"open_craft_equipment": a, "craft_inventory": b}, INV
     pre, ib = q(c, {"cmd": "battle_state"}).get("isPreview"), coop(c, "inBattle")["inBattle"]
     r.ev["non-vacuity"] = nv = {"stack": stack(c), "isPreview": pre, "inBattle": ib}
-    good = ok and pr.on_top(c, x.top) and ib is True and (pre is True if kind == "P1" else CES in nv["stack"])
-    what = "BattlescapeState, isPreview true" if kind == "P1" else "InventoryState over CraftEquipmentState"
+    good = ok and pr.on_top(c, x.top) and ib is True and (pre is True if kind == "preview" else CES in nv["stack"])
+    what = "BattlescapeState, isPreview true" if kind == "preview" else "InventoryState over CraftEquipmentState"
     if not r.cell(f"guard: non-vacuity: the client's {kind} open (top {what}, inBattle true)", good, nv):
         raise Stop("non-vacuity")
     x.n_cl = pr.log_size(c)
 
 
 def gated(r, orig):
-    """R-H21d-S2-T0-1 (a): wait <= W for the client's battle_state.phase "Active" (its entry ran), then the fixture's own drive"""
+    """wait <= W for the client's battle_state.phase "Active" (its entry ran), then the fixture's own drive"""
     def drive(h, c, *a, **k):
         t = time.time()
         ok = wait_until(lambda: q(c, {"cmd": "battle_state"}).get("phase") == "Active", W)
@@ -154,7 +157,7 @@ def entry_row(r, x, kind):
             raise Stop("marker")
 
     orig = session.drive_both_to_tactical
-    if kind == "P4":
+    if kind == "equipment":
         session.drive_both_to_tactical = gated(r, orig)
     try:
         session.bring_up_separate_guest_battle(h, c, port=x.port, pre_mission_start=marker,
@@ -174,8 +177,8 @@ def entry_row(r, x, kind):
                   i_lab is not None and i_pop is not None and i_pop > i_lab, {"labels at": i_lab, "pop at": i_pop}):
         return capture(r, x)
     sep_snap, snap = be.record(c).get("sepSnapshot"), any(SNAP in ln for ln in cl)
-    r.ev["FIX 1"] = red1 = {"sepSnapshot": sep_snap, "SNAP in CL": snap}
-    r.cell("FIX 1: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP", sep_snap == 1 and snap, red1)
+    r.ev["snapshot"] = snapshot_ev = {"sepSnapshot": sep_snap, "SNAP in CL": snap}
+    r.cell("snapshot: the client's battleEnd.sepSnapshot == 1 and CL holds SNAP", sep_snap == 1 and snap, snapshot_ev)
     hostiles = [u["id"] for u in battle_state(h).get("units", []) if u.get("faction") == 1 and not u.get("isOut")]
     settled = []
     for uid in hostiles:
@@ -197,11 +200,13 @@ def entry_row(r, x, kind):
     ctx = {}
     ok1, ok, _secs = be.client_ok_through_followups(c, ctx, "ret")
     sep = be.record(c).get("sepReturn") or {}
-    r.ev["FIX 2"] = red2 = {"ok": ok1, "geo_clean": be.geo_clean(c), "stack": stack(c), "funds": q(c, {"cmd": "geo_state"}).get("funds"),
-                            "MARKER": x.marker, "inBattle": coop(c, "inBattle")["inBattle"], "sepReturn": sep, "chain": ctx.get("ret")}
-    r.cell("FIX 2: the client top GeoscapeState with no CoopState / LoadGameState, geo_state.funds == MARKER, inBattle false, "
-           "sepReturn.ownLoaded 1", ok1.get("pressed") and ok and red2["geo_clean"] and red2["funds"] == x.marker
-           and red2["inBattle"] is False and sep.get("ownLoaded") == 1, red2)
+    r.ev["own_world_return"] = own_world_ev = {
+        "ok": ok1, "geo_clean": be.geo_clean(c), "stack": stack(c), "funds": q(c, {"cmd": "geo_state"}).get("funds"),
+        "MARKER": x.marker, "inBattle": coop(c, "inBattle")["inBattle"], "sepReturn": sep, "chain": ctx.get("ret")}
+    r.cell("own_world_return: the client top GeoscapeState with no CoopState / LoadGameState, geo_state.funds == "
+           "MARKER, inBattle false, sepReturn.ownLoaded 1",
+           ok1.get("pressed") and ok and own_world_ev["geo_clean"] and own_world_ev["funds"] == x.marker
+           and own_world_ev["inBattle"] is False and sep.get("ownLoaded") == 1, own_world_ev)
     changed = wait_until(lambda: be.coop_fnv(h, "host_copy_of_client")[0] not in (h0, None, ""), W)
     info, x.copy_head = host_copy(h)
     r.ev["host copy"] = dict(info, H0=h0, changed=bool(changed))
@@ -218,7 +223,7 @@ def entry_row(r, x, kind):
 
 
 def run(rid, tag, ports, kind, results, walls):
-    t0, x, r = time.time(), X(tag, ports[2]), pr.Row(rid, FIX)
+    t0, x, r = time.time(), X(tag, ports[2]), pr.Row(rid, BASELINE)
     x.crash0 = pr.crash_names()
     try:
         try:
@@ -253,9 +258,9 @@ def run(rid, tag, ports, kind, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    run("H21d-E1", "w2h21ena", (49536, 49537, "46974"), "P1", results, walls)
-    run("H21d-E2", "w2h21enb", (49538, 49539, "46975"), "P4", results, walls)
-    failed = [rid for rid in ("H21d-E1", "H21d-E2") if not results.get(rid)]
+    run("preview_open", "practice_entry_preview", (49536, 49537, "46974"), "preview", results, walls)
+    run("craft_equipment_open", "practice_entry_equipment", (49538, 49539, "46975"), "equipment", results, walls)
+    failed = [rid for rid in ("preview_open", "craft_equipment_open") if not results.get(rid)]
     print(f"\ntest_practice_battle_entry: {2 - len(failed)}/2 passed (fail={failed}) walls {json.dumps(walls)} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 2 if failed else 0
