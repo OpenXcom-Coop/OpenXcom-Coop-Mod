@@ -19,6 +19,7 @@ en-US:
   STR_SAVE_UPGRADE_NEED_NAME: "Enter the other player's name, or choose Skip."
   STR_SAVE_UPGRADE_BLOCKED: "This save cannot be upgraded:"
   STR_SAVE_UPGRADE_PARTNER_BATTLE: "This save was made during a battle that the other player's craft started, so it does not hold your own campaign. Load a save from before that mission. This save was not changed."
+  STR_SAVE_UPGRADE_PARTNER_MISSION: "This save was made right after a mission the other player's craft started, so it does not hold your own campaign. Load a save from before that mission. This save was not changed."
   STR_SAVE_UPGRADE_WARN_INTRO: "The upgrade found these warnings:"
   STR_SAVE_UPGRADE_CONTINUE_ANYWAY: "Continue anyway"
   STR_SAVE_UPGRADE_FAILED: "The save could not be upgraded."

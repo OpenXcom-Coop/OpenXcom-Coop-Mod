@@ -6,6 +6,7 @@
 #include "SaveUpgradeTypes.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <map>
 #include <set>
@@ -279,6 +280,91 @@ bool isPvp(const SaveSet& set)
 	return gamemode == 2 || gamemode == 3;
 }
 
+bool getDouble(ryml::ConstNodeRef map, ryml::csubstr key, double& out)
+{
+	const std::string text = getStr(map, key);
+	if (text.empty())
+		return false;
+	try
+	{
+		out = std::stod(text);
+		return true;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+using SoldierKey = std::pair<long long, std::string>;
+
+/// (id, name) of every soldier in a soldier list.
+std::set<SoldierKey> soldierKeys(ryml::ConstNodeRef list)
+{
+	std::set<SoldierKey> keys;
+	if (!list.invalid() && list.is_seq())
+		for (ryml::ConstNodeRef soldier : list.children())
+			keys.insert(SoldierKey(getInt(soldier, "id", -1), getStr(soldier, "name")));
+	return keys;
+}
+
+/// True when a base of the host world is a base of a stored player world: the
+/// same name and position, every soldier at it is a soldier of the stored base
+/// (same id and name), and every soldier of the stored base it no longer holds
+/// is among the host world's dead soldiers.
+bool sameBase(ryml::ConstNodeRef hostBase, ryml::ConstNodeRef storedBase, const std::set<SoldierKey>& dead)
+{
+	if (!hostBase.is_map() || !storedBase.is_map())
+		return false;
+	if (getStr(hostBase, "name") != getStr(storedBase, "name"))
+		return false;
+	double hostLon, hostLat, storedLon, storedLat;
+	if (!getDouble(hostBase, "lon", hostLon) || !getDouble(hostBase, "lat", hostLat)
+		|| !getDouble(storedBase, "lon", storedLon) || !getDouble(storedBase, "lat", storedLat))
+		return false;
+	if (std::fabs(hostLon - storedLon) > 1e-9 || std::fabs(hostLat - storedLat) > 1e-9)
+		return false;
+	const std::set<SoldierKey> here = soldierKeys(hostBase.find_child("soldiers"));
+	const std::set<SoldierKey> stored = soldierKeys(storedBase.find_child("soldiers"));
+	for (const SoldierKey& soldier : here)
+		if (stored.count(soldier) == 0)
+			return false;
+	for (const SoldierKey& soldier : stored)
+		if (here.count(soldier) == 0 && dead.count(soldier) == 0)
+			return false;
+	return true;
+}
+
+/// True when every base of the host world is a different base of the stored
+/// player world.
+bool holdsStoredWorld(ryml::ConstNodeRef hostBody, ryml::ConstNodeRef storedBody)
+{
+	if (!hostBody.is_map() || !storedBody.is_map())
+		return false;
+	ryml::ConstNodeRef hostBases = hostBody.find_child("bases");
+	ryml::ConstNodeRef storedBases = storedBody.find_child("bases");
+	if (hostBases.invalid() || !hostBases.is_seq() || hostBases.num_children() == 0
+		|| storedBases.invalid() || !storedBases.is_seq())
+		return false;
+	const std::set<SoldierKey> dead = soldierKeys(hostBody.find_child("deadSoldiers"));
+	std::set<ryml::id_type> matched;
+	for (ryml::ConstNodeRef hostBase : hostBases.children())
+	{
+		bool found = false;
+		for (ryml::ConstNodeRef storedBase : storedBases.children())
+		{
+			if (matched.count(storedBase.id()) != 0 || !sameBase(hostBase, storedBase, dead))
+				continue;
+			matched.insert(storedBase.id());
+			found = true;
+			break;
+		}
+		if (!found)
+			return false;
+	}
+	return true;
+}
+
 int rosterSeat(const SaveSet& set, const ClientWorld& client, size_t fallback)
 {
 	for (size_t i = 0; i < set.roster.size(); ++i)
@@ -319,6 +405,18 @@ public:
 			out.errors.push_back("STR_SAVE_UPGRADE_PARTNER_BATTLE");
 			return;
 		}
+		// The host's autosave right after such a battle was written before its
+		// own campaign came back: its bases are that player's bases as stored in
+		// the same file, less the soldiers who died in the battle. Its owner id
+		// cannot tell it apart (later saves of the host's own campaign carry the
+		// same id), so its bases do.
+		if (!hasKey(set.host.body(), "battleGame"))
+			for (const ClientWorld& client : set.clients)
+				if (client.world.valid() && holdsStoredWorld(set.host.body(), client.world.body()))
+				{
+					out.errors.push_back("STR_SAVE_UPGRADE_PARTNER_MISSION");
+					return;
+				}
 		std::set<std::string> playerNames;
 		ryml::ConstNodeRef roster = set.host.header().find_child("coopPlayers");
 		if (!roster.invalid() && roster.is_seq())
