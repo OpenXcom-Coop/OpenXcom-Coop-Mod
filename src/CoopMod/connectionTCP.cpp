@@ -19746,6 +19746,44 @@ bool connectionTCP::coopPromotionRows(TextList* list)
 	return true;
 }
 
+// The HOST of a one-world Separate campaign, from DebriefingState::init once the battle is
+// dropped and before the result and the post-battle world go out. A battle resumed from an older two-world save
+// keeps two things the save upgrade leaves for its battle units:
+// - each player's own soldier ids, which can repeat between the players' bases; normalizeSoldierIds does not run
+//   while a battle is loaded, and the partner's refresh renumbers the adopted world on its own (the two worlds then
+//   differ), so the ids are made unique here first;
+// - the battle copy of the partner's soldier (a co-op seat, no owner; the partner's own soldier is in the world
+//   too), removed here from its base or the memorial and from this debriefing's commendation lists.
+void connectionTCP::coopSeparateBattleEndRoster(DebriefingState* db)
+{
+	SavedGame* sg = _game ? _game->getSavedGame() : nullptr;
+	if (!db || !sg || !getServerOwner() || !isSeparateCampaign() || sg->getSavedBattle())
+		return;
+	SeparateEcon::normalizeSoldierIds(_game);
+	auto isBattleCopy = [](const Soldier* s) { return s && s->getOwnerPlayerId() == 999 && s->getCoop() != 0; };
+	auto removeFrom = [&](std::vector<Soldier*>* list, const char* where)
+	{
+		for (auto it = list->begin(); it != list->end();)
+		{
+			Soldier* s = *it;
+			if (!isBattleCopy(s))
+			{
+				++it;
+				continue;
+			}
+			Log(LOG_INFO) << "[coop-roster] Separate: the battle copy of the partner's soldier removed after its battle: "
+				<< s->getId() << " '" << s->getName() << "' seat " << s->getCoop() << " from " << where;
+			for (std::vector<Soldier*>* commended : { &db->_soldiersCommended, &db->_deadSoldiersCommended })
+				commended->erase(std::remove(commended->begin(), commended->end(), s), commended->end());
+			delete s;
+			it = list->erase(it);
+		}
+	};
+	for (Base* base : *sg->getBases())
+		removeFrom(base->getSoldiers(), base->getName().c_str());
+	removeFrom(sg->getDeadSoldiers(), "the memorial");
+}
+
 // The last statement of DebriefingState::init. The host serializes what
 // its own vanilla debrief computed and sends it once: skirmish and every
 // campaign, only after this battle's `battle_end` (phase Ended, record
@@ -44279,7 +44317,11 @@ void connectionTCP::refreshSeparateBaseOwnership()
 					// Legacy/fresh Separate starting soldiers may still carry 999
 					// (unowned); bind those once to the seat named by their base. A later
 					// physical base transfer preserves this owner, so the destination
-					// base owner cannot see or control the guest soldier.
+					// base owner cannot see or control the guest soldier. A soldier with
+					// a co-op seat (coop != 0) and no owner is the battle copy of the
+					// other player's soldier in an older mid-battle save: it is not this
+					// base owner's soldier and is removed when its battle ends
+					// (coopSeparateBattleEndRoster).
 					int ownerSeat = -1;
 					for (int seat = 0; seat < seatCount(); ++seat)
 					{
@@ -44293,7 +44335,7 @@ void connectionTCP::refreshSeparateBaseOwnership()
 					{
 						for (Soldier* soldier : *base->getSoldiers())
 						{
-							if (soldier && soldier->getOwnerPlayerId() == 999)
+							if (soldier && soldier->getOwnerPlayerId() == 999 && soldier->getCoop() == 0)
 							{
 								soldier->setOwnerPlayerId(ownerSeat);
 								soldier->setCoop(ownerSeat);

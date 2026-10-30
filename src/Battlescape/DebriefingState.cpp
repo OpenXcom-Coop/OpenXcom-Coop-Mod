@@ -832,6 +832,7 @@ void DebriefingState::init()
 	{
 		_game->getMod()->playMusic(Mod::DEBRIEF_MUSIC_BAD);
 	}
+	_game->getCoopMod()->coopSeparateBattleEndRoster(this); // coop
 	_game->getCoopMod()->coopDebriefHostSend(this); // coop: the host sends bt_debrief_result
 }
 

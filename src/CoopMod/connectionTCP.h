@@ -876,6 +876,9 @@ class connectionTCP
 	bool coopDebriefClientFill(DebriefingState* db);
 	bool coopDebriefClientFinish(DebriefingState* db);
 	void coopDebriefHostSend(DebriefingState* db);
+	// HOST - a one-world Separate battle's end, before its result and world go out: unique soldier ids, and the
+	// battle copy of the partner's soldier an older mid-battle save holds is removed.
+	void coopSeparateBattleEndRoster(DebriefingState* db);
 	// Called as the first statement of DebriefingState::btnOkClick - a co-op skirmish
 	// battle-end debriefing's OK (the client leaves via GoToMainMenuState: true = handled; the host resets its battle
 	// scope: false = vanilla's own exit). A no-op returning false for any other debriefing.
