@@ -1,10 +1,12 @@
-"""W2-H16c (S-12, F6605; D226 a; Q1 a .. Q7 a; V1-V4): a soldier transformation made on one machine reaches the shared world;
-the transformation lists show own soldiers only. Spec docs rewrite/prompts/w2h16c_soldier_transformation.md (e)-(f); TASK 0
-rewrite/w2h16c-task0/CONSTANTS.md rulings C1-C7 applied. Levers (test-only): open_transformation, set_soldier_dead,
-transform_probe. Real input: the SoldiersState action box (drop-down arithmetic, F6880) and Start (click_widget, raw rule key).
-Boot A (SHARED): H16c-1..10; Boot B (SEPARATE): H16c-11. RED (commit 1): H16c-1..8 and -10 fail on their named cells, -9 and
--11 pass; GREEN: all pass. "guard:" cells are guards (CAPTURE on a miss). `requests` is recorded per row, never a verdict.
-EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
+"""A soldier transformation made on one machine reaches the shared world; the transformation lists show own soldiers
+only. Test commands: open_transformation, set_soldier_dead, transform_probe. Real input: the SoldiersState action box
+(the drop-down arithmetic in dropdown()) and Start (click_widget, raw rule key). Shared boot (SHARED), in order:
+list_own_only, dead_list_own_only, client_boost_reaches_host, host_boost_reaches_client, client_clone_on_both,
+client_retire_reaches_host, client_raise_reaches_host, partner_soldier_refused, info_screen_refreshes,
+stale_start_refused. Separate boot (SEPARATE): separate_stays_local. Without the fix every shared-boot row except
+info_screen_refreshes fails on its named cells, and info_screen_refreshes and separate_stays_local pass; with it all
+pass. "guard:" cells are guards (CAPTURE on a miss). `requests` is recorded per row, never a verdict. EVIDENCE then
+PASS / FAIL per row; one run; exit 0 only if all pass, else 2.
 """
 
 import json
@@ -20,14 +22,14 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Transform_Test")
-BOOT_A = ("w2h16ca", (49340, 49341, 47330))     # SHARED; lobby 47330
-BOOT_B = ("w2h16cb", (49342, 49343, 47332))     # SEPARATE; lobby 47332
+BOOT_SHARED = ("transformation_shared", (49340, 49341, 47330))     # SHARED; lobby 47330
+BOOT_SEPARATE = ("transformation_separate", (49342, 49343, 47332))     # SEPARATE; lobby 47332
 BOOST, CLONE, RETIRE, RAISE = "STR_TRANSFORMTEST_BOOST", "STR_TRANSFORMTEST_CLONE", "STR_TRANSFORMTEST_RETIRE", "STR_TRANSFORMTEST_RAISE"
 RULES = [BOOST, CLONE, RETIRE, RAISE]
 ROCKET = "STR_SMALL_ROCKET"
 OPTION = {"OVERVIEW": 3, BOOST: 4, CLONE: 5, RETIRE: 6, RAISE: 7}   # action-box rows; row 2 INVENTORY is never clicked
 N_OPTIONS, SCALE = 8, 2                                               # 640x400 window over 320x200, no bands
-S0_S, POLL_S, POLL_I, UI_S, BOX_S, TAIL_S = 20.0, 3.0, 0.25, 3.0, 2.0, 5.0
+BASELINE_S, POLL_S, POLL_I, UI_S, BOX_S, TAIL_S = 20.0, 3.0, 0.25, 3.0, 2.0, 5.0
 GEO, SS, STS, STLS, SIS, BOX = ("GeoscapeState", "SoldiersState", "SoldierTransformationState",
                                 "SoldierTransformationListState", "SoldierInfoState", "CoopState")
 
@@ -59,8 +61,8 @@ def fr(p): return [p.get("funds"), rockets(p)]  # noqa: E704
 def brief(p, sid): return pick(one(p, sid), "where", "history", "stats", "craftId", "owner")  # noqa: E704
 
 def view(p, ids, hours=True):
-    """What S0 compares (spec (f) row frame): funds, stores, transfers, soldier counter and the row's soldiers. S0 drops the
-    transfer hours: the host's clock (idx 0) advances its transfers between rows and a replica's never do."""
+    """What the baseline compares: funds, stores, transfers, soldier counter and the row's soldiers. The baseline drops
+    the transfer hours: the host's clock (idx 0) advances its transfers between rows and a replica's never do."""
     tr = [t if hours else {k: v for k, v in t.items() if k != "hours"} for t in p.get("transfers") or []]
     return {"funds": p.get("funds"), "counter": p.get("soldierCounter"), "stores": p.get("stores"), "transfers": tr,
             "soldiers": [s for s in p.get("soldiers") or [] if s.get("id") in ids]}
@@ -78,7 +80,7 @@ class Row:
         return ok
 
 def capture(x, tag):
-    """Setup-failure dump (STOP-IF 3): both machines' transform_probe, screen_state, shared_stats, shared_resync_stats, stack."""
+    """Setup-failure dump: both machines' transform_probe, screen_state, shared_stats, shared_resync_stats, stack."""
     cap = {}
     for gc in (x.host, x.client):
         try:
@@ -95,9 +97,10 @@ def guard(r, x, name, ok, detail):
     capture(x, f"{r.rid} (guard {name})")
     raise GuardMiss(f"guard {name}")
 
-def s0(r, x, staging=()):
-    """Row frame S0: the row's staging on both machines, client first (S25); then <= 20 s until both transform_probe agree
-    on the view, both stand on the geoscape and no restream is pending (C3: the red restream pops the client's screens).
+def take_baseline(r, x, staging=()):
+    """Row baseline: the row's staging on both machines, client first; then <= 20 s until both transform_probe agree on
+    the view, both stand on the geoscape and no restream is pending (without the fix a repair restream pops the client's
+    screens).
     R0 = both `requests` (EVIDENCE only)."""
     h, c = x.host, x.client
     d = {"req0": {gc.name: rs(gc)["requests"] for gc in (h, c)}, "staging": []}
@@ -113,17 +116,17 @@ def s0(r, x, staging=()):
             return None
         ph, pc = tp(h), tp(c)
         return {"host": ph, "client": pc} if view(ph, r.ids, False) == view(pc, r.ids, False) else None
-    ok, p = wait_until(agreed, S0_S, 0.25)
+    ok, p = wait_until(agreed, BASELINE_S, 0.25)
     d["agreeS"] = round(time.time() - t0, 2)
-    r.ev["S0"] = d
-    guard(r, x, "S0 agreement", ok, f"not agreed in {d['agreeS']} s; stacks {stack(h)} / {stack(c)}")
+    r.ev["baseline"] = d
+    guard(r, x, "baseline agreement", ok, f"not agreed in {d['agreeS']} s; stacks {stack(h)} / {stack(c)}")
     d["R0"] = {gc.name: rs(gc)["requests"] for gc in (h, c)}
     d["ss"] = {gc.name: ss(gc) for gc in (h, c)}
     d["view"] = view(p["host"], r.ids)
     return p
 
 def hold(r, x):
-    """The host keeps a screen on top from before the row's action until its poll ends (no heartbeat, TRACE 2)."""
+    """The host keeps a screen on top from before the row's action until its poll ends (no heartbeat)."""
     o = x.host.cmd({"cmd": "open_screen", "screen": "soldiers"})
     guard(r, x, "hold", o.get("ok") is True and wait_until(lambda: top(x.host) == SS, UI_S)[0], f"{o}; stack {stack(x.host)}")
 
@@ -145,8 +148,8 @@ def start(r, x, gc, rule, sid, tag, dead=False, back=GEO):
           f"click {pick(cw, 'ok', 'text', 'error')}; stack {stack(gc)} (want top {back})")
 
 def dropdown(cb, row):
-    """ComboBox::setDropdown for the action box (ComboBox.cpp :296-312, TASK 0 (ii)): items = min(N, 10), row height 8 (small
-    font 9, spacing -1), the popup above the box: list top = y - (items x 8 + 6) + 3, x + 2, width w - 4 - 14 + 1. Returns the
+    """ComboBox::setDropdown for the action box (ComboBox.cpp :296-312): items = min(N, 10), row height 8 (small font 9,
+    spacing -1), the popup above the box: list top = y - (items x 8 + 6) + 3, x + 2, width w - 4 - 14 + 1. Returns the
     window pixels of the box's centre and of option `row`'s centre."""
     x0, y0, w, h = cb
     items, rh = min(N_OPTIONS, 10), 8
@@ -172,7 +175,7 @@ def mode(r, x, gc, opt, tag):
     return tl[0]
 
 def identify(r, x, gc, rule, tl, ids, tag):
-    """C5: a transformation mode is identified by its Start caption: a real click on the first displayed row opens the REAL
+    """A transformation mode is identified by its Start caption: a real click on the first displayed row opens the REAL
     SoldierTransformationState whose Start reads the rule key; then close_screens."""
     gc.cmd({"cmd": "inject_input", "kind": "click", "x": int((tl["x"] + tl["w"] / 2.0) * SCALE), "y": int((tl["y"] + 4.0) * SCALE)})
     ok = wait_until(lambda: top(gc) == STS, UI_S)[0]
@@ -197,27 +200,27 @@ def poll(r, x):
     return last
 
 def own(r, x, p, p0, sid, rule, tag, cost, rocket):
-    """guard: the clicking machine's own change (red: its local write; green: the host's result applied)."""
+    """guard: the clicking machine's own change (its local write without the fix, the host's result applied with it)."""
     got = {"history": [hist(p0, sid, rule), hist(p, sid, rule)], "funds": [p0.get("funds"), p.get("funds")],
            "rockets": [rockets(p0), rockets(p)]}
     guard(r, x, f"{tag} own change", got["history"][1] == got["history"][0] + 1 and p0.get("funds") - p.get("funds") == cost
           and rockets(p0) - rockets(p) == rocket, f"soldier {sid} {rule}: {got} (want history +1, funds -{cost}, rockets -{rocket})")
 
-def row_1(r, x):
+def row_list_own_only(r, x):
     r.ids = tuple(x.ids)
-    s0(r, x)
+    take_baseline(r, x)
     for gc, want, name in ((x.client, x.C, "clientList"), (x.host, x.H, "hostList")):
         tl = mode(r, x, gc, BOOST, gc.name)
         ids = displayed(gc)
         r.ev[f"{gc.name} displayed"] = ids
         identify(r, x, gc, BOOST, tl, ids, gc.name)
         r.cell(name, ids == want, f"{gc.name} {BOOST} list {ids} (want {want}): the transformation list shows the partner's "
-                                  f"soldiers (F6605)")
+                                  f"soldiers")
 
-def row_2(r, x):
+def row_dead_list_own_only(r, x):
     c = x.client
     r.ids = (x.C3, x.H3)
-    p = s0(r, x, [{"cmd": "set_soldier_dead", "soldierId": i} for i in (x.C3, x.H3)])
+    p = take_baseline(r, x, [{"cmd": "set_soldier_dead", "soldierId": i} for i in (x.C3, x.H3)])
     dead = {n: [s["id"] for s in p[n].get("soldiers") or [] if s.get("where") == "dead"] for n in p}
     r.ev["dead"] = dead
     guard(r, x, "deaths", all(v == [x.C3, x.H3] for v in dead.values()), f"dead lists {dead} (want [{x.C3}, {x.H3}] on both)")
@@ -225,7 +228,7 @@ def row_2(r, x):
     ids = displayed(c)
     r.ev["client displayed"] = ids
     identify(r, x, c, RAISE, tl, ids, "client")
-    r.cell("raiseList", ids == [x.C3], f"client {RAISE} list {ids} (want [{x.C3}]): the list shows the partner's dead (F6605)")
+    r.cell("raiseList", ids == [x.C3], f"client {RAISE} list {ids} (want [{x.C3}]): the list shows the partner's dead")
     mode(r, x, c, "OVERVIEW", "client")
     guard(r, x, "overview open", wait_until(lambda: top(c) == STLS, UI_S)[0], f"stack {stack(c)}")
     rows = tp(c).get("rows") or []
@@ -234,25 +237,25 @@ def row_2(r, x):
     c.cmd({"cmd": "close_screens"})
     guard(r, x, "overview RAISE row", bool(rr), f"rows {rows}")
     r.cell("overview", rr[0].get("c2") == "1", f"overview eligible for {RAISE} '{rr[0].get('c2')}' (want '1'): the overview "
-                                               f"counts the partner's dead (F6605)")
+                                               f"counts the partner's dead")
 
-def row_3(r, x):
+def row_client_boost_reaches_host(r, x):
     r.ids = (x.C1,)
-    p0 = s0(r, x)
+    p0 = take_baseline(r, x)
     hold(r, x)
     start(r, x, x.client, BOOST, x.C1, "client")
     e = poll(r, x)
     h, c = e["host"], e["client"]
     own(r, x, c, p0["client"], x.C1, BOOST, "client", 100000, 1)
-    a0, a1 = r.ev["S0"]["ss"]["host"]["applyCount"], ss(x.host)["applyCount"]
+    a0, a1 = r.ev["baseline"]["ss"]["host"]["applyCount"], ss(x.host)["applyCount"]
     r.cell("reachedHost", one(h, x.C1) == one(c, x.C1) and fr(h) == fr(c) and a1 == a0 + 1,
            f"C1 host {brief(h, x.C1)} / client {brief(c, x.C1)}; funds+rockets {fr(h)}/{fr(c)}; host applyCount {a0} -> {a1} "
-           f"(want +1): the client's transformation stayed on its machine (S-12)")
+           f"(want +1): the client's transformation stayed on its machine")
     close(r, x)
 
-def row_4(r, x):
+def row_host_boost_reaches_client(r, x):
     r.ids = (x.H1,)
-    p0 = s0(r, x)
+    p0 = take_baseline(r, x)
     hold(r, x)
     start(r, x, x.host, BOOST, x.H1, "host", back=SS)
     e = poll(r, x)
@@ -262,9 +265,9 @@ def row_4(r, x):
            f"{brief(c, x.H1)}; funds+rockets {fr(h)}/{fr(c)}: the host's transformation never reached the client")
     close(r, x)
 
-def row_5(r, x):
+def row_client_clone_on_both(r, x):
     r.ids = (x.C1,)
-    p0 = s0(r, x)
+    p0 = take_baseline(r, x)
     hold(r, x)
     start(r, x, x.client, CLONE, x.C1, "client")
     e = poll(r, x)
@@ -282,12 +285,12 @@ def row_5(r, x):
            and one(h, x.C1).get("history") == one(c, x.C1).get("history"),
            f"clone {cid}: host {pick(hc, 'where', 'owner')} / client {pick(cc, 'where', 'owner')} (want owner {x.seat['client']} "
            f"on both); new transfers host {nh} / client {nc}; counters {r.ev['clone']['counters']}; C1 history "
-           f"{one(h, x.C1).get('history')}/{one(c, x.C1).get('history')}: the client's clone exists only on the client (F6689)")
+           f"{one(h, x.C1).get('history')}/{one(c, x.C1).get('history')}: the client's clone exists only on the client")
     close(r, x)
 
-def row_6(r, x):
+def row_client_retire_reaches_host(r, x):
     r.ids = (x.C2,)
-    p0 = s0(r, x)
+    p0 = take_baseline(r, x)
     hold(r, x)
     start(r, x, x.client, RETIRE, x.C2, "client")
     e = poll(r, x)
@@ -300,9 +303,9 @@ def row_6(r, x):
                                                           f"{nh} (want {want}): the client's retirement stayed on its machine")
     close(r, x)
 
-def row_7(r, x):
+def row_client_raise_reaches_host(r, x):
     r.ids = (x.C3,)
-    p0 = s0(r, x)
+    p0 = take_baseline(r, x)
     guard(r, x, "C3 dead", all(one(p0[n], x.C3).get("where") == "dead" for n in p0), f"C3 {[brief(p0[n], x.C3) for n in p0]}")
     hold(r, x)
     start(r, x, x.client, RAISE, x.C3, "client", dead=True)
@@ -316,10 +319,10 @@ def row_7(r, x):
            f"{brief(h, x.C3)} / client {brief(c, x.C3)}; new transfers {nh} / {nc}: the client's resurrection stayed on its machine")
     close(r, x)
 
-def row_8(r, x):
+def row_partner_soldier_refused(r, x):
     h, c = x.host, x.client
     r.ids = (x.H1, x.C4)
-    p0 = s0(r, x)
+    p0 = take_baseline(r, x)
     for gc in (h, c):
         gc.cmd({"cmd": "shared_reset_stats"})
     r.ev["shared_cmd"] = pick(c.cmd({"cmd": "shared_cmd", "jcmd": "soldier_transform", "baseId": 0, "payload": {
@@ -344,10 +347,10 @@ def row_8(r, x):
            f"{brief(e['client'], x.C4)}: the client's own transformation stayed on its machine")
     close(r, x)
 
-def row_9(r, x):
+def row_info_screen_refreshes(r, x):
     c = x.client
     r.ids = (x.C4,)
-    p0 = s0(r, x, [{"cmd": "set_funds", "value": 1000000}])
+    p0 = take_baseline(r, x, [{"cmd": "set_funds", "value": 1000000}])
     o = c.cmd({"cmd": "open_soldier_info", "soldierId": x.C4})
     guard(r, x, "info open", o.get("ok") is True and wait_until(lambda: top(c) == SIS, UI_S)[0], f"{o}; stack {stack(c)}")
     hold(r, x)
@@ -366,10 +369,10 @@ def row_9(r, x):
     r.cell("captions", bool(cap1) and cap1 == cap2, f"open {cap1} / reopened {cap2}: the open soldier screen kept a stale soldier")
     close(r, x)
 
-def row_10(r, x):
+def row_stale_start_refused(r, x):
     h, c = x.host, x.client
     r.ids = (x.H2, x.C4)
-    p0 = s0(r, x, [{"cmd": "set_funds", "value": 100000}])
+    p0 = take_baseline(r, x, [{"cmd": "set_funds", "value": 100000}])
     hold(r, x)
     try:
         dn = c.cmd({"cmd": "shared_update_defer", "on": True})
@@ -391,21 +394,24 @@ def row_10(r, x):
     lf, a1 = ss(c)["lastFail"], ss(h)["applyCount"]
     want = {"H2": hist(p0["host"], x.H2, BOOST) + 1, "C4": hist(p0["host"], x.C4, BOOST), "funds": 0}
     got = {n: {"H2": hist(e[n], x.H2, BOOST), "C4": hist(e[n], x.C4, BOOST), "funds": e[n].get("funds")} for n in e}
-    # F6939 / R-H16c-R-1: the host applied the winning transformation (one apply), the stale one was refused
+    # the host applied the winning transformation (one apply), the stale one was refused
     r.cell("agree", all(v == want for v in got.values()) and lf == "STR_NOT_ENOUGH_MONEY" and a1 == a0 + 1,
            f"BOOST counts / funds {got} (want {want} on both); client lastFail '{lf}' (want STR_NOT_ENOUGH_MONEY); host "
            f"applyCount {a0} -> {a1} (want +1): two transformations paid from one budget; the worlds disagree")
     close(r, x)
 
-def row_11(r, x):
+def row_separate_stays_local(r, x):
     h, c = x.host, x.client
-    guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, S0_S, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
+    guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, BASELINE_S, 0.2)[0],
+          f"stacks {stack(h)} / {stack(c)}")
     br = c.cmd({"cmd": "base_report"})                       # the client's own base (first real base)
     sid = (br.get("soldiers") or [{}])[0].get("id")
     r.ids = (sid,)
     p0, s1 = tp(c), {gc.name: ss(gc) for gc in (h, c)}
-    r.ev["S0"] = {"base": br.get("name"), "id": sid, "client": view(p0, r.ids), "rules": p0.get("transformations"), "ss": s1}
-    guard(r, x, "own soldier", bool(one(p0, sid)) and sorted(p0.get("transformations") or []) == sorted(RULES), f"{r.ev['S0']}")
+    r.ev["baseline"] = {"base": br.get("name"), "id": sid, "client": view(p0, r.ids),
+                        "rules": p0.get("transformations"), "ss": s1}
+    guard(r, x, "own soldier", bool(one(p0, sid)) and sorted(p0.get("transformations") or []) == sorted(RULES),
+          f"{r.ev['baseline']}")
     start(r, x, c, BOOST, sid, "client")
     time.sleep(2.0)
     p1, s2 = tp(c), {gc.name: ss(gc) for gc in (h, c)}
@@ -436,7 +442,7 @@ def run_one(rid, fn, x, results):
     results[rid] = not r.fails
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
-def setup_a(x):
+def setup_shared(x):
     """Seats, C1..C4 / H1..H4 from the host's base_report owners (base order), the rockets (client, then host), and the
     boot guard: both probes offer the four rules and agree."""
     h, c = x.host, x.client
@@ -461,8 +467,8 @@ def setup_a(x):
     info["transformations"], info["funds"], info["rockets"] = p[0]["transformations"], p[0]["funds"], rockets(p[0])
     return info
 
-def boot_b():
-    tag, (hp, cp, lp) = BOOT_B
+def boot_separate():
+    tag, (hp, cp, lp) = BOOT_SEPARATE
     host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,)))
     client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,)))
     try:
@@ -499,19 +505,28 @@ def boot(tag, up, setup, rows, results, walls, tail=False):
         try:
             js is not None and js.shutdown()
         except Exception as e:
-            print(f"[w2h16c] {tag} shutdown: {short(e)}", flush=True)
+            print(f"[soldier_transformation] {tag} shutdown: {short(e)}", flush=True)
         walls[tag] = round(time.time() - t0, 1)
 
-ROWS_A = (("H16c-1", row_1), ("H16c-2", row_2), ("H16c-3", row_3), ("H16c-4", row_4), ("H16c-5", row_5), ("H16c-6", row_6),
-          ("H16c-7", row_7), ("H16c-8", row_8), ("H16c-9", row_9), ("H16c-10", row_10))
-ROWS_B = (("H16c-11", row_11),)
+ROWS_SHARED = (("list_own_only", row_list_own_only),
+               ("dead_list_own_only", row_dead_list_own_only),
+               ("client_boost_reaches_host", row_client_boost_reaches_host),
+               ("host_boost_reaches_client", row_host_boost_reaches_client),
+               ("client_clone_on_both", row_client_clone_on_both),
+               ("client_retire_reaches_host", row_client_retire_reaches_host),
+               ("client_raise_reaches_host", row_client_raise_reaches_host),
+               ("partner_soldier_refused", row_partner_soldier_refused),
+               ("info_screen_refreshes", row_info_screen_refreshes),
+               ("stale_start_refused", row_stale_start_refused))
+ROWS_SEPARATE = (("separate_stays_local", row_separate_stays_local),)
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(BOOT_A[0], lambda: shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,)), setup_a, ROWS_A, results, walls,
-         tail=True)
-    boot(BOOT_B[0], boot_b, lambda x: {"mods": [os.path.basename(MOD)]}, ROWS_B, results, walls)
-    failed, n = [rid for rid, _ in ROWS_A + ROWS_B if not results.get(rid)], len(ROWS_A + ROWS_B)
+    boot(BOOT_SHARED[0], lambda: shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,)), setup_shared,
+         ROWS_SHARED, results, walls, tail=True)
+    boot(BOOT_SEPARATE[0], boot_separate, lambda x: {"mods": [os.path.basename(MOD)]}, ROWS_SEPARATE, results, walls)
+    failed, n = ([rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE if not results.get(rid)],
+                 len(ROWS_SHARED + ROWS_SEPARATE))
     print(f"\ntest_soldier_transformation: {n - len(failed)}/{n} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
