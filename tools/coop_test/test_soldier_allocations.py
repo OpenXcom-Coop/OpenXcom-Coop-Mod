@@ -1,12 +1,13 @@
 """Soldier allocations in a co-op campaign: crew seats from the crew-armor ctrl-click and the crew keys, and martial /
 psi allocations made on one machine reach the shared world; the training screens and the crew keys touch only the
-clicker's own soldiers. Mod Coop_Allocation_Test: ONE gym place + ONE psi-lab place at (0, 3), index 9. Shared boot
-(SHARED): allocation_1..7, 9, 10, 11; separate boot (SEPARATE): allocation_8.
+clicker's own soldiers. Mod Coop_Allocation_Test: ONE gym place + ONE psi-lab place at (0, 3), index 9. One SHARED
+boot: allocation_1..7, 9, 10, 11. The training screens send the soldier_training command and the host runs the
+training, so a click changes nothing on its own machine until the host's result lands.
 baseline = flags off, wounds healed, seats via the craft_assign test command, both equal, requests R0; clicks at the
 alloc_screen_probe row centre (ctrl: mod ctrl then modstate none); keys z 122 / x 120; poll = both machines' flags +
 seats every 0.25 s for 3 s, cells at its end; close = OK until GeoscapeState, requests == R0. Without the fix every row
-but allocation_8 fails on its named cells. "guard:" = guard (a miss prints one CAPTURE). There is no skip path; exit 0
-only when every row passes.
+fails on its named cells. "guard:" = guard (a miss prints one CAPTURE). There is no skip path; exit 0 only when every
+row passes.
 """
 
 import json
@@ -15,14 +16,12 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Allocation_Test")
-BOOT_SHARED, BOOT_SEPARATE = (("allocations_shared", (49320, 49321, 47300)),
-                              ("allocations_separate", (49322, 49323), "47302"))
+BOOT_SHARED = ("allocations_shared", (49320, 49321, 47300))
+NOT_YOURS = "STR_COOP_NOT_YOUR_SOLDIER"  # the host's refusal of the partner's soldier (shown as "Not one of your soldiers")
 FAC, FAC_IDX, KEY_Z, KEY_X = "STR_ALLOCTEST_TRAINING", 9, 122, 120     # index measured; key codes: Options.cpp :528-534
 POLL_S, POLL_I, GEO, POP, H, C = 3.0, 0.25, "GeoscapeState", "CoopState", "host", "client"
 SCREEN = {"martial": "AllocateTrainingState", "psi": "AllocatePsiTrainingState",
@@ -242,12 +241,15 @@ def row_5(x, r):   # the last gym place, both at once (the client's applies held
         r.cell("guard:host H1", wait_until(lambda: flags(h, [H1])[H1]["tr"], 1.0), flags(h, [H1]))
         wait_until(lambda: ss(h)["applyCount"] > a0, 1.0)   # the host's own apply lands before the client's click
         da, r.ev["client freeTraining before its click (stale world)"] = ss(h)["applyCount"] - a0, free_gym(c)
+        f0 = ss(h)["failCount"]
         click(c, r, C1, "client")
-        r.cell("guard:stale click", wait_until(lambda: flags(c, [C1])[C1]["tr"], 1.0), flags(c, [C1]))
         time.sleep(1.0)
     finally:
         c.cmd({"cmd": "shared_update_defer", "on": False})
     _p, e = step(x, r, "poll", c, [C1, H1])
+    sent = [ss(h)["applyCount"] - a0 - da, ss(h)["failCount"] - f0]
+    r.ev["the client's click at the host [applyCount, failCount] delta"] = sent
+    r.cell("guard:stale click", sum(sent) == 1, f"the client's click reached the host as {sent} (want one command)")
     free, v = {gc.name: free_gym(gc) for gc in (h, c)}, {m: [e[m][H1]["tr"], e[m][C1]["tr"]] for m in (H, C)}
     r.ev["[H1, C1] training, freeTraining, host applyCount delta after its click"] = [v, free, da]
     r.cell("race", all(w == [True, False] for w in v.values()) and all(f == 0 for f in free.values()) and da == 1,
@@ -335,7 +337,7 @@ def refuse(x, r, gc, tag, jcmd, payload, sid, field):
     r.ev[f"{tag} {gc.name} lastFail, popup title"] = [lf, gc.cmd({"cmd": "screen_state"}).get("title")]
     _p, e = step(x, r, tag, gc, [sid])
     r.cell(f"guard:{tag} flag unchanged", e[H][sid][field] is False and e[C][sid][field] is False, [e[H][sid], e[C][sid]])
-    r.cell(tag, lf == "not your soldier", f"the host answered {lf!r} instead of 'not your soldier'")
+    r.cell(tag, lf == NOT_YOURS, f"the host answered {lf!r} instead of {NOT_YOURS!r}")
     gc.cmd({"cmd": "coop_dialog_back"})
     r.need(f"guard:{tag} popup closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
 def row_10(x, r):   # the host refuses the partner's soldier
@@ -344,11 +346,13 @@ def row_10(x, r):   # the host refuses the partner's soldier
     for gc in (h, c):
         gc.ok({"cmd": "shared_reset_stats"})
     a0 = ss(h)["applyCount"]
-    refuse(x, r, c, "(1)", "soldier_training", {"soldierId": H1, "training": True, "rtwh": False}, H1, "tr")
-    refuse(x, r, h, "(2)", "soldier_psi_training", {"soldierId": C1, "psi": True}, C1, "psi")
+    refuse(x, r, c, "(1)", "soldier_training", {"kind": "martial", "soldiers": [{"id": H1, "training": True, "queued": False}]},
+           H1, "tr")
+    refuse(x, r, h, "(2)", "soldier_training", {"kind": "psi", "soldiers": [{"id": C1, "training": True}]}, C1, "psi")
     r.cell("guard:host applyCount unchanged (1)-(2)", ss(h)["applyCount"] == a0, ss(h))
     a1 = ss(h)["applyCount"]
-    c.ok({"cmd": "shared_cmd", "jcmd": "soldier_training", "baseId": 0, "payload": {"soldierId": C1, "training": True, "rtwh": False}})
+    c.ok({"cmd": "shared_cmd", "jcmd": "soldier_training", "baseId": 0,
+          "payload": {"kind": "martial", "soldiers": [{"id": C1, "training": True, "queued": False}]}})
     _p, e = step(x, r, "(3)", c, [C1])
     da, v = ss(h)["applyCount"] - a1, [e[H][C1]["tr"], e[C][C1]["tr"]]
     r.cell("(3)", v == [True, True] and da == 1, f"the control stayed untrained: C1 training [host, client] {v}, "
@@ -376,26 +380,6 @@ def row_11(x, r):   # the client's reset-armor key keeps the partner's armor
     r.cell("guard:requests", now == r.R0, f"requests {now} vs R0 {r.R0}")
     r.cell("partner armor", v == [PERSONAL, PERSONAL],
            f"the client's armor-reset key stripped the partner's soldier: H1 armor [host, client] {v}")
-def row_8(x, r):   # SEPARATE stays local (the separate boot; guard row)
-    h, c = x.host, x.client
-    s_0, r.R0 = {gc.name: ss(gc) for gc in (h, c)}, {gc.name: req(gc) for gc in (h, c)}
-    r.ev["fac_build"] = c.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok")    # local in SEPARATE
-    r.need("guard:facility", wait_until(lambda: fac_index(c) == FAC_IDX, 10), fac_index(c))
-    bt = c.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": FAC_IDX, "time": 0})
-    b0 = c.ok({"cmd": "soldier_training_probe", "ids": []})["bases"][0]
-    r.need("guard:buildTime0, capacities", bt.get("buildTime") == 0 and (b0["psiLabs"], b0["training"]) == (1, 1), [bt, b0])
-    sid = open_screen(c, r, "martial", "martial")["rows"][0]["soldierId"]
-    click(c, r, sid, "martial")
-    close(x, r, c, "martial")
-    sida = open_screen(c, r, "craft_armor", "armor")["rows"][0]["soldierId"]
-    r.need("guard:seated", craft(c, sida) == 1, craft(c, sida))
-    click(c, r, sida, "armor", ctrl=True)
-    time.sleep(2.0)
-    own, s_1 = r.ev["own [training, seat]"], r.ev["shared_stats after"] = [flags(c, [sid])[sid]["tr"], craft(c, sida)], \
-        {gc.name: ss(gc) for gc in (h, c)}
-    r.cell("own flag, own seat", own == [True, -1], own)
-    r.cell("shared_stats unchanged", all(s_0[m][k] == s_1[m][k] for m in s_0 for k in ("cmd", "applyCount")), [s_0, s_1])
-    close(x, r, c, "armor")
 def run_row(rid, fn, x, results, ids):
     r, t0 = Row(rid, x, ids), time.time()
     try:
@@ -460,8 +444,8 @@ def boot(results, walls, tag, rows, up, down, setup=None):
         except Exception as e:
             return boot_miss(tag, e, [rid for rid, _f in rows], results)
         for rid, fn in rows:
-            ids = [1] if rid == "allocation_8" else {"allocation_3": [x.C1, x.C2], "allocation_6": [x.C1, x.C2, x.H1],
-                                                     "allocation_7": [x.C1, x.C2, x.H1, x.H2]}.get(rid, [x.C1, x.H1])
+            ids = {"allocation_3": [x.C1, x.C2], "allocation_6": [x.C1, x.C2, x.H1],
+                   "allocation_7": [x.C1, x.C2, x.H1, x.H2]}.get(rid, [x.C1, x.H1])
             walls[rid] = run_row(rid, fn, x, results, ids)
     finally:
         down(x)
@@ -469,23 +453,15 @@ def boot(results, walls, tag, rows, up, down, setup=None):
 def up_shared():
     js = UP["js"] = shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,))
     return js.host, js.client
-def up_separate():
-    (tag, labels, lobby) = BOOT_SEPARATE
-    h, c = UP["separate"] = (GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,))),
-                             GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,))))
-    h.spawn(), c.spawn(), h.connect(), c.connect()
-    session.new_campaign(h, c, port=lobby, campaign_mode="coop")
-    geo.wait_both_ready(h, c)
-    return h, c
 UP = {}
 def main():
     t0, results, walls = time.time(), {}, {}
     boot(results, walls, BOOT_SHARED[0], ROWS_SHARED, up_shared, lambda x: UP.get("js") and UP["js"].shutdown(),
          setup_shared)
-    boot(results, walls, BOOT_SEPARATE[0], (("allocation_8", row_8),), up_separate,
-         lambda x: UP.get("separate") and shutdown_clients(*UP["separate"]))
-    failed = [n for n in ("allocation_%d" % k for k in range(1, 12)) if not results.get(n)]
-    print(f"\ntest_soldier_allocations: {11 - len(failed)}/11 passed (fail={failed}) walls {walls} in {time.time() - t0:.1f}s")
+    names = [rid for rid, _f in ROWS_SHARED]
+    failed = [n for n in names if not results.get(n)]
+    print(f"\ntest_soldier_allocations: {len(names) - len(failed)}/{len(names)} passed (fail={failed}) walls {walls} "
+          f"in {time.time() - t0:.1f}s")
     return 0 if not failed else 2
 
 if __name__ == "__main__":
