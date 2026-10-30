@@ -1,25 +1,23 @@
-"""test_shared_crash_return.py: a SHARED campaign battle that ends with no live alien (the
-aliens-crashed ending, P8b SE-2) still takes the host's post-battle world IN PLACE on the second player while its
-AliensCrashState is up, never through today's CoopState(555) -> LoadGameState path (docs
-rewrite/prompts/w2p7_sc_design.md AMENDMENT P7-7 PR-27, row D1d = SK2; carried F5236; owner D154, D156 + MR1, D176).
+"""test_shared_crash_return.py: a SHARED campaign battle that ends with no live alien (the aliens-crashed ending) still
+takes the host's post-battle world IN PLACE on the second player while its AliensCrashState is up, never through the
+CoopState(555) -> LoadGameState path.
 
-F5236 (CANDIDATE): PR-4's world hold covers the campaign display-only debriefing and a BattlescapeState on the
-stack, not AliensCrashState; the client's consumer setState()s AliensCrashState first in this ending, so a world
-that arrives while it is up would take the CoopState(555) path. PR-27: this row decides it - red at the red build
-(worldHeld 0 and a LoadGameState push) -> S-C-D1.2 adds AliensCrashState to coopReturnHoldStack's scan; green at
-the red build -> no product change, the row stays as a guard.
+The world hold covers the campaign display-only debriefing and a BattlescapeState or an AliensCrashState on the stack
+(coopReturnHoldStack's scan). In this ending the client's consumer setState()s AliensCrashState first, so without
+AliensCrashState in that scan a world that arrives while it is up takes the CoopState(555) path (cell 2 fails:
+worldHeld 0 and a LoadGameState push).
 
-Fixture FX-X (AMENDMENT P7-7 section 3; P8b's EQ24c recipe, test_prebattle_equip_end.py Boots E2/E3, ruling SE-4):
+Fixture (the crash-ending recipe of test_prebattle_equip_end.py):
 shared_fixture.bring_up(tag, (0, 0, PORT)); session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1},
-to_tactical=False, pre_landing = host set_seed SEED_S + the client's hold_battle_ready {on: true} (Q16 a), so the
+to_tactical=False, pre_landing = host set_seed SEED_S + the client's hold_battle_ready {on: true}, so the
 host stays in phase Handshake); the client's BriefingState (its battle_ready held); every live alien ->
-battle_set_unit_state {status: STATUS_DEAD} on both machines, client first (test_prebattle_equip_end.stage_aliens,
-P8b T0-5); the host's close_briefing -> its AliensCrashState; the host's OK on it -> its DebriefingState with V5's
-result held (phase Handshake, resultSent 0, SE-4); the client's close_briefing (that test's spine); then the client's
-hold_battle_ready {on: false} releases battle_ready -> the host's onReady sends the held result, then the PR-3 world
+battle_set_unit_state {status: STATUS_DEAD} on both machines, client first (test_prebattle_equip_end.stage_aliens);
+the host's close_briefing -> its AliensCrashState; the host's OK on it -> its DebriefingState with the battle result
+held (phase Handshake, resultSent 0); the client's close_briefing (as in that test); then the client's
+hold_battle_ready {on: false} releases battle_ready -> the host's onReady sends the held result, then the world
 push. Pre-cell (a failure is a setup failure: one CAPTURE line, then the row FAILs "pre-cell").
 
-Row D1d (the GREEN cells, in order; a failed cell ends the row):
+Row crash_screen_keeps_world (cells in order; a failed cell ends the row):
   (1) the client's top AliensCrashState within CRASH_S of the host's DebriefingState.
   (2) keep it up (no OK pressed): the host's battleEnd.worldPushed 1 and the client's worldHeld >= 1 within HELD_S;
       no "push class OpenXcom::LoadGameState" line in the client log over the row.
@@ -27,9 +25,8 @@ Row D1d (the GREEN cells, in order; a failed cell ends the row):
   (4) both OKs -> both GeoscapeState, no CoopState on either stack.
 Guard: host event_state.fatalVote.armed 0; no new crash log; the client zero-disk at the end.
 
-RED (commit S-C-D1.1): CANDIDATE - cell 2 red (worldHeld 0 and a LoadGameState push) or green; either verdict is
-reported and PR-27 follows it. Prints ONE "EVIDENCE D1d:" line, then "PASS D1d" or "FAIL D1d: <message>".
-ONE foreground run, no skip path; exit 0 only when the row passes, 2 otherwise.
+Prints ONE "EVIDENCE crash_screen_keeps_world:" line, then "PASS crash_screen_keeps_world" or "FAIL
+crash_screen_keeps_world: <message>". ONE foreground run, no skip path; exit 0 only when the row passes, 2 otherwise.
 
 Run:  python tools/coop_test/test_shared_crash_return.py
 """
@@ -46,16 +43,18 @@ import shared_fixture
 import test_battle_end_campaign as camp
 import test_prebattle_equip_end as pe
 
-PORT = "47252"            # AMENDMENT P7-7 section 3: D1 = 47250-47252
-TAG = "w2p7scd1_x"
-SEED_S = camp.SEED_S      # 1 (CONSTANTS T0-6 (i))
-BRIEF_S = 30              # the client's BriefingState after the host's (P8b EQ1_WAIT_S)
-CRASH_HOST_S = 5          # the host's AliensCrashState after its briefing OK (P8b CRASH_WAIT_S)
-DEBRIEF_S = 10            # a DebriefingState after an AliensCrashState OK (P8b DEBRIEF_WAIT_S)
+PORT = "47252"            # lobby port (test_shared_page3 uses 47250 / 47251)
+TAG = "shared_crash_return"
+SEED_S = camp.SEED_S      # 1
+BRIEF_S = 30              # the client's BriefingState after the host's
+CRASH_HOST_S = 5          # the host's AliensCrashState after its briefing OK (test_prebattle_equip_end's
+                          # CRASH_WAIT_S)
+DEBRIEF_S = 10            # a DebriefingState after an AliensCrashState OK (test_prebattle_equip_end's
+                          # DEBRIEF_WAIT_S)
 LEAVE_S = 10              # the client's briefing gone after its close_briefing
-CRASH_S = 20              # P7-7 D1d cell 1: "within 20 s of the host's DebriefingState"
-HELD_S = 15               # P7-7 D1d cell 2: "within 15 s"
-ADOPT_S = camp.ADOPT_S    # 15 s (CONSTANTS T0-S2)
+CRASH_S = 20              # cell 1: within 20 s of the host's DebriefingState
+HELD_S = 15               # cell 2: within 15 s
+ADOPT_S = camp.ADOPT_S    # 15 s
 OK_S = camp.OK_S          # 10 s
 LOADGAME_PUSH = camp.LOADGAME_PUSH
 
@@ -121,10 +120,10 @@ def capture(name, err, machines, ctx):
     raise FixtureMiss(f"{name}: {err[:600]}")
 
 
-# ===================== FX-X (pre-cell) =====================
+# ===================== the fixture (pre-cell) =====================
 
 
-def fx_x(js, ctx):
+def stage_crash_ending(js, ctx):
     host, client = js.host, js.client
     m = (host, client)
 
@@ -145,7 +144,7 @@ def fx_x(js, ctx):
     if not (g and ctx["clientBriefing"]["hold"].get("held") is True and ctx["clientBriefing"]["hostPhase"] == "Handshake"
             and top(host) == "BriefingState"):
         capture("client briefing (battle_ready held)", f"{ctx['clientBriefing']} host stack {stack(host)}", m, ctx)
-    s = pe.stage_aliens(host, client, ctx)   # every live alien STATUS_DEAD on both, client first (P8b T0-5)
+    s = pe.stage_aliens(host, client, ctx)   # every live alien STATUS_DEAD on both, client first
     la = s.get("liveAfter") or {}
     bad = [f"{side} {a}: {r}" for side in ("client", "host") for a, r in (s.get(side) or {}).items()
            if not r.get("ok") or r.get("status") != pe.STATUS_DEAD]
@@ -164,7 +163,7 @@ def fx_x(js, ctx):
     ctx["hostOk"] = {"press": {k: hp.get(k) for k in ("ok", "handled", "error")}, "ok": g, "secs": d, "view": hv}
     if not (g and hp.get("handled") == "AliensCrashState" and hv["phase"] == "Handshake"
             and hv["record"].get("resultSent") == 0):
-        capture("host DebriefingState (V5 held, SE-4)", f"{ctx['hostOk']}", m, ctx)
+        capture("host DebriefingState (the result held)", f"{ctx['hostOk']}", m, ctx)
     cc = client.cmd({"cmd": "close_briefing"})
     g, d = wait_until(lambda: "BriefingState" not in stack(client), LEAVE_S)
     ctx["clientClose"] = {"close": {k: cc.get(k) for k in ("ok", "error")}, "ok": g, "secs": d, "stack": stack(client)}
@@ -181,7 +180,7 @@ def fx_x(js, ctx):
 
 
 def cells(host, client, ctx):
-    def c1():
+    def cell_crash_screen():
         left = max(0.0, CRASH_S - (time.time() - ctx["hostDebriefAt"]))
         g, d = wait_until(lambda: top(client) == "AliensCrashState", left)
         ctx["clientCrash"] = {"ok": g, "secsAfterHostDebrief": round(time.time() - ctx["hostDebriefAt"], 2),
@@ -189,7 +188,7 @@ def cells(host, client, ctx):
         return [] if g else [f"the client's top {top(client)!r} {CRASH_S}s after the host's DebriefingState (want "
                              f"AliensCrashState; stack {stack(client)})"]
 
-    def c2():
+    def cell_world_held():
         tops = []
 
         def held():
@@ -206,10 +205,10 @@ def cells(host, client, ctx):
             f.append(f"host worldPushed={record(host).get('worldPushed')!r} client worldHeld="
                      f"{record(client).get('worldHeld')!r} after {HELD_S}s (want 1 and >= 1; client tops {tops})")
         if pushes != 0:
-            f.append(f"the client pushed {pushes} LoadGameState(s) while its AliensCrashState was up (want 0, P6-4)")
+            f.append(f"the client pushed {pushes} LoadGameState(s) while its AliensCrashState was up (want 0)")
         return f
 
-    def c3():
+    def cell_client_ok():
         t = top(client)
         cp = client.cmd({"cmd": "dismiss_popup"}) if t == "AliensCrashState" else {"note": f"client top {t}"}
         g, d = wait_until(lambda: (lambda x: x.get("onTop") is True and x.get("displayOnly") is True)(
@@ -230,7 +229,7 @@ def cells(host, client, ctx):
         ctx["clientOkCrash"]["chk"] = {"equal": eq, "secs": esecs, "host": hc, "client": cc}
         return [] if eq else [f"shared_checksum chk* host {hc} != client {cc}"]
 
-    def c4():
+    def cell_both_geoscape():
         f = camp.client_ok_clean(client, ctx, "clientOk") + camp.host_ok_drain(host, ctx, "hostOk2")
         for gc in (host, client):
             st = stack(gc)
@@ -239,20 +238,20 @@ def cells(host, client, ctx):
         return f
 
     return [
-        ("1 the client's AliensCrashState", c1),
-        ("2 the world held under it, no LoadGameState", c2),
-        ("3 the client's OK -> its display-only debriefing on the adopted world", c3),
-        ("4 both OKs -> both on the geoscape", c4),
+        ("1 the client's AliensCrashState", cell_crash_screen),
+        ("2 the world held under it, no LoadGameState", cell_world_held),
+        ("3 the client's OK -> its display-only debriefing on the adopted world", cell_client_ok),
+        ("4 both OKs -> both on the geoscape", cell_both_geoscape),
     ]
 
 
 def main():
-    t0, ctx, js, verdict = time.time(), {"row": "D1d"}, None, None
+    t0, ctx, js, verdict = time.time(), {"row": "crash_screen_keeps_world"}, None, None
     crash0 = session._crash_log_snapshot()
     try:
         try:
             js = shared_fixture.bring_up(TAG, (0, 0, PORT))
-            fx_x(js, ctx)
+            stage_crash_ending(js, ctx)
         except Exception as e:
             verdict = f"pre-cell (setup failure) {e if isinstance(e, FixtureMiss) else short(e, 800)}"
         if verdict is None:
@@ -272,7 +271,7 @@ def main():
             g = []
             armed = (event_state(host).get("fatalVote") or {}).get("armed")
             if armed != 0:
-                g.append(f"host fatalVote.armed={armed!r} (want 0, F4544)")
+                g.append(f"host fatalVote.armed={armed!r} (want 0)")
             try:
                 session.assert_client_zero_disk(client.user_dir)
             except AssertionError as e:
@@ -288,18 +287,19 @@ def main():
         if new_crash:
             verdict = (verdict + " | " if verdict else "") + f"new crash log(s): {new_crash}"
         ctx.pop("hostDebriefAt", None)
-        camp.evidence("D1d", ctx)
-        print("PASS D1d" if verdict is None else f"FAIL D1d: {verdict}", flush=True)
+        camp.evidence("crash_screen_keeps_world", ctx)
+        print("PASS crash_screen_keeps_world" if verdict is None else f"FAIL crash_screen_keeps_world: {verdict}",
+              flush=True)
     finally:
         if js is not None:
             try:
                 hold(js.client, on=False)
             except Exception as e:
-                print(f"[w2p7-scd1] release hold_battle_ready: {short(e)}", flush=True)
+                print(f"[shared_crash_return] release hold_battle_ready: {short(e)}", flush=True)
             try:
                 js.shutdown()
             except Exception as e:
-                print(f"[w2p7-scd1] shutdown: {short(e)}", flush=True)
+                print(f"[shared_crash_return] shutdown: {short(e)}", flush=True)
     print(f"\ntest_shared_crash_return: {0 if verdict else 1}/1 passed in {time.time() - t0:.1f}s", flush=True)
     return 0 if verdict is None else 2
 
