@@ -1,122 +1,79 @@
-"""test_psi.py: a sectoid leader's AI psi attacks on the
-second player's soldiers each run as a named `ai` action - a mind control that
-turns C hostile (and reverts at the next hostile side start), then a psi panic
-whose panic at the next player side start runs as its own `panic` action -
-with both machines equal (spec rewrite/prompts/w2p3_nonplayer_origins.md
-section (f) "test_psi.py (S-E; C14 mission)", sections (b)1-(b)6 (the `ai`
-origin, kind `psi`: no pre-attack turn), (b)7 (the `panic` context), research
-note N11 (the mind-control revert); amendment B1 (RQ5, RQ7, RQ15); ledger
-`## W2-P3 TASK 0c` and `## W2-P3 TASK 0d`; owner ruling
-D128 = (b)).
+"""test_psi.py: a sectoid leader's AI psi attacks on the second player's soldiers each run as a named `ai` action - a
+mind control that turns C hostile (and reverts at the next hostile side start), then a psi panic whose panic at the
+next player side start runs as its own `panic` action - with both machines equal (the `ai` origin, kind `psi`: no
+pre-attack turn; the `panic` context; the mind-control revert).
 
-S-E is test-only: the product (S-A..S-D) is complete for this scenario. Its RED
-is TASK 0d's C14 row, run on the W2-P3 base exe (`27bdec94e`): no freeze, but
-the psi evs carried actionId 0 ((7 psi 0) mc, (21 psi 0) panic), no `ai`
-context, and C2's panic rode a context-less `sync` (30 sync 0).
+Measured on a build without the action contexts: no freeze, but the psi evs carried actionId 0 ((7 psi 0) mc, (21 psi
+0) panic), no `ai` context, and C2's panic rode a context-less `sync` (30 sync 0).
 
-Two scenarios (the two halves of spec row C14), ONE boot, in this order:
+Two scenarios, ONE boot, in this order:
 
-  C14-mc     mind control (cycle 1, battle turn 1 -> 2). The terror mission
-             with the sectoid race, map seed SEED_MAP. P (the Sectoid Leader,
-             psiSkill 50, owns ALIEN_PSI_WEAPON PSI_WEAPON_ID) stripped (BOTH;
-             battle_strip_unit keeps the special weapon, which is not in the
-             inventory - F875: an armed P prefers its pistol) and C stripped
-             (BOTH; deleted ids compared as SETS, F882). P on P_TILE facing C
-             and C2; C and C2 on C_TILE / C2_TILE facing AWAY from P (neither
-             spots P, F875); P base tu P_TU and psiSkill P_PSI_SKILL (BOTH);
-             C psiStrength 0 (BOTH). Host set_seed SEED_MIND_CONTROL right before its
-             END TURN press. The host shows a vanilla infobox with the mind
-             control: the host dismisses it (dismiss_popup, host only, F876).
-             GREEN: P's first `ai` context of the alien side is {kind psi,
-             actorId P, nestedIn 0, hasFinal true} and its evs are exactly
-             psi {actor P, unit C, action mc, success true} -> bt_action_end
-             (no `turn`); after the cycle C faction hostile and
-             mindControllerId P on both.
-  C14-panic  the revert and the psi panic (cycle 2, turn 2 -> 3). P and C2
-             re-teleported to the same tiles (BOTH); C psiStrength 100 (out of
-             P's reach) and C2 psiStrength 0 (BOTH); host set_seed SEED_PSI_PANIC
-             right before its END TURN press. C reverts to the player faction
-             at the PLAYER -> HOSTILE side start (N11, F874). P's psi panic
-             lowers C2's morale; at the player side start of turn 3 C2 panics
-             and freezes in place; the host dismisses its panic infobox
-             (host only, F876).
-             GREEN: after the cycle C faction player on both; P's first `ai`
-             context of the alien side is {kind psi, actorId P, nestedIn 0,
-             hasFinal true} with evs exactly psi {actor P, unit C2, action
-             panic, success true} -> bt_action_end; C2's morale lowered and
-             equal on both (C2_MORALE_END: -70 by the psi, +15 at the panic's
-             end); exactly one host context {origin panic, actorId C2,
-             nestedIn 0, hasFinal true} after the cycle's last side_transition,
-             its evs exactly panic {unit C2, mode freeze} -> bt_action_end (the
-             C13 panic context shape); C2 on C2_TILE, STANDING, TU 0 on both.
+  mind_control mind control (cycle 1, battle turn 1 -> 2). The terror mission with the sectoid race, map seed
+               SEED_MAP. P (the Sectoid Leader, psiSkill 50, owns ALIEN_PSI_WEAPON PSI_WEAPON_ID) stripped (BOTH;
+               battle_strip_unit keeps the special weapon, which is not in the inventory - an armed P prefers its
+               pistol) and C stripped (BOTH; deleted ids compared as SETS). P on P_TILE facing C and C2; C and C2 on
+               C_TILE / C2_TILE facing AWAY from P (neither spots P); P base tu P_TU and psiSkill P_PSI_SKILL (BOTH);
+               C psiStrength 0 (BOTH). Host set_seed SEED_MIND_CONTROL right before its END TURN press. The host shows
+               a vanilla infobox with the mind control: the host dismisses it (dismiss_popup, host only).
+               Pass: P's first `ai` context of the alien side is {kind psi, actorId P, nestedIn 0, hasFinal true} and
+               its evs are exactly psi {actor P, unit C, action mc, success true} -> bt_action_end (no `turn`); after
+               the cycle C faction hostile and mindControllerId P on both.
+  psi_panic    the revert and the psi panic (cycle 2, turn 2 -> 3). P and C2 re-teleported to the same tiles (BOTH); C
+               psiStrength 100 (out of P's reach) and C2 psiStrength 0 (BOTH); host set_seed SEED_PSI_PANIC right
+               before its END TURN press. C reverts to the player faction at the PLAYER -> HOSTILE side start. P's psi
+               panic lowers C2's morale; at the player side start of turn 3 C2 panics and freezes in place; the host
+               dismisses its panic infobox (host only).
+               Pass: after the cycle C faction player on both; P's first `ai` context of the alien side is {kind psi,
+               actorId P, nestedIn 0, hasFinal true} with evs exactly psi {actor P, unit C2, action panic, success
+               true} -> bt_action_end; C2's morale lowered and equal on both (C2_MORALE_END: -70 by the psi, +15 at
+               the panic's end); exactly one host context {origin panic, actorId C2, nestedIn 0, hasFinal true} after
+               the cycle's last side_transition, its evs exactly panic {unit C2, mode freeze} -> bt_action_end
+               (test_turn_cues' panic context shape); C2 on C2_TILE, STANDING, TU 0 on both.
 
-Common asserts (spec (f) as amended by B1 RQ5, per scenario, after its chain
-settled): W2-P2's common asserts (hash_now {full:true} ALL buckets EQUAL;
-desyncSeen false on both; client coopClientBStatePushes unchanged and host 0;
-client deltaEvsApplied increased; deltaUnresolved, deltaUnsupported,
-deltaRemoveMissing, deltaAddExisting 0 on both; staging writes on BOTH with
-equal responses); host contextBeginRefused 0; contextsOpened grew by exactly
-the number of contexts the scenario closed; every chain ev carries the id of a
-context the scenario closed; every context has exactly one bt_action_end, its
-last ev, recorded in closedContexts (endSeq); no `sync` and no
-side_transition inside a context; every side_transition carries actionId 0;
-the client log holds the host's seqs/kinds/actionIds.
-contextsClosedAtEndTurn is a diagnostic (printed, never asserted, RQ5).
+Common asserts (per scenario, after its chain settled): test_delta_core's common asserts (hash_now {full:true} ALL
+buckets EQUAL; desyncSeen false on both; client coopClientBStatePushes unchanged and host 0; client deltaEvsApplied
+increased; deltaUnresolved, deltaUnsupported, deltaRemoveMissing, deltaAddExisting 0 on both; staging writes on BOTH
+with equal responses); host contextBeginRefused 0; contextsOpened grew by exactly the number of contexts the scenario
+closed; every chain ev carries the id of a context the scenario closed; every context has exactly one bt_action_end,
+its last ev, recorded in closedContexts (endSeq); no `sync` and no side_transition inside a context; every
+side_transition carries actionId 0; the client log holds the host's seqs/kinds/actionIds. contextsClosedAtEndTurn is a
+diagnostic (printed, never asserted).
 
-Probes: event_state closedContexts, contextsOpened, contextBeginRefused,
-contextsClosedAtEndTurn, cueCounts, deltaRing, lastWalk, the W2-P2 delta
-counters; battle_state units (type, faction, originalFaction,
-mindControllerId, mindControlled, morale, status, tu, position, psiWeapon);
-battle_items (owner, slot); the host's own `[coop-cue]` log lines for the
-payloads and its `[coop-delta] attached` lines (the revert, printed);
-hash_now {full:true}.
+Probes: event_state closedContexts, contextsOpened, contextBeginRefused, contextsClosedAtEndTurn, cueCounts,
+deltaRing, lastWalk, the delta counters; battle_state units (type, faction, originalFaction, mindControllerId,
+mindControlled, morale, status, tu, position, psiWeapon); battle_items (owner, slot); the host's own `[coop-cue]` log
+lines for the payloads and its `[coop-delta] attached` lines (the revert, printed); hash_now {full:true}.
 
-Bring-up (deterministic, never searched here; ledger `## W2-P3 TASK 0c`,
-scratch w2p3/T0c/constants.md, 3 boots identical plus a 2.6 s NextTurnState
-dwell variant on both cycles): set_seed SEED_ROSTER on the HOST right before
-its open_new_battle; newbattle_mission STR_TERROR_MISSION, then
-newbattle_race STR_SECTOID (pre_seat), set_seed SEED_MAP right before
-newbattle_ok, seat_count=2, MAP_FP asserted on both; session.pin_ai_neutral
-(the 23 non-player units); RQ15: every live player unit's reactions 0 on
-BOTH. Every lever pair applies to the CLIENT first, then the HOST. The
-seeds are set on the HOST immediately before the press that starts the chain.
+Bring-up (deterministic, never searched here; measured identical on 3 boots plus a 2.6 s NextTurnState dwell variant
+on both cycles): set_seed SEED_ROSTER on the HOST right before its open_new_battle; newbattle_mission
+STR_TERROR_MISSION, then newbattle_race STR_SECTOID (pre_seat), set_seed SEED_MAP right before newbattle_ok,
+seat_count=2, MAP_FP asserted on both; session.pin_ai_neutral (the 23 non-player units); every live player unit's
+reactions 0 on BOTH (no reaction fire). Every staging pair applies to the CLIENT first, then the HOST. The seeds are
+set on the HOST immediately before the press that starts the chain.
 
-W2-P6b S-E (spec rewrite/prompts/w2p6_display_two.md section 9 and the P6b
-review's section 2 row psi_ghost; AMENDMENTS P6b-1..P6b-3): every `psi` ev of each
-scenario plays on the watching machine as a psi ghost - ONE client
-combatGhost record of kind psi per `psi` ev with the psi chain's frame,
-frames, intervalMs, ms and sound from both machines' display_rules
-(ALIEN_PSI_WEAPON; test_host_combat.impact_row / impact_expect / EFFECT_PINS)
-and `voxel` equal to the payload's additive `voxel` (Q11), plus the S-E common
-asserts (client rngSeed unchanged across the cycle, host displayTwo /
-combatGhost all zero, completed + cut == enqueued per S-E kind).
-coopGhostStepper is pinned true in both instances. RED (commit S-E.1): both
-scenarios fail only on psi_ghost (no psi record, the payload has no `voxel`). One
-"EVIDENCE psi_ghost:" line per scenario.
+Psi ghosts (test_host_combat.impact_row, row psi_ghost): every `psi` ev of each scenario plays on the watching machine
+as a psi ghost - ONE client combatGhost record of kind psi per `psi` ev with the psi chain's frame, frames,
+intervalMs, ms and sound from both machines' display_rules (ALIEN_PSI_WEAPON; test_host_combat.impact_row /
+impact_expect / EFFECT_PINS) and `voxel` equal to the payload's additive `voxel`, plus the ghost common asserts
+(client rngSeed unchanged across the cycle, host displayTwo / combatGhost all zero, completed + cut == enqueued per
+kind). coopGhostStepper is pinned true in both instances. Without the psi ghosts both scenarios fail only on psi_ghost
+(no psi record, the payload has no `voxel`). One "EVIDENCE psi_ghost:" line per scenario.
 
-W2-P6a S-M (spec rewrite/prompts/w2p6_display_two.md `## P6a PINNED STAGE TEXT`
-(b), the P6a review section 2 row MR5, AMENDMENT P6a-2 F1724; owner D132): both
-victims are the second player's soldiers, the HOST's partner's. MR5: C14-mc -
-the host's event_state `messages` ring +1 {C, STR_IS_UNDER_ALIEN_CONTROL,
-partner, notice}, the client's +1 {C, same key, own, box, queued Q_C14MC};
-C14-panic - the host's +1 {C2, STR_HAS_PANICKED, partner, notice}, the client's
-+1 {C2, same key, own, box, queued Q_C14P}; no host infobox in either cycle
-(rec["dismissed"] == []). at the end of C14-panic one bounded wait
-(test_messages.client_quiet: the client's message queue empty and
-BattlescapeState on top within 10 s) so the client's 2 s box is closed before
-the teardown; recorded, a timeout fails the row. One "EVIDENCE <id> MR5:" line
-per scenario. RED (commit S-M.1): both scenarios fail only on MR5 (both rings
-empty, the host's box dismissed).
+Messages: both victims are the second player's soldiers, the HOST's partner's. mind_control - the host's event_state
+`messages` ring +1 {C, STR_IS_UNDER_ALIEN_CONTROL, partner, notice}, the client's +1 {C, same key, own, box, queued
+Q_MIND_CONTROL}; psi_panic - the host's +1 {C2, STR_HAS_PANICKED, partner, notice}, the client's +1 {C2, same key,
+own, box, queued Q_PSI_PANIC}; no host infobox in either cycle (rec["dismissed"] == []). At the end of psi_panic one
+bounded wait (test_messages.client_quiet: the client's message queue empty and BattlescapeState on top within 10 s) so
+the client's 2 s box is closed before the teardown; recorded, a timeout fails the row. One "EVIDENCE <id> messages:"
+line per scenario. Without these messages both scenarios fail only on the messages check (both rings empty, the host's
+box dismissed).
 
-Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields
-BEFORE its green conditions are checked; main() runs every scenario even
-after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>".
-Every wait is bounded; a wait that times out is recorded in the EVIDENCE line
-and fails the scenario.
+Each scenario prints ONE "EVIDENCE <id>:" line with both machines' fields BEFORE its pass conditions are checked;
+main() runs every scenario even after an earlier one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every
+wait is bounded; a wait that times out is recorded in the EVIDENCE line and fails the scenario.
 
-one run is the result. No skip path, no second boot, no
-alternative map or actor. Exit 0 only when both scenarios pass, 2 otherwise
-(a bring-up failure is also 2). run in the foreground to completion.
+One run is the result. No skip path, no second boot, no alternative map or actor. Exit 0 only when both scenarios
+pass, 2 otherwise (a bring-up failure is also 2). Run in the foreground to completion.
 
 Run:  python tools/coop_test/test_psi.py
 """
@@ -137,18 +94,19 @@ from test_turn_cues import (begin, end, cycle, rec_evidence, cycle_fails, contex
 from test_host_combat import effect_snap, impact_row
 from test_messages import msg_snap, msg_delta, msg_rows_fails, msg_evidence, want, client_quiet, messages, msg_new
 
-# ----- bring-up (W2-P3 TASK 0c, T0c constants.md "Common bring-up" + "C14") -----
+# ----- bring-up (measured constants) -----
 SEED_ROSTER = 1                  # set_seed on the HOST right before its open_new_battle
 SEED_MAP = 1                     # set_seed in pre_ok right before newbattle_ok
 MISSION, RACE = "STR_TERROR_MISSION", "STR_SECTOID"   # newbattle_mission, then newbattle_race (pre_seat)
-MAP_FP = -3.451266327757785e+18  # host AND client battle_state.mapFingerprint (the C12b map; the race changes the aliens)
+MAP_FP = -3.451266327757785e+18  # host AND client battle_state.mapFingerprint (test_host_combat's map on SEED_MAP 1;
+#                                  the race changes only the aliens)
 SEATED = [8, 9]                  # the client seat's soldiers
 PINNED = list(range(1000000, 1000023))   # pin_ai_neutral: the 23 non-player units
 PORT = "48638"
 FACTION_PLAYER, FACTION_HOSTILE = 0, 1
 STATUS_STANDING = 0
 
-# ----- C14 (T0c constants.md "C14"; F874-F877) -----
+# ----- the two scenarios (measured constants) -----
 P_ID, P_TYPE = 1000008, "STR_SECTOID_LEADER"   # spawn (45,45,0) dir 6, psiSkill 50, psiStrength 50
 PSI_WEAPON_ID = 84               # ALIEN_PSI_WEAPON, owner P, slot "" (not in P's inventory; kept by the strip)
 P_STRIPPED = [85, 87]            # battle_strip_unit P deleted (STR_PLASMA_PISTOL + its clip), as a set
@@ -166,14 +124,14 @@ C2_MORALE_END = 45               # 100 - 70 (psi panic) + 15 (UnitPanicBState at
 PANIC_MODE = "freeze"            # C2's panic at turn 3 resolves in place (no walk, no shot)
 PSI_CHAIN = ["psi", "bt_action_end"]
 PANIC_CHAIN = ["panic", "bt_action_end"]
-PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (W2-P6b S-E row psi_ghost)
-# W2-P6a S-M row MR5 (P6a review section 2; owner D132; T0a-3 on the S-M.1 build: the client's `seen` record)
+PSI_WEAPON = "ALIEN_PSI_WEAPON"  # P's psi weapon: every `psi` payload's weaponType (the psi_ghost check)
+# the messages check (the `queued` values are the client's measured records)
 KEY_UNDER_ALIEN_CONTROL = "STR_IS_UNDER_ALIEN_CONTROL"
 KEY_PANICKED = "STR_HAS_PANICKED"
-Q_C14MC = True                   # PIN (T0a-3): the `psi` applied under the client's NextTurnState (queued)
-HOLD_C14MC_S = 30.0              # bound of the client's held alien-side NextTurnState in cycle 1
-Q_C14P = True                    # PIN (T0a-3): C2's `panic` applied under the client's NextTurnState (queued)
-HOLD_C14P_S = 30.0               # bound of the client's held player-side NextTurnState in cycle 2
+Q_MIND_CONTROL = True            # measured: the `psi` applied under the client's NextTurnState (queued)
+HOLD_MIND_CONTROL_S = 30.0       # bound of the client's held alien-side NextTurnState in cycle 1
+Q_PSI_PANIC = True               # measured: C2's `panic` applied under the client's NextTurnState (queued)
+HOLD_PSI_PANIC_S = 30.0          # bound of the client's held player-side NextTurnState in cycle 2
 PAYLOAD_EXTRA = ("psi",)         # payloads read beyond test_turn_cues.end()'s kinds
 UNIT_KEYS = ("type", "faction", "originalFaction", "mindControllerId", "mindControlled", "status", "isOut",
              "onTile", "x", "y", "z", "direction", "tu", "health", "morale", "psiWeapon", "specialWeapons")
@@ -221,7 +179,7 @@ def faction_delta_lines(gc, off):
 
 
 def strip_both(host, client, uid):
-    """battle_strip_unit on BOTH (client first, F607). `deleted` lists each
+    """battle_strip_unit on BOTH (client first). `deleted` lists each
     machine's own inventory order, so the two are compared as SETS."""
     rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})
     rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
@@ -295,32 +253,32 @@ def unit_fails(rec, uid, want, what):
 # ===================== scenarios =====================
 
 
-def mr5_fails(rec, mb, ma, uid, key, queued, quiet, what):
-    """W2-P6a S-M row MR5 (P6a review section 2; owner D132): the message about the second player's soldier - a
-    notice on the host (no host infobox in the cycle), vanilla's 2 s box on the client. `quiet` is F1724's bounded
-    wait (None when the row has none). Prints the row's EVIDENCE line."""
+def message_row_fails(rec, mb, ma, uid, key, queued, quiet, what):
+    """The messages check: the message about the second player's soldier - a notice on the host (no host infobox in
+    the cycle), vanilla's 2 s box on the client. `quiet` is the bounded wait for the client's box to close (None when
+    the row has none). Prints the row's EVIDENCE line."""
     d = msg_delta(mb, ma)
-    print(f"EVIDENCE {what} MR5: messages={msg_evidence(mb, ma, rec['seq0'])}; infoboxes dismissed(host)="
-          f"{rec['dismissed']}; client quiet (F1724)={quiet}", flush=True)
-    fails = msg_rows_fails(f"{what} MR5", "host", d["host"], [want(uid, key, "partner", "notice")])
-    fails += msg_rows_fails(f"{what} MR5", "client", d["client"], [want(uid, key, "own", "box", queued=queued)])
+    print(f"EVIDENCE {what} messages: messages={msg_evidence(mb, ma, rec['seq0'])}; infoboxes dismissed(host)="
+          f"{rec['dismissed']}; client quiet={quiet}", flush=True)
+    fails = msg_rows_fails(f"{what} messages", "host", d["host"], [want(uid, key, "partner", "notice")])
+    fails += msg_rows_fails(f"{what} messages", "client", d["client"], [want(uid, key, "own", "box", queued=queued)])
     if rec["dismissed"]:
-        fails.append(f"{what} MR5: the host dismissed infoboxes {rec['dismissed']} in the cycle (want none: a message "
-                     f"about the partner's soldier never pauses the host, D132)")
+        fails.append(f"{what} messages: the host dismissed infoboxes {rec['dismissed']} in the cycle (want none: a "
+                     f"message about the partner's soldier never pauses the host)")
     if quiet is not None and not quiet["ok"]:
-        fails.append(f"{what} MR5: the client's message queue / top at the end {quiet} (want empty and "
-                     f"BattlescapeState: F1724)")
+        fails.append(f"{what} messages: the client's message queue / top at the end {quiet} (want empty and "
+                     f"BattlescapeState)")
     return fails
 
 
 def hold_until_message(client, mb, uid, key, rec, what, bound, side=FACTION_HOSTILE):
-    """W2-U9 (R-U9-0 item 5 (c), F21067; S44): a cycle() client_hold predicate. While the client is on `side`
-    (default the alien side, FACTION_HOSTILE) with a NextTurnState on top, keep that screen up until the client's
-    messages ring holds the new record about `uid` with `key` (the record MR5 reads, `queued` included), so the host
-    AI's psi applies under the screen however late the AI acts (F21001: under 98 % CPU it applied 135 ms after the
-    close). `side` FACTION_PLAYER holds the client's player-side screen for the host's
-    panic, which the host emits only after its own player-side NextTurnState closes. Bounded: after `bound` s it
-    releases, notes it in rec["notes"], and MR5 judges as before. Never changes what MR5 reads."""
+    """A cycle() client_hold predicate. While the client is on `side` (default the alien side, FACTION_HOSTILE) with
+    a NextTurnState on top, keep that screen up until the client's messages ring holds the new record about `uid`
+    with `key` (the record the messages check reads, `queued` included), so the host AI's psi applies under the
+    screen however late the AI acts (measured: under 98 % CPU it applied 135 ms after the close). `side`
+    FACTION_PLAYER holds the client's player-side screen for the host's panic, which the host emits only after its
+    own player-side NextTurnState closes. Bounded: after `bound` s it releases, notes it in rec["notes"], and the
+    messages check judges as before. Never changes what the messages check reads."""
     st = {"t0": None, "released": False}
     side_name = "alien" if side == FACTION_HOSTILE else "player"
 
@@ -341,7 +299,7 @@ def hold_until_message(client, mb, uid, key, rec, what, bound, side=FACTION_HOST
     return hold
 
 
-def c14_mc(host, client, ctx):
+def scenario_mind_control(host, client, ctx):
     rec = begin(host, client)
     sp = strip_both(host, client, P_ID)
     sc = strip_both(host, client, C_ID)
@@ -356,25 +314,28 @@ def c14_mc(host, client, ctx):
     uh0, uc0 = units(host), units(client)
     staged = {"P psiWeapon h/c": ((uh0.get(P_ID) or {}).get("psiWeapon"), (uc0.get(P_ID) or {}).get("psiWeapon")),
               "C": uview(uh0.get(C_ID)), "C2": uview(uh0.get(C2_ID))}
-    snap_e = effect_snap(host, client)   # W2-P6b S-E row psi_ghost
-    mb = msg_snap(host, client)          # W2-P6a S-M row MR5
+    snap_e = effect_snap(host, client)   # the psi_ghost check
+    mb = msg_snap(host, client)          # the messages check
     cycle(host, client, SEED_MIND_CONTROL, rec, "cycle 1",
-          client_hold=hold_until_message(client, mb, C_ID, KEY_UNDER_ALIEN_CONTROL, rec, "cycle 1", HOLD_C14MC_S))
+          client_hold=hold_until_message(client, mb, C_ID, KEY_UNDER_ALIEN_CONTROL, rec, "cycle 1",
+                                         HOLD_MIND_CONTROL_S))
     end(host, client, rec)
     ma = msg_snap(host, client)
     read_extra_payloads(host, rec)
-    pfails, ai_p, cevs, psis = psi_context_fails(rec, C_ID, "mc", "C14-mc")
-    print(f"EVIDENCE C14-mc: strip P={sp} strip C={sc}; P {P_TILE}/{P_DIR} C {C_TILE}/{C_DIR} C2 {C2_TILE}/{C2_DIR}; "
-          f"psi responses (psiSkill, psiStrength) P={(rp.get('psiSkill'), rp.get('psiStrength'))} C="
+    pfails, ai_p, cevs, psis = psi_context_fails(rec, C_ID, "mc", "mind_control")
+    print(f"EVIDENCE mind_control: strip P={sp} strip C={sc}; P {P_TILE}/{P_DIR} C {C_TILE}/{C_DIR} C2 "
+          f"{C2_TILE}/{C2_DIR}; psi responses (psiSkill, psiStrength) P="
+          f"{(rp.get('psiSkill'), rp.get('psiStrength'))} C="
           f"{(rcs.get('psiSkill'), rcs.get('psiStrength'))}; staged={staged} stagedDiff={staged_diff}; seed {SEED_MIND_CONTROL}; "
           f"cycle side_transitions={st_seqs(rec['hev'])}; P's ai contexts={[ctx_view(c) for c in ai_p]} first's evs="
           f"{sv(cevs)}; psi evs (seq, actionId, payload)={[(e['seq'], e['actionId'], payload(rec, e)) for e in psis]}; "
           f"units={units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
-    # W2-P6b S-E row psi_ghost (review section 2; section 9 E-b, Q11): P's mind control as a psi ghost on the client
-    e2 = impact_row("psi_ghost", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
-    # W2-G1 row G1-3 (AUD-A16, D171): P's successful mind control of C does not centre the client's camera on C
-    g13 = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C_ID, False, "C14-mc G1-3")
-    mr5 = mr5_fails(rec, mb, ma, C_ID, KEY_UNDER_ALIEN_CONTROL, Q_C14MC, None, "C14-mc")
+    # P's mind control as a psi ghost on the client
+    ghost_fails = impact_row("psi_ghost", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    # P's successful mind control of C does not centre the client's camera on C
+    camera_mc_fails = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C_ID, False,
+                                             "mind_control camera_not_centred")
+    message_fails = message_row_fails(rec, mb, ma, C_ID, KEY_UNDER_ALIEN_CONTROL, Q_MIND_CONTROL, None, "mind_control")
     fails = list(rec["notes"])
     if sp["deleted"] != P_STRIPPED:
         fails.append(f"battle_strip_unit P deleted {sp['deleted']} (want {P_STRIPPED})")
@@ -386,18 +347,18 @@ def c14_mc(host, client, ctx):
                      f"(want {P_PSI_SKILL}, {C_PSI_STRENGTH_1})")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    fails += cycle_fails(rec, "C14-mc")
+    fails += cycle_fails(rec, "mind_control")
     fails += pfails
-    fails += unit_fails(rec, C_ID, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID}, "C14-mc C")
-    fails += context_fails(rec, "C14-mc")
-    fails += e2
-    fails += g13
-    fails += mr5
-    fails += common_fails(host, client, rec["before"], {}, "C14-mc")
+    fails += unit_fails(rec, C_ID, {"faction": FACTION_HOSTILE, "mindControllerId": P_ID}, "mind_control C")
+    fails += context_fails(rec, "mind_control")
+    fails += ghost_fails
+    fails += camera_mc_fails
+    fails += message_fails
+    fails += common_fails(host, client, rec["before"], {}, "mind_control")
     finish(fails)
 
 
-def c14_panic(host, client, ctx):
+def scenario_psi_panic(host, client, ctx):
     rec = begin(host, client)
     tele_both(host, client, P_ID, P_TILE, P_DIR)
     tele_both(host, client, C2_ID, C2_TILE, C2_DIR)
@@ -409,11 +370,11 @@ def c14_panic(host, client, ctx):
               "C2": {"host": uview(uh0.get(C2_ID)), "client": uview(uc0.get(C2_ID))},
               "C2 items (id, type, slot)": owned_items(items(host), C2_ID)}
     off = log_size(host)
-    snap_e = effect_snap(host, client)   # W2-P6b S-E row psi_ghost
-    mb = msg_snap(host, client)          # W2-P6a S-M row MR5
+    snap_e = effect_snap(host, client)   # the psi_ghost check
+    mb = msg_snap(host, client)          # the messages check
     # the client's player-side NextTurnState stays up until C2's panic record is in its ring
     cycle(host, client, SEED_PSI_PANIC, rec, "cycle 2", extra=c2_resolved,
-          client_hold=hold_until_message(client, mb, C2_ID, KEY_PANICKED, rec, "cycle 2", HOLD_C14P_S,
+          client_hold=hold_until_message(client, mb, C2_ID, KEY_PANICKED, rec, "cycle 2", HOLD_PSI_PANIC_S,
                                          side=FACTION_PLAYER))
     end(host, client, rec)
     quiet = client_quiet(client)         # the client's 2 s box closed before the teardown
@@ -423,11 +384,11 @@ def c14_panic(host, client, ctx):
     hev = rec["hev"]
     sts = st_seqs(hev)
     last_st = sts[-1] if sts else None
-    pfails, ai_p, cevs, psis = psi_context_fails(rec, C2_ID, "panic", "C14-panic")
-    kfails, pc, pevs = panic_context_fails(rec, PANIC_MODE, "C14-panic")
+    pfails, ai_p, cevs, psis = psi_context_fails(rec, C2_ID, "panic", "psi_panic")
+    kfails, pc, pevs = panic_context_fails(rec, PANIC_MODE, "psi_panic")
     m = ((rec["uh"].get(C2_ID) or {}).get("morale"), (rec["uc"].get(C2_ID) or {}).get("morale"))
     m0 = ((uh0.get(C2_ID) or {}).get("morale"), (uc0.get(C2_ID) or {}).get("morale"))
-    print(f"EVIDENCE C14-panic: P {P_TILE}/{P_DIR} C2 {C2_TILE}/{C2_DIR}; psi responses (psiSkill, psiStrength) C="
+    print(f"EVIDENCE psi_panic: P {P_TILE}/{P_DIR} C2 {C2_TILE}/{C2_DIR}; psi responses (psiSkill, psiStrength) C="
           f"{(rc.get('psiSkill'), rc.get('psiStrength'))} C2={(rc2.get('psiSkill'), rc2.get('psiStrength'))}; staged="
           f"{staged} stagedDiff={staged_diff}; seed {SEED_PSI_PANIC}; cycle side_transitions={sts}; host faction/mc delta "
           f"lines={flines}; P's ai contexts={[ctx_view(c) for c in ai_p]} first's evs={sv(cevs)}; psi evs (seq, "
@@ -435,42 +396,43 @@ def c14_panic(host, client, ctx):
           f"{ctx_view(pc)} kind={pc and pc.get('kind')} its evs={sv(pevs)} payloads="
           f"{[(e['seq'], e['kind'], payload(rec, e)) for e in pevs]}; C2 morale before h/c={m0} after h/c={m}; units="
           f"{units_evidence(rec, [P_ID, C_ID, C2_ID])}; {rec_evidence(rec)}", flush=True)
-    # W2-P6b S-E row psi_ghost (review section 2; section 9 E-b, Q11): P's psi panic as a psi ghost on the client
-    e2 = impact_row("psi_ghost", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
-    # W2-G1 row G1-4 (AUD-A16, D171; guard): P's psi panic on C2 still centres the client's camera on C2
-    g14 = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C2_ID, True, "C14-panic G1-4")
-    mr5 = mr5_fails(rec, mb, ma, C2_ID, KEY_PANICKED, Q_C14P, quiet, "C14-panic")
+    # P's psi panic as a psi ghost on the client
+    ghost_fails = impact_row("psi_ghost", host, client, snap_e, [(e["seq"], "psi") for e in psis], PSI_WEAPON)
+    # a guard: P's psi panic on C2 still centres the client's camera on C2
+    camera_panic_fails = melee_psi_camera_fails(client, psis[0]["seq"] if psis else None, P_ID, C2_ID, True,
+                                                "psi_panic camera_centred")
+    message_fails = message_row_fails(rec, mb, ma, C2_ID, KEY_PANICKED, Q_PSI_PANIC, quiet, "psi_panic")
     fails = list(rec["notes"])
     if (rc.get("psiStrength"), rc2.get("psiStrength")) != (C_PSI_STRENGTH_2, C2_PSI_STRENGTH_2):
         fails.append(f"psi staging responses C psiStrength={rc.get('psiStrength')} C2 psiStrength="
                      f"{rc2.get('psiStrength')} (want {C_PSI_STRENGTH_2}, {C2_PSI_STRENGTH_2})")
     if staged_diff:
         fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
-    fails += cycle_fails(rec, "C14-panic")
-    fails += unit_fails(rec, C_ID, {"faction": FACTION_PLAYER}, "C14-panic C (N11: reverted at the hostile side start)")
+    fails += cycle_fails(rec, "psi_panic")
+    fails += unit_fails(rec, C_ID, {"faction": FACTION_PLAYER}, "psi_panic C (reverted at the hostile side start)")
     fails += pfails
     if m != (C2_MORALE_END, C2_MORALE_END) or m0[0] is None or not C2_MORALE_END < m0[0]:
-        fails.append(f"C14-panic: C2 morale before h/c={m0} after h/c={m} (want lowered, {C2_MORALE_END} on both)")
+        fails.append(f"psi_panic: C2 morale before h/c={m0} after h/c={m} (want lowered, {C2_MORALE_END} on both)")
     fails += kfails
     if pc:
         if [e["kind"] for e in pevs] != PANIC_CHAIN:
-            fails.append(f"C14-panic: the panic context {pc.get('actionId')} evs {sv(pevs)} (want exactly {PANIC_CHAIN}: "
-                         f"a freeze, F877)")
+            fails.append(f"psi_panic: the panic context {pc.get('actionId')} evs {sv(pevs)} (want exactly "
+                         f"{PANIC_CHAIN}: a freeze)")
         if pevs and (last_st is None or pevs[0]["seq"] < last_st
                      or (psis and pevs[0]["seq"] < psis[0]["seq"])):
-            fails.append(f"C14-panic: the panic context starts at seq {pevs[0]['seq']} (want after the psi "
+            fails.append(f"psi_panic: the panic context starts at seq {pevs[0]['seq']} (want after the psi "
                          f"{psis and psis[0]['seq']} and after the cycle's last side_transition {last_st}: the next "
                          f"player side start)")
-    fails += c2_state_fails(rec, {"pos": C2_TILE, "status": STATUS_STANDING, "tu": 0}, "C14-panic")
-    fails += context_fails(rec, "C14-panic")
-    fails += e2
-    fails += g14
-    fails += mr5
-    fails += common_fails(host, client, rec["before"], {}, "C14-panic")
+    fails += c2_state_fails(rec, {"pos": C2_TILE, "status": STATUS_STANDING, "tu": 0}, "psi_panic")
+    fails += context_fails(rec, "psi_panic")
+    fails += ghost_fails
+    fails += camera_panic_fails
+    fails += message_fails
+    fails += common_fails(host, client, rec["before"], {}, "psi_panic")
     finish(fails)
 
 
-SCENARIOS = (("C14-mc", c14_mc), ("C14-panic", c14_panic))
+SCENARIOS = (("mind_control", scenario_mind_control), ("psi_panic", scenario_psi_panic))
 
 
 # ===================== bring-up =====================
@@ -491,14 +453,14 @@ def boot(host, client):
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, baked "
         f"MAP_FP={MAP_FP!r} ({MISSION} + {RACE}, SEED_MAP {SEED_MAP})")
     assert seated.get("soldierIds") == SEATED, f"seated {seated.get('soldierIds')} (baked {SEATED})"
-    pinned = pin_ai_neutral(host, client, tag="w2p3-se-psi")
+    pinned = pin_ai_neutral(host, client, tag="psi")
     assert pinned == PINNED, f"pin_ai_neutral pinned {pinned} (baked {PINNED[0]}..{PINNED[-1]})"
     uh, uc = session.units_by_id(hs), session.units_by_id(cs)
     pt = ((uh.get(P_ID) or {}).get("type"), (uc.get(P_ID) or {}).get("type"),
           (uh.get(P_ID) or {}).get("psiWeapon"), (uc.get(P_ID) or {}).get("psiWeapon"))
     assert pt == (P_TYPE, P_TYPE, PSI_WEAPON_ID, PSI_WEAPON_ID), (
         f"P {P_ID} type/psiWeapon host, client={pt} (want {P_TYPE}, {PSI_WEAPON_ID})")
-    # RQ15: every live player unit's reactions 0 on BOTH machines (no reaction fire in the AI rows)
+    # every live player unit's reactions 0 on BOTH machines (no reaction fire in the AI rows)
     rz = []
     for uid, u in sorted(uh.items()):
         if u.get("faction") == FACTION_PLAYER and not u.get("isOut"):
@@ -517,7 +479,7 @@ def boot(host, client):
             f"lastWalk present={'lastWalk' in es} unit {C2_ID} keys={sorted(u0)}")
     session.wait_host_idle(host, client, timeout=30)
     assert_hash_clean(host, client, full=True, what="bring-up")
-    print(f"[w2p3-se] boot ok: {MISSION} + {RACE} SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} missionType="
+    print(f"[psi] boot ok: {MISSION} + {RACE} SEED_MAP={SEED_MAP} MAP_FP={MAP_FP!r} missionType="
           f"{hs.get('missionType')} turn={hs['turn']} seated={SEATED} pinned={len(pinned)} ({pinned[0]}..{pinned[-1]}) "
           f"P={pt[0]} psiWeapon={pt[2]} reactions 0 (both) for {rz} probes host={ctx_probes(host)} "
           f"client={ctx_probes(client)}", flush=True)
@@ -527,8 +489,8 @@ def boot(host, client):
 def main():
     t0 = time.time()
     # coopGhostStepper pinned true in both instances (row psi_ghost needs the client's psi ghosts)
-    host = GameClient("host", 49864, make_user_dir("w2p3_psi_host", options={"coopGhostStepper": True}))
-    client = GameClient("client", 49865, make_user_dir("w2p3_psi_client", options={"coopGhostStepper": True}))
+    host = GameClient("host", 49864, make_user_dir("psi_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49865, make_user_dir("psi_client", options={"coopGhostStepper": True}))
     results = {}
     try:
         try:
@@ -550,7 +512,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2p3-se] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[psi] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [n for n, _ in SCENARIOS if results.get(n)]
     failed = [n for n, _ in SCENARIOS if not results.get(n)]
     print(f"\ntest_psi: {len(passed)}/{len(SCENARIOS)} passed (pass={passed} fail={failed}) in "
