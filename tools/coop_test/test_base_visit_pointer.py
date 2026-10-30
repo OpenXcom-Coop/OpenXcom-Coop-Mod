@@ -49,7 +49,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: q / stack, screens, wait_until, short)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: q / stack, screens, wait_until, short)
 import test_base_partner_pointer as bpp  # noqa: E402  (main-guarded: move, cpos, drawn, bp, top, alive, PT1 / PT2)
 import test_base_partner_held as bph  # noqa: E402  (main-guarded: view, cur, types, count, kinds, local, under, lift)
 from test_shared_base_equip import q, stack, open_soldier_screen, close_soldier_screen  # noqa: E402
@@ -161,11 +161,11 @@ def spine(x):
     sp["guest_move guest"] = [g.get("id"), x.guest, g.get("craft")]
     sp["guest_move transfer"] = q(h, {"cmd": "transfer_to_coop_base", "name": x.guest or "?", "toBase": CB})
     listed = lambda gc, req: any(s.get("name") == x.guest for s in q(gc, req).get("soldiers") or [])  # noqa: E731
-    sp["guest_move client lists the guest"] = h20.converge(lambda: listed(c, {"cmd": "base_report", "base": CB}))
+    sp["guest_move client lists the guest"] = sbe.converge(lambda: listed(c, {"cmd": "base_report", "base": CB}))
     sp["host_visit visit"] = q(h, {"cmd": "visit_coop_base", "base": CB})
     sp["host_visit inside"] = bpp.poll(lambda: q(h, {"cmd": "get_coop"}).get("insideCoopBase") is True, VISIT_S)
     sp["host_visit basescape"] = bpp.poll(lambda: bpp.top(h) == "BasescapeState", 30.0)
-    sp["host_visit host lists the guest"] = h20.converge(lambda: listed(h, {"cmd": "base_report", "coop": True}))
+    sp["host_visit host lists the guest"] = sbe.converge(lambda: listed(h, {"cmd": "base_report", "coop": True}))
     rep = {"owner": q(c, {"cmd": "base_report", "base": CB}), "visitor": q(h, {"cmd": "base_report", "coop": True})}
     sp["base ids"] = {k: [v.get("name"), v.get("coopBaseFlag"), v.get("coopBaseId"), v.get("totalSoldiers")] for k, v in rep.items()}
     sh = bpp.Shim()
@@ -241,11 +241,11 @@ def row_visitor_leaves(x, r):
                 and bpp.num(bpp.bp(c), "recv") > bpp.num(b0, "recv"))
     hidden = lambda: bpp.drawn(c).get("ptr") is not True  # noqa: E731
     r.ev["ok click"] = bpp.click(h, "ok")
-    if not h20.wait_until(lambda: INV not in stack(h), W, POLL):
+    if not sbe.wait_until(lambda: INV not in stack(h), W, POLL):
         raise bph.Stop(f"precondition: the host's OK closes its screen ({stack(h)})")
     r.ev["after OK first true (s)"] = bph.seen({"off": off, "hidden": hidden}, W_PTR)
     r.ev["soldiers_ok"] = q(h, {"cmd": "soldiers_ok"}).get("ok")
-    h20.wait_until(lambda: "SoldiersState" not in stack(h), W, POLL)
+    sbe.wait_until(lambda: "SoldiersState" not in stack(h), W, POLL)
     r.ev["leave_base"] = q(h, {"cmd": "leave_base"})
     r.ev["back on geoscape"] = session.wait_back_on_geoscape(h, "the host back on its own geoscape")
     first = r.ev["first true (s)"] = bph.seen({"off": off, "hidden": hidden}, W_PTR)
@@ -318,7 +318,7 @@ def main(tag=TAG, lobby=LOBBY, extra=None):
             print(f"EVIDENCE spine: {json.dumps(x.spine, sort_keys=True, default=str)}", flush=True)
             EV["spine"] = x.spine
         except Exception as e:  # a spine miss fails every row "spine" with ONE CAPTURE line
-            cap = {"error": h20.short(e, 4000)}
+            cap = {"error": sbe.short(e, 4000)}
             for g in (h, c):
                 cap[g.name] = {"stack": stack(g), "view": bph.view(g), "basePresence": bpp.bp(g),
                                "dialog": q(g, {"cmd": "coop_dialog_info"})}
@@ -335,7 +335,7 @@ def main(tag=TAG, lobby=LOBBY, extra=None):
             try:
                 FNS[rid](x, r)
             except Exception as e:
-                r.why = h20.short(e, 900)
+                r.why = sbe.short(e, 900)
                 r.ev["stopped"] = r.why
                 r.ev["cleanup"] = {gc.name: bph.give_back(gc, r.ev, "cleanup " + gc.name) for gc in (h, c) if bpp.top(gc) == INV}
             walls[rid] = round(time.time() - t1, 1)

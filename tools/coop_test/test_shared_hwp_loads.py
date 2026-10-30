@@ -2,7 +2,7 @@
 R-H20c-T0-1; TASK 0 rewrite/w2h20c-task0/CONSTANTS.md): in SHARED, a tank (HWP) loaded onto or unloaded from a craft on the craft equipment
 screen - by the arrows, the clear key or a craft loadout template - ends as a host-applied craft_equip end-state on both machines; today it
 stays on the clicking machine until a world re-copy reverts the client (the only carrier of the host's move).
-SKY / HostBase index / option OFF / seats from h20.setup (S25). V(gc) = base_screen_op {op: craft_vehicles, base: HostBase, craft_id: SKY,
+SKY / HostBase index / option OFF / seats from sbe.setup (S25). V(gc) = base_screen_op {op: craft_vehicles, base: HostBase, craft_id: SKY,
 craft_type: STR_SKYRANGER} (vehicles, order, vehicleAmmo, spaceUsed, customDeployment); ST(gc) = geo_state HostBase items; SKYI(gc) =
 base_report HostBase SKY items; reqs = the client's shared_resync_stats.requests. move(gc, item, n) = the craft_equip lever (the real CES
 move; its `moved` only says the item is on the screen's list, so verdicts read V and ST). W = 10 s at 0.25 s; RW 5 s; AP 30.
@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: X, setup, q / stack / wait_until)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: X, setup, q / stack / wait_until)
 import test_shared_craft_loads as cl  # noqa: E402  (main-guarded: park, release, converge, guard, sky, st, rs, watch, timed, Row)
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until  # noqa: E402
@@ -299,11 +299,11 @@ def hc_8(x, r):
             and r.cell("guard: craft_assign took 4 crew off (spaceAvailable >= 4)", all(o.get("seated") is False for o in off) and len(off) == 4
                        and (v0.get("spaceAvailable") or 0) >= 4 and v0.get("vehicles") == {}, stg)):
         return r.evidence()
-    s0, st0, k0 = {g.name: h20.stats3(g) for g in (h, c)}, cl.st(c, CB), cl.sky(c, sid, CB)
+    s0, st0, k0 = {g.name: sbe.stats3(g) for g in (h, c)}, cl.st(c, CB), cl.sky(c, sid, CB)
     mv = move(c, x, TC, 1, CB, sid)
     v1, d = V(c, x, CB, sid), cl.diff(st0, cl.st(c, CB))
     time.sleep(SETTLE)
-    s1 = {g.name: h20.stats3(g) for g in (h, c)}
+    s1 = {g.name: sbe.stats3(g) for g in (h, c)}
     r.ev.update({"move": mv, "client V": v1, "client ST diff": d, "client SKYI unchanged": cl.sky(c, sid, CB) == k0,
                  "shared_stats before / 1 s after": [s0, s1]})
     r.evidence()
@@ -335,7 +335,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"guard: {rid} exception", False, h20.short(e))
+            r.cell(f"guard: {rid} exception", False, sbe.short(e))
         for g in (x.host, x.client):  # a stopped row leaves no screen behind (a re-copy in flight is waited out first)
             before = stack(g)
             if not cl.is_dead(before) and (before or [""])[-1] != GEO:
@@ -354,8 +354,8 @@ def boot_a(results, walls):
     try:
         try:
             js = shared_fixture.bring_up(TAG_A, PORTS_A)
-            x = h20.X(js.host, js.client, js)
-            h20.setup(x)  # option OFF on both, seats differ, the SKYRANGER, the HostBase index (raises on a miss)
+            x = sbe.X(js.host, js.client, js)
+            sbe.setup(x)  # option OFF on both, seats differ, the SKYRANGER, the HostBase index (raises on a miss)
             stock(x)
             walls["boot " + TAG_A] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails every row of this boot "boot" with ONE CAPTURE line
@@ -374,7 +374,7 @@ def boot_s(results, walls):
     t0 = time.time()
     h = GameClient("host", LABELS_S[0], make_user_dir(TAG_S + "_host"))
     c = GameClient("client", LABELS_S[1], make_user_dir(TAG_S + "_client"))
-    x = h20.X(h, c, base=CB)
+    x = sbe.X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()

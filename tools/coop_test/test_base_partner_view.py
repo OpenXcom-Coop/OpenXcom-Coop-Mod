@@ -6,7 +6,7 @@ read-only proof is a REAL click or key on the base screen.
 The boot (SHARED, ports 49299 / 49300 / 49301, dirs base_partner_view_host / _client, oxceLinks on both, 4 STR_GRENADE
 given on both). H / C / C2 = test_shared_base_equip's setup rule (ids and names read at run time, as they vary per
 boot); HC = H when H is in SKY's crew, else the first host-owned SKY crew soldier.
-Spine: bring_up + h20.setup; the host stages H (pistol in the left hand; personal = pistol + grenade); the client stages
+Spine: bring_up + sbe.setup; the host stages H (pistol in the left hand; personal = pistol + grenade); the client stages
 C the same way; each records its global slot 0. A spine miss fails every row "spine" with ONE CAPTURE line.
   partner_soldier_shown    client soldier screen: NEXT until H. Cells client_reaches_host_soldier, client_sees_host_owner
                            ("Owner: " + HOST_NAME at OWNER_RECT), client_buttons_hidden (unload / copy / paste hidden).
@@ -48,7 +48,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
 import test_shared_base_writes as sbw  # noqa: E402  (main-guarded: keys, key, ctrl1, bso, personal, names)
 from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen  # noqa: E402
 from test_shared_base_equip import open_craft_screen, close_craft_screen  # noqa: E402
@@ -131,7 +131,7 @@ def carried(gc, uid):
 def record(gc, sid):
     """gc's soldier_layouts record of soldier `sid` (layout, personal, armor; compact)."""
     L = q(gc, {"cmd": "soldier_layouts", "base": HB}).get("soldiers") or []
-    return h20.compact(next((s for s in L if s.get("id") == sid), None))
+    return sbe.compact(next((s for s in L if s.get("id") == sid), None))
 
 
 def opt(gc, name):
@@ -241,7 +241,7 @@ def ok_close(r, gc, n0, craft=False):
 def all_records(gc):
     """gc's soldier_layouts record of every HostBase soldier: {id: compact record} (None when the probe gave no list)."""
     L = q(gc, {"cmd": "soldier_layouts", "base": HB}).get("soldiers")
-    return None if L is None else {s.get("id"): h20.compact(s) for s in L}
+    return None if L is None else {s.get("id"): sbe.compact(s) for s in L}
 
 
 def baseline(gc, x, craft=False, on_open=None):
@@ -329,12 +329,12 @@ def stage(r, gc, x, who, sid):
     return st
 
 
-class Fx(h20.X):
+class Fx(sbe.X):
     pass
 
 
 class Shim:
-    """h20's open / close helpers record guard cells on a row; the spine keeps them."""
+    """sbe's open / close helpers record guard cells on a row; the spine keeps them."""
     def __init__(self):
         self.fails = []
 
@@ -346,7 +346,7 @@ class Shim:
 
 def spine(x):
     h, c = x.host, x.client
-    h20.setup(x)
+    sbe.setup(x)
     x.first = {k: getattr(x, k) for k in ("H", "C", "C2")}
     sol = q(h, {"cmd": "base_report", "base": HB}).get("soldiers") or []
     x.crew = {s.get("id"): s.get("craft") for s in sol}
@@ -611,8 +611,8 @@ def run(x, results, walls, extra=None):
         try:
             fn(x, r)
         except Exception as e:
-            r.why = h20.short(e)
-            r.ev["exception"] = h20.short(e)
+            r.why = sbe.short(e)
+            r.ev["exception"] = sbe.short(e)
         for g in (x.host, x.client):
             to_geo(g, r.ev.setdefault("cleanup after", []))
         walls[rid] = round(time.time() - t1, 1)
@@ -632,7 +632,7 @@ def main(tag=TAG, ports=PORTS, extra=None):
             print(f"EVIDENCE spine: {json.dumps(x.spine, sort_keys=True, default=str)}", flush=True)
             EV["spine"] = x.spine
         except Exception as e:  # a spine miss fails every row "spine" with ONE CAPTURE line
-            cap = {"error": h20.short(e, 3000)}
+            cap = {"error": sbe.short(e, 3000)}
             if x is not None:
                 for g in (x.host, x.client):
                     cap[f"{g.name} stack"] = stack(g)

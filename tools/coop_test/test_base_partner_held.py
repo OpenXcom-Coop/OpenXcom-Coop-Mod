@@ -59,7 +59,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screens, q / stack, layouts)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack, layouts)
 import test_base_partner_pointer as bpp  # noqa: E402  (main-guarded: move, cpos, equip, drawn, bp, alive, PT1 / PT2)
 from test_shared_base_equip import q, stack, open_soldier_screen  # noqa: E402
 
@@ -173,7 +173,7 @@ def click(gc, **kw):
 def lift(gc, ev, key, want_type, **at):
     """A real left click with an empty cursor; the picked item must be a `want_type` (else the row's precondition)."""
     ev[key] = {"click": click(gc, **at), "at": at}
-    h20.wait_until(lambda: cur(gc) not in (None, -1), CLICK_W, POLL)
+    sbe.wait_until(lambda: cur(gc) not in (None, -1), CLICK_W, POLL)
     iid = cur(gc)
     ev[key]["picked"] = [iid, (types(gc).get(iid) or ("?",))[0]]
     if iid in (None, -1) or ev[key]["picked"][1] != want_type:
@@ -187,7 +187,7 @@ def give_back(gc, ev, key):
     if cur(gc) in (None, -1):
         return True
     ev[key] = {"right": click(gc, slot=GROUND, x=0, y=0, button="right")}
-    h20.wait_until(lambda: cur(gc) == -1, CLICK_W, POLL)
+    sbe.wait_until(lambda: cur(gc) == -1, CLICK_W, POLL)
     if cur(gc) != -1:
         ev[key]["cleared"] = q(gc, {"cmd": "inventory_cursor_clear"}).get("cleared")
     return cur(gc) == -1
@@ -201,7 +201,7 @@ def goto(gc, uid, rec):
         if now == uid:
             return True
         click(gc, widget="next")
-        h20.wait_until(lambda: view(gc).get("unitId") != now, CLICK_W, POLL)
+        sbe.wait_until(lambda: view(gc).get("unitId") != now, CLICK_W, POLL)
     return view(gc).get("unitId") == uid
 
 
@@ -213,7 +213,7 @@ def carries(gc, uid, t, slot, xy=None):
 
 def belt_rec(gc, name, t, xy):
     """gc's soldier_layouts record of `name` holds a `t` at STR_BELT `xy`."""
-    L = (h20.layouts(gc).get(name) or {}).get("layout") or []
+    L = (sbe.layouts(gc).get(name) or {}).get("layout") or []
     return any(i.get("type") == t and i.get("slot") == BELT_SLOT and [i.get("x"), i.get("y")] == list(xy) for i in L)
 
 
@@ -283,17 +283,17 @@ def pick_belt(x):
 
 def spine(x):
     h, c = x.host, x.client
-    h20.setup(x)
+    sbe.setup(x)
     sh, sp = bpp.Shim(), {}
     sp["stage_item open"] = open_soldier_screen(sh, h)
     sp["stage_item move"] = q(h, {"cmd": "inventory_move", "name": x.H, "item": ITEM_H, "slot": "left"})
     sp["stage_item ok"] = click(h, widget="ok")
-    h20.wait_until(lambda: INV not in stack(h), 10.0, POLL)
+    sbe.wait_until(lambda: INV not in stack(h), 10.0, POLL)
     sp["stage_item soldiers_ok"] = q(h, {"cmd": "soldiers_ok"}).get("ok")
-    h20.wait_until(lambda: bpp.top(h) == GEO, 10.0, POLL)
+    sbe.wait_until(lambda: bpp.top(h) == GEO, 10.0, POLL)
     hand = lambda gc: any(i.get("type") == ITEM_H and i.get("slot") == LEFT  # noqa: E731
-                          for i in (h20.layouts(gc).get(x.H) or {}).get("layout") or [])
-    sp["stage_item client record"], sp["stage_item within"] = h20.converge(lambda: hand(c))
+                          for i in (sbe.layouts(gc).get(x.H) or {}).get("layout") or [])
+    sp["stage_item client record"], sp["stage_item within"] = sbe.converge(lambda: hand(c))
     sp["open_screens open"] = {gc.name: open_soldier_screen(sh, gc) for gc in (h, c)}
     sp["open_screens nav"] = []
     sp["open_screens client on C"] = goto(c, x.ids["C"], sp["open_screens nav"])
@@ -350,7 +350,7 @@ def row_partner_put(x, r):
         raise Stop(f"precondition: partner_lift left the client holding a {x.pile} and the host empty (cursors {cur(h)} / {cur(c)})")
     held, hc = cur(c), x.pile_cell["host"]
     r.ev["drop"] = click(c, slot=BELT_SLOT, x=x.belt[0], y=x.belt[1])
-    h20.wait_until(lambda: cur(c) == -1, CLICK_W, POLL)
+    sbe.wait_until(lambda: cur(c) == -1, CLICK_W, POLL)
     r.ev["landed"] = carries(c, x.ids["C"], x.pile, BELT_SLOT, x.belt)
     if r.ev["landed"] != held:
         raise Stop(f"precondition: {held} not on C's belt {x.belt} on the client ({r.ev['landed']}; cursor {cur(c)})")
@@ -371,7 +371,7 @@ def row_soldier_item_lift(x, r):
     if not (goto(c, hid, nav["client"]) and goto(h, hid, nav["host"])):
         raise Stop(f"precondition: both screens on H {hid} (navs {nav})")
     cid = r.ev["client ITEM_H"] = carries(c, hid, ITEM_H, LEFT)
-    if cid is None or not h20.wait_until(lambda: cid in (view(c).get("drawnSlots") or []), W_PTR, POLL):
+    if cid is None or not sbe.wait_until(lambda: cid in (view(c).get("drawnSlots") or []), W_PTR, POLL):
         raise Stop(f"precondition: H's {ITEM_H} {cid} in the client's drawnSlots {view(c).get('drawnSlots')}")
     r.ev["host pick"] = lift(h, r.ev, "hostLift", ITEM_H, slot=LEFT, x=0, y=0)
     first = r.ev["first true held (s)"] = seen({"gone": lambda: cid not in (view(c).get("drawnSlots") or []),
@@ -453,15 +453,15 @@ def row_partner_ok(x, r):
            f"the host's count at {hc}: {n0}, drop while the client holds {drop}, back to {n0} after the right click {back} "
            f"(want both within {W_PTR} s; now {r.ev['hostCount after']})")
     r.ev["ok2"] = click(c, widget="ok")
-    if not h20.wait_until(lambda: INV not in stack(c), 10.0, POLL):
+    if not sbe.wait_until(lambda: INV not in stack(c), 10.0, POLL):
         raise Stop(f"precondition: the client's second OK closes its screen ({stack(c)})")
     off = r.ev["off within (s)"] = seen({"off": lambda: bpp.drawn(h).get("ptr") is not True}, W_PTR)["off"]
     r.cell("pointer_off_after_close", off is not None,
            f"the host's drawn.ptr {bpp.drawn(h).get('ptr')} (want false within {W_PTR} s of the second OK)")
     r.ev["soldiers_ok"] = q(c, {"cmd": "soldiers_ok"}).get("ok")
-    got, r.ev["belt within (s)"] = h20.converge(lambda: belt_rec(h, x.C, x.pile, x.belt))
+    got, r.ev["belt within (s)"] = sbe.converge(lambda: belt_rec(h, x.C, x.pile, x.belt))
     r.cell("host_record_has_belt_item", got,
-           f"the host's record of C {h20.compact(h20.layouts(h).get(x.C))} (want a {x.pile} at {BELT_SLOT} {x.belt} "
+           f"the host's record of C {sbe.compact(sbe.layouts(h).get(x.C))} (want a {x.pile} at {BELT_SLOT} {x.belt} "
            f"within {W} s: partner_put's belt drop is sent at the client's OK)")
     r.ev["cursors at end"] = {"host": cur(h), "client": "screen closed"}
 
@@ -483,14 +483,14 @@ def main(tag=TAG, ports=PORTS, extra=None):
     try:
         try:
             js = shared_fixture.bring_up(tag, ports)
-            x = h20.X(js.host, js.client, js)
+            x = sbe.X(js.host, js.client, js)
             x.crash0, x.lift_drop_seen, x.n0 = crash0, False, None
             spine(x)
             walls["spine"] = round(time.time() - t0, 1)
             print(f"EVIDENCE spine: {json.dumps(x.spine, sort_keys=True, default=str)}", flush=True)
             EV["spine"] = x.spine
         except Exception as e:  # a spine miss fails every row "spine" with ONE CAPTURE line
-            cap = {"error": h20.short(e, 4000)}
+            cap = {"error": sbe.short(e, 4000)}
             if x is not None:
                 for g in (x.host, x.client):
                     cap[g.name] = {"stack": stack(g), "view": view(g), "basePresence": bpp.bp(g)}
@@ -501,7 +501,7 @@ def main(tag=TAG, ports=PORTS, extra=None):
                         return {g.name: {t: {f"{a},{b}": n for (a, b), n in v.items()} for t, v in kinds(g).items()}
                                 for g in (x.host, x.client)}
                     except Exception as e2:  # noqa: BLE001 - the capture must not raise
-                        return h20.short(e2, 300)
+                        return sbe.short(e2, 300)
                 cap["pilesNow"] = piles()
                 for g in (x.host, x.client):
                     cap[g.name]["shared_checksum"] = q(g, {"cmd": "shared_checksum"})
@@ -522,7 +522,7 @@ def main(tag=TAG, ports=PORTS, extra=None):
                 try:
                     FNS[rid](x, r)
                 except Exception as e:
-                    r.why = h20.short(e, 900)
+                    r.why = sbe.short(e, 900)
                     r.ev["stopped"] = r.why
                     # partner_lift hands the client's pick to partner_put; any other stopped row leaves both cursors empty
                     if rid != "partner_lift":

@@ -2,7 +2,7 @@
 H20bB-M1..M5, R-H20bB-T0-1 / -T0-2; TASK 0 rewrite/w2h20bB-task0/CONSTANTS.md): in SHARED, a craft loadout template load (A8), "move
 ground items to base" (A12) and, with oxceAlternateCraftEquipmentManagement ON, the soldier and craft inventory screens (A3, A4, A6) end
 as host-applied craft_equip / craft_assign end-states, and a replica's own option-ON staging triggers no world re-copy; today each
-stays on one machine until a restream reverts the client. H / C / C2 = H20's rule (h20.setup, option OFF; S25). SKY(gc) = base_report
+stays on one machine until a restream reverts the client. H / C / C2 = H20's rule (sbe.setup, option OFF; S25). SKY(gc) = base_report
 HostBase craft {SKY id, STR_SKYRANGER} items (whole map); ST(gc) = geo_state HostBase items; reqs / mm = the client's shared_resync_stats.
 W = 10 s at 0.25 s; RW 5 s, HOLD 8 s. park = host open_soldiers (no heartbeat, H20bB-M4), unpark = host soldiers_ok; converge =
 both on GeoscapeState (no CoopState / LoadGameState), SKY and ST equal, <= 30 s; every row starts with converge + client
@@ -34,7 +34,7 @@ import geo  # noqa: E402
 import harness  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, soldier screens, q / stack / wait_until)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, soldier screens, q / stack / wait_until)
 import test_shared_base_writes as sbw  # noqa: E402  (main-guarded: bso, items, Row)
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until  # noqa: E402
@@ -82,7 +82,7 @@ def diff(a, b):
     return {t: b.get(t, 0) - a.get(t, 0) for t in sorted(set(a) | set(b)) if b.get(t, 0) != a.get(t, 0)}
 
 
-def is_dead(s):  # h20.stack's reply for a machine whose socket is gone
+def is_dead(s):  # sbe.stack's reply for a machine whose socket is gone
     return any(str(e).startswith("<get_state") for e in s)
 
 
@@ -305,18 +305,18 @@ def finish(x, r):
     try:
         x.js.finish()
     except AssertionError as e:
-        r.cell("js.finish", False, h20.short(e, 1500))
+        r.cell("js.finish", False, sbe.short(e, 1500))
 
 
 def setup_b2(x):
     """TB-4's settle (option OFF; F8526), the option ON on both (set_option, P10 raw-on-both), TB-6's host no-edit round trip,
     converge. Raises on a miss (the boot's rows fail "boot" with its CAPTURE)."""
     r, h, c = Row("Boot B2 setup", x), x.host, x.client
-    whole_layouts = lambda gc: {e.get("id"): h20.whole(e)  # noqa: E731
+    whole_layouts = lambda gc: {e.get("id"): sbe.whole(e)  # noqa: E731
                                 for e in q(gc, {"cmd": "soldier_layouts", "base": HB}).get("soldiers") or []}
     for gc in (h, c):
-        if h20.open_soldier_screen(r, gc):
-            h20.close_soldier_screen(r, gc)
+        if sbe.open_soldier_screen(r, gc):
+            sbe.close_soldier_screen(r, gc)
     eq, s = timed(lambda: whole_layouts(h) == whole_layouts(c), W)
     L = whole_layouts(h)
     crew = [e.get("id") for e in q(h, {"cmd": "base_report", "base": HB}).get("soldiers") or [] if e.get("craft") == x.sky]
@@ -324,8 +324,8 @@ def setup_b2(x):
     so = {gc.name: q(gc, {"cmd": "set_option", "name": OPT, "value": True}) for gc in (h, c)}
     on = {gc.name: opt(gc) for gc in (h, c)}
     h0 = sky(h, x.sky)
-    if h20.open_soldier_screen(r, h):
-        h20.close_soldier_screen(r, h)
+    if sbe.open_soldier_screen(r, h):
+        sbe.close_soldier_screen(r, h)
     h1 = sky(h, x.sky)
     cv = converge(x)
     x.setup = {"layouts equal": [bool(eq), s], "SKY crew": crew, "SKY crew with an empty layout": empty, "set_option": so,
@@ -342,10 +342,10 @@ def hb_7(x, r):
 
     def act():
         c0 = sky(c, x.sky)
-        if not h20.open_soldier_screen(r, c):
+        if not sbe.open_soldier_screen(r, c):
             return None
         e = edit(r, c, x.H)
-        h20.close_soldier_screen(r, c)
+        sbe.close_soldier_screen(r, c)
         return {"moved": e, "client sky before": c0, "client SKY diff at once": diff(c0, sky(c, x.sky)), "host sky": sky(h, x.sky)}
     a, w, rel = parked(r, x, act)
     r.ev.update({"edit": a, "host over W": w})
@@ -365,10 +365,10 @@ def client_edit(x, r, who, craft, red):
 
     def act():
         c0 = sky(c, x.sky)
-        if not (open_ces(r, c, HB, x.sky, inv=True) if craft else h20.open_soldier_screen(r, c)):
+        if not (open_ces(r, c, HB, x.sky, inv=True) if craft else sbe.open_soldier_screen(r, c)):
             return None
         e = edit(r, c, getattr(x, who))
-        close_ces(r, c, inv=True) if craft else h20.close_soldier_screen(r, c)
+        close_ces(r, c, inv=True) if craft else sbe.close_soldier_screen(r, c)
         return {"moved": e, "client sky before": c0, "client SKY diff after the close": diff(c0, sky(c, x.sky))}
     a, w, rel = parked(r, x, act)
     r.ev.update({"edit": a, "host over W": w})
@@ -388,10 +388,10 @@ def hb_4(x, r):
     if not r.cell("guard: give_items STR_PISTOL 1 on both, client first (R-H20bB-G-1, F8754)", all(v.get("ok") for v in gv.values()), gv):
         return
     h0 = sky(h, x.sky)
-    if not h20.open_soldier_screen(r, h):
+    if not sbe.open_soldier_screen(r, h):
         return
     e = edit(r, h, x.H)
-    h20.close_soldier_screen(r, h)
+    sbe.close_soldier_screen(r, h)
     hd = diff(h0, sky(h, x.sky))
     t0, first, eq = time.time(), None, None
     while time.time() - t0 < W:  # until SKY and ST equal on both; the client's reqs on every poll
@@ -460,22 +460,22 @@ def hb_8(x, r):
     rep = q(c, {"cmd": "base_report", "base": CB})
     sid = next((cr.get("id") for cr in rep.get("crafts") or [] if cr.get("type") == SKYR), None)
     first = ((rep.get("soldiers") or [{}])[0]).get("name")
-    s0, k0 = {g.name: h20.stats3(g) for g in (h, c)}, sky(c, sid, CB)
+    s0, k0 = {g.name: sbe.stats3(g) for g in (h, c)}, sky(c, sid, CB)
     r.ev.update({"set_option": so, "option": on, "ClientBase SKY": [sid, k0], "first soldier": first})
     if not (r.cell("guard: option ON on both", on == {"host": True, "client": True}, [so, on])
             and r.cell("guard: a ClientBase SKYRANGER and a first soldier", sid is not None and first and k0 is not None, [sid, first])
-            and h20.open_soldier_screen(r, c, CB)):
+            and sbe.open_soldier_screen(r, c, CB)):
         r.evidence()
         return
     held = [time.sleep(1.0) or top(c) for _ in range(8)]  # the top state once a second for 8 s
     e = edit(r, c, first)
-    h20.close_soldier_screen(r, c)
+    sbe.close_soldier_screen(r, c)
     k1 = sky(c, sid, CB)
     if open_ces(r, c, CB, sid, inv=True):
         close_ces(r, c, inv=True)
     k2 = sky(c, sid, CB)
     time.sleep(SETTLE)
-    s1 = {g.name: h20.stats3(g) for g in (h, c)}
+    s1 = {g.name: sbe.stats3(g) for g in (h, c)}
     d = diff(k0, k1)
     r.ev.update({"top each second": held, "SKY diff (soldier screen)": d, "SKY diff (craft round trip)": diff(k1, k2),
                  "shared_stats before": s0, "shared_stats 1 s after": s1})
@@ -487,7 +487,7 @@ def hb_8(x, r):
 
 
 def boot_miss(tag, e, rids, results, x=None):
-    cap = {"error": h20.short(e, 1500)}
+    cap = {"error": sbe.short(e, 1500)}
     if x is not None:
         cap.update({g.name: dump(g, x.base) for g in (x.host, x.client)})
     print(f"CAPTURE boot {tag} (boot miss): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
@@ -502,7 +502,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"guard: {rid} exception", False, h20.short(e))
+            r.cell(f"guard: {rid} exception", False, sbe.short(e))
         for g in (x.host, x.client):  # a stopped row leaves no screen behind; a dead client (HB-6 red) is left to the shutdown
             before = stack(g)
             if not is_dead(before) and (before or [""])[-1] != GEO:
@@ -524,7 +524,7 @@ def down(tag, results, fn):
         fn()
     except Exception as e:
         results["shutdown " + tag] = False
-        print(f"FAIL shutdown {tag}: {h20.short(e, 800)}", flush=True)
+        print(f"FAIL shutdown {tag}: {sbe.short(e, 800)}", flush=True)
 
 
 def down_b2(js, results, crash0):
@@ -548,8 +548,8 @@ def shared_boot(tag, ports, rids, rows, results, walls, setup=None):
         try:
             js = shared_fixture.bring_up(tag, ports)
             crash0 = crash_logs(js)
-            x = h20.X(js.host, js.client, js)
-            h20.setup(x)  # option OFF on both, seats differ, H / C / C2, the SKYRANGER, the HostBase index (raises on a miss)
+            x = sbe.X(js.host, js.client, js)
+            sbe.setup(x)  # option OFF on both, seats differ, H / C / C2, the SKYRANGER, the HostBase index (raises on a miss)
             if setup:
                 setup(x)
             walls["boot " + tag] = round(time.time() - t0, 1)
@@ -565,7 +565,7 @@ def boot_s(results, walls):
     t0 = time.time()
     h = GameClient("host", LABELS_S[0], make_user_dir(TAG_S + "_host"))
     c = GameClient("client", LABELS_S[1], make_user_dir(TAG_S + "_client"))
-    x = h20.X(h, c, base=CB)
+    x = sbe.X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()

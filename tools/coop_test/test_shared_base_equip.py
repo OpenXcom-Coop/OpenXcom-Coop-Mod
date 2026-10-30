@@ -1,29 +1,29 @@
-"""W2-H20 (owner D255 a; spec rewrite/prompts/w2h20_shared_base_equip_sync.md (f), Q1 a .. Q9 a; TASK 0
-rewrite/w2h20-task0/CONSTANTS.md; from U6 stage B's rewrite/u6-task0/stageB.patch, U6 Q4): in SHARED, OK on a base
-equipment screen (soldier or craft inventory) sends the presser's OWN changed soldiers' gear to the host, which applies an
-entry only for a soldier the sending seat owns (Q5 a); both machines end with the same record (layout, personal layout,
-its armor); the partner's soldiers go back to their gear at open (aud-E1-11). Today nothing carries it.
-Boot A (SHARED): bring_up("w2h20a", (48704, 48705, 47922)), oxceAlternateCraftEquipmentManagement OFF on both. H / C / C2
-= the first HostBase soldier (base_report order) owned by the host's localSeat / the first / second owned by the client's
-(names roll per boot, S25). rec(gc, n) = n's soldier_layouts {base: HostBase} entry on gc; whole record = (layout,
-personal, personalArmor), exact. W = 10 s at 0.25 s polls (Q9 a); partner-unchanged cells read at once.
-  H20-1 host: soldier screen, inventory_move {H, STR_PISTOL, left}, close. Non-vacuity: moved, host pistols in H 0 -> 1.
-        (A) the client's whole record of H == the host's within W; (B) the host's records of the client's soldiers == before.
-  H20-2 client: the same on C. (A) the host's C == the client's within W; (B) the client's records of the host's
+"""In SHARED, OK on a base equipment screen (soldier or craft inventory) sends the presser's OWN changed soldiers' gear
+to the host, which applies an entry only for a soldier the sending seat owns; both machines end with the same record
+(layout, personal layout, its armor); the partner's soldiers go back to their gear at open. Without the fix nothing
+carries it.
+The SHARED boot: bring_up("shared_base_equip_shared", (48704, 48705, 47922)), oxceAlternateCraftEquipmentManagement OFF
+on both. H / C / C2 = the first HostBase soldier (base_report order) owned by the host's localSeat / the first / second
+owned by the client's (names roll per boot). rec(gc, n) = n's soldier_layouts {base: HostBase} entry on gc; whole
+record = (layout, personal, personalArmor), exact. W = 10 s at 0.25 s polls; partner-unchanged cells read at once.
+  base_equip_1 host: soldier screen, inventory_move {H, STR_PISTOL, left}, close. Non-vacuity: moved, host pistols in
+        H 0 -> 1. (A) the client's whole record of H == the host's within W; (B) the host's records of the client's
+        soldiers == before.
+  base_equip_2 client: the same on C. (A) the host's C == the client's within W; (B) the client's records of the host's
         soldiers == the host's.
-  H20-3 every HostBase soldier's whole record equal on both within W.
-  H20-4 client: SKYRANGER craft screen, inventory_move {C2, STR_PISTOL, left}, close. Non-vacuity: moved, client pistols
-        in C2 +1. (A) the host's C2 == the client's within W; (B) the client's records of the host's soldiers == the host's.
-  H20-5 client: soldier screen, inventory_move {C, STR_GRENADE, belt} (R-H20-G-1 staging, S25), inventory_move {C,
-        STR_PISTOL, ground, from: unit}, key keyInvSavePersonalEquipment, close. Non-vacuity: staged, moved, key ok,
-        the client's personal of C [] -> non-empty, its pistols in C 1 -> 0. The host's
-        whole record of C == the client's within W.
-  H20-6 owner gate (Q5 a): client shared_cmd soldier_equip {H: FORGED, C2: FORGED}; the client's failCount unchanged
-        within W; the host's C2 layout == one item {STR_PISTOL, STR_LEFT_HAND, 0, 0}, the client's C2 == the host's, the
-        host's H == before, the client's H == the host's.
-  H20-7 js.finish(): world equality + replica zero-disk (guard; last in Boot A).
-Boot B (SEPARATE, labels 48706 / 48707, lobby 47923): H20-8 client: ClientBase soldier screen, inventory_move {S,
-  STR_PISTOL, left} (S = the first unit with an empty left hand), close: S's pistols 0 -> 1 on the client; both
+  base_equip_3 every HostBase soldier's whole record equal on both within W.
+  base_equip_4 client: SKYRANGER craft screen, inventory_move {C2, STR_PISTOL, left}, close. Non-vacuity: moved, client
+        pistols in C2 +1. (A) the host's C2 == the client's within W; (B) the client's records of the host's soldiers
+        == the host's.
+  base_equip_5 client: soldier screen, inventory_move {C, STR_GRENADE, belt} (staged), inventory_move {C, STR_PISTOL,
+        ground, from: unit}, key keyInvSavePersonalEquipment, close. Non-vacuity: staged, moved, key ok, the client's
+        personal of C [] -> non-empty, its pistols in C 1 -> 0. The host's whole record of C == the client's within W.
+  base_equip_6 owner gate: client shared_cmd soldier_equip {H: FORGED, C2: FORGED}; the client's failCount unchanged
+        within W; the host's C2 layout == one item {STR_PISTOL, STR_LEFT_HAND, 0, 0}, the client's C2 == the host's,
+        the host's H == before, the client's H == the host's.
+  base_equip_7 js.finish(): world equality + replica zero-disk (guard; last in the SHARED boot).
+The SEPARATE boot (labels 48706 / 48707, lobby 47923): base_equip_8 client: ClientBase soldier screen, inventory_move
+  {S, STR_PISTOL, left} (S = the first unit with an empty left hand), close: S's pistols 0 -> 1 on the client; both
   machines' shared_stats cmd / applyCount / failCount unchanged 1 s after the close (guard).
 One EVIDENCE line per row (both machines' H, C, C2 at its start and end, compact) before its verdict; a failed row prints
 ONE CAPTURE line (both machines' soldier_layouts, base_report, shared_stats, stacks; the editor's inventory_ground). A
@@ -42,15 +42,15 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
-TAG_A, PORTS_A = "w2h20a", (48704, 48705, 47922)
-TAG_B, LABELS_B, LOBBY_B = "w2h20b", (48706, 48707), "47923"
+TAG_SHARED, PORTS_SHARED = "shared_base_equip_shared", (48704, 48705, 47922)
+TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "shared_base_equip_separate", (48706, 48707), "47923"
 HB, CB, OPT, ITEM = "HostBase", "ClientBase", "oxceAlternateCraftEquipmentManagement", "STR_PISTOL"
-STAGE = "STR_GRENADE"  # H20-5 stages this craft-pile item on C so C keeps an item after the drop
+STAGE = "STR_GRENADE"  # base_equip_5 stages this craft-pile item on C so C keeps an item after the drop
 W, POLL, GEO = 10.0, 0.25, "GeoscapeState"
 FORGED = "l:\n  - {itemType: STR_PISTOL, slot: STR_LEFT_HAND}\n"
 UNKNOWN = "unknown command: soldier_equip"
-ROWS_A = ["H20-%d" % n for n in range(1, 8)]
-ORDER = ROWS_A + ["H20-8"]
+ROWS_SHARED = ["base_equip_%d" % n for n in range(1, 8)]
+ORDER = ROWS_SHARED + ["base_equip_8"]
 
 
 def short(e, n=600):
@@ -89,7 +89,7 @@ def converge(pred):
 
 
 def layouts(gc, base=HB):
-    """soldier_layouts {base} on gc -> {name: entry} (the W2-H20 probe)."""
+    """soldier_layouts {base} on gc -> {name: entry}."""
     r = q(gc, {"cmd": "soldier_layouts", "base": base})
     return {s.get("name"): s for s in r.get("soldiers") or []}
 
@@ -166,7 +166,7 @@ class Row:
 
 
 def open_soldier_screen(r, gc, base=HB):
-    """open_soldiers -> SoldiersState -> soldiers_inventory (opened) -> InventoryState (stage B's open)."""
+    """open_soldiers -> SoldiersState -> soldiers_inventory (opened) -> InventoryState."""
     rep = q(gc, {"cmd": "open_soldiers", "base": base})
     if not r.cell(f"guard: {gc.name} open_soldiers {base}",
                   rep.get("ok") and wait_until(lambda: "SoldiersState" in stack(gc), 30), [rep, stack(gc)]):
@@ -177,7 +177,7 @@ def open_soldier_screen(r, gc, base=HB):
 
 
 def close_soldier_screen(r, gc):
-    """battle_inventory ok -> InventoryState gone -> soldiers_ok -> SoldiersState gone (stage B's close)."""
+    """battle_inventory ok -> InventoryState gone -> soldiers_ok -> SoldiersState gone."""
     rep = q(gc, {"cmd": "battle_inventory", "action": "ok"})
     r.cell(f"guard: {gc.name} battle_inventory ok",
            rep.get("ok") and wait_until(lambda: "InventoryState" not in stack(gc), 30), [rep, stack(gc)])
@@ -223,7 +223,8 @@ def diffs(x):
 
 
 def edit_row(x, r, editor, other, who, partner_side, craft=False):
-    """H20-1 / H20-2 / H20-4: `editor` moves STR_PISTOL into the left hand of `who` on a base screen and presses OK."""
+    """base_equip_1 / base_equip_2 / base_equip_4: `editor` moves STR_PISTOL into the left hand of `who` on a base
+    screen and presses OK."""
     name = getattr(x, who)
     r.ev["start"] = x.three()
     ed0 = layouts(editor)
@@ -256,32 +257,33 @@ def edit_row(x, r, editor, other, who, partner_side, craft=False):
     r.cell(f"(A) the {editor.name}'s {where} edit never reached the {other.name}", got,
            f"{other.name} {who} {end[other.name][who]} vs {editor.name} {who} {end[editor.name][who]}")
     r.cell(f"(B) the {editor.name}'s OK rewrote the {partner_side}'s soldiers"
-           + ("" if craft or editor is x.host else " (F7741)"), not changed, f"{len(changed)} of {len(part)}: {changed}")
+           + ("" if craft or editor is x.host else " (its on-screen copy of them)"), not changed,
+           f"{len(changed)} of {len(part)}: {changed}")
 
 
-def h20_1(x, r):  # the host edits H
+def row_host_edits_own(x, r):  # the host edits H
     edit_row(x, r, x.host, x.client, "H", "client")
 
 
-def h20_2(x, r):  # the client edits C
+def row_client_edits_own(x, r):  # the client edits C
     edit_row(x, r, x.client, x.host, "C", "host")
 
 
-def h20_4(x, r):  # the client edits C2 on the craft screen
+def row_client_craft_edit(x, r):  # the client edits C2 on the craft screen
     edit_row(x, r, x.client, x.host, "C2", "host", craft=True)
 
 
-def h20_3(x, r):
+def row_all_equal(x, r):
     r.ev["start"] = x.three()
     _d, s = converge(lambda: not diffs(x))
     k = diffs(x)
     r.ev["wait s"], r.ev["differ"] = s, k
     r.ev["end"] = x.three()
     r.evidence()
-    r.cell(f"{len(k)} soldiers carry different gear on the two machines (F7742)", not k, k)
+    r.cell(f"{len(k)} soldiers carry different gear on the two machines", not k, k)
 
 
-def h20_5(x, r):
+def row_client_personal_layout(x, r):
     c, h, name = x.client, x.host, x.C
     r.ev["start"] = x.three()
     c0 = layouts(c).get(name)
@@ -289,7 +291,7 @@ def h20_5(x, r):
         return
     key = (q(c, {"cmd": "equip_layouts"}).get("keys") or {}).get("keyInvSavePersonalEquipment")
     r.ev["stage"] = st = q(c, {"cmd": "inventory_move", "name": name, "item": STAGE, "slot": "belt"})
-    r.cell(f"guard: client staged {STAGE} on C (R-H20-G-1)", st.get("moved") is True and st.get("landedOnUnit") is True, st)
+    r.cell(f"guard: client staged {STAGE} on C", st.get("moved") is True and st.get("landedOnUnit") is True, st)
     rep = move(r, c, {"name": name, "slot": "ground", "from": "unit"})
     krep = q(c, {"cmd": "inject_input", "kind": "key", "key": key})
     saved = wait_until(lambda: (layouts(c).get(name) or {}).get("personal"), 5.0)  # the key lands on the next frame
@@ -312,7 +314,7 @@ def h20_5(x, r):
                f"host C {end['host']['C']} vs client C {end['client']['C']}")
 
 
-def h20_6(x, r):
+def row_owner_gate(x, r):
     h, c = x.host, x.client
     r.ev["start"] = x.three()
     h0 = layouts(h)
@@ -347,7 +349,7 @@ def h20_6(x, r):
            [compact(c1.get(x.H)), compact(h1.get(x.H))])
 
 
-def h20_7(x, r):
+def row_world_equal(x, r):
     r.ev["start"] = r.ev["end"] = x.three()
     r.ev["world_diff now"] = shared_fixture.world_diff(x.host, x.client)
     r.ev["client save files now"] = session.save_files(x.js.client_dir)
@@ -358,7 +360,7 @@ def h20_7(x, r):
         r.cell("js.finish", False, short(e, 1500))
 
 
-def h20_8(x, r):
+def row_separate_no_command(x, r):
     h, c = x.host, x.client
     s0 = {gc.name: stats3(gc) for gc in (h, c)}
     L0 = layouts(c, CB)
@@ -425,7 +427,8 @@ def run_rows(x, rows, results, walls):
             fn(x, r)
         except Exception as e:
             r.cell(f"guard: {rid} exception", False, short(e))
-        for g in (x.host, x.client):  # a stopped row (or H20-6's red shared-fail box, T0-5) leaves no screen behind
+        # a stopped row (or base_equip_6's shared-fail box without the fix) leaves no screen behind
+        for g in (x.host, x.client):
             before = stack(g)
             if (before or [""])[-1] != GEO:
                 rep = q(g, {"cmd": "close_screens"})
@@ -435,45 +438,47 @@ def run_rows(x, rows, results, walls):
         r.report(results)
 
 
-def boot_a(results, walls):
+def boot_shared(results, walls):
     t0, js, x = time.time(), None, None
     try:
         try:
-            js = shared_fixture.bring_up(TAG_A, PORTS_A)
+            js = shared_fixture.bring_up(TAG_SHARED, PORTS_SHARED)
             x = X(js.host, js.client, js)
             setup(x)
-            walls["boot A"] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails every Boot A row "boot" with ONE CAPTURE line
-            return boot_miss(TAG_A, e, ROWS_A, results, x)
-        run_rows(x, (("H20-1", h20_1), ("H20-2", h20_2), ("H20-3", h20_3), ("H20-4", h20_4), ("H20-5", h20_5),
-                     ("H20-6", h20_6), ("H20-7", h20_7)), results, walls)
+            walls["SHARED boot"] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails every SHARED boot row "boot" with ONE CAPTURE line
+            return boot_miss(TAG_SHARED, e, ROWS_SHARED, results, x)
+        run_rows(x, (("base_equip_1", row_host_edits_own), ("base_equip_2", row_client_edits_own),
+                     ("base_equip_3", row_all_equal), ("base_equip_4", row_client_craft_edit),
+                     ("base_equip_5", row_client_personal_layout), ("base_equip_6", row_owner_gate),
+                     ("base_equip_7", row_world_equal)), results, walls)
     finally:
         if js is not None:
             js.shutdown()
 
 
-def boot_b(results, walls):
+def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_B[0], make_user_dir(TAG_B + "_host"))
-    c = GameClient("client", LABELS_B[1], make_user_dir(TAG_B + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
     x = X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_B, campaign_mode="coop")
+            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
             geo.wait_both_ready(h, c)
-            walls["boot B"] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails H20-8 "boot" with ONE CAPTURE line
-            return boot_miss(TAG_B, e, ["H20-8"], results, x)
-        run_rows(x, (("H20-8", h20_8),), results, walls)
+            walls["SEPARATE boot"] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails base_equip_8 "boot" with ONE CAPTURE line
+            return boot_miss(TAG_SEPARATE, e, ["base_equip_8"], results, x)
+        run_rows(x, (("base_equip_8", row_separate_no_command),), results, walls)
     finally:
         shutdown_clients(h, c)
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot_a(results, walls)
-    boot_b(results, walls)
+    boot_shared(results, walls)
+    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     print(f"\ntest_shared_base_equip: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) "
           f"walls {json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)

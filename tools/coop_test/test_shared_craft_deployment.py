@@ -3,7 +3,7 @@ rewrite/w2h20d-task0/CONSTANTS.md): in SHARED, a craft type's soldier deployment
 craft article, INFO, "Preview", the abort icon, OK; Ctrl+OK deletes) stays on the machine that pressed OK: no command carries it and the
 world checksum does not count it, so only a world copy moves the host's entry to the second player.
 D(gc) = base_screen_op {op: craft_deployment, craft_type: STR_SKYRANGER} (saved, positions, crafts); Dsky = D's crafts entry with id SKY
-(customDeployment); EQ = both D equal in saved and positions. SKY, seats and HostBase from h20.setup (S25); keys from read_key.
+(customDeployment); EQ = both D equal in saved and positions. SKY, seats and HostBase from sbe.setup (S25); keys from read_key.
 PV(gc, erase) = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing, battle_action abort,
 [modstate ctrl], OK, [modstate none], end_turn_button, close_screens (<= 2 s per probe, SETTLE 0.3 s before a key or click, F2888; never
 close_screens or a copy over an open preview, F8883). COPY = client force_resync, then both stacks [GeoscapeState] and EQ <= 30 s.
@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: X, Row, setup, boot_miss, q / stack / wait_until / short)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: X, Row, setup, boot_miss, q / stack / wait_until / short)
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_inventory_held import read_key  # noqa: E402  (main-guarded)
 
@@ -49,7 +49,7 @@ W, POLL, STEP, SETTLE, CONV, N = 6.0, 0.25, 2.0, 0.3, 30.0, 14  # N = the Skyran
 RAW, UNKNOWN, NO_SUCH = [[1, 2, 0, 3]], "unknown command: craft_deployment", "STR_NO_SUCH_CRAFT"
 ROWS_A, ROWS_S = ["HD-%d" % n for n in range(7)], ["HD-S"]
 ORDER = ROWS_A + ROWS_S
-q, stack, wait_until, short = h20.q, h20.stack, h20.wait_until, h20.short
+q, stack, wait_until, short = sbe.q, sbe.stack, sbe.wait_until, sbe.short
 
 
 def D(gc):
@@ -93,7 +93,7 @@ def timed(pred, timeout=W):
     return bool(v), round(time.time() - t0, 2)
 
 
-def is_dead(s):  # h20.stack's reply for a machine whose socket is gone
+def is_dead(s):  # sbe.stack's reply for a machine whose socket is gone
     return any(str(e).startswith("<get_state") for e in s)
 
 
@@ -368,7 +368,7 @@ def hd_s(x, r):
     r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
 
 
-class Row(h20.Row):
+class Row(sbe.Row):
     def __init__(self, rid, x):
         super().__init__(rid, x)
         self.ev = {"SKY": x.sky, "seats": x.seats, "keys": getattr(x, "keys", None)}
@@ -418,12 +418,12 @@ def boot_a(results, walls):
     try:
         try:
             js = shared_fixture.bring_up(TAG_A, PORTS_A)
-            x = h20.X(js.host, js.client, js)
-            h20.setup(x)  # option OFF on both, seats differ, the SKYRANGER, the HostBase index (raises on a miss)
+            x = sbe.X(js.host, js.client, js)
+            sbe.setup(x)  # option OFF on both, seats differ, the SKYRANGER, the HostBase index (raises on a miss)
             x.keys = keys(x)
             walls["boot " + TAG_A] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails every row of this boot "boot" with ONE CAPTURE line
-            return h20.boot_miss(TAG_A, e, ROWS_A, results, x)
+            return sbe.boot_miss(TAG_A, e, ROWS_A, results, x)
         run_rows(x, (("HD-0", hd_0),
                      ("HD-1", lambda x, r: save_row(x, r, x.host, x.client, "the host's saved craft deployment never reached the client")),
                      ("HD-2", lambda x, r: delete_row(x, r, x.host, x.client, "the host's deleted craft deployment stayed on the client")),
@@ -439,7 +439,7 @@ def boot_s(results, walls):
     t0 = time.time()
     h = GameClient("host", LABELS_S[0], make_user_dir(TAG_S + "_host"))
     c = GameClient("client", LABELS_S[1], make_user_dir(TAG_S + "_client"))
-    x = h20.X(h, c, base=CB)
+    x = sbe.X(h, c, base=CB)
     try:
         try:
             h.spawn(), c.spawn(), h.connect(), c.connect()
@@ -449,7 +449,7 @@ def boot_s(results, walls):
             x.keys = keys(x)
             walls["boot " + TAG_S] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails HD-S "boot" with ONE CAPTURE line
-            return h20.boot_miss(TAG_S, e, ROWS_S, results, x)
+            return sbe.boot_miss(TAG_S, e, ROWS_S, results, x)
         run_rows(x, (("HD-S", hd_s),), results, walls)
     finally:
         down(TAG_S, results, lambda: shutdown_clients(h, c))

@@ -48,7 +48,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screens, q / stack)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack)
 from test_shared_base_equip import q, stack, open_soldier_screen, open_craft_screen, close_craft_screen  # noqa: E402
 
 TAG, PORTS = "base_partner_pointer", (49409, 49409, 49409)  # the two labels are inert, the third is the lobby key
@@ -219,7 +219,7 @@ def to_geo(gc, rec):
 
 def spine(x):
     h, c = x.host, x.client
-    h20.setup(x)
+    sbe.setup(x)
     x.coop = {gc.name: {k: v for k, v in q(gc, {"cmd": "get_coop"}).items() if k in ("localSeat", "clientName", "hostName", "peer")}
               for gc in (h, c)}
     sh = Shim()
@@ -384,14 +384,14 @@ def main(tag=TAG, ports=PORTS, extra=None):
     try:
         try:
             js = shared_fixture.bring_up(tag, ports)
-            x = h20.X(js.host, js.client, js)
+            x = sbe.X(js.host, js.client, js)
             x.crash0 = crash0
             spine(x)
             walls["spine"] = round(time.time() - t0, 1)
             print(f"EVIDENCE spine: {json.dumps(x.spine, sort_keys=True, default=str)}", flush=True)
             EV["spine"] = x.spine
         except Exception as e:  # a spine miss fails every row "spine" with ONE CAPTURE line
-            cap = {"error": h20.short(e, 3000)}
+            cap = {"error": sbe.short(e, 3000)}
             if x is not None:
                 for g in (x.host, x.client):
                     cap[f"{g.name} stack"] = stack(g)
@@ -410,8 +410,8 @@ def main(tag=TAG, ports=PORTS, extra=None):
             try:
                 FNS[rid](x, r)
             except Exception as e:
-                r.why = h20.short(e)
-                r.ev["exception"] = h20.short(e)
+                r.why = sbe.short(e)
+                r.ev["exception"] = sbe.short(e)
             walls[rid] = round(time.time() - t1, 1)
             r.report(results)
         if extra:

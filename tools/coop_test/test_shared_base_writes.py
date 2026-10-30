@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen, stats3  # noqa: E402
 
@@ -332,7 +332,7 @@ def h20b_7(x, r):
     try:
         x.js.finish()
     except AssertionError as e:
-        r.cell("js.finish", False, h20.short(e, 1500))
+        r.cell("js.finish", False, sbe.short(e, 1500))
 
 
 def snap8(x):
@@ -467,7 +467,7 @@ def h20b_10(x, r):
 
 
 def boot_miss(tag, e, rids, results, x=None):
-    cap = {"error": h20.short(e, 1500)}
+    cap = {"error": sbe.short(e, 1500)}
     if x is not None:
         for g in (x.host, x.client):
             cap[f"{g.name} get_state"] = stack(g)
@@ -484,7 +484,7 @@ def run_rows(x, rows, results, walls):
         try:
             fn(x, r)
         except Exception as e:
-            r.cell(f"guard: {rid} exception", False, h20.short(e))
+            r.cell(f"guard: {rid} exception", False, sbe.short(e))
         for g in (x.host, x.client):  # a stopped row (or H20b-6's green refusal box, CoopState 556) leaves no screen behind
             before = stack(g)
             if (before or [""])[-1] != GEO:
@@ -501,7 +501,7 @@ def shared_boot(tag, ports, gifts, rids, rows, results, walls):
         try:
             js = shared_fixture.bring_up(tag, ports)
             x = X(js.host, js.client, js)
-            h20.setup(x)  # option OFF on both, seats differ, H / C / C2, the SKYRANGER, the HostBase index (raises on a miss)
+            sbe.setup(x)  # option OFF on both, seats differ, H / C / C2, the SKYRANGER, the HostBase index (raises on a miss)
             x.first = {k: getattr(x, k) for k in ("H", "C", "C2")}
             x.ids = {k: x.ids[k] for k in ("H", "C", "C2")}
             given = {gc.name: [q(gc, {"cmd": "give_items", "item": i, "count": 4, "base": HB}).get("stored") for i in gifts]

@@ -33,7 +33,7 @@ import harness  # noqa: E402
 import session  # noqa: E402  (W2-U9: wait_widget_ready)
 import shared_fixture  # noqa: E402
 import test_client_research as cr  # noqa: E402  (main-guarded: pd*, read_key)
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded)
+import test_shared_base_equip as sbe  # noqa: E402  (main-guarded)
 
 PORTS_A, PORTS_B = (49512, 49513, 47965), (49514, 49515, 47968)
 W, POLL, HOLD, STEP, SETTLE = 10.0, 0.25, 2.0, 2.0, 0.3
@@ -42,7 +42,7 @@ PUSH, POP = "push class OpenXcom::", "pop  class OpenXcom::"
 CL_G = [PUSH + "LoadGameState", POP + "LoadGameState", POP + BS, POP + GEO, PUSH + GEO]
 CL_1 = [PUSH + "LoadGameState", POP + "LoadGameState", PUSH + GEO]
 CRASH_DIR = harness.CRASH_DIR  # (W2-U8h F9563: this lane's own crash folder)
-q, stack, short, wait_until = h20.q, h20.stack, h20.short, h20.wait_until
+q, stack, short, wait_until = sbe.q, sbe.stack, sbe.short, sbe.wait_until
 
 def alive(gc):
     return gc.proc is not None and gc.proc.poll() is None and bool(q(gc, {"cmd": "ping"}).get("pong"))
@@ -102,9 +102,9 @@ def capture(x, n_cl, crash, bl=None):
                         "world_state": q(gc, {"cmd": "world_state"}), "shared_resync_stats": q(gc, {"cmd": "shared_resync_stats"})}
     return out
 
-class Row(h20.Row):
+class Row(sbe.Row):
     def __init__(self, rid, baseline):
-        super().__init__(rid, h20.X(None, None))
+        super().__init__(rid, sbe.X(None, None))
         self.ev = {"baseline": baseline}
 
     def report(self, results):
@@ -242,7 +242,7 @@ def boot(tag, ports, rows):
     js = x = None
     try:
         js = shared_fixture.bring_up(tag, ports)
-        x = h20.X(js.host, js.client, js)
+        x = sbe.X(js.host, js.client, js)
         x.keys = {gc.name: {"ufo": cr.read_key(gc.user_dir, "keyGeoUfopedia"), "cancel": cr.read_key(gc.user_dir, "keyCancel")}
                   for gc in (x.host, x.client)}
         su = {gc.name: [stack(gc), q(gc, {"cmd": "get_coop"}).get("localSeat"), q(gc, {"cmd": "world_state"}).get("has_battle")]
