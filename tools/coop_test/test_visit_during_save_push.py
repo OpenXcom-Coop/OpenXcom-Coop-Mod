@@ -1,24 +1,23 @@
-"""test_visit_during_save_push.py (VSP): the SEPARATE host saves, presses CANCEL on "Saving...", and clicks the partner's base
-while the partner's save-progress stream is still running. The host gets the base view once that stream has ended, its "Synchronizing bases..."
-closes, and the partner's save progress still reaches the host.
+"""test_visit_during_save_push.py: the SEPARATE host saves, presses CANCEL on "Saving...", and clicks the partner's
+base while the partner's save-progress stream is still running. The host gets the base view once that stream has
+ended, its "Synchronizing bases..." closes, and the partner's save progress still reaches the host.
 
-Spec: docs rewrite/prompts/w2h82_stream_crossing_hangs.md (common) + rewrite/prompts/w2h82_sb_visit_during_save_push.md (f) rows R-SP and G;
-TASK 0 constants: docs rewrite/w2h82-task0/sb/CONSTANTS.md. Lead L-H78-1 (capture lh78-1-cap SP-1 / SP-ctl, F22296, F22298), ruling
-R-LH78-1-1 (REG :1431), mechanism R-H82-1 (QH82-1 .. QH82-7 (a)). Lobby key "49518", dirs w2h82_sp_*, w2h82_g_*. The sibling VSR
-(test_visit_before_save_reply.py) holds row R-SPB. TEST-ONLY lever: hold_blob_ack {on: true, scope: "save"} (W2-H82 L1: the host withholds
-the per-chunk ack while its own save is pending, so the partner's save-progress stream waits after its first chunk).
-Row R-SP (capture SP-1): seat_guest, LOCATE (the host's affine, the partner base CB), STABLE (stable geoscapes, both clocks geo_set_speed 0),
-    PREC (the host's copy of the partner's world, fnv PRE_C), ARM, SAVE (save_game_ui quick; the host's CoopState 54), HELD, CANCEL (real),
-    HCLICK (a real globe click on the partner base and the "ClientBase" target; the host's CoopState 50 within 1 s), SETTLE, RELEASE, COPY,
-    VIEW (the host's BasescapeState within W_VIEW of RELEASE), WATCH, LEAVE (real GEOSCAPE, if VIEW), END. Cells SP-pre, SP-copy, SP-view,
-    SP-held, SP-crash.
-Row G (capture SP-ctl, the guard: no click during the stream): seat_guest, LOCATE, STABLE, PREC, ARM, SAVE, HELD, CANCEL, RELEASE, COPY, STABLE,
-    an unheld HCLICK, VIEW (from that click), WATCH, LEAVE, END. Cells G-pre, G-copy, G-view, G-quiet.
-Red today (R1): SP-view, SP-held FAIL (2 of 9); every other cell PASS. Green (G1, spec F1-F5): all 9 PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
-row (later cells "not reached") with ONE CAPTURE line; a boot miss fails the row's -pre cell with ONE CAPTURE line. WV-D95 (run to completion
-in the foreground), WV-D99 (one run; exit 0 only when every cell passes, else 2), WV-D100 (no SKIP, no exit 3). Helpers copied (never
-imported) from docs rewrite/lh78-1-cap/cap.py; LOCATE's CANCEL press waits for the button to be shown."""
+Lobby key "49518", dirs save_push_click_during_*, save_push_click_after_*. The sibling test_visit_before_save_reply.py
+holds row reply_crossing. Test command: hold_blob_ack {on: true, scope: "save"} (the host withholds the per-chunk ack
+while its own save is pending, so the partner's save-progress stream waits after its first chunk).
+Row click_during_push: seat_guest, LOCATE (the host's affine, the partner base CB), STABLE (stable geoscapes, both
+    clocks geo_set_speed 0), PREC (the host's copy of the partner's world, fnv PRE_C), ARM, SAVE (save_game_ui quick;
+    the host's CoopState 54), HELD, CANCEL (real), HCLICK (a real globe click on the partner base and the "ClientBase"
+    target; the host's CoopState 50 within 1 s), SETTLE, RELEASE, COPY, VIEW (the host's BasescapeState within W_VIEW
+    of RELEASE), WATCH, LEAVE (real GEOSCAPE, if VIEW), END. Cells click_during_push-pre, -copy, -view, -held, -crash.
+Row click_after_push (the guard: no click during the stream): seat_guest, LOCATE, STABLE, PREC, ARM, SAVE, HELD,
+    CANCEL, RELEASE, COPY, STABLE, an unheld HCLICK, VIEW (from that click), WATCH, LEAVE, END. Cells
+    click_after_push-pre, -copy, -view, -quiet.
+When broken, click_during_push-view and click_during_push-held FAIL (2 of 9); every other cell passes.
+One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a
+precondition miss ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fails the row's -pre
+cell with ONE CAPTURE line. One run; exit 0 only when every cell passes, else 2; no SKIP, no exit 3. The helpers are
+copied here, never imported; LOCATE's CANCEL press waits for the button to be shown."""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
@@ -30,19 +29,22 @@ ZOOM_MIN, SYM_PLUS = 3, 43
 W_54, W_CANCEL, W_CLICK50, W_HELD, W_VIEW, W_COPY, W_HOLD, W_LEAVE, W_UI, SETTLE_S = 10, 10, 1.0, 15, 15, 20, 10.0, 60, 10, 1.0
 RC_OK = (0, 3221226505)
 NEEDLES = {"STREAMHOLD": "[coop-visit] base answer held: a world stream is in flight (role 1)",
-           "EB4REL": "[coop-visit] held base answer released (role 1)",
+           "ANSWERREL": "[coop-visit] held base answer released (role 1)",
            "REPLYHOLD": "[coop-save] save-progress go-ahead held: a world stream is in flight",
            "REPLYREL": "[coop-save] held save-progress go-ahead released",
            "REPLYSTASH": "[coop-test] hold_save_reply: SEND_FILE_HOST_SAVE_PROGRESS held"}
 HOST_NEEDLES = ("REPLYSTASH",)
-CELLS = {"R-SP": ["SP-pre", "SP-copy", "SP-view", "SP-held", "SP-crash"], "G": ["G-pre", "G-copy", "G-view", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
+CELLS = {"click_during_push": ["click_during_push-pre", "click_during_push-copy", "click_during_push-view",
+                               "click_during_push-held", "click_during_push-crash"],
+         "click_after_push": ["click_after_push-pre", "click_after_push-copy", "click_after_push-view",
+                              "click_after_push-quiet"]}
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this harness slot's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
     pass
 
-# ----- probes (CAP) -----
+# ----- probes -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def pick(r, keys): return {k: r.get(k) for k in keys}
@@ -82,7 +84,7 @@ def wait(pred, timeout, interval=0.25):
             return v or None, round(time.time() - t0, 2)
         time.sleep(interval)
 
-# ----- real presses (CAP) -----
+# ----- real presses -----
 def real_click(gc, text, timeout=15.0):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -149,7 +151,7 @@ def stable_geo(host, client, stable=5.0, timeout=90.0):
         time.sleep(0.1)
     return {"ok": False, "host": list(prev[0]) if prev else None, "client": list(prev[1]) if prev else None}
 
-# ----- fixture (CAP seat_guest: bring_up_separate_guest_battle's seat) -----
+# ----- fixture (the seat step of session.bring_up_separate_guest_battle) -----
 def seat_guest(h, c, ev):
     session.new_campaign(h, c, port=KEY)
     hb = session._campaign_own_roster_base(h)
@@ -239,7 +241,7 @@ class Row:
         bad = [n for n in self.cells if not self.done.get(n)]
         print("ROW %s: %s" % (self.rid, "PASS" if not bad else "FAIL (%d failing: %s)" % (len(bad), bad)), flush=True)
 
-# ----- common steps (spec (f)) -----
+# ----- common steps -----
 def locate(r, x):
     """LOCATE = the partner base CB / cbpos from the host's geo_state (coopIcon); the host's affine from INTERCEPT / CANCEL"""
     session.drain_host_coop_notice(x.host)
@@ -253,7 +255,7 @@ def locate(r, x):
     if not g:
         raise Stop("LOCATE: the host not back on a clean geoscape: %s" % stack(x.host))
 def stable(r, x, tag="stable"):
-    """STABLE = CAP stable_geo, then both machines geo_set_speed {idx: 0}"""
+    """STABLE = stable_geo, then both machines geo_set_speed {idx: 0}"""
     sg = stable_geo(x.host, x.client)
     sp = [q(x.host, {"cmd": "geo_set_speed", "idx": 0}).get("ok"), q(x.client, {"cmd": "geo_set_speed", "idx": 0}).get("ok")]
     r.ev[tag] = {"r": sg, "speed": sp}
@@ -295,7 +297,7 @@ def cancel(r, x):
     if not (k.get("ok") and g):
         raise Stop("CANCEL: %s, host stack %s" % (js(k), stack(h)))
 def hclick(r, x, need50=True):
-    """HCLICK = CAP click_marker on the partner base ("ClientBase"); the host's top CoopState 50 within W_CLICK50"""
+    """HCLICK = click_marker on the partner base ("ClientBase"); the host's top CoopState 50 within W_CLICK50"""
     h = x.host
     ck = click_marker(h, x.hsc, x.cbpos[0], x.cbpos[1], x.CB)
     x.t_click = time.time()
@@ -358,7 +360,7 @@ def copy_cell(r, x, name):
     r.cell(name, x.copy, "host copy %s vs PRE_C %s (want present and changed within %d s)" % (js(r.ev["copy"]), x.PRE_C, W_COPY))
 
 # ----- rows -----
-def body_sp(r, x):
+def body_click_during_push(r, x):
     locate(r, x)
     stable(r, x)
     prec(r, x)
@@ -367,21 +369,24 @@ def body_sp(r, x):
     held(r, x)
     cancel(r, x)
     hclick(r, x)
-    r.cell("SP-pre", True, "guest seated %s, STABLE %s, SAVE 54 %s, HELD %s, CANCEL geoscape %s, HCLICK targets %s picked %s, CoopState 50 %s"
-           % (r.ev["seat"]["seated"], r.ev["stable"]["r"], r.ev["save"]["saw54"], r.ev["held"], r.ev["cancel"]["geo"], r.ev["click"]["targets"],
-              r.ev["click"]["pick"], r.ev["click"]["coop50"]))
+    r.cell("click_during_push-pre", True,
+           "guest seated %s, STABLE %s, SAVE 54 %s, HELD %s, CANCEL geoscape %s, HCLICK targets %s picked %s, "
+           "CoopState 50 %s"
+           % (r.ev["seat"]["seated"], r.ev["stable"]["r"], r.ev["save"]["saw54"], r.ev["held"], r.ev["cancel"]["geo"],
+              r.ev["click"]["targets"], r.ev["click"]["pick"], r.ev["click"]["coop50"]))
     time.sleep(SETTLE_S)
     release(r, x)
     copy_wait(r, x)
     view_wait(r, x, x.t_rel)
     watch_end(r, x)
-    copy_cell(r, x, "SP-copy")
-    view_cell(r, x, "SP-view")
-    r.cell("SP-held", x.n["STREAMHOLD"] >= 1 and x.n["EB4REL"] == x.n["STREAMHOLD"],
-           "client STREAMHOLD %d, EB4REL %d since SAVE (want >= 1, equal)" % (x.n["STREAMHOLD"], x.n["EB4REL"]))
-    r.cell("SP-crash", not x.newCrash and all(x.alive) and x.n["REPLYHOLD"] == 0,
-           "new crash files %s, alive (host, client) %s, client REPLYHOLD %d (want none, both, 0)" % (x.newCrash, x.alive, x.n["REPLYHOLD"]))
-def body_g(r, x):
+    copy_cell(r, x, "click_during_push-copy")
+    view_cell(r, x, "click_during_push-view")
+    r.cell("click_during_push-held", x.n["STREAMHOLD"] >= 1 and x.n["ANSWERREL"] == x.n["STREAMHOLD"],
+           "client STREAMHOLD %d, ANSWERREL %d since SAVE (want >= 1, equal)" % (x.n["STREAMHOLD"], x.n["ANSWERREL"]))
+    r.cell("click_during_push-crash", not x.newCrash and all(x.alive) and x.n["REPLYHOLD"] == 0,
+           "new crash files %s, alive (host, client) %s, client REPLYHOLD %d (want none, both, 0)"
+           % (x.newCrash, x.alive, x.n["REPLYHOLD"]))
+def body_click_after_push(r, x):
     locate(r, x)
     stable(r, x)
     prec(r, x)
@@ -389,27 +394,29 @@ def body_g(r, x):
     save(r, x)
     held(r, x)
     cancel(r, x)
-    r.cell("G-pre", True, "guest seated %s, STABLE %s, SAVE 54 %s, HELD %s, CANCEL geoscape %s"
+    r.cell("click_after_push-pre", True, "guest seated %s, STABLE %s, SAVE 54 %s, HELD %s, CANCEL geoscape %s"
            % (r.ev["seat"]["seated"], r.ev["stable"]["r"], r.ev["save"]["saw54"], r.ev["held"], r.ev["cancel"]["geo"]))
     release(r, x)
     copy_wait(r, x)
-    copy_cell(r, x, "G-copy")
+    copy_cell(r, x, "click_after_push-copy")
     stable(r, x, "stable2")
     hclick(r, x, need50=False)
     view_wait(r, x, x.t_click)
     watch_end(r, x)
-    view_cell(r, x, "G-view")
-    r.cell("G-quiet", x.n["STREAMHOLD"] == 0 and x.n["REPLYHOLD"] == 0 and not x.newCrash and all(x.alive),
+    view_cell(r, x, "click_after_push-view")
+    r.cell("click_after_push-quiet",
+           x.n["STREAMHOLD"] == 0 and x.n["REPLYHOLD"] == 0 and not x.newCrash and all(x.alive),
            "client STREAMHOLD %d, REPLYHOLD %d, new crash files %s, alive %s (want 0, 0, none, both)"
            % (x.n["STREAMHOLD"], x.n["REPLYHOLD"], x.newCrash, x.alive))
 def main():
     c0 = cpu()
-    print("==== W2-H82 VSP (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    Row("R-SP").run(body_sp, "w2h82_sp")
-    Row("G").run(body_g, "w2h82_g")
+    print("==== test_visit_during_save_push (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY,
+          time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    Row("click_during_push").run(body_click_during_push, "save_push_click_during")
+    Row("click_after_push").run(body_click_after_push, "save_push_click_after")
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H82 VSP: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
-          flush=True)
+    print("\n==== test_visit_during_save_push: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (
+        len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()), flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
     return 0 if not fails else 2
