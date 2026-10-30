@@ -5,8 +5,7 @@ BaseDestroyedState tells the partner at once that the base is gone (delete_base,
 the loser's own list only at its OK. Every co-op GeoscapeState::init sends a base request; the loser's answer lists every
 own base, the lost one included, and the partner's handler re-creates the mirror and never drops one a later answer
 leaves out. Without the fix, closing any window on the partner's side while the message is open brings the lost base
-back as a mirror (same id, same name) that stays after the OK and after the next re-init. test_lost_first_base.py covers
-a player losing its first base.
+back as a mirror (same id, same name) that stays after the OK and after the next re-init.
 
 ONE boot, lobby key "49693" (user dirs lost_base_reply_ghost_*), slot from OXC_HARNESS_SLOT.
 
