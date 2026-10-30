@@ -22,9 +22,9 @@ seated by the CLIENT (session.bring_up_separate_guest_battle) must:
 The bring-up itself waits until the guest sits on the host's Skyranger on both
 machines before the mission starts.
 
-The guest's post-battle RECORD (stats/rank/wounds/missions/kills/diary/death)
-returning to the CLIENT's own world is asserted by test_battle_end_separate.py
-(row guest_returns_alive), not here: this test asserts the client's clean
+The guest's post-battle RECORD in the shared save (owner, missions, death,
+equal on both machines) is asserted by test_battle_gift_separate.py and its
+diary and medals by test_battle_end_separate_diary.py, not here: this test asserts the client's clean
 return to its own geoscape after a SEPARATE host abort (expect_both=True) and
 the host's post-battle roster (post_battle_roster).
 

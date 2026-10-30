@@ -20,7 +20,7 @@ from session import event_state
 import test_delta_core as dc
 import test_client_shoot as cs
 from test_host_combat import bring_up_lobby_roster_pinned
-import test_battle_end_separate as bes
+import battle_end_helpers as bes
 import test_client_selection as csel
 import test_prebattle_equip as peq
 import repro_door_deterministic as rdd
@@ -36,7 +36,7 @@ TELE_A = dict(A_AT, cmd="battle_teleport_unit")
 HEALTH_A = {"cmd": "battle_set_unit_state", "unit": cs.A_ID, "health": cs.A_HEALTH}
 STAGE = ((TELE_A, ("to", "dir")), (HEALTH_A, ("health", "stun", "status")))   # A's teleport, then A's health
 NAMED_PLACE = "session.place_deterministic let the client run on before it applied the host's reveal ev"
-NAMED_BATTLE_END = ("test_battle_end_separate.both let the next client command run before the client applied the "
+NAMED_BATTLE_END = ("battle_end_helpers.both let the next client command run before the client applied the "
                     "host's reveal ev")
 
 
@@ -92,7 +92,7 @@ FAKE_WAITS = (("session.settle_reveal", lambda h, c: session.settle_reveal(h, c,
               ("session.wait_walk_settled", lambda h, c: session.wait_walk_settled(h, c, 1, timeout=5), False),
               ("test_client_selection.caught_up", poll(csel.caught_up), False),
               ("test_prebattle_equip.drained", poll(peq.drained), False),
-              ("test_battle_end_separate.chain_settled",
+              ("battle_end_helpers.chain_settled",
                lambda h, c: bes.chain_settled(h, c, stable=0.0, timeout=5, interval=0.05), False),
               ("repro_door_deterministic.wait_door_fired", lambda h, c: rdd.wait_door_fired(h, c, 0, timeout=5), False))
 

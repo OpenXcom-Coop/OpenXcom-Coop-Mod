@@ -42,7 +42,7 @@ from harness import GameClient, make_user_dir
 import session
 from session import battle_state, event_state, pin_ai_neutral
 import test_client_research as CR
-from test_battle_end_separate import (chain_settled, end_turn_both, close_host_nextturn, soldier_recs, record, stack,
+from battle_end_helpers import (chain_settled, end_turn_both, close_host_nextturn, soldier_recs, record, stack,
                                          wait_until, geo_clean, client_ok_through_followups)
 from test_delta_core import both, short
 
@@ -171,7 +171,7 @@ def row_battle_end(ev, res, host, client, st):
     ev["desyncBefore"] = ds
     if any(ds.values()):
         f.append(f"desyncSeen before the ending {ds} (want false on both)")
-    # the ending (test_battle_end_separate's guest_returns_dead shape, seed-independent)
+    # the ending (every hostile, then the guest, killed by the host: seed-independent)
     kills = []
     for uid in hostiles(host):
         r = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid})

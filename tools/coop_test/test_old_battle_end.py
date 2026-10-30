@@ -43,7 +43,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 from session import battle_state, assert_hash_clean  # noqa: E402
 import test_old_battle_resume as OBR  # noqa: E402
-import test_battle_end_separate as BES  # noqa: E402
+import battle_end_helpers as BES  # noqa: E402
 
 KEY = "46612"
 CONVERT_LINE = (OBR.PARTNER_SNAPSHOTS, OBR.PARTNER_MIRRORS, OBR.SEATED[0], OBR.SEATED[1], OBR.UNSEATED, "traditional",

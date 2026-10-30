@@ -9,7 +9,7 @@ Boot 1 (port 47208) - rows promotion and cannot_reequip. shared_fixture.bring_up
 `sell`s the base stock of every Skyranger loadout type to 0 before the battle; squad[0] gets the RIFLE_SET and squad[1]
 the RIFLE_SET_HANDS equipment layout on both machines; bring_up_shared_mixed_battle(js, {0: 0, 1: 1}, pre_landing =
 host set_seed SEED_S); the host-owned soldier squad[0] stripped on both machines (battle_strip_unit, client first);
-host set_option battleAutoEnd true; the participant's own kill = test_battle_end_separate.guest_kill's recipe for the
+host set_option battleAutoEnd true; the participant's own kill = battle_end_helpers.guest_kill's recipe for the
 CLIENT-owned soldier squad[1] at SHOT_SEED -> KEEP (the last live alien) dead, murdererId == the shooter -> the autoEnd
 ending -> the host's DebriefingState; the shooter is promoted (pre-cell: rankString SHOOTER_RANK, kills >= 1).
 Boot 2 (port 47209) - row medal_screens, Coop_Medal_Test on both machines (shared_fixture.bring_up mods): the same
@@ -56,7 +56,7 @@ import session
 from session import battle_state, event_state
 import shared_fixture
 import test_battle_end_campaign as camp
-import test_battle_end_separate as BES
+import battle_end_helpers as BES
 from test_battle_end_campaign import stack, top, wait_until, record, strip_prefix, short
 
 # ----- pins -----

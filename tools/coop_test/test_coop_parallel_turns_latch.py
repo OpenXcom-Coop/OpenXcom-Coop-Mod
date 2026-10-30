@@ -109,7 +109,7 @@ def verdict(host, client, expected, geo_flags):
 # ---- no_wait_banner (#210: no turn / wait banner at a parallel side start) -------
 
 FORBIDDEN_BANNERS = ("'s turn", "waiting for", "spectator mode")  # banner fragments, matched case-blind
-END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (test_battle_end_separate)
+END_TURN_HALF = "END TURN 1/2"  # the host's tally text once the client pressed END TURN (battle_end_helpers.end_turn_both)
 
 
 def no_banners(host, client, seconds=8.0):

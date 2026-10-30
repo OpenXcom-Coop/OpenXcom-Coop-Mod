@@ -46,7 +46,7 @@ import session  # noqa: E402
 from session import battle_state, event_state  # noqa: E402
 import geo  # noqa: E402
 import pvp_fixture as PF  # noqa: E402
-import test_battle_end_separate as BES  # noqa: E402
+import battle_end_helpers as BES  # noqa: E402
 import repro_atom_side_begin as RSB  # noqa: E402
 
 # ----- pinned values, each measured on two boots -----

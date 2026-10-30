@@ -42,7 +42,7 @@ import geo
 import session
 import shared_fixture
 import test_battle_end_campaign as camp
-import test_battle_end_separate as separate_end
+import battle_end_helpers as separate_end
 import test_campaign_followups as fu
 from test_battle_end_campaign import stack, top, wait_until, short
 

@@ -46,7 +46,7 @@ import test_pvp_gm3 as G3F  # noqa: E402
 import test_ownerless_units as OWN  # noqa: E402
 import test_battle_gift as GF  # noqa: E402
 import test_battle_gift_keep as KEEP  # noqa: E402
-import test_battle_end_separate as SEP  # noqa: E402
+import battle_end_helpers as SEP  # noqa: E402
 
 PORT = "47602"                            # the coop session port (no other test uses it)
 STEP_S = 30                               # every bounded staging wait (measured: gifts land in 0.1 s)

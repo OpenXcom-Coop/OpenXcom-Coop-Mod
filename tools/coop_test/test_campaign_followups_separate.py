@@ -5,11 +5,11 @@ base screen (no CannotReequipState).
 
 Without this, the client's OK returns it to its own geoscape (coopSeparateReturn) and nothing follows.
 
-Fixture (one boot, port 47212): test_battle_end_separate._stage_common(..., guest_kill, ...) - the guest's OWN kill
-construction of test_battle_end_separate's guest_returns_alive row (SEED_P 2, MAP_FP_P, KEEP's TU 0) - with the
+Fixture (one boot, port 47212): battle_end_helpers._stage_common(..., guest_kill, ...) - the guest's OWN kill
+construction (SEED_P 2, MAP_FP_P, KEEP's TU 0) - with the
 data-only mod Coop_Medal_Test on both machines (make_user_dir mods, as test_battle_end_separate_diary.py): every
 surviving participant earns STR_COOP_MEDAL_TEST, and the guest's kill promotes it. Pre-cell (setup failure): that row's
-pre-cell guards plus the host's merged "Guest Zzz" copy with kills >= 1, rankString GUEST_RANK and the medal.
+pre-cell guards (battle_end_helpers._stage_common) plus the host's merged "Guest Zzz" copy with kills >= 1, rankString GUEST_RANK and the medal.
 
 The procedure and the cells are test_campaign_followups.py's (imported): both debrief_state snapshots, the client's
 OK (its stack right after it, every follow-up read with followup_state while on top, then dismissed), the host's OK +
@@ -38,7 +38,7 @@ import types
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session
-import test_battle_end_separate as BES
+import battle_end_helpers as BES
 import test_campaign_followups as fu
 from harness import GameClient, make_user_dir
 

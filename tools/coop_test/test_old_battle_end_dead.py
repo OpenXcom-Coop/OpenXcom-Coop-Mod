@@ -37,7 +37,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import test_old_battle_resume as OBR  # noqa: E402
 import test_old_battle_end as OBE  # noqa: E402
-import test_battle_end_separate as BES  # noqa: E402
+import battle_end_helpers as BES  # noqa: E402
 
 KEY = "46613"
 CLIENT_PRESS = False  # measured: the host's END TURN alone closes the side
