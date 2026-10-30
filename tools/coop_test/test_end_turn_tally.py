@@ -262,7 +262,7 @@ def run_seated_boot():
         print(f"[entry_baseline] OK: coopEndTurnText=='' and coopEndTurnArmed==False "
               f"on both machines; host tally is the reset() default {t0_tally}; "
               f"seat 0 has {len(seat0_units)} live unit(s), seat 1 has "
-              f"{len(seat1_units)} (the needed==2 fixture premise); 9/9 buckets "
+              f"{len(seat1_units)} (the needed==2 fixture premise); 10/10 buckets "
               "EQUAL")
 
         turn0 = hs0["turn"]

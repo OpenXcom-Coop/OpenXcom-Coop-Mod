@@ -636,7 +636,7 @@ def test_atom_turn_e2e():
         t0_h, _ = assert_hash_clean(host, client, full=True,
                                     what="at t=0, post-overlay-dismissal (turn-counter mirror)")
         print(f"PASS turn-counter mirror: battle_state.turn == 1 on BOTH machines and hash_now "
-              f"full={len(t0_h)}/9 buckets EQUAL post-overlay-dismissal")
+              f"full={len(t0_h)}/10 buckets EQUAL post-overlay-dismissal")
 
         # --- drive the client action via battle_intent ---
         # Captured HERE so run_no_reveal_case() can use "the host attached at
@@ -729,13 +729,14 @@ def test_atom_turn_e2e():
         n_units = assert_turret_parity(host, client, "after all actions")
         assert_reveal_parity(host, client, "after all actions")
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after all actions (turret rule, full 9/9)")
+                                      what="after all actions (turret rule, full 10/10)")
         print(f"PASS test_atom_turn_e2e: turn 1/1, directionTurret equal on all {n_units} "
-              f"units, fog of war in parity, and {len(post_h)}/9 buckets (saveBlob included, "
+              f"units, fog of war in parity, and {len(post_h)}/10 buckets (saveBlob included, "
               "binTiles now UNMASKED) EQUAL on both machines after all actions")
-        # The sweep is NINE buckets: the 7 BattleHashSet members + saveBlob + the dual-set reveal's `revealHostile`.
+        # The full sweep is ten buckets: the 8 BattleHashSet members (synced included), saveBlob and the dual-set
+        # reveal's `revealHostile`.
         assert len(post_h) == 10, (
-            f"hash_now full returned {len(post_h)} buckets, expected 9 "
+            f"hash_now full returned {len(post_h)} buckets, expected 10 "
             f"({sorted(post_h)}) - the hash bucket set changed under this test")
     finally:
         host.shutdown()
