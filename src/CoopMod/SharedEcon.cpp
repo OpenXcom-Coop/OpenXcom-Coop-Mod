@@ -1833,6 +1833,12 @@ void facDismantleApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 
 	if (fac->getRules()->isLift())
 	{
+		// The geoscape windows that hold this base or one of its crafts (a destination
+		// confirm, a target list, a craft's window) close first, as their CANCEL does.
+		std::vector<Target*> doomedTargets{ base };
+		for (Craft* doomedCraft : *base->getCrafts())
+			doomedTargets.push_back(doomedCraft);
+		coopCloseMirrorHolders(game, doomedTargets);
 		// Remove the whole base (index lock-step: both host and replica erase the
 		// same index; subsequent bases shift identically).
 		auto* bases = save->getBases();
