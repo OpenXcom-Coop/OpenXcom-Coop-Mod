@@ -1,26 +1,28 @@
 """a saved hotseat battle loads back as hotseat.
 
-Spec: docs rewrite/prompts/d247u_hotseat_battle.md, (f) `test_hotseat_save.py`, with the orchestrator rulings of session
-42155bc1 (R-D247-SC-1..2, docs rewrite/w2-resume-42155bc1/ruling-d247uc.md). Pins and the load route: docs
-rewrite/d247u-task0/sc/CONSTANTS.md (TASK 0 boots Ca / Cb); MISSION / RACE / SEED_A / A / A_DEST from rewrite/d247u-task0/sa/.
-
-TWO single-player processes on ONE user dir (label 49114, dir d247u_c; the label is not a port with a user dir), no co-op session.
-Process 1: bring-up (open_new_battle, newbattle_mission, newbattle_race, newbattle_hotseat on, set_seed SEED_A, newbattle_ok,
-close_briefing, the start overlays), X-COM END, the "Side: Aliens" screen (FX_STASH = X-COM's map), close it, player 2's real-UI
-walk of A to A_DEST (FA_SAVE = player 2's map), the real F5 quicksave (`save_game_ui {type quick_battle}`), quit. Process 2, same
-dir, the real load route: the LOAD button's `hidden` false, click_widget "Load Game", the list's `hidden` false, a
-click on the quicksave's row (found by its NAME in vanilla's order: reserved saves first, newest file time first; only row 0 is
-clickable, the row height is not readable), BattlescapeState on top with A on A_DEST (the turn-1 autosave has A elsewhere).
-Rows (one EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; a failed precondition FAILs "blocked: <reason>"):
-  common  save-common: 0 new crash files (lane crash folder); battle_state.coopSession false (process 1)
-  S1  S1-armed (get_coop.hotseat true), S1-turn (side 0, turn 1, every live alien faction 0), S1-fog (player 2's map == FA_SAVE)
-  S2  END, the side-0 screen, close, settle (<= 10 s): S2-handback (turn 2, side 0, every live unit faction == originalFaction),
-      S2-fogX (X-COM's map has every bit of FX_STASH). Another side's screen first = "blocked"; a settle timeout = "not settled".
-a battle save writes only non-void tiles (SavedBattleGame::save; Tile::isVoid: no part, smoke or item), so
-both map cells read only the non-void tiles (tile_census of every level + battle_items on tiles, in the loaded battle) and print
-the void-tile difference count as EVIDENCE.
-Red (C1, the S-B green build): S1-armed, S2-handback, S2-fogX FAIL; S1-turn, S1-fog, save-common PASS. Exit 0 only when every cell
-passes, else 2 (WV-D99 / WV-D100: one run, no SKIP, no exit 3). run it in the foreground to completion.
+TWO single-player processes on ONE user dir (label 49114, dir hotseat_save; the label is not a port with a user dir),
+no co-op session. Process 1: bring-up (open_new_battle, newbattle_mission, newbattle_race, newbattle_hotseat on,
+set_seed SEED_A, newbattle_ok, close_briefing, the start overlays), X-COM END, the "Side: Aliens" screen (FX_STASH =
+X-COM's map), close it, player 2's real-UI walk of A to A_DEST (FA_SAVE = player 2's map), the real F5 quicksave
+(`save_game_ui {type quick_battle}`), quit. Process 2, same dir, the real load route: the LOAD button's `hidden`
+false, click_widget "Load Game", the list's `hidden` false, a click on the quicksave's row (found by its NAME in
+vanilla's order: reserved saves first, newest file time first; only row 0 is clickable, the row height is not
+readable), BattlescapeState on top with A on A_DEST (the turn-1 autosave has A elsewhere). The setup values were
+measured. Rows (one EVIDENCE line per row, one PASS/FAIL line per cell, the row verdict; a failed precondition FAILs
+"blocked: <reason>"):
+  common: save-common: 0 new crash files (this harness slot's crash folder); battle_state.coopSession false (process
+      1).
+  save_and_load: save_and_load-armed (get_coop.hotseat true), save_and_load-turn (side 0, turn 1, every live alien
+      faction 0), save_and_load-fog (player 2's map == FA_SAVE).
+  next_xcom_turn: END, the side-0 screen, close, settle (<= 10 s): next_xcom_turn-handback (turn 2, side 0, every live
+      unit faction == originalFaction), next_xcom_turn-xcom_fog (X-COM's map has every bit of FX_STASH). Another
+      side's screen first = "blocked"; a settle timeout = "not settled".
+a battle save writes only non-void tiles (SavedBattleGame::save; Tile::isVoid: no part, smoke or item), so both map
+cells read only the non-void tiles (tile_census of every level + battle_items on tiles, in the loaded battle) and
+print the void-tile difference count as EVIDENCE.
+When broken: save_and_load-armed, next_xcom_turn-handback and next_xcom_turn-xcom_fog FAIL; save_and_load-turn,
+save_and_load-fog and save-common PASS. Exit 0 only when every cell passes, else 2 (one run, no SKIP, no exit 3). Run
+it in the foreground to completion.
 
 Run: python tools/coop_test/test_hotseat_save.py
 """
@@ -34,18 +36,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
 import session  # noqa: E402
 
-# Pins (CONSTANTS.md; S54 swaps logged there)
+# Measured setup values
 MISSION, RACE, SEED_A = "STR_LARGE_SCOUT", "STR_SECTOID", 2
 A, A_DEST = 1000004, (16, 36, 0)
-LABEL, UDIR = 49114, "d247u_c"
+LABEL, UDIR = 49114, "hotseat_save"
 QUICK, LOAD_BUTTON = "_quick_.asav", "Load Game"
 RESERVED = ("_quick_.asav", "_autogeo_", "_autobattle_")
 
 SDLK_HOME, SDLK_TAB = 278, 9
 CELLS = {
     "common": ["save-common"],
-    "S1": ["S1-armed", "S1-turn", "S1-fog"],
-    "S2": ["S2-handback", "S2-fogX"],
+    "save_and_load": ["save_and_load-armed", "save_and_load-turn", "save_and_load-fog"],
+    "next_xcom_turn": ["next_xcom_turn-handback", "next_xcom_turn-xcom_fog"],
 }
 RES = {}
 T0 = time.time()
@@ -270,7 +272,7 @@ def quick_row(files):
 
 def main():
     crash0 = crash_files()
-    gc = harness.GameClient("d247u_c", LABEL, harness.make_user_dir(UDIR))
+    gc = harness.GameClient("hotseat_save", LABEL, harness.make_user_dir(UDIR))
     B = Boot(gc)
     ctx = {"gc2": None}
     coop_session = None
@@ -293,14 +295,14 @@ def main():
             session.dismiss_battle_start_overlays(gc)
             B.wait("BattlescapeState on top", lambda: B.top() == "BattlescapeState", 30)
         except Exception as e:  # noqa: BLE001
-            B.capture("boot C: %r" % e)
-            for row in ("S1", "S2"):
+            B.capture("boot: %r" % e)
+            for row in ("save_and_load", "next_xcom_turn"):
                 fail_rest(row, "boot")
                 verdict(row)
             return
         coop_session = B.bst().get("coopSession")
         print("bring-up done %.1f s" % (time.time() - T0), flush=True)
-        for name, fn in (("S1", row_s1), ("S2", row_s2)):
+        for name, fn in (("save_and_load", row_save_and_load), ("next_xcom_turn", row_next_xcom_turn)):
             try:
                 fn(B, ctx)
             except Exception as e:  # noqa: BLE001
@@ -323,14 +325,14 @@ def main():
         verdict("common")
 
 
-def row_s1(B, ctx):
+def row_save_and_load(B, ctx):
     ev = {}
     gc = B.gc
     gc.ok({"cmd": "battle_action", "action": "end_turn_button"})
     nts = B.next_screen(40)
     if not nts or nts.get("side") != 1:
         ev["screen"] = nts and [nts.get("side"), nts.get("turn")]
-        return blocked("S1", "blocked: no 'Side: Aliens' screen in 40 s", ev, (B, "no side-1 screen"))
+        return blocked("save_and_load", "blocked: no 'Side: Aliens' screen in 40 s", ev, (B, "no side-1 screen"))
     ctx["FX_STASH"] = fx = B.bits()
     ev["ntsTexts"] = B.texts()
     gc.ok({"cmd": "close_nextturn"})
@@ -339,10 +341,11 @@ def row_s1(B, ctx):
     ev["p2"] = {"settled": settled, "side": b.get("side"), "turn": b.get("turn"), "selectedId": b.get("selectedId"), "stack": st,
                 "popups": pops, "aliens": {u["id"]: u["faction"] for u in live(us, 1)}}
     if not (settled and b.get("side") == 0 and all(u["faction"] == 0 for u in live(us, 1))):
-        return blocked("S1", "blocked: player 2's turn did not start (settled %r side %r)" % (settled, b.get("side")), ev)
+        return blocked("save_and_load", "blocked: player 2's turn did not start (settled %r side %r)"
+                       % (settled, b.get("side")), ev)
     ok, ev["walk"] = B.walk(A, A_DEST)
     if not ok:
-        return blocked("S1", "blocked: A's walk failed (%s)" % ev["walk"].get("fail"), ev)
+        return blocked("save_and_load", "blocked: A's walk failed (%s)" % ev["walk"].get("fail"), ev)
     ctx["FA_SAVE"] = fa = B.bits()
     ev["faFloor"], ev["fxFloor"] = nfloor(fa), nfloor(fx)
     t_req = time.time()
@@ -352,7 +355,7 @@ def row_s1(B, ctx):
         B.wait("quicksave written", lambda: "SaveGameState" not in B.states() and os.path.exists(qpath)
                and os.stat(qpath).st_mtime >= t_req - 1, 20)
     except TimeoutError:
-        return blocked("S1", "blocked: no %s written in 20 s" % QUICK, ev, (B, "no quicksave"))
+        return blocked("save_and_load", "blocked: no %s written in 20 s" % QUICK, ev, (B, "no quicksave"))
     gc.shutdown()  # quit process 1; its engine log is kept beside the second process's
     log = os.path.join(udir_path(), "openxcom.log")
     if os.path.exists(log):
@@ -360,24 +363,26 @@ def row_s1(B, ctx):
     ev["files"] = save_files()
 
     # ---- process 2 on the same user dir: the real load route ----
-    gc2 = ctx["gc2"] = harness.GameClient("d247u_c_load", LABEL, udir_path())
+    gc2 = ctx["gc2"] = harness.GameClient("hotseat_save_load", LABEL, udir_path())
     B2 = ctx["B2"] = Boot(gc2)
     gc2.spawn()
     gc2.connect()
     B2.wait("MainMenuState on top", lambda: B2.top() == "MainMenuState", 60)
     if not B2.shown(lambda w: w.get("text") == LOAD_BUTTON):
-        return blocked("S1", "button not shown: %s (stack %s)" % (LOAD_BUTTON, B2.states()), ev, (B2, "LOAD button not shown"))
+        return blocked("save_and_load", "button not shown: %s (stack %s)" % (LOAD_BUTTON, B2.states()), ev,
+                       (B2, "LOAD button not shown"))
     c = ev["loadClick"] = gc2.ok({"cmd": "click_widget", "match": LOAD_BUTTON})
     try:
         B2.wait("ListLoadState on top", lambda: B2.top() == "ListLoadState", 10)
     except TimeoutError:
-        return blocked("S1", "blocked: the load list did not open (stack %s)" % B2.states(), ev, (B2, "no load list"))
+        return blocked("save_and_load", "blocked: the load list did not open (stack %s)" % B2.states(), ev,
+                       (B2, "no load list"))
     lst = B2.shown(lambda w: "TextList" in w.get("type", ""))
     row, why = quick_row(ev["files"])
     ev["list"], ev["quickRow"] = lst and {k: lst[k] for k in ("x", "y", "w", "h")}, row
     if not lst or row != 0:
-        return blocked("S1", "button not shown: the load list" if not lst else "blocked: the quicksave is not row 0 (row %r %s)"
-                       % (row, why), ev, (B2, "load list"))
+        return blocked("save_and_load", "button not shown: the load list" if not lst
+                       else "blocked: the quicksave is not row 0 (row %r %s)" % (row, why), ev, (B2, "load list"))
     sx, sy = c["winX"] / float(c["baseX"]), c["winY"] / float(c["baseY"])
     wx, wy = int((lst["x"] + lst["w"] / 2.0) * sx), int((lst["y"] + 3) * sy)  # row 0: the top line of the list
     ev["rowClick"] = [wx, wy]
@@ -386,7 +391,8 @@ def row_s1(B, ctx):
         B2.wait("BattlescapeState after the load", lambda: B2.states()[-1:] == ["BattlescapeState"]
                 and "LoadGameState" not in B2.states(), 30)
     except TimeoutError:
-        return blocked("S1", "blocked: the load did not reach BattlescapeState (stack %s)" % B2.states(), ev, (B2, "load"))
+        return blocked("save_and_load", "blocked: the load did not reach BattlescapeState (stack %s)" % B2.states(), ev,
+                       (B2, "load"))
     time.sleep(0.3)
     b = B2.bst()
     us = {u["id"]: u for u in b.get("units", [])}
@@ -397,29 +403,32 @@ def row_s1(B, ctx):
                     "selectedId": b.get("selectedId"), "A": [a.get("x"), a.get("y"), a.get("z")],
                     "aliens": {u["id"]: u["faction"] for u in live(us, 1)}}
     if (a.get("x"), a.get("y"), a.get("z")) != A_DEST:
-        return blocked("S1", "blocked: the loaded battle is not the quicksave (A at %s)" % ev["loaded"]["A"], ev)
+        return blocked("save_and_load", "blocked: the loaded battle is not the quicksave (A at %s)" % ev["loaded"]["A"],
+                       ev)
     p2 = B2.bits()
     idx, n = B2.nonvoid()
     ctx.update(idx=idx, n=n, loaded=True)
     eq, voidd = compare(p2, fa, idx, n, False)
     ev["fog"] = {"nonVoidTiles": len(idx), "loadedFloor": nfloor(p2), "voidTilesDiffering": voidd}
-    evidence("S1", **ev)
-    cell("S1-armed", hs is True, "hotseat %r" % hs)
+    evidence("save_and_load", **ev)
+    cell("save_and_load-armed", hs is True, "hotseat %r" % hs)
     al = live(us, 1)
-    cell("S1-turn", b.get("side") == 0 and b.get("turn") == 1 and al and all(u["faction"] == 0 for u in al),
+    cell("save_and_load-turn", b.get("side") == 0 and b.get("turn") == 1 and al and all(u["faction"] == 0 for u in al),
          "side %r turn %r alien factions %s" % (b.get("side"), b.get("turn"), [u["faction"] for u in al]))
-    cell("S1-fog", eq, "player 2's map == FA_SAVE on %d non-void tiles: %r (void tiles differing %d)" % (len(idx), eq, voidd))
+    cell("save_and_load-fog", eq,
+         "player 2's map == FA_SAVE on %d non-void tiles: %r (void tiles differing %d)" % (len(idx), eq, voidd))
 
 
-def row_s2(B, ctx):
+def row_next_xcom_turn(B, ctx):
     if not ctx.get("loaded"):
-        return blocked("S2", "blocked: the quicksave was never loaded (S1)", {"reason": "S1"})
+        return blocked("next_xcom_turn", "blocked: the quicksave was never loaded (save_and_load)",
+                       {"reason": "save_and_load"})
     B2 = ctx["B2"]
     B2.gc.ok({"cmd": "battle_action", "action": "end_turn_button"})
     nts = B2.next_screen(60)
     if not nts or nts.get("side") != 0:
         ev = {"screen": nts and [nts.get("side"), nts.get("turn")], "texts": B2.texts() if nts else None, "stack": B2.states()}
-        return blocked("S2", "blocked: the side-%s screen came first (the X-COM screen never came)"
+        return blocked("next_xcom_turn", "blocked: the side-%s screen came first (the X-COM screen never came)"
                        % (nts.get("side") if nts else "none"), ev)
     nts_txt = B2.texts()
     B2.gc.ok({"cmd": "close_nextturn"})
@@ -428,15 +437,17 @@ def row_s2(B, ctx):
     us = {u["id"]: u for u in b.get("units", [])}
     mism = [[u["id"], u["faction"], u["originalFaction"]] for u in us.values() if not u["isOut"] and u["faction"] != u["originalFaction"]]
     sup, voidd = compare(xm, ctx["FX_STASH"], ctx["idx"], ctx["n"], True) if xm else (False, None)
-    evidence("S2", ntsSide=nts.get("side"), ntsTurn=nts.get("turn"), ntsTexts=nts_txt, settled=settled, side=b.get("side"),
-             turn=b.get("turn"), stack=st, popups=pops, mismatch=mism, xFloor=nfloor(xm),
+    evidence("next_xcom_turn", ntsSide=nts.get("side"), ntsTurn=nts.get("turn"), ntsTexts=nts_txt, settled=settled,
+             side=b.get("side"), turn=b.get("turn"), stack=st, popups=pops, mismatch=mism, xFloor=nfloor(xm),
              fxFloor=nfloor(ctx["FX_STASH"]), voidTilesMissing=voidd)
     if not settled:  # no vacuous pass after a timed-out settle
-        fail_rest("S2", "not settled in 10 s: side %r turn %r busy %r stack %s" % (b.get("side"), b.get("turn"), b.get("isBusy"), st))
+        fail_rest("next_xcom_turn", "not settled in 10 s: side %r turn %r busy %r stack %s"
+                  % (b.get("side"), b.get("turn"), b.get("isBusy"), st))
         return
-    cell("S2-handback", b.get("turn") == 2 and b.get("side") == 0 and not mism,
+    cell("next_xcom_turn-handback", b.get("turn") == 2 and b.get("side") == 0 and not mism,
          "turn %r side %r faction mismatches %s" % (b.get("turn"), b.get("side"), mism))
-    cell("S2-fogX", sup, "X-COM's map has FX_STASH on %d non-void tiles: %r (void tiles missing %r)" % (len(ctx["idx"]), sup, voidd))
+    cell("next_xcom_turn-xcom_fog", sup,
+         "X-COM's map has FX_STASH on %d non-void tiles: %r (void tiles missing %r)" % (len(ctx["idx"]), sup, voidd))
 
 
 if __name__ == "__main__":
