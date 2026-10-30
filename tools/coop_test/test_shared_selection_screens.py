@@ -17,9 +17,9 @@ nothing when the list holds only the other player's soldier row (TransferItemsSt
 Fixtures (AMENDMENT P7-8 section 4.2; a pre-cell failure is a setup failure: one CAPTURE line, every row of the boot
 FAILs "pre-cell"):
   XFER = SEL (test_shared_selection.sel_pre on shared_fixture.bring_up(tag, (0, 0, "47262")): the first base-0
-         soldier owned by seat 1, off its craft on both) + test_shared_page3.fx_b (the client builds "Second Base",
-         the host fac_builds its General Stores, buildTime 0 on both, R-D1-2). Each row turns every hold off,
-         dismisses any box, cancels any base screen on both, restores the boot's funds on both (client first),
+         soldier owned by seat 1, off its craft on both) + test_shared_page3.second_base_fixture (the client builds
+         "Second Base", the host fac_builds its General Stores, buildTime 0 on both, R-D1-2). Each row turns every
+         hold off, dismisses any box, cancels any base screen on both, restores the boot's funds on both (client first),
          restages STR_RIFLE x XFER_STAGE with give_items on both (client first, S25), then opens the REAL screens on
          both (host first): screen_push {transfer_base, base 0} (BasescapeState :686), screen_pick_base {0, 1}
          (TransferBaseState :162) -> TransferItemsState, key xfer|n|0|1.
@@ -479,7 +479,7 @@ def open_cont(host, client, ctx):
 def xfer_pre(js, ctx):
     """XFER pre-cell: SEL's soldier off its craft, FX-B's second base with stores, the roster names, the boot funds."""
     e1.sel_pre(js, ctx)
-    p3.fx_b(js, ctx)
+    p3.second_base_fixture(js, ctx)
     ctx["names"] = roster_names(js.host)
     ctx["funds0"] = {gc.name: funds(gc) for gc in (js.host, js.client)}
     if len(ctx["names"]) != 2 or ctx["funds0"]["host"] != ctx["funds0"]["client"]:
