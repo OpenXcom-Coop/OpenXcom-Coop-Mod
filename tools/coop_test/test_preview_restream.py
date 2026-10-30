@@ -1,25 +1,29 @@
-"""W2-H21c (F8883 routed, F8968; spec rewrite/prompts/w2h21c_deployment_preview_recopy.md (f), QH21c-2 a, QH21c-3 a, QH21c-4 a;
-TASK 0 rewrite/w2h21c-task0/CONSTANTS.md): in SHARED, a world copy the host sends while ITS Ufopaedia craft deployment preview is open
-carries the preview battle; its stand-in soldiers (ids -1..-n) are in no base, so the second player's load builds a unit from a null
-soldier and crashes (TASK 0, every red construction: Soldier::getName <- BattleUnit::BattleUnit <- SavedBattleGame::load; BLOB unit ids
--1..-14). A copy landing on the second player's OWN preview closes it like any screen (F8883's premise; guard).
-  Boot A bring_up("w2h21pva", (49512, 49513, 47965)):
-    H21c-G (GUARD; TASK 0 0/3 deaths) PV(client); client force_resync (role replica, sent true); within W the client stack ==
-        [GeoscapeState], has_battle false, alive HOLD s more, no CRASH; CL in order push / pop LoadGameState, pop BattlescapeState,
-        pop GeoscapeState, push GeoscapeState; the host alive on [GeoscapeState].
-    H21c-1 (named RED; TASK 0 3/3 client crashes) PV(host); HOST force_resync (role host, ok); the host right after the reply: alive,
-        BattlescapeState on its stack, isPreview true; RED 1: BLOB noBattle; RED 2: the G client cell; CL in order push / pop
-        LoadGameState, push GeoscapeState; END(host) -> [GeoscapeState], has_battle false; js.finish() (worlds equal, zero disk).
-  Boot B bring_up("w2h21pvb", (49514, 49515, 47968)):
-    H21c-2 (named RED; TASK 0 3/3 client crashes) PV(host); client force_resync (role replica, sent true); within W the host's
-        shared_resync_stats.requests +1, alive, BattlescapeState on its stack, isPreview true; then every H21c-1 cell after the reply.
-PV = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing (<= 2 s per probe, SETTLE 0.3 s
-before a key or click, F2888); END = end_turn_button, StatsForNerdsState + has_battle false, keyCancel to depth 0; never close_screens on a
-preview. W = 10 s at 0.25 s polls, HOLD = 2 s. CL = the client's openxcom.log after the trigger. BLOB = the host's dump_coop_file
-{shared_world} at host.user_dir/xcom1/shared_world; noBattle = no line `battleGame:`. CRASH = new crashlogs/crash_*.log. Setup guard per
-boot: stacks [GeoscapeState], localSeat 0 / 1, has_battle false (a miss fails the boot's rows `boot`). A dead client leaves its row's
-later cells "not reached" (its crash rc is tolerated at shutdown). EVIDENCE before each verdict; a failed row prints ONE CAPTURE line;
-every row runs after a failure; ONE run; exit 0 iff every row passes, else 2.
+"""test_preview_restream.py: a SHARED world copy sent while a Ufopaedia craft deployment preview is open. Without the
+fix, a world copy the host sends while ITS preview is open carries the preview battle; its stand-in soldiers (ids
+-1..-n) are in no base, so the second player's load builds a unit from a null soldier and crashes (measured without
+the fix, every run: Soldier::getName <- BattleUnit::BattleUnit <- SavedBattleGame::load; BLOB unit ids -1..-14). A
+copy landing on the second player's OWN preview closes it like any screen (a guard row).
+  The first boot, bring_up("preview_restream", (49512, 49513, 47965)):
+    client_preview_closes (a guard; 0/3 deaths without the fix) PV(client); client force_resync (role replica, sent
+        true); within W the client stack == [GeoscapeState], has_battle false, alive HOLD s more, no CRASH; CL in
+        order push / pop LoadGameState, pop BattlescapeState, pop GeoscapeState, push GeoscapeState; the host alive on
+        [GeoscapeState].
+    host_preview_host_push (3/3 client crashes without the fix) PV(host); HOST force_resync (role host, ok); the host
+        right after the reply: alive, BattlescapeState on its stack, isPreview true; host copy: BLOB noBattle; client
+        load: the client cell of client_preview_closes; CL in order push / pop LoadGameState, push GeoscapeState;
+        END(host) -> [GeoscapeState], has_battle false; js.finish() (worlds equal, zero disk).
+  The second boot, bring_up("preview_restream_request", (49514, 49515, 47968)):
+    host_preview_client_request (3/3 client crashes without the fix) PV(host); client force_resync (role replica, sent
+        true); within W the host's shared_resync_stats.requests +1, alive, BattlescapeState on its stack, isPreview
+        true; then every host_preview_host_push cell after the reply.
+PV = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing (<= 2 s per
+probe, SETTLE 0.3 s before a key or click); END = end_turn_button, StatsForNerdsState + has_battle false, keyCancel to
+depth 0; never close_screens on a preview. W = 10 s at 0.25 s polls, HOLD = 2 s. CL = the client's openxcom.log after
+the trigger. BLOB = the host's dump_coop_file {shared_world} at host.user_dir/xcom1/shared_world; noBattle = no line
+`battleGame:`. CRASH = new crashlogs/crash_*.log. Setup guard per boot: stacks [GeoscapeState], localSeat 0 / 1,
+has_battle false (a miss fails the boot's rows `boot`). A dead client leaves its row's later cells "not reached" (its
+crash rc is tolerated at shutdown). EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs
+after a failure; ONE run; exit 0 iff every row passes, else 2.
 """
 
 import json
@@ -30,18 +34,18 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
-import session  # noqa: E402  (W2-U9: wait_widget_ready)
+import session  # noqa: E402  (wait_widget_ready)
 import shared_fixture  # noqa: E402
 import test_client_research as cr  # noqa: E402  (main-guarded: pd*, read_key)
 import test_shared_base_equip as sbe  # noqa: E402  (main-guarded)
 
-PORTS_A, PORTS_B = (49512, 49513, 47965), (49514, 49515, 47968)
+PORTS_PREVIEW, PORTS_REQUEST = (49512, 49513, 47965), (49514, 49515, 47968)
 W, POLL, HOLD, STEP, SETTLE = 10.0, 0.25, 2.0, 2.0, 0.3
 GEO, BS, SFN, BRF = "GeoscapeState", "BattlescapeState", "StatsForNerdsState", "BriefingState"
 PUSH, POP = "push class OpenXcom::", "pop  class OpenXcom::"
-CL_G = [PUSH + "LoadGameState", POP + "LoadGameState", POP + BS, POP + GEO, PUSH + GEO]
-CL_1 = [PUSH + "LoadGameState", POP + "LoadGameState", PUSH + GEO]
-CRASH_DIR = harness.CRASH_DIR  # (W2-U8h F9563: this lane's own crash folder)
+CL_CLIENT_PREVIEW = [PUSH + "LoadGameState", POP + "LoadGameState", POP + BS, POP + GEO, PUSH + GEO]
+CL_HOST_PREVIEW = [PUSH + "LoadGameState", POP + "LoadGameState", PUSH + GEO]
+CRASH_DIR = harness.CRASH_DIR  # this harness slot's own crash folder
 q, stack, short, wait_until = sbe.q, sbe.stack, sbe.short, sbe.wait_until
 
 def alive(gc):
@@ -62,8 +66,9 @@ def log_lines(gc, n0=0):
     except OSError as e:
         return ["<%s>" % e]
 
-def ui(lines):  # the screen record, the SHARED lines and any T0-I line, message part only
-    return [ln.split("\t")[-1] for ln in lines if "[coop-ui]" in ln or "[SHARED]" in ln or "[h21c-t0]" in ln]
+def ui(lines):  # the screen record, the SHARED lines and any [preview-debug] line (no engine line carries that tag
+    # now; it is kept for temporary debug lines), message part only
+    return [ln.split("\t")[-1] for ln in lines if "[coop-ui]" in ln or "[SHARED]" in ln or "[preview-debug]" in ln]
 
 def in_order(lines, seq):  # every seq entry in some line, in seq's order
     it = iter(lines)
@@ -121,36 +126,39 @@ def pv(gc, keys):
     def ok(name, cond, val):
         ev[name] = val if cond else ["MISSED", val]
         return bool(cond)
-    if not (ok("P1 geoscape", stack(gc) == [GEO], stack(gc))
-            and ok("P2 start", cr.pd_key(gc, keys["ufo"]) and cr.pd_wait_kind(gc, "start")[0], cr.pd_brief(cr.pd(gc)))):
+    if not (ok("geoscape", stack(gc) == [GEO], stack(gc))
+            and ok("ufopaedia start", cr.pd_key(gc, keys["ufo"]) and cr.pd_wait_kind(gc, "start")[0],
+                   cr.pd_brief(cr.pd(gc)))):
         return False, ev
-    # W2-U9 (F21000, R-H68-2 class): UfopaediaStartState's POPUP window hides its buttons while it opens and a hidden
-    # button drops the click; wait until "X-COM CRAFT" shows (was a fixed SETTLE).
+    # UfopaediaStartState's POPUP window hides its buttons while it opens and a hidden button drops the click: wait
+    # until "X-COM CRAFT" shows.
     session.wait_widget_ready(gc, "X-COM CRAFT")
     sec = q(gc, {"cmd": "click_widget", "match": "X-COM CRAFT"})
     cr.pd_wait_kind(gc, "select")
     p = cr.pd(gc)
-    if not ok("P3 select", sec.get("ok") and p.get("kind") == "select" and "SKYRANGER" in (p.get("rows") or []),
+    if not ok("craft list", sec.get("ok") and p.get("kind") == "select" and "SKYRANGER" in (p.get("rows") or []),
               [sec.get("text"), p.get("rows")]):
         return False, ev
     rc = cr.pd_row_click(gc, dict(p, section=sec), "SKYRANGER")
-    if not ok("P4 article", rc.get("opened") and (rc.get("at") or {}).get("article") == "STR_SKYRANGER", rc.get("at")):
+    if not ok("skyranger article", rc.get("opened") and (rc.get("at") or {}).get("article") == "STR_SKYRANGER",
+              rc.get("at")):
         return False, ev
     k = cr.pd_key(gc, keys["ufo"]) and cr.pd_wait_kind(gc, "nerds")[0]
     btn = [w.get("text") for w in q(gc, {"cmd": "list_widgets"}).get("widgets") or [] if w.get("visible")
            and "TextButton" in str(w.get("type")) and str(w.get("text")).startswith("Preview")]
-    if not ok("P5 nerds", k and len(btn) == 1, [cr.pd_brief(cr.pd(gc)), btn]):
+    if not ok("stats for nerds", k and len(btn) == 1, [cr.pd_brief(cr.pd(gc)), btn]):
         return False, ev
     time.sleep(SETTLE)
     c = q(gc, {"cmd": "click_widget", "match": "preview"})
-    if not ok("P6 briefing", c.get("ok") and wait_until(lambda: on_top(gc, BRF), STEP, 0.05), stack(gc)):
+    if not ok("preview briefing", c.get("ok") and wait_until(lambda: on_top(gc, BRF), STEP, 0.05), stack(gc)):
         return False, ev
     cb, dis = q(gc, {"cmd": "close_briefing"}), 0
     while not wait_until(lambda: on_top(gc, BS), STEP, 0.05) and dis < 3:
         dis += 1
         q(gc, {"cmd": "dismiss_popup"})
     pre, hb = q(gc, {"cmd": "battle_state"}).get("isPreview"), q(gc, {"cmd": "world_state"}).get("has_battle")
-    return ok("P7 preview", cb.get("ok") and on_top(gc, BS) and pre is True and hb is True, [stack(gc), pre, hb, dis]), ev
+    return ok("preview battle", cb.get("ok") and on_top(gc, BS) and pre is True and hb is True,
+              [stack(gc), pre, hb, dis]), ev
 
 def end_preview(gc, keys):
     """END(gc) -> (ok, record); dismiss_popup only for a top other than BattlescapeState / StatsForNerdsState"""
@@ -166,7 +174,7 @@ def end_preview(gc, keys):
     st = stack(gc)
     return bool(b.get("ok") and nerds and st == [GEO]), {"reply": b.get("ok"), "nerds": nerds, "close": pc and pc["steps"], "stack": st}
 
-def client_cells(r, x, t1, n_cl, before, seq, red, bl=None):
+def client_cells(r, x, t1, n_cl, before, seq, note, bl=None):
     """poll W s (death, or [GeoscapeState] held HOLD s after the LoadGameState ran); the client's cells; False = it died"""
     reached, tl, dead, geo_ms = None, [], None, None
     while True:
@@ -178,7 +186,7 @@ def client_cells(r, x, t1, n_cl, before, seq, red, bl=None):
             dead = tl[-1][0]
             time.sleep(0.5)  # the crash handler's files
             break
-        reached = (reached or now) if s == [GEO] and in_order(log_lines(x.client, n_cl), CL_1[:2]) else None
+        reached = (reached or now) if s == [GEO] and in_order(log_lines(x.client, n_cl), CL_HOST_PREVIEW[:2]) else None
         if reached and now - reached >= HOLD:
             geo_ms = round((reached - t1) * 1000)
             break
@@ -188,18 +196,21 @@ def client_cells(r, x, t1, n_cl, before, seq, red, bl=None):
     cl, crash = log_lines(x.client, n_cl), crash_info(before)
     r.ev.update({"client timeline": tl, "CL": ui(cl), "CRASH": crash, "died ms": dead, "geoscape ms": geo_ms})
     hb = None if dead else q(x.client, {"cmd": "world_state"}).get("has_battle")
-    r.cell(f"{red}within {W:.0f} s the client stack == [{GEO}], has_battle false, alive {HOLD:.0f} s more, no CRASH",
+    r.cell(f"{note}within {W:.0f} s the client stack == [{GEO}], has_battle false, alive {HOLD:.0f} s more, no CRASH",
            not dead and geo_ms is not None and hb is False and not crash,
            {"died ms": dead, "timeline": tl[-4:], "has_battle": hb, "CRASH": crash})
     if dead:
-        r.ev["not reached (the client died)"] = "CL order, END(host), js.finish" if seq is CL_1 else "CL order, host cells"
+        r.ev["not reached (the client died)"] = ("CL order, END(host), js.finish" if seq is CL_HOST_PREVIEW
+                                                 else "CL order, host cells")
         r.cap.update(capture(x, n_cl, crash, bl))
         return False
     return r.cell("CL in order " + " -> ".join(s.split("OpenXcom::")[-1] for s in seq), in_order(cl, seq), ui(cl)[-14:])
 
 def row(r, x, js, mode):
-    """mode G: the client's preview + the client's force_resync; 1: the host's preview + the HOST's; 2: the host's + the client's"""
-    pg, trig = (x.client, x.client) if mode == "G" else (x.host, x.host if mode == "1" else x.client)
+    """mode client_preview_closes: the client's preview + the client's force_resync; host_preview_host_push: the
+    host's preview + the HOST's; host_preview_client_request: the host's + the client's"""
+    pg, trig = ((x.client, x.client) if mode == "client_preview_closes"
+                else (x.host, x.host if mode == "host_preview_host_push" else x.client))
     ok, r.ev[f"PV({pg.name})"] = pv(pg, x.keys[pg.name])
     if not r.cell(f"guard: PV({pg.name}) reached the preview", ok, r.ev[f"PV({pg.name})"]):
         return r.cap.update(capture(x, 0, []))
@@ -209,23 +220,24 @@ def row(r, x, js, mode):
     want = {"role": "host", "ok": True} if trig is x.host else {"role": "replica", "sent": True}
     if not r.cell(f"{trig.name} force_resync -> {want}", all(rep.get(a) == b for a, b in want.items()), rep):
         return r.cap.update(capture(x, n_cl, []))
-    if mode == "G":
-        if client_cells(r, x, t1, n_cl, before, CL_G, ""):
+    if mode == "client_preview_closes":
+        if client_cells(r, x, t1, n_cl, before, CL_CLIENT_PREVIEW, ""):
             r.cell("the host alive and on [GeoscapeState]", alive(x.host) and stack(x.host) == [GEO], stack(x.host))
         if r.fails and not r.cap:
             r.cap.update(capture(x, n_cl, r.ev.get("CRASH")))
         return
     reqs = lambda: q(x.host, {"cmd": "shared_resync_stats"}).get("requests") or 0  # noqa: E731
-    served = wait_until(lambda: reqs() >= req0 + 1, W, 0.05) if mode == "2" else True
+    served = wait_until(lambda: reqs() >= req0 + 1, W, 0.05) if mode == "host_preview_client_request" else True
     h = r.ev["host after the reply"] = {"alive": alive(x.host), "stack": stack(x.host), "requests": [req0, reqs()],
                                         "isPreview": q(x.host, {"cmd": "battle_state"}).get("isPreview")}
-    what = "the host served it during its preview (requests +1, alive" if mode == "2" else "the host right after the reply (alive"
+    what = ("the host served it during its preview (requests +1, alive" if mode == "host_preview_client_request"
+            else "the host right after the reply (alive")
     r.cell(f"{what}, {BS} on its stack, isPreview true)", served and h["alive"] and BS in h["stack"] and h["isPreview"] is True, h)
     bl = blob(x.host)
     r.ev["BLOB"] = {k: v for k, v in bl.items() if k != "head"}
-    r.cell("FIX 1: BLOB noBattle (the host's copy carries no preview battle)", bl["reply"].get("ok") and bl["battleGame"] is False,
-           r.ev["BLOB"])
-    if not client_cells(r, x, t1, n_cl, before, CL_1, "FIX 2: ", bl):
+    r.cell("host copy: BLOB noBattle (the host's copy carries no preview battle)",
+           bl["reply"].get("ok") and bl["battleGame"] is False, r.ev["BLOB"])
+    if not client_cells(r, x, t1, n_cl, before, CL_HOST_PREVIEW, "client load: ", bl):
         return
     ok, r.ev["END(host)"] = end_preview(x.host, x.keys["host"])
     r.cell("END(host) -> [GeoscapeState], has_battle false", ok and q(x.host, {"cmd": "world_state"}).get("has_battle") is False,
@@ -290,10 +302,15 @@ def run_boot(tag, ports, rows, modes, results, walls):
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    red = "named red: 3/3 client crashes (Soldier::getName <- BattleUnit::BattleUnit <- SavedBattleGame::load), BLOB ids -1..-14"
-    run_boot("w2h21pva", PORTS_A, [Row("H21c-G", "guard: 0/3 deaths"), Row("H21c-1", red)], ["G", "1"], results, walls)
-    run_boot("w2h21pvb", PORTS_B, [Row("H21c-2", red)], ["2"], results, walls)
-    failed = [rid for rid in ("H21c-G", "H21c-1", "H21c-2") if not results.get(rid)]
+    note = ("without the fix: 3/3 client crashes (Soldier::getName <- BattleUnit::BattleUnit <- "
+            "SavedBattleGame::load), BLOB ids -1..-14")
+    run_boot("preview_restream", PORTS_PREVIEW,
+             [Row("client_preview_closes", "guard: 0/3 deaths"), Row("host_preview_host_push", note)],
+             ["client_preview_closes", "host_preview_host_push"], results, walls)
+    run_boot("preview_restream_request", PORTS_REQUEST, [Row("host_preview_client_request", note)],
+             ["host_preview_client_request"], results, walls)
+    failed = [rid for rid in ("client_preview_closes", "host_preview_host_push", "host_preview_client_request")
+              if not results.get(rid)]
     print(f"\ntest_preview_restream: {3 - len(failed)}/3 passed (fail={failed}) walls {json.dumps(walls)} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 2 if failed else 0
