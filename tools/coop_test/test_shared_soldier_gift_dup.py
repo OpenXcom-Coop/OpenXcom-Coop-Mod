@@ -153,10 +153,9 @@ def main():
                         timeout=30, interval=0.3)
         print("PASS gift: soldier bounced host -> client -> host in-battle on both machines")
 
-        # R5-U5 S-B (docs rewrite/prompts/r5u5_battle_gift_order.md (f) DUP): one ONE-WAY gift as well - the client
-        # gives its own soldier to the host; after the mission it is the host's on both machines (r5-T8: a SHARED
-        # in-battle gift is a live ownership flip the post-battle world carries; aud-E1-13: a gift moves the soldier to
-        # the other roster).
+        # One ONE-WAY gift as well - the client gives its own soldier to the host; after the mission it is the host's
+        # on both machines (a SHARED in-battle gift is a live ownership flip the post-battle world carries, and a gift
+        # moves the soldier to the other roster).
         client_sid = squad[1]
         cu2 = _unit_for(client, client_sid)
         assert cu2 is not None, f"client soldier {client_sid} not deployed as a battle unit"
