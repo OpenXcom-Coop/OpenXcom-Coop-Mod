@@ -1,20 +1,20 @@
-"""R4-L6 row SV1: a quick-save during the host's own autoshot waits for the shots,
-and the resumed battle holds the after-shot state.
+"""A quick-save during the host's own autoshot waits for the shots, and the resumed battle holds the after-shot
+state.
 
-Spec: docs repo rewrite/prompts/r4l6_lifecycle_rows_lint.md section (f) SV1, with AMENDMENT R4-L6-1 M1 (RESUME through
-session.press_back_when_shown), M2 (every staging pair waits on the seq barrier) and M3 (one lane crash folder).
-Constants: rewrite/r4l6-task0/CONSTANTS.md (T0-4, three boots at 5e80b4965: deferral +1 on 3/3, chain 7.4-11.5 s,
-clip 20 -> 17 on 3/3, no unit hit).
+Measured over three boots: the deferral count +1 on 3/3, the shot chain 7.4-11.5 s, the clip 20 -> 17 on 3/3, no
+unit hit.
 
 Fixture: a SEPARATE campaign guest battle (session.bring_up_separate_guest_battle, key 48562). S = the host squad's
 first battle unit, stripped on both (client first, deleted sets equal, barrier), given a rifle + clip and full TU on
 both (test_delta_core.both), the host's fire dial at 1. T = the tile AIM_STEPS steps from S along its facing,
 clamped into the map, same level. The host fires an autoshot at T and requests a quick-save at once. After the shot
 context closes and the deferred save is written, `post` is recorded on both; both quit; the host resumes the file
-with a client on an EMPTY user dir (key 48563) and presses RESUME.
+with a client on an EMPTY user dir (key 48563) and presses RESUME (session.press_back_when_shown). Every staging pair
+waits on the seq barrier.
 
-Cells: S1 deferred, S2 the chain ran, S3 the file holds the after-shot state, S4 pre-quit agreement, S5 resumed,
-S6 the resumed battle holds `post`, S7 no shot replayed on the client, S8 plays on, S9 zero-disk + no crash.
+Cells: save_deferred, shot_chain_ran, file_after_shot (the file holds the after-shot state), machines_agree (pre-quit
+agreement), battle_resumed, resume_holds_post (the resumed battle holds `post`), no_shot_replayed (no shot replayed on
+the client), plays_on, no_client_save_no_crash (zero-disk + no crash).
 One EVIDENCE line, then one line per cell, then the verdict. Exit 0 only when every cell passes, else 2.
 
 Run:  python tools/coop_test/test_save_mid_shot.py
@@ -31,9 +31,9 @@ import session  # noqa: E402
 import test_delta_core as dc  # noqa: E402
 
 KEY, RESUME_KEY = "48562", "48563"
-AIM_STEPS = 4            # CONSTANTS.md T0-4: the target rule
-AUTO_SHOTS = 3           # CONSTANTS.md T0-4: an autoshot spends 3 rounds of the clip (20 -> 17 on 3/3 boots)
-CHAIN_MIN_S = 1.0        # CONSTANTS.md T0-4 bar: the chain outlasts SaveGameState's warm-up (7.4-11.5 s measured)
+AIM_STEPS = 4            # the target rule: T is this many steps from S along its facing
+AUTO_SHOTS = 3           # an autoshot spends 3 rounds of the clip (20 -> 17 on 3/3 boots)
+CHAIN_MIN_S = 1.0        # the chain outlasts SaveGameState's warm-up (7.4-11.5 s measured)
 TU_FULL = 255            # battle_set_unit_state tu: clamped to the unit's max TU
 FIRE_DIAL = 1            # the host's battleFireSpeed (seat 0): the slowest shot
 EQUAL = "battle_ready saveBlob EQUAL"
@@ -64,7 +64,7 @@ def wait_seat_dial(host, client, seat, which, value, timeout=15):
 
 
 def strip_both(host, client, uid):
-    """test_client_items.strip_both's shape: client first, deleted sets equal, then the seq barrier (M2)."""
+    """test_client_items.strip_both's shape: client first, deleted sets equal, then the seq barrier."""
     rc = client.cmd({"cmd": "battle_strip_unit", "unit": uid})
     rh = host.cmd({"cmd": "battle_strip_unit", "unit": uid})
     assert rh.get("ok") and rc.get("ok"), f"battle_strip_unit {uid}: host={rh} client={rc}"
@@ -76,7 +76,7 @@ def strip_both(host, client, uid):
 
 def post_snap(gc, sid, clip):
     """S's x/y/z/tu/status, the clip's qty, turn, side, mapFingerprint, every unit's id/status/health/stun/x/y/z and the
-    turn mode (spec (f) SV1 `post`)."""
+    turn mode (`post`)."""
     bs = session.battle_state(gc)
     s = next(u for u in bs["units"] if u["id"] == sid)
     return {"S": {k: s.get(k) for k in ("x", "y", "z", "tu", "status")}, "clipQty": item_qty(gc, clip),
@@ -123,8 +123,8 @@ def stack(gc):
 
 
 def main():
-    host_dir = make_user_dir("r4sv_host")
-    client_dir = make_user_dir("r4sv_client")
+    host_dir = make_user_dir("save_mid_shot_host")
+    client_dir = make_user_dir("save_mid_shot_client")
     host = GameClient("host", 1, host_dir)
     client = GameClient("client", 2, client_dir)
     client2_dir = None
@@ -182,36 +182,39 @@ def main():
         ev["pending"], ev["newFiles"] = pending, sorted(new_files)
         ev["deferrals1"] = b1.get("coopSaveDeferrals")
         ev["deferredAt"], ev["writtenAt"] = b1.get("coopSaveDeferredAt"), b1.get("coopSaveDeferredWrittenAt")
-        cells["S1"] = (pending is False and len(new_files) == 1 and isinstance(deferrals0, int)
-                       and ev["deferrals1"] == deferrals0 + 1,
-                       f"coopSaveDeferrals {deferrals0} -> {ev['deferrals1']} (want +1), coopSavePending {pending}, "
-                       f"new save files {sorted(new_files)} (want exactly 1)")
+        cells["save_deferred"] = (pending is False and len(new_files) == 1 and isinstance(deferrals0, int)
+                                  and ev["deferrals1"] == deferrals0 + 1,
+                                  f"coopSaveDeferrals {deferrals0} -> {ev['deferrals1']} (want +1), "
+                                  f"coopSavePending {pending}, new save files {sorted(new_files)} (want exactly 1)")
         session.wait_seq_barrier(host, client)
         post, post_c = post_snap(host, sid, clip), post_snap(client, sid, clip)
         now = {x[0]: (x[1], x[2], x[4], x[5], x[6]) for x in post["units"]}
         ev["post"] = post
         ev["hit"] = {i: (pre.get(i), v) for i, v in now.items() if i != sid and pre.get(i) != v}  # recorded only
-        cells["S2"] = (qty0 is not None and post["clipQty"] == qty0 - AUTO_SHOTS and post_c["clipQty"] == post["clipQty"]
-                       and ev["chainS"] >= CHAIN_MIN_S,
-                       f"clip qty {qty0} -> host {post['clipQty']} / client {post_c['clipQty']} (want {qty0} - "
-                       f"{AUTO_SHOTS} on both), chain {ev['chainS']} s (want >= {CHAIN_MIN_S})")
+        cells["shot_chain_ran"] = (qty0 is not None and post["clipQty"] == qty0 - AUTO_SHOTS
+                                   and post_c["clipQty"] == post["clipQty"] and ev["chainS"] >= CHAIN_MIN_S,
+                                   f"clip qty {qty0} -> host {post['clipQty']} / client {post_c['clipQty']} "
+                                   f"(want {qty0} - {AUTO_SHOTS} on both), chain {ev['chainS']} s "
+                                   f"(want >= {CHAIN_MIN_S})")
         if len(new_files) == 1:
             sav = os.path.join(host_dir, next(iter(new_files)))
             su, si = sav_entries(sav, "units").get(sid, {}), sav_entries(sav, "items").get(clip, {})
             ev["sav"] = {"file": os.path.basename(sav), "S.tu": su.get("tu"), "S.status": su.get("status"),
                          "clip.ammoqty": si.get("ammoqty")}
-            cells["S3"] = (si.get("ammoqty") == str(post["clipQty"]) and su.get("tu") == str(post["S"]["tu"])
-                           and su.get("status") == str(post["S"]["status"]),
-                           f".sav clip ammoqty {si.get('ammoqty')} / S tu {su.get('tu')} status {su.get('status')} "
-                           f"(want {post['clipQty']} / {post['S']['tu']} / {post['S']['status']})")
+            cells["file_after_shot"] = (si.get("ammoqty") == str(post["clipQty"])
+                                        and su.get("tu") == str(post["S"]["tu"])
+                                        and su.get("status") == str(post["S"]["status"]),
+                                        f".sav clip ammoqty {si.get('ammoqty')} / S tu {su.get('tu')} "
+                                        f"status {su.get('status')} "
+                                        f"(want {post['clipQty']} / {post['S']['tu']} / {post['S']['status']})")
         else:
-            cells["S3"] = (False, f"no single new save file: {sorted(new_files)}")
-        cells["S4"] = (post == post_c, f"post equal on both: {post == post_c} (keys that differ: "
-                                       f"{[k for k in post if post[k] != post_c.get(k)]}; S {post['S']})")
+            cells["file_after_shot"] = (False, f"no single new save file: {sorted(new_files)}")
+        cells["machines_agree"] = (post == post_c, f"post equal on both: {post == post_c} (keys that differ: "
+                                   f"{[k for k in post if post[k] != post_c.get(k)]}; S {post['S']})")
         ev["clientDiskPreQuit"] = session.save_files(client_dir)
 
         host.shutdown(); client.shutdown()
-        client2_dir = make_user_dir("r4sv_client2")
+        client2_dir = make_user_dir("save_mid_shot_client2")
         host = GameClient("host", 3, host_dir)
         client = GameClient("client", 4, client2_dir)
         host.spawn(); client.spawn()
@@ -229,12 +232,14 @@ def main():
         ah, ac = bh.get("authority") or {}, bc.get("authority") or {}
         desync = [session.event_state(gc).get("desyncSeen") for gc in (host, client)]
         eq, mm = log_count(host, EQUAL) - eq0, log_count(host, MISMATCH) - mm0
-        cells["S5"] = (bh.get("inBattle") and bc.get("inBattle") and bh.get("phase") == "Active"
-                       and bc.get("phase") == "Active" and ah.get("battleId") and ah.get("battleId") == ac.get("battleId")
-                       and eq == 1 and mm == 0 and desync == [False, False],
-                       f"inBattle {bh.get('inBattle')}/{bc.get('inBattle')}, phase {bh.get('phase')}/{bc.get('phase')}, "
-                       f"battleId {ah.get('battleId')}/{ac.get('battleId')}, saveBlob EQUAL +{eq} MISMATCH +{mm}, "
-                       f"desyncSeen {desync}")
+        cells["battle_resumed"] = (bh.get("inBattle") and bc.get("inBattle") and bh.get("phase") == "Active"
+                                   and bc.get("phase") == "Active" and ah.get("battleId")
+                                   and ah.get("battleId") == ac.get("battleId")
+                                   and eq == 1 and mm == 0 and desync == [False, False],
+                                   f"inBattle {bh.get('inBattle')}/{bc.get('inBattle')}, "
+                                   f"phase {bh.get('phase')}/{bc.get('phase')}, "
+                                   f"battleId {ah.get('battleId')}/{ac.get('battleId')}, saveBlob EQUAL +{eq} "
+                                   f"MISMATCH +{mm}, desyncSeen {desync}")
         seen = {}
 
         def holds():
@@ -245,11 +250,12 @@ def main():
         except TimeoutError:
             pass
         diff = {gc: [k for k in post if (seen.get(gc) or {}).get(k) != post[k]] for gc in ("h", "c")}
-        cells["S6"] = (seen.get("h") == post and seen.get("c") == post,
-                       f"keys that differ from post: host {diff['h']} / client {diff['c']} (want none); "
-                       f"resumed S {(seen.get('h') or {}).get('S')} clip {(seen.get('h') or {}).get('clipQty')}")
+        cells["resume_holds_post"] = (seen.get("h") == post and seen.get("c") == post,
+                                      f"keys that differ from post: host {diff['h']} / client {diff['c']} "
+                                      f"(want none); resumed S {(seen.get('h') or {}).get('S')} "
+                                      f"clip {(seen.get('h') or {}).get('clipQty')}")
         shots = [e for e in session.event_log(client, tail=100) if e.get("kind") == "shot"]
-        cells["S7"] = (not shots, f"resumed client shot evs {shots} (want none)")
+        cells["no_shot_replayed"] = (not shots, f"resumed client shot evs {shots} (want none)")
         try:
             session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
             for gc in (host, client):
@@ -261,10 +267,11 @@ def main():
             guest = [x for x in session.battle_state(host)["units"]
                      if x.get("isPlayerSoldier") and "Guest" in (x.get("name") or "")]
             assert len(guest) == 1, f"guest battle unit: {guest}"
-            session.assert_seat_commands(host, client, guest[0]["soldierId"], host_squad[0], host_check=False, what="SV1")
-            cells["S8"] = (True, f"both tops BattlescapeState {tops}; T-CMD admit + deny passed")
+            session.assert_seat_commands(host, client, guest[0]["soldierId"], host_squad[0], host_check=False,
+                                         what="save_mid_shot")
+            cells["plays_on"] = (True, f"both tops BattlescapeState {tops}; seat commands admit + deny passed")
         except (AssertionError, TimeoutError, RuntimeError) as e:
-            cells["S8"] = (False, f"{type(e).__name__}: {str(e)[:400]}")
+            cells["plays_on"] = (False, f"{type(e).__name__}: {str(e)[:400]}")
     except Exception as e:
         ev["error"] = f"{type(e).__name__}: {str(e)[:600]}"
     finally:
@@ -275,15 +282,17 @@ def main():
                 ev.setdefault("shutdown", []).append(f"{gc.name}: {e}")
     crash_new = sorted(session._crash_log_snapshot() - crash0)
     disk = (ev.get("clientDiskPreQuit"), session.save_files(client2_dir) if client2_dir else None)
-    cells["S9"] = (disk == ([], []) and not crash_new,
-                   f"client save files pre-quit {disk[0]} / resumed {disk[1]} (want [] / []), new crash files {crash_new}")
-    print(f"EVIDENCE SV1: {ev}", flush=True)
+    cells["no_client_save_no_crash"] = (disk == ([], []) and not crash_new,
+                                        f"client save files pre-quit {disk[0]} / resumed {disk[1]} (want [] / []), "
+                                        f"new crash files {crash_new}")
+    print(f"EVIDENCE save_mid_shot: {ev}", flush=True)
     fails = 0
-    for name in ("S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9"):
+    for name in ("save_deferred", "shot_chain_ran", "file_after_shot", "machines_agree", "battle_resumed",
+                 "resume_holds_post", "no_shot_replayed", "plays_on", "no_client_save_no_crash"):
         ok, detail = cells.get(name, (False, "not reached: " + str(ev.get("error"))))
         fails += 0 if ok else 1
         print(f"{'PASS' if ok else 'FAIL'} {name}: {detail}", flush=True)
-    print("SV1 %s (%d of 9 cells failed)" % ("PASS" if not fails else "FAIL", fails), flush=True)
+    print("save_mid_shot %s (%d of 9 cells failed)" % ("PASS" if not fails else "FAIL", fails), flush=True)
     sys.exit(0 if not fails else 2)
 
 
