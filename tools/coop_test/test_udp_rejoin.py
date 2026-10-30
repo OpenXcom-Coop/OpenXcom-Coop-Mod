@@ -1,12 +1,18 @@
-"""Boot UB: rendezvous_stub.py
-carries a HOST > PUBLIC skirmish over UDP; the client joins via join_rendezvous. U1: the client leaves, the host
-keeps the paused battle and re-lists. U2: client2 joins the re-listed room, RESUME, equal state. A setup failure on a
-staging miss. Verdicts follow the teardown. ONE run; exit 0 only all PASS, else 2.
-U3 (W2-H24 S-B, docs rewrite/prompts/w2h24_failed_battle_start.md AMENDMENT H24-2 section 2, D259 (a), QH24-3 (a), F9980;
-TASK 0 rewrite/w2h24-task0/sb/CONSTANTS.md T0-B2): its own boot after U1 / U2's teardown on the same stub (key 48583,
-w2h24_u3_host / _client): the client's hold_battle_ready keeps the host in Handshake, the client is killed, the host is
-observed for W_U. U3-1 FIX UNWIND +1 "(partner dropped)", U3-2 FIX the host on a bare main menu with the session ended
-(as a refused skirmish start), U3-3 GUARD CRASH 0 under H13-T1 (after U3's teardown). Red: U1, U2 PASS; U3 FAIL U3-1, U3-2."""
+"""test_udp_rejoin.py: a client leaves a co-op battle over UDP and a new client rejoins it; then, on a second boot, a
+co-op skirmish start whose partner is killed during the handshake.
+
+The UDP boot: rendezvous_stub.py carries a HOST > PUBLIC skirmish over UDP; the client joins via join_rendezvous.
+  host_keeps_battle     the client leaves, the host keeps the paused battle and re-lists.
+  client2_rejoins       client2 joins the re-listed room, RESUME, equal state.
+  failed_start          its own boot after the first boot's teardown on the same stub (key 48583,
+                        udp_failed_start_host / _client): the client's hold_battle_ready keeps the host in Handshake,
+                        the client is killed, the host is observed for LOSS_WINDOW_S. Cells: failed_start_unwind FIX
+                        UNWIND +1 "(partner dropped)"; failed_start_main_menu FIX the host on a bare main menu with
+                        the session ended (as a refused skirmish start); failed_start_no_crash GUARD CRASH 0, the
+                        host's exit accepted by teardown() (after this boot's own teardown). Without the failed-start
+                        unwind, the host logs no UNWIND line and stays on [BriefingState, CoopState] 62.
+
+A setup failure on a staging miss. Verdicts follow the teardown. ONE run; exit 0 only all PASS, else 2."""
 
 import json
 import os
@@ -22,16 +28,17 @@ from test_skirmish_rejoin_battle import (drop_client_mid_battle, dialog, in_batt
 from repro_atom_kneel import skirmish_client_at_browser
 from rendezvous_stub import RendezvousStub
 
-PORT_U13 = "48511"             # this file's lobby key (in-process only; the host binds an ephemeral UDP port)
+REJOIN_KEY = "48511"           # this file's lobby key (in-process only; the host binds an ephemeral UDP port)
 REFUSAL = "offerRejoinBattle() called while the battle is not paused"
-HOST_TERM_RC = 0xC0000409      # H13-T1
+HOST_TERM_RC = 0xC0000409      # a known, accepted host exit inside a rendezvous room (see teardown)
 TERM_LINE = "std::terminate called (no active exception)."
 CRASH_HEAD = ("==== Crash/Log", "Time:", "Version:", "Compiled:", "Module:", "ImageBase:", "Mods:")
-from harness import CRASH_DIR  # noqa: E402  (W2-U8h F9563: this lane's own crash folder)
+from harness import CRASH_DIR  # noqa: E402  (this harness slot's own crash folder)
 COOP_KEYS = ("udpActive", "rendezvousActive", "onConnect", "coopSession", "inBattle")
 IDLE_S = 30
-U3_KEY = "48583"               # W2-H24 S-B row U3's lobby key (in-process only)
-W_U = 35.0                     # U3's window: TASK 0 T0-B2 read the UDP loss at 17.4 s after the kill; + 15 s, up to 5 s
+FAILED_START_KEY = "48583"     # row failed_start's lobby key (in-process only)
+LOSS_WINDOW_S = 35.0           # failed_start's window: the UDP loss was measured at 17.4 s after the kill; + 15 s,
+                               # rounded up to 5 s
 UNWIND, UNMARKED = "failed battle start (", "battle marks cleared=0, crafts sent home=0"
 
 class FixtureMiss(Exception):
@@ -110,7 +117,7 @@ def host_public(host, port):
     host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"), timeout=60)
 
 def stage_boot(host, client, stub, ctx):
-    """Boot UB (f) steps (1)-(6); the stub and OXC_RENDEZVOUS_CONFIG are up before this runs (main)."""
+    """UDP boot, steps (1)-(6); the stub and OXC_RENDEZVOUS_CONFIG are up before this runs (main)."""
     m = (host, client)
     def to_battle():
         for gc in m:
@@ -135,13 +142,13 @@ def stage_boot(host, client, stub, ctx):
         ctx["B0"] = need(ha.get("battleId"), f"host battleId {ha.get('battleId')}")
         need(ca.get("battleId") == ctx["B0"], f"B0: host battleId {ctx['B0']} != client {ca.get('battleId')}")
         session.wait_host_idle(host, client, timeout=IDLE_S)
-        assert_hash_clean(host, client, full=True, what="Boot UB")
+        assert_hash_clean(host, client, full=True, what="UDP boot")
         evidence("boot", {"room1": ctx["room1"], "B0": ctx["B0"], "stub": [stub.tcp_port, stub.udp_port],
                           "mapFingerprint": {"host": battle_state(host).get("mapFingerprint"),
                                              "client": battle_state(client).get("mapFingerprint")},
                           "hostCoop": hc, "clientCoop": coop(client), "peerReady": ready, "hash": "clean (full)"})
     step("(1) host and client spawn and connect", lambda: [(gc.spawn(), gc.connect()) for gc in m], m, stub)
-    step("(2) host HOST > PUBLIC -> LobbyMenu (<= 60 s)", lambda: host_public(host, PORT_U13), m, stub)
+    step("(2) host HOST > PUBLIC -> LobbyMenu (<= 60 s)", lambda: host_public(host, REJOIN_KEY), m, stub)
     ctx["room1"] = step("(3) room1 = stub.wait_room(HostPlayer, 30 s)", lambda: need(
         stub.wait_room("HostPlayer", timeout=30), "no room by HostPlayer within 30 s"), m, stub)
     step("(4) client join_rendezvous room1", lambda: (skirmish_client_at_browser(client), client.ok(
@@ -149,14 +156,14 @@ def stage_boot(host, client, stub, ctx):
     step("(5) profile_ok, lobby_action, set_seed 1, newbattle_ok, both in the battle, settle", to_battle, m, stub)
     step("(6) both Active, host udpActive + onConnect 1, PEER_READY to both, B0, hash clean", active, m, stub)
 
-def u1(host, client, stub, ctx):
+def row_host_keeps_battle(host, client, stub, ctx):
     try:
         drop_client_mid_battle(host, client)
     except Exception as e:
-        return staging(ctx, "U1 drop_client_mid_battle", short(e, 800), (host, client), stub)
+        return staging(ctx, "host_keeps_battle drop_client_mid_battle", short(e, 800), (host, client), stub)
     (phase, a), d, hc = auth(host), dialog(host), coop(host)
     ctx["room2"] = room2 = stub.wait_room("HostPlayer", after=ctx["room1"], timeout=30)
-    evidence("U1", {"phase": phase, "authority": a, "B0": ctx["B0"], "hostCoop": hc, "relist": room2,
+    evidence("host_keeps_battle", {"phase": phase, "authority": a, "B0": ctx["B0"], "hostCoop": hc, "relist": room2,
                     "hostCoopAfterRelist": coop(host),
                     "dialog": {k: d.get(k) for k in ("present", "code", "title", "backVisible", "backText")}})
     if phase == "Idle" and a.get("battleId") == 0:
@@ -171,7 +178,7 @@ def u1(host, client, stub, ctx):
                  "'has left the battle' + 'reconnect')")
     return f + ([] if room2 else ["no relisted room by HostPlayer within 30 s"])
 
-def u2(host, client, stub, ctx):
+def row_client2_rejoins(host, client, stub, ctx):
     m, f = [host], []
     def wait(desc, gc, pred, timeout=120):
         try:
@@ -179,9 +186,10 @@ def u2(host, client, stub, ctx):
         except Exception as e:
             return f.append(short(e)) or False
     if not ctx.get("room2"):
-        return staging(ctx, "U2 room2 = stub.wait_room(HostPlayer, after=room1, 30 s)", "no room2 within 30 s", m, stub)
+        return staging(ctx, "client2_rejoins room2 = stub.wait_room(HostPlayer, after=room1, 30 s)",
+                       "no room2 within 30 s", m, stub)
     l0 = len(log_lines(host, REFUSAL))
-    client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir("w2h13_udp_rejoin"))
+    client2 = ctx["client2"] = GameClient("rejoin", None, make_user_dir("udp_rejoin_client2"))
     m.append(client2)
     try:
         client2.spawn()
@@ -189,7 +197,7 @@ def u2(host, client, stub, ctx):
         skirmish_client_at_browser(client2)
         client2.ok({"cmd": "join_rendezvous", "room": ctx["room2"], "player": "ClientPlayer"})
     except Exception as e:
-        return staging(ctx, "U2 client2 spawn, browser, join_rendezvous room2", short(e, 800), m, stub)
+        return staging(ctx, "client2_rejoins client2 spawn, browser, join_rendezvous room2", short(e, 800), m, stub)
     outcome, refusals, deadline = "timeout", [], time.time() + 120
     while outcome == "timeout" and time.time() < deadline:   # poll the host log each 1 s: fail early on L0+1
         refusals = log_lines(host, REFUSAL)[l0:]
@@ -199,10 +207,10 @@ def u2(host, client, stub, ctx):
            "hostAuth": auth(host), "hostCoop": coop(host), "client2Coop": coop(client2),
            "client2Stack": session.states(client2)}
     if outcome != "in":
-        evidence("U2", rec)
+        evidence("client2_rejoins", rec)
         if outcome == "timeout":
-            return staging(ctx, "U2 client2 in the battle (<= 120 s)", "no refusal line, client2 not in the battle",
-                           m, stub)
+            return staging(ctx, "client2_rejoins client2 in the battle (<= 120 s)",
+                           "no refusal line, client2 not in the battle", m, stub)
         return (["rejoin refused (phase Idle)"] if not c2in and "(phase=0" in refusals[0]
                 else [f"rejoin refused ({refusals[0][-160:]}; client2 in the battle {c2in})"])
     ok = (wait("client2 held on dialog 68 over BattlescapeState", client2, lambda: (
@@ -226,7 +234,7 @@ def u2(host, client, stub, ctx):
     ds, late = [event_state(gc).get("desyncSeen") for gc in (host, client2)], log_lines(host, REFUSAL)[l0:]
     rec.update(phase=[hp, cp], hostAuthority=ha, client2Authority=ca, hostCoopAfter=hc, client2CoopAfter=coop(client2),
                desyncSeen=ds, refusalsAfter=late, hostDialog=dialog(host))
-    evidence("U2", rec)
+    evidence("client2_rejoins", rec)
     f += [] if hp == cp == "Active" else [f"phase host {hp} client2 {cp} (want Active on both)"]
     f += [] if ha.get("peerAbsent") is False else [f"host peerAbsent {ha.get('peerAbsent')} (want false)"]
     f += [] if ha.get("battleId") == ca.get("battleId") == ctx["B0"] else [
@@ -239,13 +247,14 @@ def u2(host, client, stub, ctx):
             short(desync_record(gc, True), 600) for gc, seen in zip((host, client2), ds) if seen))
     return f
 
-ROWS = (("U1", u1), ("U2", u2))
+ROWS = (("host_keeps_battle", row_host_keeps_battle), ("client2_rejoins", row_client2_rejoins))
 
-def u3(stub, out):
-    """W2-H24 S-B row U3 on its own boot (same stub, after U1 / U2's teardown): a co-op skirmish start over UDP whose partner is
-    killed while the host waits in Handshake. Fills `out` (machines, cells, EVIDENCE, CAPTURE); verdicts print after U3's teardown."""
-    host = out["host"] = GameClient("host", None, make_user_dir("w2h24_u3_host"))
-    client = out["client"] = GameClient("client", None, make_user_dir("w2h24_u3_client"))
+def run_failed_start(stub, out):
+    """Row failed_start on its own boot (same stub, after the first boot's teardown): a co-op skirmish start over UDP
+    whose partner is killed while the host waits in Handshake. Fills `out` (machines, cells, EVIDENCE, CAPTURE);
+    verdicts print after this boot's own teardown."""
+    host = out["host"] = GameClient("host", None, make_user_dir("udp_failed_start_host"))
+    client = out["client"] = GameClient("client", None, make_user_dir("udp_failed_start_client"))
     m, rec = (host, client), out.setdefault("ev", {})
     last = ([r["room_id"] for r in stub.rooms()] or [None])[-1]
     def to_handshake():
@@ -260,19 +269,21 @@ def u3(stub, out):
         host.ok({"cmd": "newbattle_ok"})
         host.wait_for("host Handshake + client held", lambda: (auth(host)[0] == "Handshake" and client.cmd(
             {"cmd": "hold_battle_ready"}).get("held") is True) or None, timeout=60, interval=0.2)
-    step("U3 (1) host and client spawn and connect", lambda: [(gc.spawn(), gc.connect()) for gc in m], m, stub)
-    step("U3 (2) host HOST > PUBLIC -> LobbyMenu (<= 60 s)", lambda: host_public(host, U3_KEY), m, stub)
-    room = step(f"U3 (3) room = stub.wait_room(HostPlayer, after={last}, 30 s)", lambda: need(
+    step("failed_start (1) host and client spawn and connect", lambda: [(gc.spawn(), gc.connect()) for gc in m],
+         m, stub)
+    step("failed_start (2) host HOST > PUBLIC -> LobbyMenu (<= 60 s)", lambda: host_public(host, FAILED_START_KEY),
+         m, stub)
+    room = step(f"failed_start (3) room = stub.wait_room(HostPlayer, after={last}, 30 s)", lambda: need(
         stub.wait_room("HostPlayer", after=last, timeout=30), "no room by HostPlayer within 30 s"), m, stub)
-    step("U3 (4) client join_rendezvous", lambda: (skirmish_client_at_browser(client), client.ok(
+    step("failed_start (4) client join_rendezvous", lambda: (skirmish_client_at_browser(client), client.ok(
         {"cmd": "join_rendezvous", "room": room, "player": "ClientPlayer"})), m, stub)
-    step("U3 (5) profile_ok, lobby_action, set_seed 1, hold armed, newbattle_ok, host Handshake + client held (<= 60 s)",
-         to_handshake, m, stub)
+    step("failed_start (5) profile_ok, lobby_action, set_seed 1, hold armed, newbattle_ok, host Handshake + client "
+         "held (<= 60 s)", to_handshake, m, stub)
     l0 = len(log_lines(host, UNWIND))
     rec.update(room=room, atKill={"auth": auth(host), "hostCoop": coop(host)})
     client.kill()
     tk, polls, detect = time.time(), [], None
-    while time.time() - tk < W_U:
+    while time.time() - tk < LOSS_WINDOW_S:
         st, (ph, a), oc = session.states_stripped(host), auth(host), host.cmd({"cmd": "get_coop"}).get("onConnect")
         detect = detect or (round(time.time() - tk, 2) if oc != 1 and ph == "Idle" else None)
         polls.append([round(time.time() - tk, 2), st, ph, oc])
@@ -283,17 +294,19 @@ def u3(stub, out):
                "dialog": {k: d.get(k) for k in ("present", "code", "title", "backVisible")}}, UNWIND=unw,
                polls=[p for i, p in enumerate(polls) if i == 0 or p[1:] != polls[i - 1][1:]])
     out["cells"] = {
-        "U3-1": (len(unw) == 1 and "(partner dropped)" in unw[0] and UNMARKED in unw[0],
-                 f'FIX UNWIND +1 reading "(partner dropped)" and "{UNMARKED}" (red today: 0 lines, T0-B2)'),
-        "U3-2": (st == ["MainMenuState"] and has_save is False and hc.get("coopSession") is False and hc.get("onConnect") == -1
-                 and d.get("present") is False, "FIX the host lands on a bare main menu, the session ended (D259 (a)): stack "
-                 "['MainMenuState'], has_save false, coopSession false, onConnect -1, no coop dialog (red today: [BriefingState, "
-                 "CoopState] 62, T0-B2)")}
+        "failed_start_unwind": (len(unw) == 1 and "(partner dropped)" in unw[0] and UNMARKED in unw[0],
+                                f'FIX UNWIND +1 reading "(partner dropped)" and "{UNMARKED}"'),
+        "failed_start_main_menu": (st == ["MainMenuState"] and has_save is False and hc.get("coopSession") is False
+                                   and hc.get("onConnect") == -1 and d.get("present") is False,
+                                   "FIX the host lands on a bare main menu, the session ended: stack "
+                                   "['MainMenuState'], has_save false, coopSession false, onConnect -1, "
+                                   "no coop dialog")}
     out["capture"] = {"host stack": st, "phase": ph, "authority": a, "get_coop": hc, "dialog": rec["host"]["dialog"], "UNWIND": unw,
                       "HL": [ln[-200:] for ln in log_lines(host, "") if "coop-handshake" in ln or "[coop" in ln][-15:]}
 
 def teardown(host, client, client2):
-    """client2, client: rc 0; then the host under ruling H13-T1. Returns (record, failures)."""
+    """client2, client: rc 0; then the host, which may also exit 0xC0000409 (HOST_TERM_RC, a known, accepted exit
+    inside a rendezvous room) with exactly one crash log holding only TERM_LINE. Returns (record, failures)."""
     rec, fails = {}, []
     crash_files = lambda: set(os.listdir(CRASH_DIR)) if os.path.isdir(CRASH_DIR) else set()  # noqa: E731
     for gc in [g for g in (client2, client) if g is not None and g.proc is not None]:
@@ -317,38 +330,38 @@ def teardown(host, client, client2):
         rec["host"] = {"rc": rc, "crashLogs": logs, "crashText": body, "dmps": dmps}
         fails += [f"host .dmp {dmps}"] if dmps else []
         if rc == HOST_TERM_RC and (len(logs) != 1 or body != [TERM_LINE]):
-            fails.append(f"host rc 0xC0000409 with crash text {body} in {logs} (H13-T1 accepts only {TERM_LINE!r})")
+            fails.append(f"host rc 0xC0000409 with crash text {body} in {logs} (accepted only with {TERM_LINE!r})")
     return rec, fails
 
 def crash_set():
     return set(os.listdir(CRASH_DIR)) if os.path.isdir(CRASH_DIR) else set()
 
-def u3_verdict(o):
-    """U3's EVIDENCE, cell lines and verdict, after U3's own teardown. Returns the failed cells."""
-    trec, tf = o.get("teardown", ({}, ["no U3 teardown"]))
-    evidence("U3", dict(o.get("ev", {}), staging=o.get("staging"), error=o.get("error"), crashRow=o.get("crashRow"),
-                        teardown={"rc": trec, "failures": tf}))
+def failed_start_verdict(o):
+    """failed_start's EVIDENCE, cell lines and verdict, after failed_start's own teardown. Returns the failed cells."""
+    trec, tf = o.get("teardown", ({}, ["no failed_start teardown"]))
+    evidence("failed_start", dict(o.get("ev", {}), staging=o.get("staging"), error=o.get("error"),
+                                  crashRow=o.get("crashRow"), teardown={"rc": trec, "failures": tf}))
     cells, fails = o.get("cells") or {}, []
-    for cid in ("U3-1", "U3-2"):
+    for cid in ("failed_start_unwind", "failed_start_main_menu"):
         ok, label = cells.get(cid, (False, f"not reached ({o.get('staging') or o.get('error')})"))
         print(f"{'PASS' if ok else 'FAIL'} {cid} {label}", flush=True)
         fails += [] if ok else [cid]
-    ok3 = not o.get("crashRow") and not tf
-    print(f"{'PASS' if ok3 else 'FAIL'} U3-3 GUARD CRASH 0: no new crash file during the row ({o.get('crashRow')}) and U3's "
-          f"teardown clean under H13-T1 ({tf})", flush=True)
-    fails += [] if ok3 else ["U3-3"]
+    no_crash = not o.get("crashRow") and not tf
+    print(f"{'PASS' if no_crash else 'FAIL'} failed_start_no_crash GUARD CRASH 0: no new crash file during the row "
+          f"({o.get('crashRow')}) and failed_start's teardown clean, the host's exit accepted ({tf})", flush=True)
+    fails += [] if no_crash else ["failed_start_no_crash"]
     if fails and o.get("capture"):
-        print(f"CAPTURE U3: {json.dumps(o['capture'], sort_keys=True, default=str)}", flush=True)
-    print("PASS U3" if not fails else "FAIL U3: " + " ".join(fails), flush=True)
+        print(f"CAPTURE failed_start: {json.dumps(o['capture'], sort_keys=True, default=str)}", flush=True)
+    print("PASS failed_start" if not fails else "FAIL failed_start: " + " ".join(fails), flush=True)
     return fails
 
 def main():
-    t0, ctx, results, u3o = time.time(), {}, {}, {}
-    hdir = make_user_dir("w2h13_udp_host")
+    t0, ctx, results, failed_out = time.time(), {}, {}, {}
+    hdir = make_user_dir("udp_rejoin_host")
     stub = RendezvousStub(dll_dir=os.path.dirname(EXE), log_path=os.path.join(hdir, "stub_events.jsonl")).start()
     os.environ["OXC_RENDEZVOUS_CONFIG"] = stub.write_config(os.path.join(hdir, "stub.json"))  # before ANY spawn
     host = GameClient("host", None, hdir)
-    client = GameClient("client", None, make_user_dir("w2h13_udp_client"))
+    client = GameClient("client", None, make_user_dir("udp_rejoin_client"))
     try:
         try:
             try:
@@ -368,27 +381,28 @@ def main():
                     results[rid] = [f"{type(e).__name__}: {short(e, 600)}"]
         finally:
             rec, tfails = teardown(host, client, ctx.get("client2"))
-        cr3 = crash_set()                                   # U3 on its own boot, same stub
+        crashes_before = crash_set()                                   # failed_start on its own boot, same stub
         try:
-            u3(stub, u3o)
+            run_failed_start(stub, failed_out)
         except FixtureMiss as e:
-            u3o["staging"] = str(e)
+            failed_out["staging"] = str(e)
         except Exception as e:
-            capture("U3 raised", short(e, 800), [g for g in (u3o.get("host"), u3o.get("client")) if g], stub)
-            u3o["error"] = f"{type(e).__name__}: {short(e, 600)}"
-        u3o["crashRow"] = sorted(crash_set() - cr3)
-        if u3o.get("host") is not None:
-            u3o["teardown"] = teardown(u3o["host"], u3o["client"], None)
+            capture("failed_start raised", short(e, 800),
+                    [g for g in (failed_out.get("host"), failed_out.get("client")) if g], stub)
+            failed_out["error"] = f"{type(e).__name__}: {short(e, 600)}"
+        failed_out["crashRow"] = sorted(crash_set() - crashes_before)
+        if failed_out.get("host") is not None:
+            failed_out["teardown"] = teardown(failed_out["host"], failed_out["client"], None)
     finally:
-        stub.stop()                                         # after every shutdown (stub risk 4)
+        stub.stop()                                         # after every shutdown
         os.environ.pop("OXC_RENDEZVOUS_CONFIG", None)
     stub_report(stub, "STUB")
     evidence("teardown", {"rc": rec, "failures": tfails})
     for rid, _fn in ROWS:
         results[rid] = list(results.get(rid, ["not run"])) + [f"teardown: {t}" for t in tfails]
         print(f"PASS {rid}" if not results[rid] else f"FAIL {rid}: " + "; ".join(results[rid]), flush=True)
-    results["U3"] = u3_verdict(u3o)
-    rows = [r for r, _fn in ROWS] + ["U3"]
+    results["failed_start"] = failed_start_verdict(failed_out)
+    rows = [r for r, _fn in ROWS] + ["failed_start"]
     failed = [r for r in rows if results[r]]
     print(f"\ntest_udp_rejoin: {len(rows) - len(failed)}/{len(rows)} passed (fail={failed}) in "
           f"{time.time() - t0:.1f}s", flush=True)
