@@ -1,10 +1,11 @@
-"""test_research_side_effects.py (SHARED): a finished research project leaves the same world on both machines
-(corpse, diary, obsolete project + refund, delivered items, counters; F3262, D226 a). Spec rewrite/prompts/
-w2h17_research_side_effects.md (e)-(f) + RULINGS C1-C3, F5728; docs rewrite/w2h17-task0/CONSTANTS.md. Trigger 1 interrogates
-STR_SECTOID_SOLDIER; trigger 2 completes STR_RESFX_A while STR_RESFX_B runs. Per trigger: S0, skip (2 days, speed 5, interest
-ResearchCompleteState), hit window (both windows open, both read every ~0.5 s for 3 s, C3), clean (settle + 60 min + 4 s).
-C2: no client dismissal while its resync is pending (10 s; timeout = FAIL + dump). RED (commit 1): H17-1..5 fail on their
-named cells, H17-6 passes (guard row); "guard:" cells are guards (CAPTURE on a miss). GREEN: all pass. Exit 0 only if all pass.
+"""A finished research project leaves the same world on both machines in a SHARED campaign: the interrogation corpse,
+the research diary, an obsolete project and its refund, delivered items and research counters (test mod
+Coop_ResearchFx_Test). The interrogation trigger researches STR_SECTOID_SOLDIER; the topic_a trigger completes
+STR_RESFX_A while STR_RESFX_B runs. Per trigger: S0, skip (2 days, speed 5, interest ResearchCompleteState), hit window
+(both windows open, both machines read every ~0.5 s for 3 s), clean (settle + 60 game-min + 4 s). No client dismissal
+while its resync is pending (10 s; a timeout is a FAIL with a dump). Without the fix the first five rows fail on their
+named cells and completion_guard (the guard row) passes; "guard:" cells are guards (CAPTURE on a miss). With the fix
+all pass. Exit 0 only if all pass.
 """
 
 import json
@@ -19,19 +20,19 @@ import session  # noqa: E402
 import shared_fixture  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ResearchFx_Test")
-BOOT = ("w2h17a", (49294, 49295, 47284), {"retainCorpses": True})   # labels + lobby key
+BOOT = ("research_side_effects", (49294, 49295, 47284), {"retainCorpses": True})   # user-dir tag, ports + lobby key
 HQ, RC, GEO = "HostBase", "ResearchCompleteState", "GeoscapeState"
 LIVE, CORPSE, LOOKUP = "STR_SECTOID_SOLDIER", "STR_SECTOID_CORPSE", "STR_SECTOID"
 A, B, PISTOL, COUNTER = "STR_RESFX_A", "STR_RESFX_B", "STR_PISTOL", "STR_RESFX_COUNTER"
 NAMES, ITEMS = [LIVE, LOOKUP, A, B], [LIVE, CORPSE, B, PISTOL]
-WINDOW_S, CADENCE_S = 3.0, 0.5      # C3: ~0.5 s per both-machine sample
-CLEAN_S = 4.0                       # > the 3000 ms mismatch debounce and H15 F5709's 3.27 s worst case
-PENDING_S, BETWEEN_S = 10.0, 30.0   # C2 bound; between triggers
+WINDOW_S, CADENCE_S = 3.0, 0.5      # ~0.5 s per sample of both machines
+CLEAN_S = 4.0                       # > the 3000 ms mismatch debounce and the 3.27 s measured until a repair lands
+PENDING_S, BETWEEN_S = 10.0, 30.0   # pending-resync bound; between triggers
 
 class GuardMiss(Exception):
     """A guard failed: the trigger ends after its CAPTURE line."""
 class PendingTimeout(Exception):
-    """C2: the client's resync stayed pending past PENDING_S."""
+    """The client's resync stayed pending past PENDING_S."""
 
 def short(e, n=500):
     s = f"{type(e).__name__}: {e}"
@@ -68,7 +69,7 @@ def dump(gc):
             out[k] = short(e)
     return out
 def wait_pending(x, send=None):
-    """C2: before any client dismissal or settle, the client's resync `pending` must be false (bounded)."""
+    """Before any client dismissal or settle, the client's resync `pending` must be false (bounded)."""
     send, t0 = send or x.client.cmd, time.time()
     while send({"cmd": "shared_resync_stats"}).get("pending"):
         if time.time() - t0 >= PENDING_S:
@@ -94,7 +95,7 @@ class Phase:
             print(f"CAPTURE {self.name} (guard {gname}): {cap}", flush=True)
             raise GuardMiss(gname)
 
-def setup1(x, ph):
+def setup_interrogation(x, ph):
     h, c = x.host, x.client
     ph.guard(x, "clientRetainCorpses", x.opt.get("client") is True, f"option_values {x.opt}")
     give = [gc.cmd({"cmd": "give_items", "item": LIVE, "count": 1}).get("ok") for gc in (c, h)]
@@ -102,7 +103,7 @@ def setup1(x, ph):
     ok = wait_until(lambda: listed(h, LIVE) and listed(c, LIVE), 5)
     ph.guard(x, "listed", all(give) and st and ok, f"give {give} start {st}; host {view(h)} / replica {view(c)}")
     ph.ev["cost"] = h.cmd({"cmd": "set_research_cost", "topic": LIVE, "cost": 1}).get("ok")  # host only, both list it
-def setup2(x, ph):
+def setup_topic_a(x, ph):
     h, c = x.host, x.client
     give = [gc.cmd({"cmd": "give_items", "item": B, "count": 1}).get("ok") for gc in (c, h)]
     sb = h.cmd({"cmd": "research_start", "topic": B, "scientists": 5}).get("ok")            # host only
@@ -132,11 +133,11 @@ def run_phase(x, ph, setup):
                          "dismissed": sk.get("dismissed")}
         ph.guard(x, "hit", sk.get("hit") is not None and stack(h)[-1:] == [RC], f"skip {ph.ev['skip']}, host {stack(h)}")
         t0 = time.time()
-        while time.time() - t0 < WINDOW_S:       # the hit window: every RED/GREEN cell is read here, before any dismiss
+        while time.time() - t0 < WINDOW_S:       # the hit window: every row cell is read here, before any dismiss
             ts = time.time()
             ph.samples.append(sample(x, t0))
             time.sleep(max(0.0, CADENCE_S - (time.time() - ts)))
-        wait_pending(x)                         # clean (C2 before the settle; every client dismissal waits too)
+        wait_pending(x)                         # clean (no pending resync before the settle; dismissals wait too)
         st = geo.settle(h, c)
         wait_pending(x)
         sk = geo.skip_ingame_time(h, c, 60, speed_idx=3)
@@ -146,7 +147,7 @@ def run_phase(x, ph, setup):
     except GuardMiss:
         pass
     except PendingTimeout as e:
-        ph.error = f"the client's resync stayed pending > {PENDING_S} s (C2)"
+        ph.error = f"the client's resync stayed pending > {PENDING_S} s"
         print(f"CAPTURE {ph.name} (resync pending): {e}", flush=True)
     except Exception as e:
         ph.error = short(e, 800)
@@ -196,8 +197,8 @@ def clean_cell(r, p):
     r.cell("clean", bool(cl) and cl["requests"] == s0req and bool(cl["chkHost"]) and cl["chkHost"] == cl["chkClient"],
            f"replica requests {s0req} -> {cl.get('requests')}, chk host {cl.get('chkHost')} / replica {cl.get('chkClient')}")
 
-def row_h17_1(r, x):
-    if not phase_ok(r, p := x.p1):
+def row_interrogation_corpse(r, x):
+    if not phase_ok(r, p := x.interrogation):
         return
     s0 = {k: p.s0[n]["view"]["items"][CORPSE] for k, n in (("h", "host"), ("c", "client"))}
     ev = r.ev["corpse"] = dict(both(p, lambda v: v["items"][CORPSE]), S0=s0)
@@ -220,12 +221,12 @@ def diary_cells(r, p, want):
            f"research diary differs: replica new {ev['replicaNew']} want {want}")
     r.cell(f"diary.{p.name}", every(p, lambda s: s["c"]["diary"] == s["h"]["diary"]),
            f"research diary differs: host {ev['host']} / replica {ev['replica']}")
-def row_h17_2(r, x):
-    diary_cells(r, x.p1, [[LIVE, 0, HQ], [LOOKUP, 0, HQ]])       # BASE topic + BASE lookup
-    diary_cells(r, x.p2, [[A, 0, HQ], [B, 1, A]])                 # BASE topic + FREE_FROM bonus
+def row_research_diary(r, x):
+    diary_cells(r, x.interrogation, [[LIVE, 0, HQ], [LOOKUP, 0, HQ]])   # BASE topic + BASE lookup
+    diary_cells(r, x.topic_a, [[A, 0, HQ], [B, 1, A]])                  # BASE topic + FREE_FROM bonus
 
-def row_h17_3(r, x):
-    if not phase_ok(r, p := x.p2):
+def row_obsolete_project_refund(r, x):
+    if not phase_ok(r, p := x.topic_a):
         return
     h0 = p.s0["host"]["view"]
     ev = r.ev["obsolete"] = {k: both(p, f) for k, f in (("research", lambda v: v["research"]), (B, lambda v: v["items"][B]),
@@ -239,19 +240,20 @@ def row_h17_3(r, x):
     r.cell("freeScientists", every(p, lambda s: s["c"]["free"] == s["h"]["free"]), f"{ev['free']}")
     clean_cell(r, p)
 
-def row_h17_4(r, x):
-    if not phase_ok(r, p := x.p2):
+def row_delivered_pistols(r, x):
+    if not phase_ok(r, p := x.topic_a):
         return
     s0 = {k: p.s0[n]["view"]["items"][PISTOL] for k, n in (("h", "host"), ("c", "client"))}
     ev = r.ev["delivered"] = {"S0": s0, "pistols": both(p, lambda v: v["items"][PISTOL]),
                               "transfers": both(p, lambda v: v["transfers"])}
     r.cell("guard:hostPistols", every(p, lambda s: s["h"]["items"][PISTOL] == s0["h"] + 2), f"{ev}")
-    r.cell("guard:hostTransfers", every(p, lambda s: s["h"]["transfers"] == []), f"{ev['transfers']}")   # C1
+    # the items arrive in the same time step, so no transfer is ever held
+    r.cell("guard:hostTransfers", every(p, lambda s: s["h"]["transfers"] == []), f"{ev['transfers']}")
     r.cell("pistols", every(p, lambda s: s["c"]["items"][PISTOL] == s0["c"] + 2), f"the delivered items never arrived: {ev}")
     r.cell("replicaTransfers", every(p, lambda s: s["c"]["transfers"] == []), f"{ev['transfers']}")
 
-def row_h17_5(r, x):
-    if not phase_ok(r, p := x.p2):
+def row_research_counter(r, x):
+    if not phase_ok(r, p := x.topic_a):
         return
     h0 = p.s0["host"]["probe"]["ids"]
     ev = r.ev["counter"] = dict(both(p, lambda v: v["ids"].get(COUNTER)),
@@ -259,9 +261,9 @@ def row_h17_5(r, x):
     r.cell("guard:hostCounter", COUNTER not in h0 and every(p, lambda s: s["h"]["ids"].get(COUNTER) == 2), f"{ev}")
     r.cell("counter", every(p, lambda s: s["c"]["ids"].get(COUNTER) == s["h"]["ids"].get(COUNTER)), f"counter differs: {ev}")
 
-def row_h17_6(r, x):
+def row_completion_guard(r, x):
     """Guard row: the research itself on both machines, and a ResearchCompleteState reached both."""
-    for p, names in ((x.p1, [LIVE]), (x.p2, [A, B])):
+    for p, names in ((x.interrogation, [LIVE]), (x.topic_a, [A, B])):
         if not phase_ok(r, p):
             continue
         got = r.ev["researched." + p.name] = {n: both(p, lambda v, n=n: v["researched"][n]) for n in names}
@@ -281,8 +283,9 @@ def run_row(rid, fn, x, results):
     results[rid] = not r.fails
     print(f"PASS {rid}" if not r.fails else f"FAIL {rid}: {len(r.fails)} cell(s): " + " | ".join(r.fails), flush=True)
 
-ROWS = (("H17-1", row_h17_1), ("H17-2", row_h17_2), ("H17-3", row_h17_3), ("H17-4", row_h17_4), ("H17-5", row_h17_5),
-        ("H17-6", row_h17_6))
+ROWS = (("interrogation_corpse", row_interrogation_corpse), ("research_diary", row_research_diary),
+        ("obsolete_project_refund", row_obsolete_project_refund), ("delivered_pistols", row_delivered_pistols),
+        ("research_counter", row_research_counter), ("completion_guard", row_completion_guard))
 
 def main():
     t0, results, tag, x, js = time.time(), {}, BOOT[0], None, None
@@ -294,23 +297,25 @@ def main():
             print(f"EVIDENCE {rid}: {json.dumps({'boot': tag})}\nFAIL {rid}: boot", flush=True)
     boot_s = round(time.time() - t0, 1)
     if js is not None:
-        print(f"[w2h17] {tag} bring-up {boot_s}s", flush=True)
-        x = SimpleNamespace(host=js.host, client=js.client, waits=[], p1=Phase("t1"), p2=Phase("t2"))
+        print(f"[test_research_side_effects] {tag} bring-up {boot_s}s", flush=True)
+        x = SimpleNamespace(host=js.host, client=js.client, waits=[], interrogation=Phase("interrogation"),
+                            topic_a=Phase("topic_a"))
         try:
             guard_client(x)
             x.opt = {gc.name: (gc.cmd({"cmd": "option_values", "ids": ["retainCorpses"]}).get("values") or {})
                      .get("retainCorpses") for gc in (x.host, x.client)}
-            run_phase(x, x.p1, setup1)
-            run_phase(x, x.p2, setup2)
+            run_phase(x, x.interrogation, setup_interrogation)
+            run_phase(x, x.topic_a, setup_topic_a)
             for rid, fn in ROWS:
                 run_row(rid, fn, x, results)
         finally:
             try:
                 js.shutdown()
             except Exception as e:
-                print(f"[w2h17] shutdown: {short(e)}", flush=True)
+                print(f"[test_research_side_effects] shutdown: {short(e)}", flush=True)
     failed = [rid for rid, _ in ROWS if not results.get(rid)]
-    walls = {"boot": boot_s, "t1": x and x.p1.ev.get("wallS"), "t2": x and x.p2.ev.get("wallS"), "pendingWaits": x and x.waits}
+    walls = {"boot": boot_s, "interrogation": x and x.interrogation.ev.get("wallS"),
+             "topic_a": x and x.topic_a.ev.get("wallS"), "pendingWaits": x and x.waits}
     print(f"\ntest_research_side_effects: {len(ROWS) - len(failed)}/{len(ROWS)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
