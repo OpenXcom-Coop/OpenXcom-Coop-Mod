@@ -564,7 +564,7 @@ def test_busy_live_fire():
     """The client's own autoshot A (the blocker) + a kneel intent B on a
     SECOND client-owned unit -> B deny(busy) observed
     via event_state.lastDeny -> pending banner state -> auto-resubmit on A's
-    bt_action_end -> B acked + applied, hash-clean 9/9, queueDepth 0."""
+    bt_action_end -> B acked + applied, hash-clean 10/10, queueDepth 0."""
     host, client, actor, soldier_ids = bring_up_qualifying_battle("busy")
     try:
         actor_a = actor["id"]
@@ -673,11 +673,11 @@ def test_busy_live_fire():
         assert event_state(host).get("queueDepth") == 0, "host queueDepth != 0"
         assert event_state(client).get("queueDepth") == 0, "client queueDepth != 0"
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after the busy/retry cycle (full 9/9)")
+                                      what="after the busy/retry cycle (full 10/10)")
         # The full sweep is ten buckets: the 8 BattleHashSet members (synced
         # included), saveBlob and the dual-set reveal's `revealHostile`.
         assert len(post_h) == 10, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
-        print(f"PASS test_busy_live_fire: {len(post_h)}/9 buckets EQUAL and queueDepth 0 on "
+        print(f"PASS test_busy_live_fire: {len(post_h)}/10 buckets EQUAL and queueDepth 0 on "
               "both machines after the whole busy/retry cycle")
     finally:
         host.shutdown()
@@ -788,11 +788,11 @@ def test_cancel_policy():
               f"quiescence and was admitted - unit {actor_b} kneeled={want_kneeled2}")
 
         post_h, _ = assert_hash_clean(host, client, full=True,
-                                      what="after both cancel-policy passes (full 9/9)")
+                                      what="after both cancel-policy passes (full 10/10)")
         # The full sweep is ten buckets: the 8 BattleHashSet members (synced
         # included), saveBlob and the dual-set reveal's `revealHostile`.
         assert len(post_h) == 10, f"hash_now full returned {len(post_h)} buckets: {sorted(post_h)}"
-        print(f"PASS test_cancel_policy: {len(post_h)}/9 buckets EQUAL after both passes")
+        print(f"PASS test_cancel_policy: {len(post_h)}/10 buckets EQUAL after both passes")
     finally:
         host.shutdown()
         client.shutdown()
