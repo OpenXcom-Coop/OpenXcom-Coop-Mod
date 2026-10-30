@@ -1,38 +1,39 @@
-"""test_synced_campaign_options.py (SHARED): 14 campaign options join W2-P9's synced set.
+"""test_synced_campaign_options.py (SHARED): 14 campaign options join the synced battle option set.
 
-Spec docs rewrite/prompts/w2p10_campaign_options_scope.md as
-re-pinned by AMENDMENT P10-1 (section 3 PX-1..PX-8, section 4.1 S-A, section 5). Constants:
-docs rewrite/w2p10-task0/CONSTANTS.md (TASK 0 `w2p10-t0`, F5393-F5406).
+Without the fix each machine reads its OWN copy of the 14 campaign options; the host's 14 decide the shared world while
+the second player's screens follow its own. With it the host's globals are the session table: a joiner takes them
+silently, a change goes through the host and applies between actions (every machine posts a System chat line), a replica
+drains the shared economy before applying an option change, and leaving restores each player's own values; options.cfg
+never receives a shared value.
 
-Before S-A.2 each machine reads its OWN copy of the 14 campaign options; the host's 14 decide the shared world
-while the second player's screens follow its own. After it the host's globals are the session table: a joiner takes
-them silently, a change goes through the host and applies between actions (every machine posts a System chat line),
-a replica drains the shared economy before applying an option change (Q2), and leaving restores each player's own
-values; options.cfg never receives a shared value.
+ONE SHARED boot: shared_fixture.bring_up on lobby key 47244, host user dir = HOST_OPTS, client = defaults. OWN_FILE =
+each machine's options.cfg read after the bring-up returns, the 16 ids parsed (compare parsed, never bytes). Rows in
+this order (build_time_synced before layout_reseat_synced, so that a resync in layout_reseat_synced without the fix
+cannot disturb build_time_synced; leave_restores_own last):
 
-ONE SHARED boot (PX-5): shared_fixture.bring_up on lobby key 47244, host user dir = HOST_OPTS, client = defaults.
-OWN_FILE = each machine's options.cfg read after the bring-up returns, the 16 ids parsed (compare parsed,
-never bytes, F4982). Rows in this order (C5 before C4 so C4's red resync cannot disturb C5's red; C8 last):
-
-| row | RED cells on the S-A.1 build |
+| row | cells that fail without the fix |
 |---|---|
-| C1 join   | client option_values of the 14 == the client defaults (not the host's); client own lacks the 14 |
-| C7 prefix | the 14 P10 rows are not prefixed (only P9's 14 are): OXC prefixed != 20, OXCE prefixed != 8 |
-| C3 change | storageLimitsEnforced not a table id -> client rejected +1; host not applied, values/version/chat unchanged |
-| C5 A7     | world_diff holds bases[0].facilities (Q's buildTime differs 32 vs 16) |
-| C4 A12    | at the first read world_diff holds bases[0].items.STR_PISTOL_CLIP (differs by N=1: host 7 vs client 8) |
-| C6 order  | oxceAlternateCraftEquipmentManagement not a table id -> host rejected +1 (and the drain/world/both-false green cells fail) |
+| host_values_on_join | client option_values of the 14 == the client defaults (not the host's); client own lacks the 14
+|
+| advanced_prefixes | the 14 campaign rows are not prefixed (only the battle set's 14 are): OXC prefixed != 20, |
+| | OXCE prefixed != 8 |
+| client_request_applies | storageLimitsEnforced not a table id -> client rejected +1; host not applied, |
+| | values/version/chat unchanged |
+| build_time_synced | world_diff holds bases[0].facilities (Q's buildTime differs 32 vs 16) |
+| layout_reseat_synced | at the first read world_diff holds bases[0].items.STR_PISTOL_CLIP (differs by N=1: host 7 |
+| | vs client 8) |
+| drain_before_apply | oxceAlternateCraftEquipmentManagement not a table id -> host rejected +1 (and the |
+| | drain/world/both-false cells fail) |
+| leave_restores_own | precondition "client option_values of the 14 != its boot defaults before the leave" fails |
 
-Ruling P10-SA-R1: client shared_resync_stats `mismatches` also counts an apply's by-design in-flight
-skew, so C4's resync_quiet became `no_resync` (resync `requests` unchanged over the row) + `quiet_after_apply`
-(`mismatches` unchanged over 2 s once the stores agree), and C6 adds `no_resync` (requests unchanged from before the
-defer lever to release + 2 s; the auto-resync repairs a divergence before C6's world_diff read).
-| C8 leave  | precondition "client option_values of the 14 != its boot defaults before the leave" fails |
+Client shared_resync_stats `mismatches` also counts an apply's by-design in-flight skew, so layout_reseat_synced checks
+`no_resync` (resync `requests` unchanged over the row) + `quiet_after_apply` (`mismatches` unchanged over 2 s once the
+stores agree), and drain_before_apply adds `no_resync` (requests unchanged from before the defer test hook to release +
+2 s; the auto-resync repairs a divergence before its world_diff read).
 
-Guard every row: the 16 ids in each machine's options.cfg (parsed) == OWN_FILE (STOP-IF 3). Each row prints
-ONE "EVIDENCE <id>:" line (both machines' synced_options_state minus `advanced`, and option_values of the 16) then
-"PASS <id>" or "FAIL <id>: <cells>". Exit 0 only when every row passes, 2 otherwise; no exit 3, no retry (section A.8).
-run in the foreground to completion.
+Guard every row: the 16 ids in each machine's options.cfg (parsed) == OWN_FILE. Each row prints ONE "EVIDENCE <id>:"
+line (both machines' synced_options_state minus `advanced`, and option_values of the 16) then "PASS <id>" or "FAIL <id>:
+<cells>". Exit 0 only when every row passes, 2 otherwise; no exit 3, no retry; run in the foreground to completion.
 
 Run:  python tools/coop_test/test_synced_campaign_options.py
 """
@@ -46,21 +47,21 @@ from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 
-# ----- PX-5 constants (docs rewrite/w2p10-task0/CONSTANTS.md) -----
-LOBBY_PORT = 47244                      # SHARED coop rendezvous (STOP-IF 11: only 47244-47247)
+# ----- constants -----
+LOBBY_PORT = 47244                      # SHARED coop rendezvous
 CTRL = (49244, 49245)                   # ephemeral control-socket LABELS (do not bind)
 
-# the 14 synced campaign options, scope order A1..A14 (PX-1).
+# the 14 synced campaign options.
 IDS14 = ["storageLimitsEnforced", "canSellLiveAliens", "fieldPromotions", "oxceAutomaticPromotions",
          "oxceWoundedDefendBaseIf", "aggressiveRetaliation", "allowBuildingQueue", "craftLaunchAlways",
          "anytimePsiTraining", "canTransferCraftsWhileAirborne", "retainCorpses",
          "oxceAlternateCraftEquipmentManagement", "oxceManualPromotions", "oxceGeoscapeEventsInstantDelivery"]
-# the 2 per-player controls (P10-V2/V3: never synced).
+# the 2 per-player controls (never synced).
 CONTROLS = ["oxceAutoSell", "oxcePersonalLayoutIncludingArmor"]
 IDS16 = IDS14 + CONTROLS
 INT_IDS = {"oxceWoundedDefendBaseIf"}
 
-# PX-5 HOST_OPTS: every id differs from the client default.
+# HOST_OPTS: every id differs from the client default.
 HOST_OPTS = {"storageLimitsEnforced": True, "canSellLiveAliens": True, "fieldPromotions": True,
              "oxceAutomaticPromotions": False, "oxceWoundedDefendBaseIf": 50, "aggressiveRetaliation": True,
              "allowBuildingQueue": True, "craftLaunchAlways": True, "anytimePsiTraining": True,
@@ -79,30 +80,31 @@ CLIENT_DEF = {"storageLimitsEnforced": False, "canSellLiveAliens": False, "field
 HOST_14 = {k: HOST_OPTS[k] for k in IDS14}
 CDEF_14 = {k: CLIENT_DEF[k] for k in IDS14}
 
-# PX-5 / C3 chat: en-US literals (bin/common/Language/en-US.yml).
+# client_request_applies chat: en-US literals (bin/common/Language/en-US.yml).
 SYSTEM = "System"
 DESC = {"storageLimitsEnforced": "Storage limits for recovered items"}
 
-# C4/C6 A12 fixture pins (CONSTANTS T0-1c): the SKYRANGER transport, one of its seated soldiers, a 1-item layout.
-A12 = "oxceAlternateCraftEquipmentManagement"
+# layout_reseat_synced / drain_before_apply setup: the alternate craft equipment option, the SKYRANGER transport,
+# one of its seated soldiers, a 1-item layout.
+ALT_EQUIP = "oxceAlternateCraftEquipmentManagement"
 LAYOUT_ITEM = "STR_PISTOL_CLIP"
 LAYOUT_SLOT = "belt"
-# C5 A7 fixture pin.
+# build_time_synced setup: the facility built on the start grid.
 GRID = "STR_LIVING_QUARTERS"
 
-# C7 Advanced prefix sets: after P10 S-A green, 20 OXC + 8 OXCE prefixed rows.
-P9_OXC = {"alienBleeding", "allowPsiStrengthImprovement", "allowPsionicCapture", "battleAutoEnd",
+# advanced_prefixes sets: with the fix 20 OXC + 8 OXCE Advanced rows are prefixed.
+BATTLE_OXC = {"alienBleeding", "allowPsiStrengthImprovement", "allowPsionicCapture", "battleAutoEnd",
           "battleExplosionHeight", "battleInstantGrenade", "battleUFOExtenderAccuracy", "disableAutoEquip",
           "includePrimeStateInSavedLayout", "sneakyAI", "weaponSelfDestruction"}
-P10_OXC = {"storageLimitsEnforced", "canSellLiveAliens", "fieldPromotions", "aggressiveRetaliation",
+CAMPAIGN_OXC = {"storageLimitsEnforced", "canSellLiveAliens", "fieldPromotions", "aggressiveRetaliation",
            "allowBuildingQueue", "craftLaunchAlways", "anytimePsiTraining", "canTransferCraftsWhileAirborne",
            "retainCorpses"}
-P9_OXCE = {"oxceEnableOffCentreShooting", "oxceReactionFireThreshold", "oxceUniformShootingSpread"}
-P10_OXCE = {"oxceAutomaticPromotions", "oxceWoundedDefendBaseIf", "oxceAlternateCraftEquipmentManagement",
+BATTLE_OXCE = {"oxceEnableOffCentreShooting", "oxceReactionFireThreshold", "oxceUniformShootingSpread"}
+CAMPAIGN_OXCE = {"oxceAutomaticPromotions", "oxceWoundedDefendBaseIf", "oxceAlternateCraftEquipmentManagement",
             "oxceManualPromotions", "oxceGeoscapeEventsInstantDelivery"}
-OXC_PREFIXED = P9_OXC | P10_OXC   # 20
-OXCE_PREFIXED = P9_OXCE | P10_OXCE  # 8
-# rows that must NEVER be prefixed (per-player B options + the (C)/excluded options).
+OXC_PREFIXED = BATTLE_OXC | CAMPAIGN_OXC   # 20
+OXCE_PREFIXED = BATTLE_OXCE | CAMPAIGN_OXCE  # 8
+# rows that must NEVER be prefixed (the per-player options + the excluded options).
 NOT_PREFIXED = {"oxceAutoSell", "oxcePersonalLayoutIncludingArmor", "customInitialBase", "newSeedOnLoad",
                 "oxceRememberDisabledCraftWeapons", "psiStrengthEval"}
 
@@ -138,13 +140,13 @@ def wait_until(pred, timeout, interval=POLL):
 # ----- probes -----
 
 def sos(gc):
-    """synced_options_state minus `ok` and the bulky `advanced` view (read separately for C7)."""
+    """synced_options_state minus `ok` and the bulky `advanced` view (read separately for advanced_prefixes)."""
     r = gc.cmd({"cmd": "synced_options_state"})
     return {k: v for k, v in r.items() if k not in ("ok", "advanced")}
 
 
 def ov(gc, ids):
-    """PX-3 option_values: the RAW Options globals on THIS machine for `ids`, independent of the table."""
+    """option_values: the RAW Options globals on THIS machine for `ids`, independent of the table."""
     r = gc.cmd({"cmd": "option_values", "ids": ids})
     return r.get("values") or {}
 
@@ -229,7 +231,7 @@ def vdiff(a, b, ids):
     return {k: (a.get(k), b.get(k)) for k in ids if a.get(k) != b.get(k)}
 
 
-# ----- widgets (C7), reusing the T0-3 helpers -----
+# ----- widgets (advanced_prefixes) -----
 
 def states(gc):
     return gc.cmd({"cmd": "get_state"}).get("states", [])
@@ -329,19 +331,19 @@ def ev_common(r, x):
 
 # ===================== rows =====================
 
-def row_c1(r, x):
+def row_host_values_on_join(r, x):
     hov, cov = ov(x.h, IDS14), ov(x.c, IDS14)
     hs, cs = sos(x.h), sos(x.c)
     ev_common(r, x)
     # control: host reads its own HOST_OPTS
     r.cell("host_boot", not vdiff(hov, HOST_14, IDS14), f"host option_values vs HOST_OPTS {vdiff(hov, HOST_14, IDS14)}")
-    # RED: client option_values of the 14 == host's (== HOST_OPTS). red -> client defaults differ.
+    # FIX: client option_values of the 14 == host's (== HOST_OPTS); without the fix they are the client defaults.
     r.cell("join_values", not vdiff(cov, hov, IDS14), f"client vs host option_values {vdiff(cov, hov, IDS14)}")
-    # RED: client own contains the 14 == client defaults. red -> own lacks the 14.
+    # FIX: client own holds the 14 == client defaults; without the fix own lacks the 14.
     own = cs.get("own") or {}
     r.cell("own_14", all(k in own for k in IDS14) and not vdiff(own, CDEF_14, IDS14),
            f"client own: missing {[k for k in IDS14 if k not in own]} diff {vdiff(own, CDEF_14, IDS14)}")
-    # control: P9 join happened in this (shared) session.
+    # control: the synced-options table join happened in this (shared) session.
     r.cell("table_join", (cs.get("tablesApplied"), cs.get("lastTableFrom")) == (1, "join"),
            f"client tablesApplied {cs.get('tablesApplied')} lastTableFrom {cs.get('lastTableFrom')!r}")
     # control: no synced-option-change chat from the silent join.
@@ -356,7 +358,7 @@ def row_c1(r, x):
     guard_file(r, x)
 
 
-def row_c7(r, x):
+def row_advanced_prefixes(r, x):
     gc = x.c
     if not wait_until(lambda: top_is(gc, "GeoscapeState"), STATE_S)[0]:
         r.cell("pre_geo", False, f"client not on GeoscapeState (top {top(gc)})")
@@ -366,12 +368,13 @@ def row_c7(r, x):
         return
     oxc_present, oxc_pref = tab_sets(adv_rows(gc))
     opened_oxce = click_exact(gc, "OXCE")
-    wait_until(lambda: any(rw.get("id") in P10_OXCE or rw.get("id") in P9_OXCE for rw in adv_rows(gc)), STATE_S)
+    wait_until(lambda: any(rw.get("id") in CAMPAIGN_OXCE or rw.get("id") in BATTLE_OXCE for rw in adv_rows(gc)),
+               STATE_S)
     oxce_present, oxce_pref = tab_sets(adv_rows(gc))
     all_present, all_pref = oxc_present | oxce_present, oxc_pref | oxce_pref
     r.ev.update(oxc_prefixed=sorted(oxc_pref), oxce_prefixed=sorted(oxce_pref),
                 oxc_present_n=len(oxc_present), oxce_present_n=len(oxce_present), opened_oxce=opened_oxce)
-    # RED: the 14 P10 rows carry no prefix yet -> only P9's 11 OXC / 3 OXCE prefixed.
+    # FIX: without the fix the 14 campaign rows carry no prefix: only the battle set's 11 OXC / 3 OXCE are prefixed.
     r.cell("oxc_prefixed", oxc_pref == OXC_PREFIXED,
            f"OXC prefixed {sorted(oxc_pref)} (want {len(OXC_PREFIXED)}: {sorted(OXC_PREFIXED)})")
     r.cell("oxce_prefixed", oxce_pref == OXCE_PREFIXED,
@@ -381,7 +384,7 @@ def row_c7(r, x):
            f"control rows wrongly prefixed {sorted(NOT_PREFIXED & all_pref)}")
     r.cell("controls_present", {"oxceAutoSell", "oxcePersonalLayoutIncludingArmor"} <= all_present,
            f"per-player controls missing from Advanced {sorted({'oxceAutoSell', 'oxcePersonalLayoutIncludingArmor'} - all_present)}")
-    # control: the two Cancels land back on GeoscapeState (no OK, F4987).
+    # control: the two Cancels land back on GeoscapeState (no OK).
     click_exact(gc, "CANCEL")
     okp = wait_until(lambda: top_is(gc, "PauseState"), STATE_S)[0]
     click_exact(gc, "CANCEL")
@@ -390,7 +393,7 @@ def row_c7(r, x):
     guard_file(r, x)
 
 
-def row_c3(r, x):
+def row_client_request_applies(r, x):
     oid = "storageLimitsEnforced"
     h0, c0 = sos(x.h), sos(x.c)
     rej0 = c0.get("rejected") or 0
@@ -404,7 +407,7 @@ def row_c3(r, x):
                 hostValue=hov1.get(oid), clientValue=cov1.get(oid))
     new = [a for a in (h1.get("applied") or []) if (a.get("version") or 0) > (h0.get("version") or 0)]
     want = {"id": oid, "value": False, "result": "applied", "arrivedWhileBusy": False, "player": c0.get("localName")}
-    # RED cells (red build: request rejected, nothing applied):
+    # fix cells (without the fix the request is rejected and nothing applies):
     r.cell("applied", len(new) == 1 and all(new[0].get(k) == v for k, v in want.items()),
            f"host ring after request {new} (want one {want})")
     r.cell("values", hov1.get(oid) is False and cov1.get(oid) is False,
@@ -456,7 +459,7 @@ def _fac_bt(gc, cell):
     return None
 
 
-def row_c5(r, x):
+def row_build_time_synced(r, x):
     b = own_base(geo_state(x.h))
     A, Q = _pick_A_Q(b)
     r.ev.update(A=A, Q=Q)
@@ -477,13 +480,14 @@ def row_c5(r, x):
     r.ev.update(buildTimes=bt, applyCountRoseQ=okQ, worldDiff=wd[:25])
     # control: A built immediately on both (16/16, adjacent to a built facility).
     r.cell("a_eq", bt["A_host"] == bt["A_client"], f"A buildTime host {bt['A_host']} client {bt['A_client']}")
-    # RED: A7 unsynced -> host queues Q (32), client builds Q at rule time (16).
+    # FIX: without the fix allowBuildingQueue is unsynced: the host queues Q (32), the client builds Q at rule
+    # time (16).
     r.cell("q_eq", bt["Q_host"] == bt["Q_client"], f"Q buildTime host {bt['Q_host']} client {bt['Q_client']}")
     r.cell("world_eq", not wd, f"world_diff {wd[:25]}")
     guard_file(r, x)
 
 
-def row_c4(r, x):
+def row_layout_reseat_synced(r, x):
     b = own_base(geo_state(x.h))
     transport = next((cr for cr in b["crafts"] if "SKYRANGER" in cr["type"]), b["crafts"][0] if b["crafts"] else None)
     rep = base_report(x.h)
@@ -496,7 +500,7 @@ def row_c4(r, x):
     sol = seated[0]
     x.sol_id, x.craft_id = sol["id"], transport["id"]
     r.ev.update(soldierId=sol["id"], soldierName=sol["name"], craftId=transport["id"], item=LAYOUT_ITEM)
-    # unassign one seated soldier -> base-resident (all 8 start craft-seated, CONSTANTS)
+    # unassign one seated soldier -> base-resident (all 8 start craft-seated)
     ac0 = shared_stats(x.c)["applyCount"]
     x.c.cmd({"cmd": "craft_assign", "soldier_id": sol["id"], "craft_id": transport["id"], "on": False})
     wait_until(lambda: shared_stats(x.c)["applyCount"] >= ac0 + 1, APPLY_S)
@@ -513,12 +517,13 @@ def row_c4(r, x):
     ev_common(r, x)
     r.ev.update(storesBefore=before, storesAfterAssign=after, applyWindowS=W,
                 N_host_minus_client=after["host"] - after["client"], worldDiff=wd[:25])
-    # RED: A12 unsynced -> the re-seat moves the layout item from base stores on the host (A12 on) only.
+    # FIX: without the fix the option is unsynced: the re-seat moves the layout item from base stores on the host
+    # (option on) only.
     r.cell("item_eq", after["host"] == after["client"],
            f"{LAYOUT_ITEM} stores host {after['host']} client {after['client']} (N {after['host'] - after['client']})")
     r.cell("world_eq", not wd, f"world_diff {wd[:25]}")
-    # ruling P10-SA-R1: `mismatches` also counts the by-design in-flight skew of an apply, so it is read
-    # only once the applied stores agree; the divergence metric is `requests` (a mismatch persisting >= 3000 ms).
+    # `mismatches` also counts the by-design in-flight skew of an apply, so it is read only once the applied
+    # stores agree; the divergence metric is `requests` (a mismatch persisting >= 3000 ms).
     eq, _ = wait_until(lambda: item_qty(x.h, LAYOUT_ITEM) == item_qty(x.c, LAYOUT_ITEM), APPLY_S)
     m0 = resync_stats(x.c)["mismatches"]
     time.sleep(RESYNC_S)
@@ -531,11 +536,11 @@ def row_c4(r, x):
     guard_file(r, x)
 
 
-def row_c6(r, x):
+def row_drain_before_apply(r, x):
     if x.sol_id is None or x.craft_id is None:
-        r.cell("pre_fixture", False, "no soldier/craft pinned by C4 (setup failure)")
+        r.cell("pre_fixture", False, "no soldier/craft chosen by layout_reseat_synced (setup failure)")
         return
-    rq0 = resync_stats(x.c)["requests"]  # ruling P10-SA-R1: before the defer lever arms
+    rq0 = resync_stats(x.c)["requests"]  # before the defer test hook arms
     arm = x.c.cmd({"cmd": "shared_update_defer", "on": True})
     r.ev["armDefer"] = arm
     try:
@@ -548,9 +553,10 @@ def row_c6(r, x):
         wait_until(lambda: shared_stats(x.h)["applyCount"] >= hac0 + 1, APPLY_S)
         time.sleep(1.0)  # let the shared_apply reach the client's (deferred) queue
         ac_after_craft = shared_stats(x.c)["applyCount"]
-        # host changes A12 -> on the red build this id is not in the table: host rejects, nothing sent.
-        setresp = x.h.cmd({"cmd": "synced_option_request", "id": A12, "value": False})
-        wait_until(lambda: ov(x.c, [A12]).get(A12) is False
+        # host changes the option -> without the fix this id is not in the table: the host rejects it and sends
+        # nothing.
+        setresp = x.h.cmd({"cmd": "synced_option_request", "id": ALT_EQUIP, "value": False})
+        wait_until(lambda: ov(x.c, [ALT_EQUIP]).get(ALT_EQUIP) is False
                    and sos(x.c).get("version") == sos(x.h).get("version"), APPLY_S)
         ac_at_set = shared_stats(x.c)["applyCount"]
         h1 = sos(x.h)
@@ -561,30 +567,33 @@ def row_c6(r, x):
         r.ev["releaseDefer"] = rel
     time.sleep(SETTLE_S)
     rq1 = resync_stats(x.c)["requests"]  # release + SETTLE_S
-    hov, cov = ov(x.h, [A12]), ov(x.c, [A12])
+    hov, cov = ov(x.h, [ALT_EQUIP]), ov(x.c, [ALT_EQUIP])
     wd = world_diff(x.h, x.c)
     ev_common(r, x)
-    r.ev.update(hostA12=hov.get(A12), clientA12=cov.get(A12), worldDiffAfterRelease=wd[:25], resyncRequests=(rq0, rq1))
-    # RED: host rejected +1 (A12 not a table id at red).
+    r.ev.update(hostAltEquip=hov.get(ALT_EQUIP), clientAltEquip=cov.get(ALT_EQUIP), worldDiffAfterRelease=wd[:25],
+                resyncRequests=(rq0, rq1))
+    # FIX: without the fix the host rejects +1 (the option is not a table id).
     r.cell("host_accepted", (sos(x.h).get("rejected") or 0) == rej0,
-           f"host rejected {rej0}->{sos(x.h).get('rejected')} (the A12 set was rejected: id not in the table)")
-    # Q2 drain (green S-A.2 step 2): the queued craft_assign applies AT the set, before the release.
+           f"host rejected {rej0}->{sos(x.h).get('rejected')} (the option set was rejected: id not in the table)")
+    # drain: the queued craft_assign applies AT the set, before the release.
     r.cell("drained", ac_at_set == base_ac + 1,
            f"client applyCount base {base_ac} afterCraft {ac_after_craft} atSet {ac_at_set} (want base+1 at the set)")
-    r.cell("both_false", hov.get(A12) is False and cov.get(A12) is False,
-           f"A12 host {hov.get(A12)} client {cov.get(A12)} (want both False)")
+    r.cell("both_false", hov.get(ALT_EQUIP) is False and cov.get(ALT_EQUIP) is False,
+           f"option host {hov.get(ALT_EQUIP)} client {cov.get(ALT_EQUIP)} (want both False)")
     r.cell("world_eq_after", not wd, f"world_diff after release {wd[:25]}")
-    # ruling P10-SA-R1: a replica that applied the queued unassign under the new value diverges until the
-    # auto-resync repairs it before the read above; the resync request is what tells rows-only from the drain.
-    r.cell("no_resync", rq1 == rq0, f"client resync requests {rq0}->{rq1} from before the lever to release+{SETTLE_S}s")
+    # a replica that applied the queued unassign under the new value diverges until the auto-resync repairs it
+    # before the read above; the resync request is what tells rows-only from the drain.
+    r.cell("no_resync", rq1 == rq0,
+           f"client resync requests {rq0}->{rq1} from before the test hook to release+{SETTLE_S}s")
     guard_file(r, x)
 
 
-def row_c8(r, x):
+def row_leave_restores_own(r, x):
     c0 = sos(x.c)
     cov0 = ov(x.c, IDS14)
     ev_common(r, x)
-    # RED: precondition - the client must have adopted the host's 14 (different from its defaults) before leaving.
+    # precondition (fails without the fix): the client must have adopted the host's 14 (different from its
+    # defaults) before leaving.
     r.cell("pre", bool(vdiff(cov0, CDEF_14, IDS14)),
            f"client option_values of the 14 == its boot defaults, nothing to restore {vdiff(cov0, CDEF_14, IDS14)}")
     x.c.ok({"cmd": "disconnect_to_menu"})
@@ -599,8 +608,10 @@ def row_c8(r, x):
 
 # ===================== runner =====================
 
-ROWS = (("C1", row_c1), ("C7", row_c7), ("C3", row_c3), ("C5", row_c5), ("C4", row_c4),
-        ("C6", row_c6), ("C8", row_c8))
+ROWS = (("host_values_on_join", row_host_values_on_join), ("advanced_prefixes", row_advanced_prefixes),
+        ("client_request_applies", row_client_request_applies), ("build_time_synced", row_build_time_synced),
+        ("layout_reseat_synced", row_layout_reseat_synced), ("drain_before_apply", row_drain_before_apply),
+        ("leave_restores_own", row_leave_restores_own))
 
 
 def run_one(rid, fn, x, results):
@@ -622,21 +633,21 @@ def run_one(rid, fn, x, results):
 
 def main():
     t0 = time.time()
-    js = shared_fixture.bring_up("w2p10co", (CTRL[0], CTRL[1], LOBBY_PORT), host_options=HOST_OPTS)
+    js = shared_fixture.bring_up("synced_campaign_options", (CTRL[0], CTRL[1], LOBBY_PORT), host_options=HOST_OPTS)
     host, client = js.host, js.client
     x = Ctx(host, client)
     results = {}
     order = [rid for rid, _ in ROWS]
     try:
         x.own_file = {"host": read_cfg(host), "client": read_cfg(client)}
-        print(f"[w2p10-sa] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
+        print(f"[synced_campaign_options] bring-up {time.time() - t0:.1f}s OWN_FILE {x.own_file}", flush=True)
         for rid, fn in ROWS:
             run_one(rid, fn, x, results)
     finally:
         try:
             js.shutdown()
         except Exception as e:
-            print(f"[w2p10-sa] shutdown: {short(e)}", flush=True)
+            print(f"[synced_campaign_options] shutdown: {short(e)}", flush=True)
     passed = [n for n in order if results.get(n)]
     failed = [n for n in order if not results.get(n)]
     print(f"\ntest_synced_campaign_options: {len(passed)}/{len(order)} passed (pass={passed} fail={failed}) in "
