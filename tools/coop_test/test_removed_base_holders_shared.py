@@ -1,29 +1,33 @@
-"""W2-H83 S-C RBHS (tools/coop_test/test_removed_base_holders_shared.py): in SHARED co-op the INTERCEPT list that shows a base's crafts
-closes, as its Cancel does, when the aliens destroy that base and the host presses OK on its base-destroyed message (ruling R-LT18-1,
-R-LBH3-1, QH83-14 (a), veto line VL-H83-3 reworded; leads-triage18 F22661 / F22666).
-Spec docs rewrite/prompts/w2h83_removed_base_views.md (common) + rewrite/prompts/w2h83_sc_holders.md, R-LT18-1 AMENDMENT Z8; TASK 0 values in
-rewrite/w2h83-task0/sc/CONSTANTS.md. Today the client's baseDestroyedApply deletes the base and its crafts under the open InterceptState (its
-rows hold those crafts) and pushes the "undefended base" message over it. The green (EC2-EC12: coopCloseMirrorHolders before the erase, reading
-GeoscapeState::coopHeldCrafts) closes the list first, so the message opens over the globe.
-ONE SHARED boot (key KEY, dirs w2h83_hs_*, campaign_mode "shared"); row SI, then END.
-  1 spawn + connect; session.new_campaign; geo_set_speed idx 0 both; the window mapping per machine (real INTERCEPT + CANCEL); HB = the one
-    base, same name on both.  2 SPARE: the host's build_new_base at P_SPARE (land, >= 0.15 rad from HB) + real GEOSCAPE; on both (set_funds on
-    BOTH machines only if the funds miss the base: a host-only value is a SHARED funds desync, F22842).  3 STRIP: the host's get_soldiers HB
-    ids; set_soldier_dead each on the client, then the host; HB 0 soldiers on both.  4 client real INTERCEPT -> InterceptState; its
-    intercept_list rows list >= 1 HB craft; P0.  5 SI-mark; host spawn_ufo; trigger_base_defense -> BaseDestroyedState within W_BDS (no
-    BriefingState).  6 host real OK (then real presses to GeoscapeState).  7 poll the client every 0.05 s for DEL_SETTLE until HB leaves its
-    list; P1 = its stack.  8 client real OK on ErrorMessageState; W_OK; P2.  9 red recovery: InterceptState on top -> its real CANCEL.
-  SI-pre (GUARD) HB and SPARE on both; STRIP every reply ok + dead, HB 0 soldiers on both; P0 top InterceptState over GeoscapeState, HB crafts
-         listed; the trigger names HB; BaseDestroyedState on the host within W_BDS, no BriefingState; the host's OK reached GeoscapeState.
-  SI-gone (GUARD) within DEL_SETTLE HB gone from both lists, SPARE kept; P1's top ErrorMessageState.
-  SI-closed (FIX) P1: no InterceptState; the stack ends [GeoscapeState, ErrorMessageState].
-  SI-top (FIX) P2: no InterceptState; GeoscapeState is the top or directly under it (a notice queued meanwhile may open once the globe shows).
-  END CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until their shutdown.
-Red today: SI-closed, SI-top FAIL (2 of 5); every other cell PASS. Green (EC2-EC12): all 5 PASS.
-Every press is a real click_widget or inject_input except the logged levers build_new_base, geo_set_speed, set_funds (only if needed),
-set_soldier_dead, spawn_ufo and trigger_base_defense; read-only probes geo_state, get_soldiers, intercept_list, get_state. One EVIDENCE line per
-row, one PASS / FAIL line per cell, then the row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss
-fails SI-pre with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
+"""In SHARED co-op the INTERCEPT list that shows a base's crafts closes, as its Cancel does, when the aliens destroy
+that base and the host presses OK on its base-destroyed message.
+Without the fix the client's baseDestroyedApply deletes the base and its crafts under the open InterceptState (its rows
+hold those crafts) and pushes the "undefended base" message over it. The fix (coopCloseMirrorHolders before the erase,
+reading GeoscapeState::coopHeldCrafts) closes the list first, so the message opens over the globe.
+ONE SHARED boot (key KEY, dirs removed_base_holders_shared_*, campaign_mode "shared"); row intercept_window, then END.
+  1 spawn + connect; session.new_campaign; geo_set_speed idx 0 both; the window mapping per machine (real INTERCEPT +
+    CANCEL); HB = the one base, same name on both.  2 SPARE: the host's build_new_base at P_SPARE (land, >= 0.15 rad
+    from HB) + real GEOSCAPE; on both (set_funds on BOTH machines only if the funds miss the base: a host-only value
+    is a SHARED funds desync).  3 STRIP: the host's get_soldiers HB ids; set_soldier_dead each on the client, then the
+    host; HB 0 soldiers on both.  4 client real INTERCEPT -> InterceptState; its intercept_list rows list >= 1 HB
+    craft; P0.  5 host spawn_ufo; trigger_base_defense -> BaseDestroyedState within W_BDS (no BriefingState).  6 host
+    real OK (then real presses to GeoscapeState).  7 poll the client every 0.05 s for DEL_SETTLE until HB leaves its
+    list; P1 = its stack.  8 client real OK on ErrorMessageState; W_OK; P2.  9 recovery when the list stayed open:
+    InterceptState on top -> its real CANCEL.
+  intercept_window-pre (GUARD) HB and SPARE on both; STRIP every reply ok + dead, HB 0 soldiers on both; P0 top
+         InterceptState over GeoscapeState, HB crafts listed; the trigger names HB; BaseDestroyedState on the host
+         within W_BDS, no BriefingState; the host's OK reached GeoscapeState.
+  intercept_window-gone (GUARD) within DEL_SETTLE HB gone from both lists, SPARE kept; P1's top ErrorMessageState.
+  intercept_window-closed (FIX) P1: no InterceptState; the stack ends [GeoscapeState, ErrorMessageState].
+  intercept_window-top (FIX) P2: no InterceptState; GeoscapeState is the top or directly under it (a notice queued
+         meanwhile may open once the globe shows).
+  END CRASH (GUARD): no new crash file in the lane's crash folder since the file start; both processes alive until
+         their shutdown.
+Without the fix: intercept_window-closed and intercept_window-top FAIL (2 of 5); every other cell PASS. With the fix:
+all 5 PASS. Every press is a real click_widget or inject_input except the logged test commands build_new_base,
+geo_set_speed, set_funds (only if needed), set_soldier_dead, spawn_ufo and trigger_base_defense; read-only probes
+geo_state, get_soldiers, intercept_list, get_state. One EVIDENCE line per row, one PASS / FAIL line per cell, then the
+row verdict; a precondition miss ends its row (CAPTURE line, later cells "not reached"); a boot miss fails
+intercept_window-pre with ONE CAPTURE line. ONE foreground run, no skip; exit 0 only when every cell passes, else 2.
 Run: python tools/coop_test/test_removed_base_holders_shared.py   (OXC_HARNESS_SLOT selects the lane)"""
 import glob, json, math, os, sys, time  # noqa: E401
 
@@ -31,14 +35,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness, session  # noqa: E401,E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
-KEY = "49631"                               # lobby key (CONSTANTS.md; 0 hits in src + tools at 60f182398)
+KEY = "49631"                               # lobby key (unused by every other test file)
 SPARE = "SPARE"
 W_BDS, DEL_SETTLE, W_OK, BOOT_S = 2.0, 3.0, 2.0, 60.0
 UFO = {"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",
        "trajectory": "P0", "state": "flying"}
-LOGN = ("[coop] removed base: ", "[coop] W2-H81", "[coop-session]", "coop-ui] push", "coop-ui] pop", "shared_resync")
-ROWS = (("SI", ("SI-pre", "SI-gone", "SI-closed", "SI-top")), ("END", ("CRASH",)))
-FIX = ("SI-closed", "SI-top")
+LOGN = ("[coop] removed base: ", "coopCloseMirrorHolders", "[coop-session]", "coop-ui] push", "coop-ui] pop",
+        "shared_resync")
+ROWS = (("intercept_window",
+         ("intercept_window-pre", "intercept_window-gone", "intercept_window-closed", "intercept_window-top")),
+        ("END", ("CRASH",)))
+FIX = ("intercept_window-closed", "intercept_window-top")
 OKRC = (0, 1, 3221226505, -1073740791, 3221225477)
 T0 = [time.time()]
 
@@ -47,7 +54,7 @@ class Stop(Exception):  # a precondition missed: the row ends here
     pass
 
 
-# ----- probes and real input (copied from docs rewrite/lbh3-cap/cap.py, test_removed_base_windows.py, test_lost_base_undefended.py) -----
+# ----- probes and real input -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def now(): return round(time.time() - T0[0], 2)
 def alive(gc): return gc is not None and gc.proc is not None and gc.proc.poll() is None
@@ -111,7 +118,7 @@ def cw(gc, match, settle=0.8):
     time.sleep(settle)
     return {"base": [r.get("baseX"), r.get("baseY")], "win": [r.get("winX"), r.get("winY")], "ok": r.get("ok")}
 def scale(gc):
-    """INTERCEPT -> CANCEL (real clicks, setup; the same window mapping the other W2-H83 files measure)"""
+    """INTERCEPT -> CANCEL (real clicks, setup; the same window mapping the other removed-base tests measure)"""
     a = cw(gc, "INTERCEPT")
     wait(lambda: top(gc) == "InterceptState", 5)
     session.wait_widget_ready(gc, "CANCEL")
@@ -123,7 +130,8 @@ def scale(gc):
 def globe(gc, **kw): return q(gc, dict({"cmd": "globe_point"}, **kw))
 def dist(a, b): return math.hypot((a[0] - b[0] + math.pi) % (2 * math.pi) - math.pi, a[1] - b[1])
 def pick_point(gc, avoid):
-    """P_SPARE (LBU): land >= 0.15 rad from every base; rings 0.20-0.50 rad around the first base, 16 directions; 8 neighbours land"""
+    """P_SPARE: land >= 0.15 rad from every base; rings 0.20-0.50 rad around the first base, 16 directions; 8
+    neighbours land"""
     c0 = avoid[0]
     for r in (0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50):
         for k in range(16):
@@ -138,7 +146,7 @@ def pick_point(gc, avoid):
                 return {"lon": p[0], "lat": p[1], "r": r, "k": k}
     return None
 def press_through(gc, cap=60.0):
-    """real clicks until GeoscapeState (calm 1 s): an OK screen's 'OK'; a CoopState by its own button (W2-H80 LBU)"""
+    """real clicks until GeoscapeState (calm 1 s): an OK screen's 'OK'; a CoopState by its own button"""
     steps, t1 = [], time.time()
     while time.time() - t1 < cap:
         t = top(gc)
@@ -178,8 +186,8 @@ def capture(b):
 # ----- the boot and the row -----
 class Boot:
     def __init__(self):
-        self.host = GameClient("host", None, make_user_dir("w2h83_hs_host"))
-        self.client = GameClient("client", None, make_user_dir("w2h83_hs_client"))
+        self.host = GameClient("host", None, make_user_dir("removed_base_holders_shared_host"))
+        self.client = GameClient("client", None, make_user_dir("removed_base_holders_shared_client"))
 class Row:
     def __init__(self, x, b, rid):
         self.x, self.b, self.rid, self.res = x, b, rid, {}
@@ -204,7 +212,7 @@ class Row:
             print("CAPTURE %s: %s" % (self.rid, js(capture(self.b))), flush=True)
         print(("PASS %s" % self.rid) if not fails else ("FAIL %s: %s" % (self.rid, " ".join(fails))), flush=True)
         self.x.fails += fails
-def row_si(b, r):
+def row_intercept_window(b, r):
     h, c, ev = b.host, b.client, r.ev
     for gc in (h, c):
         gc.spawn()
@@ -226,7 +234,8 @@ def row_si(b, r):
     ev["HB"] = hb[:2]
     pk = ev["pick"] = pick_point(h, [(hb[2], hb[3])])
     r.need(pk, "SPARE: no land point for P_SPARE")
-    if (p["host"]["funds"] or 0) < 1000000:  # S54 / F22842: never a host-only SHARED funds value; both machines only when needed
+    # never a host-only SHARED funds value (a funds desync); both machines only when needed
+    if (p["host"]["funds"] or 0) < 1000000:
         ev["setFunds"] = [q(gc, {"cmd": "set_funds", "value": 4000000}) for gc in (h, c)]
     br = q(h, {"cmd": "build_new_base", "lon": pk["lon"], "lat": pk["lat"], "name": SPARE})
     ev["build"] = br
@@ -285,21 +294,24 @@ def row_si(b, r):
     hc = census(h)
     ev["P1"] = p1 and {"stack": p1["stack"], "bases": names(p1)}
     ev["hostAfter"] = names(hc)
-    r.cell("SI-pre", True, "HB %s + SPARE on both; STRIP %d -> %s; P0 %s, HB crafts %s; BaseDestroyedState +%s s; the host's OK reached %s" % (
-        hb[1], len(sids), after, p0["stack"], p0["hbCrafts"], bds, stk(h)))
-    r.cell("SI-gone", p1 is not None and gone_at <= DEL_SETTLE and SPARE in names(p1) and hb[1] not in names(hc) and SPARE in names(hc) and
-           p1["stack"][-1:] == ["ErrorMessageState"], "HB gone from the client at +%s s of the host's OK (trace %s); client %s, host %s" % (
+    r.cell("intercept_window-pre", True, "HB %s + SPARE on both; STRIP %d -> %s; P0 %s, HB crafts %s; "
+           "BaseDestroyedState +%s s; the host's OK reached %s" % (
+               hb[1], len(sids), after, p0["stack"], p0["hbCrafts"], bds, stk(h)))
+    r.cell("intercept_window-gone", p1 is not None and gone_at <= DEL_SETTLE and SPARE in names(p1) and
+           hb[1] not in names(hc) and SPARE in names(hc) and p1["stack"][-1:] == ["ErrorMessageState"],
+           "HB gone from the client at +%s s of the host's OK (trace %s); client %s, host %s" % (
                gone_at, gone, ev["P1"], names(hc)))
     r.need(p1 is not None, "HB still on the client %.0f s after the host's OK" % DEL_SETTLE)
-    r.cell("SI-closed", "InterceptState" not in p1["stack"] and p1["stack"][-2:] == ["GeoscapeState", "ErrorMessageState"],
+    r.cell("intercept_window-closed",
+           "InterceptState" not in p1["stack"] and p1["stack"][-2:] == ["GeoscapeState", "ErrorMessageState"],
            "P1 client %s (want no InterceptState, ending [GeoscapeState, ErrorMessageState])" % p1["stack"])
     if top(c) == "ErrorMessageState":
         ev["clientOk"] = must_click(c, "OK", 5)["ok"]
     time.sleep(W_OK)
     p2 = ev["P2"] = stk(c)
-    r.cell("SI-top", "InterceptState" not in p2 and "GeoscapeState" in p2[-2:], "P2 client %s (want no InterceptState, GeoscapeState the top "
-           "or directly under it)" % p2)
-    if top(c) == "InterceptState":  # red recovery: its CANCEL pops only
+    r.cell("intercept_window-top", "InterceptState" not in p2 and "GeoscapeState" in p2[-2:],
+           "P2 client %s (want no InterceptState, GeoscapeState the top or directly under it)" % p2)
+    if top(c) == "InterceptState":  # recovery when it stayed open: its CANCEL pops only
         ev["recovery"] = [real_click(c, "CANCEL", 5)["ok"], wait(lambda: top(c) == "GeoscapeState", 5)]
 class X:  # the file's run state: failing cells, every process's alive-until-shutdown record
     def __init__(self): self.fails, self.alive = [], []
@@ -308,9 +320,9 @@ def main():
     T0[0] = time.time()
     try:
         b = Boot()
-        r = Row(x, b, "SI")
+        r = Row(x, b, "intercept_window")
         try:
-            row_si(b, r)
+            row_intercept_window(b, r)
             r.finish()
         except Stop as e:
             r.finish(str(e))
@@ -331,8 +343,8 @@ def main():
                "new crash files %d %s; alive until shutdown %s" % (len(new), r.ev["newCrash"][:3], x.alive))
         r.finish()
     cl = [cid for _r, cs in ROWS for cid in cs]
-    print("SUMMARY W2-H83 S-C RBHS: %d/%d cells pass; failing %s; wall %.1f s" % (len(cl) - len(set(x.fails)), len(cl),
-                                                                                sorted(set(x.fails)) or "none", now()), flush=True)
+    print("SUMMARY test_removed_base_holders_shared: %d/%d cells pass; failing %s; wall %.1f s"
+          % (len(cl) - len(set(x.fails)), len(cl), sorted(set(x.fails)) or "none", now()), flush=True)
     return 0 if not x.fails else 2
 if __name__ == "__main__":
     sys.exit(main())
