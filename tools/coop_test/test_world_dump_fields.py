@@ -1,35 +1,33 @@
-"""test_world_dump_fields.py: the SHARED world check compares each soldier's gear (spec
-rewrite/prompts/w2g_fidelity_pass.md section (f) rows G1-6..G1-9, Q3 (a), Q4 (a); F7951, F8265; owner D226 (a);
-TASK 0 rewrite/w2g1-task0/CONSTANTS.md row T0-6).
+"""test_world_dump_fields.py: the SHARED world check compares each soldier's gear.
 
-Every SHARED test ends with SharedSession.finish(): shared_fixture.world_dump on both machines, compared. Before
-W2-G1 the dump compares each soldier as (id, name, owner, craftId, dead) only, so a soldier's armor, equipment
-layout, personal layout and that layout's armor can differ between the machines unseen. W2-G1 adds a per-base `gear`
-key ({id, armor, layout, personal, personalArmor} per soldier, sorted by id). Craft loads are not compared yet
-(W2-H20b stage B).
+Every SHARED test ends with SharedSession.finish(): shared_fixture.world_dump on both machines, compared. Besides each
+soldier's (id, name, owner, craftId, dead), the dump carries a per-base `gear` key ({id, armor, layout, personal,
+personalArmor} per soldier, sorted by id), so a soldier's armor, equipment layout, personal layout and that layout's
+armor cannot differ between the machines unseen. Craft loads are not compared.
 
-ONE boot (Boot A): shared_fixture.bring_up("w2g1a", (49451, 49452, 47953)). S0 (guard): world_diff == [] within
-20 s; R0 = both machines' shared_resync_stats.requests (`mismatches` is never asserted, F5510). Soldier X is picked
-at run time (S25: names roll per boot): the host's first get_soldiers soldier of base 0 whose name is no substring of
-another base-0 soldier's name (give_layout matches names by substring) and whose soldier_layouts layout is [] on both
-machines (T0-6: id 1); k = X's index in base 0's gear, sorted by id (T0-6: 0).
+ONE boot: shared_fixture.bring_up("world_dump_fields", (49451, 49452, 47953)). start_equal (guard): world_diff == []
+within 20 s; R0 = both machines' shared_resync_stats.requests (`mismatches` is never asserted). Soldier X is picked at
+run time (names roll per boot): the host's first get_soldiers soldier of base 0 whose name is no substring of another
+base-0 soldier's name (give_layout matches names by substring) and whose soldier_layouts layout is [] on both machines
+(measured: id 1); k = X's index in base 0's gear, sorted by id (measured: 0).
 
-  G1-6  a one-machine layout write is seen. The CLIENT gets give_layout {base 0's name, STR_PISTOL, belt, X,
-        count 1} (one machine: no route, no store change) -> given 1; 1 s; ONE world_diff read. GREEN: exactly
-        T0-6's list LAYOUT_DIFF. RED (commit 1): [] - "world_dump does not compare soldier layouts ". Then
-        the HOST gets the same; world_diff == [] within 5 s (guard).
-  G1-7  a one-machine armor write is seen. The CLIENT gets seed_soldier_armor {X, STR_PERSONAL_ARMOR_UC}; 1 s; ONE
-        read. GREEN: exactly ARMOR_DIFF with X's start armor (T0-6: 'STR_NONE_UC'). RED: [] - "world_dump does not
-        compare soldier armor ". The HOST the same; [] within 5 s (guard).
-  G1-8  the dump carries every soldier's gear: for each machine and base i, world_dump(gc)["bases"][i]["gear"] ==
-        that machine's soldier_layouts {base: <name>} joined with its get_soldiers armor, sorted by id, entry for
-        entry (id, armor, layout, personal, personalArmor). RED: no `gear` key - "world_dump carries no gear".
-  G1-9  (guard, last) js.finish() (world equality + the replica's zero disk); both `requests` == R0 at every read
-        of G1-6..G1-8.
+  layout_write_seen  a one-machine layout write is seen. The CLIENT gets give_layout {base 0's name, STR_PISTOL, belt,
+      X, count 1} (one machine: no route, no store change) -> given 1; 1 s; ONE world_diff read: exactly LAYOUT_DIFF.
+      When broken: [] - "world_dump does not compare soldier layouts". Then the HOST gets the same; world_diff == []
+      within 5 s (guard).
+  armor_write_seen  a one-machine armor write is seen. The CLIENT gets seed_soldier_armor {X, STR_PERSONAL_ARMOR_UC};
+      1 s; ONE read: exactly ARMOR_DIFF with X's start armor (measured: 'STR_NONE_UC'). When broken: [] - "world_dump
+      does not compare soldier armor". The HOST the same; [] within 5 s (guard).
+  dump_carries_gear  the dump carries every soldier's gear: for each machine and base i,
+      world_dump(gc)["bases"][i]["gear"] == that machine's soldier_layouts {base: <name>} joined with its get_soldiers
+      armor, sorted by id, entry for entry (id, armor, layout, personal, personalArmor). When broken: no `gear` key -
+      "world_dump carries no gear".
+  finish_no_restream  (guard, last) js.finish() (world equality + the replica's zero disk); both `requests` == R0 at
+      every read of the three rows before it.
 
-EVIDENCE line before each verdict; every row runs after a failure; exit 0 only when all four pass, else 2. A boot
-miss fails every row "boot" with one CAPTURE line. one run is the result, no skip path.
-run in the foreground to completion.
+EVIDENCE line before each verdict; every row runs after a failure; exit 0 only when all four pass, else 2. A boot miss
+fails every row "boot" with one CAPTURE line. One run is the result, no skip path. Run in the foreground to
+completion.
 
 Run:  python tools/coop_test/test_world_dump_fields.py
 """
@@ -41,12 +39,12 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 
-TAG, PORTS = "w2g1a", (49451, 49452, 47953)   # unused lobby 47953 and labels 49451 / 49452
+TAG, PORTS = "world_dump_fields", (49451, 49452, 47953)   # unused lobby 47953 and labels 49451 / 49452
 ITEM, SLOT = "STR_PISTOL", "belt"
 ARMOR = "STR_PERSONAL_ARMOR_UC"
-S0_S, EQUAL_S, SETTLE_S = 20, 5, 1.0
-# T0-6 (rewrite/w2g1-task0/CONSTANTS.md): the exact diffs of the one-machine writes; <k> = X's index in base 0's gear,
-# <start> = repr of X's start armor
+START_EQUAL_S, EQUAL_S, SETTLE_S = 20, 5, 1.0
+# The exact diffs of the one-machine writes (measured); <k> = X's index in base 0's gear, <start> = repr of X's start
+# armor
 LAYOUT_DIFF = (".bases[0].gear[<k>].layout: 0 entries != 1 entries (host=[] client=[{'ammo': [], 'fixed': False, "
                "'fuse': -1, 'slot': 'STR_BELT', 'type': 'STR_PISTOL', 'x': 0, 'y': 0}])")
 ARMOR_DIFF = ".bases[0].gear[<k>].armor: <start> != 'STR_PERSONAL_ARMOR_UC'"
@@ -57,7 +55,7 @@ def requests(gc):
 
 
 def reads(host, client, ctx, what):
-    """Both machines' shared_resync_stats.requests, recorded for G1-9."""
+    """Both machines' shared_resync_stats.requests, recorded for finish_no_restream."""
     r = (requests(host), requests(client))
     ctx["reads"].append((what, r))
     return r
@@ -73,8 +71,8 @@ def poll_diff(host, client, timeout):
 
 
 def setup(host, client, ctx):
-    """S0, R0 and X (T0-6's rule)."""
-    d0, secs = poll_diff(host, client, S0_S)
+    """start_equal, R0 and X (the rule in the module docstring)."""
+    d0, secs = poll_diff(host, client, START_EQUAL_S)
     ctx["r0"] = (requests(host), requests(client))
     ctx["b0"] = host.ok({"cmd": "geo_state"})["bases"][0]["name"]
     sol = host.ok({"cmd": "get_soldiers"})["bases"][0]["soldiers"]
@@ -87,29 +85,30 @@ def setup(host, client, ctx):
             ctx["x"], ctx["k"] = s, sorted(lay[0]).index(s["id"])
             break
     if d0:
-        ctx["s0_fails"].append(f"S0: world_diff {d0} after {secs} s (want [] within {S0_S} s)")
-    print(f"[w2g1a] S0 world_diff={d0} in {secs} s; R0 (host, client)={ctx['r0']}; base 0 {ctx['b0']!r}; base-0 "
-          f"soldiers (id, name, armor)={[(s['id'], s['name'], s.get('armor')) for s in sol]}; X="
+        ctx["start_fails"].append(f"start_equal: world_diff {d0} after {secs} s (want [] within {START_EQUAL_S} s)")
+    print(f"[world_dump_fields] start_equal world_diff={d0} in {secs} s; R0 (host, client)={ctx['r0']}; base 0 "
+          f"{ctx['b0']!r}; base-0 soldiers (id, name, armor)={[(s['id'], s['name'], s.get('armor')) for s in sol]}; X="
           f"{(ctx['x'] or {}).get('id')} k={ctx['k']}", flush=True)
 
 
-def one_machine_row(host, client, ctx, what, lever, want, blind):
-    """The client gets `lever`; 1 s; ONE world_diff read (== `want`); the host gets the same; [] within 5 s."""
-    fails = list(ctx["s0_fails"]) if what == "G1-6" else []
-    rc = client.ok(lever)
+def one_machine_row(host, client, ctx, what, write_cmd, want, blind):
+    """The client gets `write_cmd`; 1 s; ONE world_diff read (== `want`); the host gets the same; [] within 5 s."""
+    fails = list(ctx["start_fails"]) if what == "layout_write_seen" else []
+    rc = client.ok(write_cmd)
     time.sleep(SETTLE_S)
     d = shared_fixture.world_diff(host, client)
     r1 = reads(host, client, ctx, f"{what} one machine")
-    rh = host.ok(lever)
+    rh = host.ok(write_cmd)
     de, secs = poll_diff(host, client, EQUAL_S)
     r2 = reads(host, client, ctx, f"{what} equalized")
-    print(f"EVIDENCE {what}: X id {ctx['x']['id']} name {ctx['x']['name']!r} k={ctx['k']}; client {lever} -> {rc}; "
-          f"after {SETTLE_S} s world_diff={d} want={want}; requests={r1}; host -> {rh}; world_diff after the host's "
-          f"write={de} in {secs} s; requests={r2}", flush=True)
-    if lever["cmd"] == "give_layout" and (rc.get("given"), rh.get("given")) != (1, 1):
+    print(f"EVIDENCE {what}: X id {ctx['x']['id']} name {ctx['x']['name']!r} k={ctx['k']}; client {write_cmd} -> "
+          f"{rc}; after {SETTLE_S} s world_diff={d} want={want}; requests={r1}; host -> {rh}; world_diff after the "
+          f"host's write={de} in {secs} s; requests={r2}", flush=True)
+    if write_cmd["cmd"] == "give_layout" and (rc.get("given"), rh.get("given")) != (1, 1):
         fails.append(f"{what}: give_layout given client={rc.get('given')} host={rh.get('given')} (want 1 on both)")
-    if lever["cmd"] == "seed_soldier_armor" and (rc.get("armor"), rh.get("armor")) != (ARMOR, ARMOR):
-        fails.append(f"{what}: seed_soldier_armor armor client={rc.get('armor')} host={rh.get('armor')} (want {ARMOR})")
+    if write_cmd["cmd"] == "seed_soldier_armor" and (rc.get("armor"), rh.get("armor")) != (ARMOR, ARMOR):
+        fails.append(f"{what}: seed_soldier_armor armor client={rc.get('armor')} host={rh.get('armor')} (want "
+                     f"{ARMOR})")
     if not d:
         fails.append(f"{blind}: world_diff [] after the client-only write (want exactly {want})")
     elif d != want:
@@ -119,26 +118,28 @@ def one_machine_row(host, client, ctx, what, lever, want, blind):
     return fails
 
 
-def g1_6(host, client, ctx, js):
+def row_layout_write_seen(host, client, ctx, js):
     if ctx["x"] is None:
-        print(f"EVIDENCE G1-6: no soldier X by the rule in base 0 {ctx['b0']!r}", flush=True)
-        return ctx["s0_fails"] + ["G1-6 precondition: no base-0 soldier X with a unique, non-substring name and an "
-                                  "empty layout on both machines"]
-    lever = {"cmd": "give_layout", "base": ctx["b0"], "item": ITEM, "slot": SLOT, "name": ctx["x"]["name"], "count": 1}
-    return one_machine_row(host, client, ctx, "G1-6", lever, [LAYOUT_DIFF.replace("<k>", str(ctx["k"]))],
-                           "world_dump does not compare soldier layouts (F7951)")
+        print(f"EVIDENCE layout_write_seen: no soldier X by the rule in base 0 {ctx['b0']!r}", flush=True)
+        return ctx["start_fails"] + ["layout_write_seen precondition: no base-0 soldier X with a unique, non-substring "
+                                     "name and an empty layout on both machines"]
+    write_cmd = {"cmd": "give_layout", "base": ctx["b0"], "item": ITEM, "slot": SLOT, "name": ctx["x"]["name"],
+                 "count": 1}
+    return one_machine_row(host, client, ctx, "layout_write_seen", write_cmd,
+                           [LAYOUT_DIFF.replace("<k>", str(ctx["k"]))], "world_dump does not compare soldier layouts")
 
 
-def g1_7(host, client, ctx, js):
+def row_armor_write_seen(host, client, ctx, js):
     if ctx["x"] is None:
-        print("EVIDENCE G1-7: no soldier X (see G1-6)", flush=True)
-        return ["G1-7 precondition: no soldier X"]
+        print("EVIDENCE armor_write_seen: no soldier X (see layout_write_seen)", flush=True)
+        return ["armor_write_seen precondition: no soldier X"]
     want = [ARMOR_DIFF.replace("<k>", str(ctx["k"])).replace("<start>", repr(ctx["x"].get("armor")))]
-    lever = {"cmd": "seed_soldier_armor", "soldier_id": ctx["x"]["id"], "armor": ARMOR}
-    return one_machine_row(host, client, ctx, "G1-7", lever, want, "world_dump does not compare soldier armor (F8265)")
+    write_cmd = {"cmd": "seed_soldier_armor", "soldier_id": ctx["x"]["id"], "armor": ARMOR}
+    return one_machine_row(host, client, ctx, "armor_write_seen", write_cmd, want,
+                           "world_dump does not compare soldier armor")
 
 
-def g1_8(host, client, ctx, js):
+def row_dump_carries_gear(host, client, ctx, js):
     fails, ev = [], []
     for gc in (host, client):
         dump = shared_fixture.world_dump(gc)
@@ -156,29 +157,31 @@ def g1_8(host, client, ctx, js):
             if got is None:
                 fails.append(f"world_dump carries no gear ({gc.name} base {i} {b['name']!r}: no `gear` key)")
             elif got != direct:
-                fails.append(f"G1-8: {gc.name} base {i} world_dump gear {got} != soldier_layouts + get_soldiers armor "
-                             f"{direct}")
-    r = reads(host, client, ctx, "G1-8")
-    print(f"EVIDENCE G1-8: {'; '.join(ev)}; requests={r}", flush=True)
+                fails.append(f"dump_carries_gear: {gc.name} base {i} world_dump gear {got} != soldier_layouts + "
+                             f"get_soldiers armor {direct}")
+    r = reads(host, client, ctx, "dump_carries_gear")
+    print(f"EVIDENCE dump_carries_gear: {'; '.join(ev)}; requests={r}", flush=True)
     return fails
 
 
-def g1_9(host, client, ctx, js):
+def row_finish_no_restream(host, client, ctx, js):
     fails = []
     try:
         js.finish()
     except AssertionError as e:
-        fails.append(f"G1-9: js.finish(): {e}")
+        fails.append(f"finish_no_restream: js.finish(): {e}")
     after = (requests(host), requests(client))
     bad = [(w, v) for w, v in ctx["reads"] if v != ctx["r0"]]
-    print(f"EVIDENCE G1-9: finish ok={not fails}; R0={ctx['r0']}; requests at the reads of G1-6..G1-8={ctx['reads']}; "
-          f"after finish={after}", flush=True)
+    print(f"EVIDENCE finish_no_restream: finish ok={not fails}; R0={ctx['r0']}; requests at the earlier rows' reads="
+          f"{ctx['reads']}; after finish={after}", flush=True)
     if bad:
-        fails.append(f"G1-9: shared_resync_stats.requests moved from R0 {ctx['r0']} at {bad} (want flat: no restream)")
+        fails.append(f"finish_no_restream: shared_resync_stats.requests moved from R0 {ctx['r0']} at {bad} (want flat: "
+                     f"no restream)")
     return fails
 
 
-ROWS = (("G1-6", g1_6), ("G1-7", g1_7), ("G1-8", g1_8), ("G1-9", g1_9))
+ROWS = (("layout_write_seen", row_layout_write_seen), ("armor_write_seen", row_armor_write_seen),
+        ("dump_carries_gear", row_dump_carries_gear), ("finish_no_restream", row_finish_no_restream))
 
 
 def main():
@@ -193,13 +196,13 @@ def main():
         print(f"\ntest_world_dump_fields: 0/{len(ROWS)} passed (boot) in {time.time() - t0:.1f}s", flush=True)
         return 2
     host, client = js.host, js.client
-    ctx = {"reads": [], "s0_fails": [], "x": None, "k": None, "b0": None, "r0": None}
+    ctx = {"reads": [], "start_fails": [], "x": None, "k": None, "b0": None, "r0": None}
     try:
         try:
             setup(host, client, ctx)
         except Exception as e:
-            ctx["s0_fails"].append(f"S0 / X setup: {type(e).__name__}: {e}")
-            print(f"[w2g1a] setup error {type(e).__name__}: {e}", flush=True)
+            ctx["start_fails"].append(f"start_equal / X setup: {type(e).__name__}: {e}")
+            print(f"[world_dump_fields] setup error {type(e).__name__}: {e}", flush=True)
         for name, fn in ROWS:
             try:
                 fails = fn(host, client, ctx, js)
