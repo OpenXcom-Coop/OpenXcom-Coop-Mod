@@ -3,7 +3,8 @@
 One world, the host machine runs every battle. Rows:
 
   SEP-1  The host's craft lands with the client's tank aboard (the client
-         equipped it as a visitor). The battle belongs to the host; the host's
+         equipped it as a visitor). The battle belongs to the host and its
+         base is the selected base on both machines; the host's
          soldiers are on the host's seat and the client's tank is on the
          client's seat, on both machines. After the abort the client's own
          debriefing stays up until its OK while the host's post-battle world
@@ -11,7 +12,9 @@ One world, the host machine runs every battle. Rows:
          back in its owner's base, none duplicated, the two worlds equal.
   SEP-2  The client's own craft lands (the host brokers the landing, the
          client answers YES). The battle starts on both machines and belongs to
-         the client; the client's soldiers and its tank are on the client's
+         the client, whose base is the selected base on both machines (the
+         briefing, equipment and debriefing read it); the client's soldiers and
+         its tank are on the client's
          seat on both machines; the client moves its own soldier, the host's
          selection of it is refused, the hashes stay equal. The battle ends as
          in SEP-1: the client's soldiers are back in the client's base.
@@ -96,12 +99,15 @@ def _enter_battle(host, client, lander):
                     timeout=180, interval=1.0)
 
 
-def _check_owner(host, client, owner, row):
+def _check_owner(host, client, owner, row, base=None):
     for gc, label in ((host, "host"), (client, "client")):
         bs = session.battle_state(gc)
         assert bs.get("battleOwnerPlayerName") == owner, (
             f"{row}: {label} battleOwnerPlayerName={bs.get('battleOwnerPlayerName')!r}, want {owner!r}")
-    print(f"PASS {row} owner: the battle belongs to {owner} on both machines")
+        assert base is None or bs.get("selectedBase") == base, (
+            f"{row}: {label} selectedBase={bs.get('selectedBase')!r}, want {base!r}")
+    print(f"PASS {row} owner: the battle belongs to {owner} on both machines"
+          + ("" if base is None else f", {base} selected"))
 
 
 def _to_tactical(host, client, row):
@@ -204,7 +210,7 @@ def sep1():
         before = _rosters(host)
         fixture.fly_to_new_site(host, client, host)
         _enter_battle(host, client, host)
-        _check_owner(host, client, "HostPlayer", row)
+        _check_owner(host, client, "HostPlayer", row, "HostBase")
         _to_tactical(host, client, row)
         _check_seats(host, client, lambda u: 0 if u.get("owner") in (0, 999) else u.get("owner"), 1, row)
         _campaign_exit(host, client, row)
@@ -228,7 +234,7 @@ def sep2():
         before = _rosters(host)
         fixture.fly_to_new_site(host, client, client)
         _enter_battle(host, client, client)
-        _check_owner(host, client, "ClientPlayer", row)
+        _check_owner(host, client, "ClientPlayer", row, "ClientBase")
         _to_tactical(host, client, row)
         client_ids, host_ids = _check_seats(host, client, lambda u: 1, 1, row)
         assert client_ids and not host_ids, (client_ids, host_ids)

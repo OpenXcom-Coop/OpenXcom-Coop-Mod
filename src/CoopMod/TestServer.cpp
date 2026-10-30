@@ -15356,6 +15356,8 @@ std::string TestServer::execute(const std::string& line)
 				resp["serverOwner"] = connectionTCP::getServerOwner();
 				resp["saveOwnerId"] = connectionTCP::coop_save_owner_player_id;
 				resp["battleOwnerPlayerName"] = bg->getBattleOwnerPlayerName();
+				Base* selectedBase = sg->getBases()->empty() ? nullptr : sg->getSelectedBase();
+				resp["selectedBase"] = selectedBase ? selectedBase->getName() : "";
 				const BattleUnit* sel = bg->getSelectedUnit();
 				resp["selectedId"] = sel ? sel->getId() : -1;
 				// The actor of THIS machine's current
