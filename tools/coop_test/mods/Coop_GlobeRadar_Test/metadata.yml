@@ -1,0 +1,9 @@
+name: "Coop globe radar test"
+version: 1.0
+description: "Test-only fixture for test_pvp_campaign_ufo_spawn.py. Data only. The access lift every base starts with also works
+  as a radar that covers the whole globe and always detects, so a base detects every natural UFO at the first 30-minute check
+  after it appears, wherever it flies, and that detection holds the geoscape clock while the UFO is alive. The stock radars keep
+  their stock range and chance. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

@@ -10,6 +10,14 @@ using spawn_ufo (which force-creates a UFO bypassing the sim).
 Validates (both gm2 host=XCOM and gm3 host=alien):
   1. Natural UFOs appear as time advances (no spawn_ufo involved).
   2. Both machines observe UFOs as the geoscape sim runs.
+  3. On a held host clock, the client mirrors exactly the host's real UFOs.
+
+Both machines load mods/Coop_GlobeRadar_Test: every base's access lift is also
+a radar that covers the whole globe and always detects. The host then detects
+each natural UFO at its first 30-minute check, wherever its mission sent it, and
+the detection window holds the host's clock while that UFO is alive. With the
+stock radar alone the set checks saw a live UFO only when one passed near the
+base or happened to be up when a skip settled, which some boots never gave.
 
 UFOs are transient, so detection runs at the MAX time step and gates on
 the UNION of coop UFO ids each machine EVER sees across the window -- never
@@ -31,6 +39,7 @@ import session
 import geo
 
 PORT = "48001"
+MOD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_GlobeRadar_Test")
 
 
 def _states(gc):
@@ -55,8 +64,8 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
     tag = f"gm{expect_mode}_{alien_player}"
     print(f"\n--- natural UFO spawn {tag} ---")
 
-    host = GameClient("host", 48984, make_user_dir(f"pvp_nufo_{tag}_host"))
-    client = GameClient("client", 48985, make_user_dir(f"pvp_nufo_{tag}_client"))
+    host = GameClient("host", 48984, make_user_dir(f"pvp_nufo_{tag}_host", mods=[MOD_DIR]))
+    client = GameClient("client", 48985, make_user_dir(f"pvp_nufo_{tag}_client", mods=[MOD_DIR]))
     try:
         host.spawn(); host.connect()
         client.spawn(); client.connect()
@@ -176,7 +185,9 @@ def test_natural_ufo_spawn(fails, alien_player, expect_mode):
         # after the drain, both clocks run at speed 5 (settle cannot slow a machine under a popup) and the two
         # reads land at different game times. The host's sim makes the UFOs in both modes (gm2 X-COM host,
         # gm3 alien host), so its real UFOs must all be mirrored on the client; at least one check must see
-        # a live UFO (F13502: gm3's X-COM client creates none).
+        # a live UFO (F13502: gm3's X-COM client creates none). The globe radar (MOD_DIR) makes the host detect
+        # every UFO its sim creates while that UFO is alive, so the first new UFO ends a skip on a held host
+        # with the UFO up, and that check is never empty.
         checked = {"nonempty": 0, "bad": None}
 
         def _set_check():

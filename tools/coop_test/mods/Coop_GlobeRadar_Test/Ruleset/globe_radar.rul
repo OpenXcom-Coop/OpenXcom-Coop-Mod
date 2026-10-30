@@ -1,0 +1,8 @@
+# Test-only mod for test_pvp_campaign_ufo_spawn.py. The access lift (one per base, built from the start) gets a radar that
+# reaches every point of the globe (the farthest point is 10800 nautical miles away). Base::detect scales the chance by the
+# UFO's visibility, down to -50 (a very small UFO at very low altitude), so 200 still gives 100 % and every flying or landed
+# UFO is detected at its first 30-minute check. The detection window then holds the geoscape clock with that UFO alive.
+facilities:
+  - type: STR_ACCESS_LIFT
+    radarRange: 12000
+    radarChance: 200
