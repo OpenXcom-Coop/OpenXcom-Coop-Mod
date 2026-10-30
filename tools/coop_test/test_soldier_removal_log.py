@@ -1,13 +1,12 @@
 """a co-op soldier's removal at death leaves one log line, and a
-set_soldier_owner miss says who is where (spec rewrite/prompts/
-w2h11_soldier_removal_logging.md (f); owner ruling D218; F3567, F3574).
-ONE boot (test_death_side's default map, lobby PORT_H11), rows in order:
- H11-1  the HOST kills HOST_SOLDIER_ID (kill_unit_real, the K1 death branch): its log
+set_soldier_owner miss says who is where.
+ONE boot (test_death_side's default map, lobby PORT), rows in order:
+ kill_logs_once  the HOST kills HOST_SOLDIER_ID (kill_unit_real): its log
         holds exactly ONE `[coop-roster] killSoldier:` line naming soldier,
         owner, the base it left (index, name, coop flag), resetArmor 0, battle
         turn and side; get_soldiers no longer lists it. Cause fields and the
         client's count are printed only.
- H11-2  the HOST calls set_soldier_owner for the dead HOST_SOLDIER_ID (i), GHOST_ID (ii,
+ owner_miss_diag  the HOST calls set_soldier_owner for the dead HOST_SOLDIER_ID (i), GHOST_ID (ii,
         no base soldier, no battle unit) and the control CLIENT_SOLDIER_ID with its own
         owner (iii). Each miss answers ok false, the same error and a `diag`
         listing every base's soldiers (= R0, in order), the dead (HOST_SOLDIER_ID) and
@@ -15,8 +14,8 @@ ONE boot (test_death_side's default map, lobby PORT_H11), rows in order:
 A boot step or precondition miss is a setup failure (one CAPTURE line: both
 machines' get_soldiers + battle_state; both rows FAIL "boot"). Each row prints
 ONE "EVIDENCE <id>:" line, then "PASS <id>" or "FAIL <id>: <msg>"; every row
-runs; an H11-1 staging failure fails H11-2 "staging". The diag text is never
-printed (H11-L2). ONE foreground run, no skip path; exit 0
+runs; a kill_logs_once staging failure fails owner_miss_diag "staging". The diag text is never
+printed. Run it in the foreground; there is no skip path; exit 0
 only when both rows pass, 2 otherwise.
 """
 
@@ -35,9 +34,9 @@ from test_death_side import (kill_real, HOST_SOLDIER_ID, CLIENT_SOLDIER_ID, A_ID
                                 FACTION_PLAYER, FACTION_HOSTILE, COOP_SEAT_0, COOP_SEAT_1, STATUS_DEAD)
 from test_delta_core import short
 
-PORT_H11 = "48495"            # this file's lobby key (unused by every other test file)
-GHOST_ID = 987654             # H11-2 (ii): no base soldier and no battle unit has this id (asserted)
-OWNER_MISS = 999              # H11-2 (i)/(ii): the owner the two misses would write
+PORT = "48495"            # this file's lobby key (unused by every other test file)
+GHOST_ID = 987654             # owner_miss_diag (ii): no base soldier and no battle unit has this id (asserted)
+OWNER_MISS = 999              # owner_miss_diag (i)/(ii): the owner the two misses would write
 LOG_FLUSH_S, IDLE_S = 3, 30   # house log flush; wait_host_idle
 NOT_FOUND = "soldier id not found"
 KILL_NEEDLE = "[coop-roster] killSoldier:"
@@ -47,7 +46,7 @@ KILL_RE = re.compile(r"\[coop-roster\] killSoldier: soldier (\d+) '(.*)' owner (
                      r"ammo (\S+); battle turn (-?\d+) side (-?\d+)$")
 BASE_RE = re.compile(r"\[(\d+) '(.*?)' coopBase=([01]):([^\]]*)\]")
 SOLDIER_RE = re.compile(r"(\d+)/o(-?\d+)/c([01])")
-# H11-2: the dead unit in the diag's `units:` list
+# owner_miss_diag: the dead unit in the diag's `units:` list
 DEAD_TOKEN = f"unit{HOST_SOLDIER_ID}/soldier{HOST_SOLDIER_ID}/st{STATUS_DEAD}/"
 
 def evidence(rid, obj):
@@ -86,15 +85,15 @@ def capture(name, err, machines):
     print(f"CAPTURE {name} (missed: {err}): {json.dumps(cap, sort_keys=True, default=str)}", flush=True)
 
 def boot(host, client, ctx):
-    """Copy of test_death_side.boot_default on lobby PORT_H11, then the (f) preconditions."""
-    hc.bring_up_lobby_roster_pinned(host, client, PORT_H11)
+    """Copy of test_death_side.boot_default on lobby PORT, then this file's preconditions."""
+    hc.bring_up_lobby_roster_pinned(host, client, PORT)
     session.drive_to_battlescape(host, client, {}, seat_count=2,
                                  pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP_DEFAULT}))
     hs, cs = battle_state(host), battle_state(client)
     assert hs.get("mapFingerprint") == MAP_FP_DEFAULT and cs.get("mapFingerprint") == MAP_FP_DEFAULT, (
         f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r} "
         f"(baked {MAP_FP_DEFAULT!r})")
-    assert pin_ai_neutral(host, client, tag="w2h11"), "pin_ai_neutral pinned no NONE-seat non-player unit"
+    assert pin_ai_neutral(host, client, tag="removal_log"), "pin_ai_neutral pinned no NONE-seat non-player unit"
     ub = session.units_by_id(hs)
     for uid, seat in ((HOST_SOLDIER_ID, COOP_SEAT_0), (CLIENT_SOLDIER_ID, COOP_SEAT_1)):
         u = ub.get(uid) or {}
@@ -116,7 +115,7 @@ def boot(host, client, ctx):
         f"host battle turn {ctx['T0']} side {bs.get('side')} (want turn >= 1, side {FACTION_PLAYER})")
     assert kc == [0, 0], f"`{KILL_NEEDLE}` lines host/client {kc} at boot (want 0 on both)"
 
-def h11_1(host, client, ctx):
+def row_kill_logs_once(host, client, ctx):
     notes = []
     k = kill_real(host, client, HOST_SOLDIER_ID, notes)
     time.sleep(LOG_FLUSH_S)
@@ -124,10 +123,11 @@ def h11_1(host, client, ctx):
     after = bases_with(roster(host), HOST_SOLDIER_ID)
     lines, cn = log_lines(host, KILL_NEEDLE), log_count(client, KILL_NEEDLE)
     g = m.groups() if (len(lines) == 1 and (m := KILL_RE.search(lines[0]))) else None
-    evidence("H11-1", {"kill": k, "hostUnit": {x: u.get(x) for x in ("status", "isOut", "onTile", "health")},
-                       "hostBasesWith10": after, "hostLines": lines, "clientLines": cn,
-                       "cause": {"killer": g[7], "faction": g[8], "weapon": g[9], "ammo": g[10]} if g else None,
-                       "b10": ctx["b10"], "o10": ctx["o10"], "T0": ctx["T0"], "notes": notes})
+    evidence("kill_logs_once", {"kill": k, "hostUnit": {x: u.get(x) for x in ("status", "isOut", "onTile", "health")},
+                                "hostBasesWith10": after, "hostLines": lines, "clientLines": cn,
+                                "cause": ({"killer": g[7], "faction": g[8], "weapon": g[9], "ammo": g[10]}
+                                          if g else None),
+                                "b10": ctx["b10"], "o10": ctx["o10"], "T0": ctx["T0"], "notes": notes})
     stage = list(notes)
     if not k.get("ok") or k.get("killed") != [HOST_SOLDIER_ID]:
         stage.append(f"kill_unit_real answered {k} (want ok, killed [{HOST_SOLDIER_ID}])")
@@ -135,7 +135,7 @@ def h11_1(host, client, ctx):
         stage.append(f"host unit {HOST_SOLDIER_ID} status {u.get('status')} (want DEAD {STATUS_DEAD})")
     if stage:
         ctx["staging"] = "; ".join(stage)
-        capture("H11-1 staging", ctx["staging"], (host, client))
+        capture("kill_logs_once staging", ctx["staging"], (host, client))
         return [f"staging: {ctx['staging']}"]
     f = []
     if after:
@@ -157,7 +157,7 @@ def h11_1(host, client, ctx):
     return f
 
 def diag_fails(tag, sid, a, r0):
-    """One miss's answer against the (f) GREEN: ok false, the same error, a diag matching R0."""
+    """One miss's answer against the expected one: ok false, the same error, a diag matching R0."""
     if a.get("ok") is not False or a.get("error") != NOT_FOUND:
         return [f"{tag} answered ok={a.get('ok')} error={a.get('error')!r} (want ok false, error {NOT_FOUND!r})"]
     d = a.get("diag")
@@ -182,7 +182,7 @@ def diag_fails(tag, sid, a, r0):
         f.append(f"{tag} diag units {'missing' if units is None else 'lack ' + DEAD_TOKEN}")
     return f
 
-def h11_2(host, client, ctx):
+def row_owner_miss_diag(host, client, ctx):
     r0 = roster(host)
     unit_ids = set(session.units_by_id(battle_state(host)))
     b8 = bases_with(r0, CLIENT_SOLDIER_ID)
@@ -191,7 +191,7 @@ def h11_2(host, client, ctx):
     pre += [] if len(b8) == 1 else [f"host get_soldiers lists soldier {CLIENT_SOLDIER_ID} on bases {b8} "
                                     f"(want exactly one)"]
     if pre:
-        capture("H11-2 staging", "; ".join(pre), (host, client))
+        capture("owner_miss_diag staging", "; ".join(pre), (host, client))
         return [f"staging: {'; '.join(pre)}"]
     o8 = next(s[1] for s in r0[b8[0]][2] if s[0] == CLIENT_SOLDIER_ID)
     a1 = host.cmd({"cmd": "set_soldier_owner", "soldier_id": HOST_SOLDIER_ID, "owner": OWNER_MISS})
@@ -208,10 +208,10 @@ def h11_2(host, client, ctx):
                 "groups": len(BASE_RE.findall(d))}
     r0v = {"bases": [(n, c, len(ss)) for n, c, ss in r0], "basesWith10": bases_with(r0, HOST_SOLDIER_ID),
            "s8": (b8[0], o8)}
-    evidence("H11-2", {"R0": r0v, "answers": {"i": view(a1), "ii": view(a2), "iii": view(a3)},
-                       "hostLines": len(hl), "hostLinesMatch": match, "clientLines": cl})
+    evidence("owner_miss_diag", {"R0": r0v, "answers": {"i": view(a1), "ii": view(a2), "iii": view(a3)},
+                                 "hostLines": len(hl), "hostLinesMatch": match, "clientLines": cl})
     if any(a.get("ok") is not False for a in (a1, a2)):
-        capture("H11-2 miss answered ok", f"(i) ok={a1.get('ok')} (ii) ok={a2.get('ok')}", (host, client))
+        capture("owner_miss_diag miss answered ok", f"(i) ok={a1.get('ok')} (ii) ok={a2.get('ok')}", (host, client))
     f = diag_fails(f"(i) soldier {HOST_SOLDIER_ID}", HOST_SOLDIER_ID, a1, r0)
     f += diag_fails(f"(ii) soldier {GHOST_ID}", GHOST_ID, a2, r0)
     if a3.get("ok") is not True or "diag" in a3:
@@ -225,12 +225,12 @@ def h11_2(host, client, ctx):
         f.append(f"client `{SSO_NEEDLE}` lines {cl} (want 0)")
     return f
 
-ROWS = (("H11-1", h11_1), ("H11-2", h11_2))
+ROWS = (("kill_logs_once", row_kill_logs_once), ("owner_miss_diag", row_owner_miss_diag))
 
 def main():
     t0, results, ctx = time.time(), {}, {}
-    host = GameClient("host", None, make_user_dir("w2h11_removal_log_host"))
-    client = GameClient("client", None, make_user_dir("w2h11_removal_log_client"))
+    host = GameClient("host", None, make_user_dir("removal_log_host"))
+    client = GameClient("client", None, make_user_dir("removal_log_client"))
     try:
         try:
             boot(host, client, ctx)
@@ -254,7 +254,7 @@ def main():
             try:
                 gc.shutdown()
             except Exception as e:
-                print(f"[w2h11] shutdown {gc.name}: {short(e)}", flush=True)
+                print(f"[removal_log] shutdown {gc.name}: {short(e)}", flush=True)
     passed = [r for r, _fn in ROWS if results.get(r)]
     failed = [r for r, _fn in ROWS if not results.get(r)]
     print(f"\ntest_soldier_removal_log: {len(passed)}/{len(ROWS)} passed (pass={passed} fail={failed}) in "
