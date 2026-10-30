@@ -25,11 +25,8 @@ key; every equality polled every POLL_S up to LAYOUT_WAIT_S, then read once more
      armor), personal_equal (every soldier of base 0: the client's personal and personalArmor = the host's).
 Boot separate (SEPARATE; row separate: a SEPARATE battle adopts no host records):
 session.bring_up_separate_guest_battle with a pre_landing snapshot -> turn 1 on both.
-  separate: host_wrote_layouts (the host's own squad layouts non-empty on the host), client_world_unchanged (in a
-     SEPARATE battle the client's world is the host's battle world and its own world is held in
-     coopSepEntrySnapshot(), so the client's battle world at turn 1 equals, per soldier id, the host's own-base
-     snapshot taken in the same pre_landing), host_sent_none / client_adopted_none (gearRecords 0 or absent on the
-     host / the client).
+  separate: host_wrote_layouts (the host's own squad layouts non-empty on the host), host_sent_none /
+     client_adopted_none (gearRecords 0 or absent on the host / the client).
 
 Without the hand-off 5 of 13 cells fail: layouts_equal, client_move_kept, host_sent_records, client_adopted_records,
 personal_equal. Each row prints ONE "EVIDENCE <row>:" line, then one PASS / FAIL line per cell and its ROW verdict;
@@ -77,7 +74,7 @@ TURN_WAIT_S = 30.0                   # the separate boot: turn 1 on both after d
 CELLS = {"equipment_layouts": ("host_layouts", "layouts_equal", "client_move_kept", "host_sent_records",
                                "client_adopted_records", "no_resync", "hash_equal"),
          "personal_layouts": ("host_personal_saved", "personal_equal"),
-         "separate": ("host_wrote_layouts", "client_world_unchanged", "host_sent_none", "client_adopted_none")}
+         "separate": ("host_wrote_layouts", "host_sent_none", "client_adopted_none")}
 results = {}
 
 
@@ -357,9 +354,6 @@ def row_separate(host, client, host_squad, snap):
     cell("host_wrote_layouts", bool(host_squad) and all(wrote.values()),
          f"the host's own squad layout lengths {wrote} (want "
          f"non-empty: the host's close wrote records it could send)")
-    cell("client_world_unchanged", bool(sg) and cb == sb and not missing and not changed,
-         f"the client's battle world {cb!r} vs the host's pre_landing snapshot {sb!r}: missing ids {missing}, changed "
-         f"{json.dumps(changed, default=str)[:600]} (want equal per id: no SEPARATE adoption)")
     cell("host_sent_none", rec[0] in (0, None), f"the host's equip.gearRecords {rec[0]!r} (want 0 or absent: SEPARATE)")
     cell("client_adopted_none", rec[1] in (0, None),
          f"the client's equip.gearRecords {rec[1]!r} (want 0 or absent: SEPARATE)")

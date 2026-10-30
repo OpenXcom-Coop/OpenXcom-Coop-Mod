@@ -12,20 +12,19 @@ and its stored research are untouched.
       shared_repair-3 a client walk of squad[1] applies (walk_far, as in test_campaign_rejoin), HASH; shared_repair-4
       CRASH 0, client zero-disk.
   Boot separate_campaign (SEPARATE, key "48757", dirs desync_campaign_separate_host / _client):
-  session.bring_up_separate_guest_battle(host, client, port="48757", pre_mission_start = the client's
-  discover_research STR_PLASMA_PISTOL, a topic the host lacks, so the seat-1 store check discriminates; pre_landing =
+  session.bring_up_separate_guest_battle(host, client, port="48757", pre_mission_start = separate_profile_set
+  STR_PLASMA_PISTOL for the client's player on both machines, a topic the host lacks, so the seat-1 store check
+  discriminates; pre_landing =
   the host's set_seed SEED_SEPARATE); GID = the one faction-0 unit named "Guest" (coop 1); P = host_squad[1],
   K = host_squad[0], walker GID.
   Both boots (test_desync_resync's boot order): mapFingerprint == MAP_FP_SHARED / MAP_FP_SEPARATE on both machines,
   pin_ai_neutral (a live alien's reaction shot during the kneel once killed P in shared_repair), wait_host_idle; a
   miss = setup failure.
-  separate_repair SEPARATE: OWN0 (the client's coop_file_info {role own_world}: key, bytes, fnv1a64), RES0 (the
-      host's event_state.researchMode seats[1] {stored, count, unknown}); the poke + the kneel; REPAIRED.
-      separate_repair-1 RS as shared_repair-1; separate_repair-2 HASH, SPLIT unchanged (GID on seat 1);
-      separate_repair-3 the own-world key's fnv == OWN0; separate_repair-4 the host's seats[1] == RES0, RES0 holds the
-      client's topic (count >= 1) and the host's live research lacks it (the seat's stored list; the live world's list
-      would read 0); separate_repair-5 the guest's walk applies (walk_far), HASH; separate_repair-6 CRASH 0, client
-      zero-disk.
+  separate_repair SEPARATE: RES0 (the host's event_state.researchMode seats[1] {stored, count, unknown}); the poke +
+      the kneel; REPAIRED. separate_repair-1 RS as shared_repair-1; separate_repair-2 HASH, SPLIT unchanged (GID on
+      seat 1); separate_repair-3 the host's seats[1] == RES0, RES0 holds the client's topic (count >= 1) and the host's
+      global research list lacks it (the seat's stored list); separate_repair-4 the guest's walk applies (walk_far),
+      HASH; separate_repair-5 CRASH 0, client zero-disk.
 Definitions (helpers imported, never edited): RS / NOTICE_OK / REPAIRED(host, client, B0, 1) / kneel / HASH / SPLIT
 from test_desync_resync (REPAIRED within 45 s: host RS released +1, client RS loaded +1, the notices dismissed, both
 tops BattlescapeState, phase Active, battleId B0, host peerAbsent false, client frozen false, no CoopState on the
@@ -78,22 +77,12 @@ class Row(DR.Row):
         print(("PASS %s" % self.rid) if not self.fails else ("FAIL %s: %s" % (self.rid, " ".join(self.fails))), flush=True)
 
 
-def own(gc):
-    """the client's own-world snapshot: coop_file_info {role own_world}"""
-    r = DR.q(gc, {"cmd": "coop_file_info", "role": "own_world"})
-    return {k: r.get(k) for k in ("key", "present", "bytes", "fnv1a64", "error")}
-
-
 def res(gc):
     """the host's stored seat-1 research: event_state.researchMode.seats[1] {stored, count, unknown} (+ the mode, EVIDENCE)"""
     rm = DR.q(gc, {"cmd": "event_state"}).get("researchMode") or {}
     s1 = next((s for s in rm.get("seats") or [] if s.get("seat") == 1), {})
     return {"seat1": {k: s1.get(k) for k in ("stored", "count", "unknown")}, "sync": rm.get("sync"), "separate": rm.get("separate"),
             "liveCount": rm.get("liveCount")}
-
-
-def sep_snapshot(gc):
-    return (DR.q(gc, {"cmd": "event_state"}).get("battleEnd") or {}).get("sepSnapshot")
 
 
 def walk(x, uid, rid):
@@ -117,18 +106,18 @@ def row(x, rid, results, walls):
     """shared_repair (SHARED) / separate_repair (SEPARATE): the poke, the host's kneel, REPAIRED, then the row's
     cells in order"""
     sep = rid == "separate_repair"
-    ids = ["%s-%d" % (rid, i) for i in range(1, 7 if sep else 5)]
+    ids = ["%s-%d" % (rid, i) for i in range(1, 6 if sep else 5)]
     r = Row(rid, ids[:-1], x)
     h, c = x.host, x.client
     try:
         rh0, rc0, nh, nc = DR.rs(h), DR.rs(c), len(DR.log(h)), len(DR.log(c))
-        own0, res0, snap0 = (own(c), res(h), sep_snapshot(c)) if sep else (None, None, None)
+        res0 = res(h) if sep else None
         r0 = DR.units(c).get(x.P, {}).get("reactions")
         rset = DR.q(c, {"cmd": "battle_action", "action": "set_stat", "unit": x.P, "stat": "reactions",
                         "value": (r0 or 0) + POKE})
         pv = {"P K walker": [x.P, x.K, x.walker], "set_stat": rset,
               "client reactions": [r0, DR.units(c).get(x.P, {}).get("reactions")],
-              "host reactions": DR.units(h).get(x.P, {}).get("reactions"), "diff": dc.diff_buckets(h, c), "OWN0": own0,
+              "host reactions": DR.units(h).get(x.P, {}).get("reactions"), "diff": dc.diff_buckets(h, c),
               "RES0": res0}
         print("EVIDENCE %s poke: %s" % (rid, DR.js(pv)), flush=True)
         if rset.get("ok") is not True or pv["diff"] != ["saveBlob"]:
@@ -163,24 +152,17 @@ def row(x, rid, results, walls):
         else:
             r.cell(ids[1], "GUARD", "HASH; SPLIT(host) == SPLIT(client) == SPLIT0 (the guest %s on seat 1)" % x.walker,
                    hok and sh == sc == x.split0 and [x.walker, 1] in sh, {"HASH": hev, "SPLIT host/client": [sh, sc], "SPLIT0": x.split0})
-            own1 = own(c)
-            r.cell(ids[2], "GUARD", "the client's own-world key's fnv == OWN0 (the SEPARATE entry snapshot is not "
-                   "retaken by the repair)",
-                   own0.get("present") is True and own1.get("present") is True and own1.get("key") == own0.get("key")
-                   and own1.get("fnv1a64") == own0.get("fnv1a64"),
-                   {"OWN0": own0, "after": own1,
-                    "battleEnd.sepSnapshot before/after (EVIDENCE)": [snap0, sep_snapshot(c)]})
             res1 = res(h)
             live = DR.q(h, {"cmd": "geo_state"}).get("discoveredResearch")
-            r.cell(ids[3], "GUARD", "the host's stored seat-1 research == RES0; RES0 holds the client's own topic "
-                   "(stored, count >= 1) and the host's live research lacks %s (the check discriminates)" % TOPIC,
+            r.cell(ids[2], "GUARD", "the host's stored seat-1 research == RES0; RES0 holds the client's own topic "
+                   "(stored, count >= 1) and the host's global research list lacks %s (the check discriminates)" % TOPIC,
                    res1["seat1"] == res0["seat1"] and res0["seat1"].get("stored") is True and (res0["seat1"].get("count") or 0) >= 1
                    and isinstance(live, list) and TOPIC not in live,
                    {"RES0": res0, "after": res1, "host live research": live,
                     "the client's pre-battle test command / lists": x.pre,
                     "names": "no probe under research sync on (coopSeatResearchNames unexposed; research_check reads the live world)"})
             wok, wev = walk(x, x.walker, rid)
-            r.cell(ids[4], "GUARD", "the guest %s's walk applies on both (walk_far, as shared_repair-3); HASH"
+            r.cell(ids[3], "GUARD", "the guest %s's walk applies on both (walk_far, as shared_repair-3); HASH"
                    % x.walker, wok, wev)
     except Exception as e:  # Stop, or a probe that raised: the row ends here
         r.stop(e)
@@ -245,16 +227,17 @@ def boot_separate():
                             GameClient("client", 2, make_user_dir(TAG_SEPARATE + "_client")))
         x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
 
-        def f(host, client):  # the client's own world is the live one here (before the battle)
-            x.pre["discover_research"] = DR.q(client, {"cmd": "discover_research", "topic": TOPIC})
+        def f(host, client):  # one shared save: the client's player gets the topic on both machines
+            x.pre["grant"] = [DR.q(gc, {"cmd": "separate_profile_set", "player": "ClientPlayer", "research": TOPIC})
+                              for gc in (client, host)]
             x.pre["client research"] = DR.q(client, {"cmd": "geo_state"}).get("discoveredResearch")
             x.pre["host research"] = DR.q(host, {"cmd": "geo_state"}).get("discoveredResearch")
         hsq, _guest_local = session.bring_up_separate_guest_battle(
             x.host, x.client, port=KEY_SEPARATE, pre_mission_start=f,
             pre_landing=lambda h, c: h.ok({"cmd": "set_seed", "seed": SEED_SEPARATE}))
-        discover = x.pre.get("discover_research") or {}
-        assert discover.get("ok") is True and discover.get("researched") is True, (
-            "SETUP-FAILURE: discover_research %s on the client: %s" % (TOPIC, discover))
+        grant = x.pre.get("grant") or []
+        assert len(grant) == 2 and all(g.get("ok") is True and g.get("researchAdded") is True for g in grant), (
+            "SETUP-FAILURE: separate_profile_set %s for the client's player: %s" % (TOPIC, grant))
         gids = [u.get("id") for u in DR.bs(x.host).get("units") or [] if u.get("faction") == 0
                 and "Guest" in str(u.get("name"))]
         assert len(gids) == 1, "SETUP-FAILURE: GID = exactly one faction-0 unit named \"Guest\": %s" % gids
