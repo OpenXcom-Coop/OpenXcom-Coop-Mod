@@ -1,24 +1,28 @@
-"""W2-H21 (R-H20bB-T0-1; F8598, F8599; spec rewrite/prompts/w2h21_restream_open_inventory_crash.md (f) as ruled by R-H21-T0-1 and
-R-H21-R-1; TASK 0 rewrite/w2h21-task0/CONSTANTS.md): in SHARED, a world swap (a re-copy, or a battle start) that lands while the second
-player's base inventory is open deletes the inventory's practice battle at once; the InventoryState is deleted a cycle later and its
-destructor reads that deleted battle (T0-I, F8774 / F8775). Whether the read crashes depends on heap reuse (TASK 0, option OFF: craft
-2/3, soldier 1/3, battle start 0/3; the first red run: re-copy 4/8, battle start 1/1), so ONE row repeats every path.
-  H21-R (named red), 11 constructions, all run:
-    k1..k3 battle start (Boot C ports, a fresh boot `w2h21c<k>` each): bring_up_shared_mixed_battle(js, None, to_tactical=False,
-        pre_landing = the client's soldier inventory, h20.open_soldier_screen); non-vacuity: opened, CL `battle_offer accepted` then
-        `pop  class OpenXcom::InventoryState`; poll 0.5 s up to 90 s. Lived: the client's stack holds BattlescapeState and BriefingState
-        and no InventoryState / SoldiersState (it entered the battle), alive 2 s past that; the host alive; clean shutdown.
-    k4..k11 re-copy (Boot A ports, boot `w2h21r<n>`, a fresh one after each crash): even k = the client's craft inventory
-        (h20.open_craft_screen) + the CLIENT's force_resync (reply role replica, sent true); odd k = the client's soldier inventory
-        (h20.open_soldier_screen) + the HOST's force_resync (role host). Non-vacuity: the screen on the client's stack, CL
-        `push class OpenXcom::LoadGameState` then `pop  class OpenXcom::InventoryState`; poll 0.25 s up to W = 10 s. Lived: the
-        client's stack == [GeoscapeState] within W (no inventory, no base screen, the hold box gone), alive 2 s past that, the host alive.
-    RED: the client crashed in >= 1 of the 11 (counts per path; CRASH = the new crashlogs/crash_*.log, first 4 frames).
-    GREEN: 0 of 11 crashed and every lived cell above passes, then js.finish() on the re-copy boot (both worlds equal, zero disk).
-alive(gc) = the process runs and `ping` answers. CL = the client's openxcom.log after the size noted before the trigger. Setup guard
-on every boot: h20.setup (option OFF on both, seats differ, H / C / C2 and SKY exist). A boot whose client crashed tolerates the
-client's rc 3 at shutdown; a shutdown exception on a boot whose client lived fails the row. EVIDENCE before the verdict; a failed row
-prints ONE CAPTURE line; ONE run; exit 0 iff the row passes, else 2.
+"""In SHARED, a world swap (a re-copy, or a battle start) that lands while the second player's base inventory is open
+deletes the inventory's practice battle at once; the InventoryState is deleted a cycle later and its destructor reads
+that deleted battle. Whether the read crashes depends on heap reuse (measured without the fix, option OFF: craft 2/3,
+soldier 1/3, battle start 0/3; one run of this test without the fix: re-copy 4/8, battle start 1/1), so ONE row repeats
+every path.
+  world_swap_open_inventory, 11 constructions, all run:
+    k1..k3 battle start (PORTS_BATTLE, a fresh boot `open_inv_battle<k>` each): bring_up_shared_mixed_battle(js, None,
+        to_tactical=False, pre_landing = the client's soldier inventory, base_equip.open_soldier_screen); non-vacuity:
+        opened, CL `battle_offer accepted` then `pop  class OpenXcom::InventoryState`; poll 0.5 s up to 90 s. Lived: the
+        client's stack holds BattlescapeState and BriefingState and no InventoryState / SoldiersState (it entered the
+        battle), alive 2 s past that; the host alive; clean shutdown.
+    k4..k11 re-copy (PORTS_RECOPY, boot `open_inv_recopy<n>`, a fresh one after each crash): even k = the client's craft
+        inventory (base_equip.open_craft_screen) + the CLIENT's force_resync (reply role replica, sent true); odd k =
+        the client's soldier inventory (base_equip.open_soldier_screen) + the HOST's force_resync (role host).
+        Non-vacuity: the screen on the client's stack, CL `push class OpenXcom::LoadGameState` then
+        `pop  class OpenXcom::InventoryState`; poll 0.25 s up to W = 10 s. Lived: the client's stack == [GeoscapeState]
+        within W (no inventory, no base screen, the hold box gone), alive 2 s past that, the host alive.
+    Without the fix: the client crashed in >= 1 of the 11 (counts per path; CRASH = the new crashlogs/crash_*.log, first
+        4 frames).
+    With the fix: 0 of 11 crashed and every lived cell above passes, then js.finish() on the re-copy boot (both worlds
+        equal, zero disk).
+alive(gc) = the process runs and `ping` answers. CL = the client's openxcom.log after the size noted before the trigger.
+Setup guard on every boot: base_equip.setup (option OFF on both, seats differ, H / C / C2 and SKY exist). A boot whose
+client crashed tolerates the client's rc 3 at shutdown; a shutdown exception on a boot whose client lived fails the row.
+EVIDENCE before the verdict; a failed row prints ONE CAPTURE line; ONE run; exit 0 iff the row passes, else 2.
 """
 
 import json
@@ -30,16 +34,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import harness  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-import test_shared_base_equip as h20  # noqa: E402  (main-guarded)
+import test_shared_base_equip as base_equip  # noqa: E402  (main-guarded)
 
-PORTS_A, PORTS_C = (49482, 49483, 47942), (49486, 49487, 47944)
-N_BATTLE, N_RECOPY, W, POLL, HOLD, W3, POLL3 = 3, 8, 10.0, 0.25, 2.0, 90.0, 0.5
+PORTS_RECOPY, PORTS_BATTLE = (49482, 49483, 47942), (49486, 49487, 47944)
+N_BATTLE, N_RECOPY, W, POLL, HOLD, W_BATTLE, POLL_BATTLE = 3, 8, 10.0, 0.25, 2.0, 90.0, 0.5
 GEO, INV = "GeoscapeState", "InventoryState"
 PUSH_LGS, POP_INV = "push class OpenXcom::LoadGameState", "pop  class OpenXcom::InventoryState"
 ACCEPT = "[coop-handshake] battle_offer accepted (battleId="
-CRASH_DIR = harness.CRASH_DIR  # (W2-U8h F9563: this lane's own crash folder)
+CRASH_DIR = harness.CRASH_DIR  # this harness slot's own crash folder
 PATHS = ("battle start", "re-copy craft", "re-copy soldier")
-q, stack, short = h20.q, h20.stack, h20.short
+q, stack, short = base_equip.q, base_equip.stack, base_equip.short
 
 
 def alive(gc):
@@ -101,7 +105,7 @@ def capture(x, n_cl, crash):
             "CL": ui(log_lines(x.client, n_cl))[-30:], "host log": log_lines(x.host)[-20:], "CRASH": crash}
 
 
-class Row(h20.Row):
+class Row(base_equip.Row):
     def report(self, results):
         self.evidence()
         if self.fails:
@@ -111,12 +115,13 @@ class Row(h20.Row):
 
 
 def boot(tag, ports, r):
-    """bring_up + h20.setup -> (js, x); a miss fails the row's `boot` cell (its CAPTURE entry) and returns (None, None)."""
+    """bring_up + base_equip.setup -> (js, x); a miss fails the row's `boot` cell (its CAPTURE entry) and returns
+    (None, None)."""
     js = x = None
     try:
         js = shared_fixture.bring_up(tag, ports)
-        x = h20.X(js.host, js.client, js)
-        h20.setup(x)
+        x = base_equip.X(js.host, js.client, js)
+        base_equip.setup(x)
         r.x = x
         r.ev.setdefault("setup", {})[tag] = {"options": x.opts, "seats": x.seats, "H": x.H, "C": x.C, "C2": x.C2, "sky": x.sky}
         return js, x
@@ -165,15 +170,15 @@ def in_battle(s):
 
 def battle_start(r, k, c):
     """one battle-start construction on its own boot; returns (crashed, guard ok)"""
-    js, x = boot("w2h21c%d" % k, PORTS_C, r)
+    js, x = boot("open_inv_battle%d" % k, PORTS_BATTLE, r)
     if js is None:
         return False, False
     pre, died, ok, n_f = {}, False, True, len(r.fails)
     try:
         def f(host, client):
-            sol = q(client, {"cmd": "base_report", "base": h20.HB}).get("soldiers") or []
+            sol = q(client, {"cmd": "base_report", "base": base_equip.HB}).get("soldiers") or []
             pre["at base"] = [s.get("id") for s in sol if s.get("craft") == -1]
-            pre["opened"] = h20.open_soldier_screen(r, client)
+            pre["opened"] = base_equip.open_soldier_screen(r, client)
             pre["stack"] = stack(client)
             pre["n_cl"], pre["crashes"], pre["t"] = log_size(client), crash_names(), time.time()
         try:
@@ -186,7 +191,7 @@ def battle_start(r, k, c):
             r.cap[f"k{k}"] = capture(x, pre.get("n_cl", 0), [])
             return False, False
         t1 = pre["t"]
-        dead, reached = poll(x.client, t1, in_battle, W3, POLL3)
+        dead, reached = poll(x.client, t1, in_battle, W_BATTLE, POLL_BATTLE)
         if dead:
             time.sleep(0.5)  # the crash handler's files
         cl = log_lines(x.client, pre["n_cl"])
@@ -211,7 +216,7 @@ def recopy(r, x, k, c):
     """one re-copy construction on the live boot x; returns (crashed, guard ok)"""
     craft = c["path"] == "re-copy craft"
     base_screen = "CraftEquipmentState" if craft else "SoldiersState"
-    opened = h20.open_craft_screen(r, x, x.client) if craft else h20.open_soldier_screen(r, x.client)
+    opened = base_equip.open_craft_screen(r, x, x.client) if craft else base_equip.open_soldier_screen(r, x.client)
     c["stack before"] = st0 = stack(x.client)
     if not (opened and r.cell(f"guard: k{k} the {c['path'][8:]} inventory on the client's stack", st0[-1:] == [INV] and base_screen in st0,
                               st0)):
@@ -243,8 +248,8 @@ def recopy(r, x, k, c):
     return False, ok
 
 
-def h21_r(results, walls):
-    t0, r = time.time(), Row("H21-R", h20.X(None, None))
+def row_world_swap_open_inventory(results, walls):
+    t0, r = time.time(), Row("world_swap_open_inventory", base_equip.X(None, None))
     js = x = None
     nboot, crashed = 0, []
     r.ev["constructions"] = cons = []
@@ -254,15 +259,15 @@ def h21_r(results, walls):
             c = {"k": k, "path": path}
             cons.append(c)
             if path == PATHS[0]:
-                c["boot"] = "w2h21c%d" % k
+                c["boot"] = "open_inv_battle%d" % k
                 died, ok = battle_start(r, k, c)
             else:
                 if js is None:
                     nboot += 1
-                    js, x = boot("w2h21r%d" % nboot, PORTS_A, r)
+                    js, x = boot("open_inv_recopy%d" % nboot, PORTS_RECOPY, r)
                     if js is None:
                         return
-                c["boot"] = "w2h21r%d" % nboot
+                c["boot"] = "open_inv_recopy%d" % nboot
                 died, ok = recopy(r, x, k, c)
                 if died:
                     end(js, r, f"k{k}", died=True)
@@ -275,7 +280,7 @@ def h21_r(results, walls):
                                 sum(1 for c in cons if c["path"] == p)) for p in PATHS}
         r.ev["crash counts"] = counts
         if not r.cell(f"the client crashed in {len(crashed)} of {len(cons)} constructions when a world swap landed on its open base "
-                      f"inventory (F8598, F8669): " + ", ".join(f"{p} {n}" for p, n in counts.items()), not crashed,
+                      f"inventory: " + ", ".join(f"{p} {n}" for p, n in counts.items()), not crashed,
                       [(c["k"], c["path"], c.get("crashed ms"), c.get("CRASH")) for c in cons if c.get("CRASH") is not None]):
             return
         try:
@@ -283,19 +288,19 @@ def h21_r(results, walls):
         except AssertionError as e:
             r.cell("js.finish (both worlds equal, the replica's zero disk)", False, short(e, 1500))
     except Exception as e:
-        r.cell("guard: H21-R exception", False, short(e))
+        r.cell("guard: world_swap_open_inventory exception", False, short(e))
     finally:
         if js is not None:
-            end(js, r, "H21-R")
+            end(js, r, "world_swap_open_inventory")
         r.ev["re-copy boots"], r.ev["crashed"] = nboot, crashed
-        walls["H21-R"] = r.ev["wall s"] = round(time.time() - t0, 1)
+        walls["world_swap_open_inventory"] = r.ev["wall s"] = round(time.time() - t0, 1)
         r.report(results)
 
 
 def main():
     t0, results, walls = time.time(), {}, {}
-    h21_r(results, walls)
-    failed = [rid for rid in ("H21-R",) if not results.get(rid)]
+    row_world_swap_open_inventory(results, walls)
+    failed = [rid for rid in ("world_swap_open_inventory",) if not results.get(rid)]
     print(f"\ntest_restream_open_inventory: {1 - len(failed)}/1 passed (fail={failed}) walls {json.dumps(walls)} "
           f"in {time.time() - t0:.1f}s", flush=True)
     return 2 if failed else 0
