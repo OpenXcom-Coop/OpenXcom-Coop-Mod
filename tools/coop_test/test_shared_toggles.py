@@ -52,8 +52,8 @@ def wkey(key, x): return (AV, x.av, 0) if key == "AV.0" else WEAPONS[key]  # noq
 def other(x, gc): return x.client if gc is x.host else x.host  # noqa: E704
 def win(bx, by): return [int(bx * SCALE + BAND), int(by * SCALE + BAND)]  # noqa: E704
 def closeall(x): return {gc.name: pick(gc.cmd({"cmd": "close_screens"}), "ok", "popped") for gc in (x.host, x.client)}  # noqa: E704
-def fidx(bases, key):
-    return next((i for i, f in enumerate(bases[0]["facilities"]) if f["type"] == FAC and (f["x"], f["y"]) == CELLS[key]), None)
+def fidx(bases, key, bi=0):
+    return next((i for i, f in enumerate(bases[bi]["facilities"]) if f["type"] == FAC and (f["x"], f["y"]) == CELLS[key]), None)
 def craft(bases, ctype, cid, bi=None):
     return next((c for b in (bases if bi is None else bases[bi:bi + 1]) for c in b["crafts"] if (c["type"], c["id"]) == (ctype, cid)), {})
 def flag(bases, key, x=None, bi=0):
@@ -269,21 +269,34 @@ def row_dogfight(r, x):
     now = r.ev["requests"] = {gc.name: rs(gc)["requests"] for gc in (h, c)}
     r.cell("requests", now == d["R0"], f"requests {now} vs R0 {d['R0']}")
 def row_separate(r, x):
-    """SEPARATE: the client's own mind-shield and weapon switches stay on its machine; no shared command."""
+    """SEPARATE: the client's own mind-shield and weapon switches stay on its machine; no shared command. The one
+    shared world lists the host's base first: the client's own base is ClientBase, its interceptor the first there. The
+    client's facility build is the host's command in one world: the command count is taken once the host lists it."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, 10.0, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
-    s_0, b = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}, tp(c)
-    guard(r, x, "own base 0", b[0]["name"] == "ClientBase", f"{[e['name'] for e in b]}")
+    b = tp(c)
+    names = [e["name"] for e in b]
+    bi = names.index("ClientBase") if "ClientBase" in names else None
+    cid = next((cr["id"] for cr in b[bi]["crafts"] if cr["type"] == INT), None) if bi is not None else None
+    r.ev["own"] = {"bases": names, "baseIndex": bi, "interceptor": cid}
+    guard(r, x, "own base and interceptor", bi is not None and cid is not None, f"{r.ev['own']}")
     fb = c.cmd({"cmd": "fac_build", "facility": FAC, "x": CELLS["A"][0], "y": CELLS["A"][1]})
-    ok, i = wait_until(lambda: fidx(tp(c), "A"), UI_S, 0.05)       # index 9, never 0
-    bt = c.cmd({"cmd": "set_facility_build_time", "baseId": 0, "index": i if ok else -1, "time": 0})
+    ok, i = wait_until(lambda: fidx(tp(c), "A", bi), UI_S, 0.05)       # index 9, never 0
+    bt = c.cmd({"cmd": "set_facility_build_time", "baseId": bi, "index": i if ok else -1, "time": 0})
     r.ev["facility"] = {"fac_build": pick(fb, "ok", "error"), "index": i, "buildTime0": pick(bt, "ok", "type", "buildTime")}
     guard(r, x, "own facility", ok and bt.get("ok") is True and bt.get("buildTime") == 0, f"{r.ev['facility']}")
+    def applied():
+        s = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
+        return s if fidx(tp(h), "A", bi) is not None and s["host"]["applyCount"] == s["client"]["applyCount"] else None
+    ok, s_0 = wait_until(applied, UI_S, 0.1)
+    r.ev["buildApplied"] = s_0 or {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
+    guard(r, x, "build applied on both", ok, f"host lists A {fidx(tp(h), 'A', bi)}; shared_stats {r.ev['buildApplied']}")
     rclick(r, x, c, "A")
-    icon(r, x, c, open_info(r, x, c, INT, 2), 0)
+    icon(r, x, c, open_info(r, x, c, INT, cid), 0)
     time.sleep(2.0)
     e = end(r, x)
-    fa, wa = flag(e["client"], "A"), flag(e["client"], "I2.0")
+    fa = flag(e["client"], "A", bi=bi)
+    wa = ((craft(e["client"], INT, cid, bi).get("weapons") or [{}])[0]).get("disabled")
     s_1 = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
     r.ev["shared_stats"] = {"before": s_0, "after": s_1}
     r.cell("ownFlags", fa is True and wa is True, f"client facility A disabled {fa}, client I2.0 disabled {wa} (want True / True)")
