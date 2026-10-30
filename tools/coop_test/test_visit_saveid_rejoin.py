@@ -1,21 +1,24 @@
-"""W2-H79 VSR (spec docs rewrite/prompts/w2h79_visit_saveid_rollback.md (f); TASK 0 rewrite/w2h79-task0/sa/CONSTANTS.md; lead L-H70C-2,
-ruling R-LH70C-2-1; capture lh70c-2-cap F21767-F21773): a base visit puts saveID back, so a partner who leaves, drops and rejoins after a host
-save gets a new campaign. SEPARATE campaign; rows (one fresh boot pair each, key "49464", dirs w2h79_<row>_host / _client, the rejoiner
-w2h79_<row>_client2; real presses only; GH = gift_helpers.py and F = drop_fixture.py imported unchanged; world, hostkeys /
-keyinfo, ok67 over BasescapeState, leave and drop_now copied from the capture's cap.py):
-  C1  MARKER; the client's globe click into the host's base (VISIT); read B; the host's quick save (its 54) and the client's 67 (SAVE54),
-      the 67's OK; GEOSCAPE (the leave; QUICK written); read T; QUICK copied (C4's source); the client suspended and killed (the host's
-      60 / 62); a NEW client rejoins by name; RESUME only after the host's ack; read R.
-  C4  a fresh pair resumes C1's QUICK (only if C1 reached read T): the host's saveID, its stored partner world, the partner's world.
-  CTL (control) MARKER; VISIT; read B; GEOSCAPE without a save; the host's quick save with the partner on its geoscape; read T; the drop;
-      the rejoin; read R.
-Cells (21): C1-pre GUARD, C1-ids FIX, C1-key FIX, C1-log FIX, C1-rejoin FIX, C1-world FIX, C1-resume FIX, C1-common GUARD; C4-pre, C4-id,
-C4-key, C4-world, C4-common GUARD; CTL-pre, CTL-ids, CTL-key, CTL-log, CTL-rejoin, CTL-world, CTL-resume, CTL-common GUARD. Red (commit R1):
-RED exactly C1-ids, C1-key, C1-log, C1-rejoin, C1-world, C1-resume (6 of 21). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B.
-ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; a precondition miss ends its row
-(later cells "not reached"); a boot or construction miss fails the row's -pre cell with ONE CAPTURE line (both stacks, coop_dialog_info,
-get_coop, the last 40 log lines of each machine); exit 0 only when every cell passes, else 2. one foreground run
-per invocation.
+"""test_visit_saveid_rejoin.py: a base visit puts saveID back, so a partner who leaves, drops and rejoins after a host
+save gets a new campaign. SEPARATE campaign; rows (one fresh boot pair each, key "49464", dirs
+saveid_rejoin_<row>_host / _client, the rejoiner saveid_rejoin_<row>_client2; real presses only; G = gift_helpers.py
+and F = drop_fixture.py imported unchanged; world, hostkeys / keyinfo, ok67 over BasescapeState, leave and drop_now
+are local helpers):
+  save_during_visit: MARKER; the client's globe click into the host's base (VISIT); read B; the host's quick save (its
+      54) and the client's 67 (SAVE54), the 67's OK; GEOSCAPE (the leave; QUICK written); read T; QUICK copied
+      (resume_quick_save's source); the client suspended and killed (the host's 60 / 62); a NEW client rejoins by
+      name; RESUME only after the host's ack; read R.
+  resume_quick_save: a fresh pair resumes save_during_visit's QUICK (only if save_during_visit reached read T): the
+      host's saveID, its stored partner world, the partner's world.
+  save_after_visit (control): MARKER; VISIT; read B; GEOSCAPE without a save; the host's quick save with the partner
+      on its geoscape; read T; the drop; the rejoin; read R.
+Cells (21): save_during_visit-pre GUARD, -ids FIX, -key FIX, -log FIX, -rejoin FIX, -world FIX, -resume FIX, -common
+GUARD; resume_quick_save-pre, -id, -key, -world, -common GUARD; save_after_visit-pre, -ids, -key, -log, -rejoin,
+-world, -resume, -common GUARD. When broken, exactly save_during_visit-ids, -key, -log, -rejoin, -world and -resume
+FAIL (6 of 21). KEPT = '[coop] "basehost" loaded' lines in the client's log since read B.
+ONE EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; every row runs after a failure; a
+precondition miss ends its row (later cells "not reached"); a boot or construction miss fails the row's -pre cell with
+ONE CAPTURE line (both stacks, coop_dialog_info, get_coop, the last 40 log lines of each machine); exit 0 only when
+every cell passes, else 2. One foreground run per invocation.
 Run: python tools/coop_test/test_visit_saveid_rejoin.py
 """
 import json, os, shutil, sys, time  # noqa: E401
@@ -28,7 +31,7 @@ from harness import GameClient, make_user_dir  # noqa: E402
 KEY = "49464"
 KEPT = '[coop] "basehost" loaded - saveID stays'
 HOLD, HOLD_R, W_DROP, JOIN_S, ACK_S = 2.0, 3.0, 30.0, 10.0, 30.0
-C1 = {}  # C1's read T, MARKER and QUICK copy (C4's source)
+QUICK_SOURCE = {}  # save_during_visit's read T, MARKER and QUICK copy (resume_quick_save's source)
 
 
 def q(gc, obj):
@@ -57,7 +60,7 @@ def role(gc):
 
 
 def hostkeys(x):
-    """the host's role host_copy_of_client plus host_<id>_<partner>.data for the current id and every id of this row (CAP)"""
+    """the host's role host_copy_of_client plus host_<id>_<partner>.data for the current id and every id of this row"""
     h = x.host
     if not G.alive(h):
         return {"alive": False}
@@ -70,7 +73,7 @@ def hostkeys(x):
 
 
 def world(gc):
-    """the machine's own world: own bases [name, lon, lat, coopBaseId], funds, own soldiers [name, id] (CAP)"""
+    """the machine's own world: own bases [name, lon, lat, coopBaseId], funds, own soldiers [name, id]"""
     if not G.alive(gc):
         return {"alive": False}
     g = q(gc, {"cmd": "geo_state"})
@@ -103,7 +106,7 @@ def capture(x):
 
 
 def picker_marker(x, ev):
-    """GH picker (the host's quick save + probe save + the client's window scale); MARKER = the client's world"""
+    """G.picker (the host's quick save + probe save + the client's window scale); MARKER = the client's world"""
     x.cname = q(x.host, {"cmd": "get_coop"}).get("clientName")
     ev["cname"] = x.cname
     G.picker(x, ev)
@@ -114,7 +117,8 @@ def picker_marker(x, ev):
 
 
 def visit_b(x, ev):
-    """VISIT (GH visit: the client's real globe click -> BasescapeState, insideCoopBase true); read B: both saveIDs, the log line counts"""
+    """VISIT (G.visit: the client's real globe click -> BasescapeState, insideCoopBase true); read B: both saveIDs, the
+    log line counts"""
     G.visit(x, ev)
     x.ids["B"] = sid(x.client)
     x.nB = {"host": len(G.log(x.host)), "client": len(G.log(x.client))}
@@ -122,14 +126,16 @@ def visit_b(x, ev):
 
 
 def save54(x, ev):
-    """SAVE54 (GH trigger54: the host's save_game_ui quick, its 54 with pending QUICK, the client's 67); S = the host's id at the 54"""
+    """SAVE54 (G.trigger54: the host's save_game_ui quick, its 54 with pending QUICK, the client's 67); S = the host's
+    id at the 54"""
     G.trigger54(x, ev)
     x.ids["S"] = ev["S"] = ev["54"].get("saveID")
     must(x.ids["S"] != x.ids["B"], "S == B (%s): the save did not re-mint" % x.ids["S"])
 
 
 def ok67_base(x, ev):
-    """the client's real OK on its 67 over BasescapeState: BasescapeState on top within W_UI (insideCoopBase stays true there, F21766)"""
+    """the client's real OK on its 67 over BasescapeState: BasescapeState on top within W_UI (insideCoopBase stays true
+    there)"""
     c = x.client
     ok = G.real_click(c, G.dlg(c).get("backText") or "OK", G.W_UI)
     v, s = G.wait(lambda: G.top(c) == "BasescapeState", G.W_UI)
@@ -161,7 +167,8 @@ def read_t(x, ev):
 
 
 def drop_now(x, ev):
-    """no 54 in flight: suspend the client, read the host, kill it (its exit code is the drop), the host's 60 / 62 within W_DROP (CAP)"""
+    """no 54 in flight: suspend the client, read the host, kill it (its exit code is the drop), the host's 60 / 62
+    within W_DROP"""
     h, c = x.host, x.client
     r = {"suspend": F.suspend(c), "atSuspend": {"hostStack": G.stack(h), "hostDlg": G.dlg(h), "hostSaveID": sid(h)}}
     c.proc.kill()
@@ -192,16 +199,17 @@ def rejoin_r(x, ev):
 
 
 def keep_quick(x, ev):
-    """QUICK (written at the leave) copied before the drop into s<slot>_w2h79_c1_save/ (C4's source; resume_campaign loads its basename)"""
-    d = os.path.join(harness.TEST_ROOT, "s%d_w2h79_c1_save" % harness.HARNESS_SLOT)
+    """QUICK (written at the leave) copied before the drop into s<slot>_saveid_rejoin_quick_copy/ (resume_quick_save's
+    source; resume_campaign loads its basename)"""
+    d = os.path.join(harness.TEST_ROOT, "s%d_saveid_rejoin_quick_copy" % harness.HARNESS_SLOT)
     os.makedirs(d, exist_ok=True)
     dst = os.path.join(d, G.QUICK)
     shutil.copyfile(os.path.join(x.host.user_dir, "xcom1", G.QUICK), dst)
-    C1.update(quick=dst, T=ev["T"], marker=x.marker)
+    QUICK_SOURCE.update(quick=dst, T=ev["T"], marker=x.marker)
     ev["quickCopy"] = {"bytes": os.path.getsize(dst)}
 
 
-def build_c1(x, ev):
+def build_save_during_visit(x, ev):
     picker_marker(x, ev)
     visit_b(x, ev)
     save54(x, ev)
@@ -213,14 +221,14 @@ def build_c1(x, ev):
     rejoin_r(x, ev)
 
 
-def build_c4(x, ev):
+def build_resume_quick_save(x, ev):
     time.sleep(HOLD)
     h, c = x.host, x.client
     ev["read"] = {"host": sid(h), "role": role(h), "world": world(c), "alive": [G.alive(h), G.alive(c)], "crash": len(G.crash() - x.c0)}
     ev["reached"].append("T")
 
 
-def build_ctl(x, ev):
+def build_save_after_visit(x, ev):
     picker_marker(x, ev)
     visit_b(x, ev)
     leave(x, ev, False)
@@ -254,16 +262,22 @@ def alive_clean(ev, k):
 
 
 def drop_cells(p, kind, prelabel, pre_need):
-    """the cells of a row with a drop + rejoin (C1 FIX / CTL GUARD)"""
+    """the cells of a row with a drop + rejoin (save_during_visit FIX / save_after_visit GUARD)"""
     return [
         ("%s-pre" % p, "GUARD", prelabel, "start", lambda ev: pre_need in ev["reached"]),
         ("%s-ids" % p, kind, "read T: host and client saveID == S", "T",
          lambda ev: ev.get("S") is not None and g(ev, "T", "host") == ev["S"] and g(ev, "T", "client") == ev["S"]),
-        ("%s-key" % p, kind, "read T: role host_copy_of_client present" + (" with key host_<S>_<name>.data" if p == "C1" else ""), "T",
-         lambda ev: g(ev, "T", "role", "present") is True and (p != "C1" or g(ev, "T", "role", "key") == "host_%s_%s.data" % (ev.get("S"),
-                                                                                                                          ev.get("cname")))),
-        ("%s-log" % p, kind, "the client log since read B: KEPT %s" % (">= 1" if p == "C1" else "== 0"), "T",
-         lambda ev: (g(ev, "T", "kept", "client") or 0) >= 1 if p == "C1" else g(ev, "T", "kept", "client") == 0),
+        ("%s-key" % p, kind,
+         "read T: role host_copy_of_client present"
+         + (" with key host_<S>_<name>.data" if p == "save_during_visit" else ""),
+         "T",
+         lambda ev: g(ev, "T", "role", "present") is True and (
+             p != "save_during_visit"
+             or g(ev, "T", "role", "key") == "host_%s_%s.data" % (ev.get("S"), ev.get("cname")))),
+        ("%s-log" % p, kind, "the client log since read B: KEPT %s" % (">= 1" if p == "save_during_visit" else "== 0"),
+         "T",
+         lambda ev: (g(ev, "T", "kept", "client") or 0) >= 1 if p == "save_during_visit"
+         else g(ev, "T", "kept", "client") == 0),
         ("%s-rejoin" % p, kind, "REJOIN: no BuildNewBaseState, the rejoiner's 68 within JOIN_S, the host's ack within ACK_S", "R", rejoined),
         ("%s-world" % p, kind, "read R: own bases, funds == read T's, the MARKER soldier [name, id] present", "R",
          lambda ev: same_world(g(ev, "R", "world"), g(ev, "T", "world"), ev.get("marker"))),
@@ -273,16 +287,21 @@ def drop_cells(p, kind, prelabel, pre_need):
     ]
 
 
-C1_CELLS = drop_cells("C1", "FIX", "VISIT, SAVE54 with S != B, OK67B, LEAVE (QUICK written) all reached", "T")
-CTL_CELLS = drop_cells("CTL", "GUARD", "VISIT, LEAVE, the quick save ok with S != B", "T")
-C4_CELLS = [
-    ("C4-pre", "GUARD", "the reload boot reached both GeoscapeState stable", "start", lambda ev: "T" in ev["reached"]),
-    ("C4-id", "GUARD", "the host's saveID == C1's read T host saveID", "T",
-     lambda ev: g(ev, "read", "host") is not None and g(ev, "read", "host") == g(ev, "c1T", "host")),
-    ("C4-key", "GUARD", "role host_copy_of_client present", "T", lambda ev: g(ev, "read", "role", "present") is True),
-    ("C4-world", "GUARD", "the client's own bases, funds and MARKER soldier == C1's read T", "T",
-     lambda ev: same_world(g(ev, "read", "world"), g(ev, "c1T", "world"), ev.get("marker"))),
-    ("C4-common", "GUARD", "both alive; no new crash file since the boot", "T", lambda ev: alive_clean(ev, "read")),
+SAVE_DURING_VISIT_CELLS = drop_cells("save_during_visit", "FIX",
+                                     "VISIT, SAVE54 with S != B, OK67B, LEAVE (QUICK written) all reached", "T")
+SAVE_AFTER_VISIT_CELLS = drop_cells("save_after_visit", "GUARD", "VISIT, LEAVE, the quick save ok with S != B", "T")
+RESUME_QUICK_SAVE_CELLS = [
+    ("resume_quick_save-pre", "GUARD", "the reload boot reached both GeoscapeState stable", "start",
+     lambda ev: "T" in ev["reached"]),
+    ("resume_quick_save-id", "GUARD", "the host's saveID == save_during_visit's read T host saveID", "T",
+     lambda ev: g(ev, "read", "host") is not None and g(ev, "read", "host") == g(ev, "sourceT", "host")),
+    ("resume_quick_save-key", "GUARD", "role host_copy_of_client present", "T",
+     lambda ev: g(ev, "read", "role", "present") is True),
+    ("resume_quick_save-world", "GUARD",
+     "the client's own bases, funds and MARKER soldier == save_during_visit's read T", "T",
+     lambda ev: same_world(g(ev, "read", "world"), g(ev, "sourceT", "world"), ev.get("marker"))),
+    ("resume_quick_save-common", "GUARD", "both alive; no new crash file since the boot", "T",
+     lambda ev: alive_clean(ev, "read")),
 ]
 
 
@@ -326,21 +345,26 @@ def run(rid, tag, cells, build, saves=None, skip=None, extra=None):
     return not r.fails, ev["wall"], failed
 
 
-def row_c1():
-    C1.clear()
-    shutil.rmtree(os.path.join(harness.TEST_ROOT, "s%d_w2h79_c1_save" % harness.HARNESS_SLOT), ignore_errors=True)
-    return run("C1", "w2h79_c1", C1_CELLS, build_c1)
+def row_save_during_visit():
+    QUICK_SOURCE.clear()
+    shutil.rmtree(os.path.join(harness.TEST_ROOT, "s%d_saveid_rejoin_quick_copy" % harness.HARNESS_SLOT),
+                  ignore_errors=True)
+    return run("save_during_visit", "saveid_rejoin_save_during_visit", SAVE_DURING_VISIT_CELLS, build_save_during_visit)
 
 
-def row_c4():
-    if not C1.get("quick"):
-        return run("C4", "w2h79_c4", C4_CELLS, None, skip="C1 did not reach read T (no QUICK copy)")
-    return run("C4", "w2h79_c4", C4_CELLS, build_c4, saves=(C1["quick"],), extra={"c1T": C1["T"], "marker": C1["marker"]})
+def row_resume_quick_save():
+    if not QUICK_SOURCE.get("quick"):
+        return run("resume_quick_save", "saveid_rejoin_resume_quick_save", RESUME_QUICK_SAVE_CELLS, None,
+                   skip="save_during_visit did not reach read T (no QUICK copy)")
+    return run("resume_quick_save", "saveid_rejoin_resume_quick_save", RESUME_QUICK_SAVE_CELLS, build_resume_quick_save,
+               saves=(QUICK_SOURCE["quick"],), extra={"sourceT": QUICK_SOURCE["T"], "marker": QUICK_SOURCE["marker"]})
 
 
-def row_ctl():
-    return run("CTL", "w2h79_ctl", CTL_CELLS, build_ctl)
+def row_save_after_visit():
+    return run("save_after_visit", "saveid_rejoin_save_after_visit", SAVE_AFTER_VISIT_CELLS, build_save_after_visit)
 
 
 if __name__ == "__main__":
-    sys.exit(G.main("test_visit_saveid_rejoin", (("C1", row_c1), ("C4", row_c4), ("CTL", row_ctl))))
+    sys.exit(G.main("test_visit_saveid_rejoin", (("save_during_visit", row_save_during_visit),
+                                                  ("resume_quick_save", row_resume_quick_save),
+                                                  ("save_after_visit", row_save_after_visit))))
