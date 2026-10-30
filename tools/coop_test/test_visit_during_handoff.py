@@ -1,19 +1,20 @@
-"""test_visit_during_handoff.py (VDH): a SEPARATE partner's click on the host's base while the host's battle is being handed
-to it (after the host's YES, before its briefing) does nothing; it reaches its briefing and keeps its own world.
+"""test_visit_during_handoff.py: a SEPARATE partner's click on the host's base while the host's battle is being handed
+to it (after the host's YES, before its briefing) does nothing; the partner reaches its briefing and keeps its own
+world.
 
-Spec: docs rewrite/prompts/w2h78_visit_during_handoff.md (f) rows R1 and G; TASK 0 constants: docs rewrite/w2h78-task0/sa/CONSTANTS.md.
-Lead L-H74-1 (capture lh74-1-cap, F21611-F21617), ruling R-LH74-1-1 (QH78-1 .. QH78-7 (a)), veto line VL-H78-1. Lobby key "49459", dirs
-w2h78_r1_*, w2h78_g_*. The sibling VDF (test_visit_during_handoff_fresh.py) holds rows R2 and R3 (no stored copy of the host base).
-Row R1 (C1a, an earlier visit stored): seat_guest, LOCATE, a real visit to the host base and a real GEOSCAPE, PRE ("baseclient" present),
-    PROMPT, ARM (the client's hold_blob_ack), YES (set_seed 2, the host's real YES), HELD, CLICK (a real globe click on the host base and the
-    "HostBase" target), OBS, RELEASE, ENTRY, WATCH, END. Cells R1-pre, R1-click, R1-brief, R1-world, R1-host, R1-crash.
-Row G (C1-ctl, the guard: no ARM, no click): seat_guest, LOCATE, visit and leave, PRE, PROMPT, YES, ENTRY, WATCH, END.
-    Cells G-pre, G-brief, G-world, G-host, G-quiet.
-Red today (R1): R1-click, R1-brief, R1-world FAIL (3 of 11); every other cell PASS. Green (G1, spec E1-E4): all 11 cells PASS.
-One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a precondition miss ends its
-row (later cells "not reached") with ONE CAPTURE line; a boot miss fails the row's -pre cell with ONE CAPTURE line. WV-D95 (run to completion
-in the foreground), WV-D99 (one run; exit 0 only when every cell passes, else 2), WV-D100 (no SKIP, no exit 3). Helpers copied (never
-imported) from docs rewrite/lh74-1-cap/cap.py; LOCATE's CANCEL press waits for the button to be shown (CONSTANTS.md, S54 swap)."""
+Lobby key "49459", dirs handoff_stored_copy_click_*, handoff_no_click_guard_*. The sibling
+test_visit_during_handoff_fresh.py holds the rows with no stored copy of the host base.
+Row stored_copy_click (an earlier visit stored the host base): seat_guest, LOCATE, a real visit to the host base and a
+    real GEOSCAPE, PRE ("baseclient" present), PROMPT, ARM (the client's hold_blob_ack), YES (set_seed 2, the host's
+    real YES), HELD, CLICK (a real globe click on the host base and the "HostBase" target), OBS, RELEASE, ENTRY,
+    WATCH, END. Cells stored_copy_click-pre, -click, -brief, -world, -host, -crash.
+Row no_click_guard (the guard: no ARM, no click): seat_guest, LOCATE, visit and leave, PRE, PROMPT, YES, ENTRY, WATCH,
+    END. Cells no_click_guard-pre, -brief, -world, -host, -quiet.
+When broken, stored_copy_click-click, -brief and -world FAIL (3 of 11); every other cell passes.
+One EVIDENCE line per row, one PASS / FAIL line per cell, then the row verdict; every row runs after a failure; a
+precondition miss ends its row (later cells "not reached") with ONE CAPTURE line; a boot miss fails the row's -pre
+cell with ONE CAPTURE line. One run; exit 0 only when every cell passes, else 2; no SKIP, no exit 3. The helpers are
+copied here, never imported; LOCATE's CANCEL press waits for the button to be shown."""
 import glob, json, os, sys, time  # noqa: E401
 from types import SimpleNamespace
 import harness
@@ -29,15 +30,17 @@ RC_OK = (0, 3221226505)
 NEEDLES = {"CLICKIGN": "[coop-visit] base click ignored: a battle hand-off is in flight",
            "DROP": "[coop-visit] base request dropped: a battle hand-off is in flight (role 2)",
            "ADOPT": "read-only BriefingState pushed", "EQUAL": "battle_ready saveBlob EQUAL"}
-CELLS = {"R1": ["R1-pre", "R1-click", "R1-brief", "R1-world", "R1-host", "R1-crash"],
-         "G": ["G-pre", "G-brief", "G-world", "G-host", "G-quiet"]}
-CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this lane's own crash folder
+CELLS = {"stored_copy_click": ["stored_copy_click-pre", "stored_copy_click-click", "stored_copy_click-brief",
+                               "stored_copy_click-world", "stored_copy_click-host", "stored_copy_click-crash"],
+         "no_click_guard": ["no_click_guard-pre", "no_click_guard-brief", "no_click_guard-world", "no_click_guard-host",
+                            "no_click_guard-quiet"]}
+CRASH_GLOB = os.path.join(harness.CRASH_DIR, "crash_*")  # this harness slot's own crash folder
 T0 = time.time()
 RESULTS = []
 class Stop(Exception):
     pass
 
-# ----- probes (CAP) -----
+# ----- probes -----
 def js(v): return json.dumps(v, sort_keys=True, default=str)
 def short(e, n=300): return ("%s: %s" % (type(e).__name__, e))[:n]
 def pick(r, keys): return {k: r.get(k) for k in keys}
@@ -75,7 +78,7 @@ def wait(pred, timeout, interval=0.25):
             return v or None, round(time.time() - t0, 2)
         time.sleep(interval)
 
-# ----- real presses (CAP) -----
+# ----- real presses -----
 def real_click(gc, text, timeout=15.0):
     t0 = time.time()
     while time.time() - t0 < timeout:
@@ -89,7 +92,7 @@ def real_click(gc, text, timeout=15.0):
     return {"ok": False, "miss": "%s: button %r not shown within %.0f s" % (gc.name, text, timeout)}
 def cw(gc, match, settle=0.8, shown=False):
     """click_widget by caption; shown=True first waits (W_UI) until list_widgets shows it visible and not hidden (a window hides every
-    widget while it pops up, and a hidden button ignores the click: CONSTANTS.md, the LOCATE swap)"""
+    widget while it pops up, and a hidden button ignores the click)"""
     t0 = time.time()
     while shown and time.time() - t0 < W_UI and not any(match.lower() in (w.get("text") or "").lower() and w.get("visible") is True
                                                         and w.get("hidden") is False for w in q(gc, {"cmd": "list_widgets"}).get("widgets", [])):
@@ -133,7 +136,7 @@ def geo_clean(gc):
     st = stack(gc)
     return bool(st) and st[-1] == "GeoscapeState" and not any(("CoopState" in s or "LoadGameState" in s) for s in st)
 
-# ----- fixture (CAP seat_guest: bring_up_separate_guest_battle's seat) -----
+# ----- fixture (the seat step of session.bring_up_separate_guest_battle) -----
 def seat_guest(h, c, ev):
     session.new_campaign(h, c, port=KEY)
     hb = session._campaign_own_roster_base(h)
@@ -227,7 +230,7 @@ class Row:
         bad = [n for n in self.cells if not self.done.get(n)]
         print("ROW %s: %s" % (self.rid, "PASS" if not bad else "FAIL (%d failing: %s)" % (len(bad), bad)), flush=True)
 
-# ----- common steps (spec (f)) -----
+# ----- common steps -----
 def locate(r, x):
     """LOCATE = the host base's lon / lat from the host's geo_state; the client's affine from INTERCEPT / CANCEL"""
     session.drain_host_coop_notice(x.host)
@@ -239,7 +242,7 @@ def locate(r, x):
     if not g:
         raise Stop("LOCATE: the client not back on a clean geoscape: %s" % stack(x.client))
 def visit_leave(r, x):
-    """the earlier visit: CAP real_visit_and_leave (a real click on the host base, the "HostBase" target, the base screen's real GEOSCAPE)"""
+    """the earlier visit: a real click on the host base, the "HostBase" target, the base screen's real GEOSCAPE"""
     c = x.client
     ck = click_marker(c, x.sc, x.hbpos[0], x.hbpos[1], x.HB)
     v, s = wait(lambda: coop(c).get("insideCoopBase") is True and top(c) == "BasescapeState", W_VISIT, 0.05)
@@ -261,7 +264,8 @@ def pre(r, x, want_bc):
     if bool(bc.get("present")) != want_bc or not isinstance(x.PRE_B, int) or x.PRE_B <= 0:
         raise Stop("PRE: baseclient %s (want present %s), basehost %s" % (js(bc), want_bc, js(bh)))
 def prompt(r, x):
-    """PROMPT = CAP's site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on the host"""
+    """PROMPT = a mission site (spawn_mission_site at the host base +0.35 / +0.10), craft_force, ConfirmLandingState on
+    the host"""
     h = x.host
     b0 = session._campaign_base0(h)
     sid = h.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION", "lon": b0["lon"] + 0.35,
@@ -307,7 +311,7 @@ def held(r, x):
     if not v or tc != "GeoscapeState":
         raise Stop("HELD: held %s after %.2f s, client top %s (want >= 1 within %d s, GeoscapeState)" % (bool(v), s, tc, W_HELD))
 def click(r, x):
-    """CLICK = CAP click_marker on the host base (the "HostBase" target), then OBS"""
+    """CLICK = click_marker on the host base (the "HostBase" target), then OBS"""
     c = x.client
     x.nk = len(log(c))
     ck = click_marker(c, x.sc, x.hbpos[0], x.hbpos[1], x.HB)
@@ -379,7 +383,7 @@ def host_cell(r, x, name, drop0=True):
            % (x.n["EQUAL"], x.hInBattle, h62, x.n["DROP"], ", 0" if drop0 else ""))
 
 # ----- rows -----
-def body_r1(r, x):
+def body_stored_copy_click(r, x):
     locate(r, x)
     visit_leave(r, x)
     pre(r, x, True)
@@ -387,43 +391,49 @@ def body_r1(r, x):
     yes(r, x, True)
     held(r, x)
     picked = click(r, x)
-    r.cell("R1-pre", picked, "guest seated %s, visit %s, leave %s, baseclient present %s, prompt %.2f s, held %s (%.2f s), client top %s, "
-           "CLICK targets %s picked HostBase %s" % (r.ev["seat"]["seated"], r.ev["visit"]["visitS"], r.ev["visit"]["geoClean"],
-                                                    r.ev["PRE"]["baseclient"]["present"], r.ev["promptS"], r.ev["held"]["held"],
-                                                    r.ev["held"]["s"], r.ev["held"]["top"], r.ev["click"]["targets"], picked))
+    r.cell("stored_copy_click-pre", picked,
+           "guest seated %s, visit %s, leave %s, baseclient present %s, prompt %.2f s, held %s (%.2f s), "
+           "client top %s, CLICK targets %s picked HostBase %s"
+           % (r.ev["seat"]["seated"], r.ev["visit"]["visitS"], r.ev["visit"]["geoClean"],
+              r.ev["PRE"]["baseclient"]["present"], r.ev["promptS"], r.ev["held"]["held"],
+              r.ev["held"]["s"], r.ev["held"]["top"], r.ev["click"]["targets"], picked))
     if not picked:
         raise Stop("CLICK: the HostBase target not picked: %s" % js(r.ev["click"]))
     release(r, x)
     entry_watch_end(r, x)
-    r.cell("R1-click", x.first50 is None and x.n["CLICKIGN"] == 1, "OBS client (top, code) %s, first CoopState 50 at %s s; CLICKIGN %d "
-           "(want no 50 within %.1f s, 1; today 50 within ~0.1 s, 0)" % (r.ev["obs"]["trace"], x.first50, x.n["CLICKIGN"], OBS_S))
-    brief_cell(r, x, "R1-brief")
-    world_cell(r, x, "R1-world")
-    host_cell(r, x, "R1-host")
-    r.cell("R1-crash", not x.newCrash and all(x.alive), "new crash files %s, alive (host, client) %s (want none, both)" % (x.newCrash, x.alive))
-def body_g(r, x):
+    r.cell("stored_copy_click-click", x.first50 is None and x.n["CLICKIGN"] == 1,
+           "OBS client (top, code) %s, first CoopState 50 at %s s; CLICKIGN %d "
+           "(want no 50 within %.1f s, 1; when broken, 50 within ~0.1 s, 0)"
+           % (r.ev["obs"]["trace"], x.first50, x.n["CLICKIGN"], OBS_S))
+    brief_cell(r, x, "stored_copy_click-brief")
+    world_cell(r, x, "stored_copy_click-world")
+    host_cell(r, x, "stored_copy_click-host")
+    r.cell("stored_copy_click-crash", not x.newCrash and all(x.alive),
+           "new crash files %s, alive (host, client) %s (want none, both)" % (x.newCrash, x.alive))
+def body_no_click_guard(r, x):
     locate(r, x)
     visit_leave(r, x)
     pre(r, x, True)
     prompt(r, x)
-    r.cell("G-pre", True, "guest seated %s, visit %s, leave %s, baseclient present %s, prompt %.2f s"
+    r.cell("no_click_guard-pre", True, "guest seated %s, visit %s, leave %s, baseclient present %s, prompt %.2f s"
            % (r.ev["seat"]["seated"], r.ev["visit"]["visitS"], r.ev["visit"]["geoClean"], r.ev["PRE"]["baseclient"]["present"], r.ev["promptS"]))
     yes(r, x, False)
     entry_watch_end(r, x)
-    brief_cell(r, x, "G-brief")
-    world_cell(r, x, "G-world")
-    host_cell(r, x, "G-host")
-    r.cell("G-quiet", x.n["CLICKIGN"] == 0 and x.n["DROP"] == 0 and not x.newCrash and all(x.alive),
+    brief_cell(r, x, "no_click_guard-brief")
+    world_cell(r, x, "no_click_guard-world")
+    host_cell(r, x, "no_click_guard-host")
+    r.cell("no_click_guard-quiet", x.n["CLICKIGN"] == 0 and x.n["DROP"] == 0 and not x.newCrash and all(x.alive),
            "CLICKIGN %d, DROP %d, new crash files %s, alive (host, client) %s (want 0, 0, none, both)"
            % (x.n["CLICKIGN"], x.n["DROP"], x.newCrash, x.alive))
 def main():
     c0 = cpu()
-    print("==== W2-H78 VDH (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY, time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
-    Row("R1").run(body_r1, "w2h78_r1")
-    Row("G").run(body_g, "w2h78_g")
+    print("==== test_visit_during_handoff (slot %s, key %s, exe %s) CPU %s ====" % (harness.HARNESS_SLOT, KEY,
+          time.ctime(os.path.getmtime(harness.EXE)), c0), flush=True)
+    Row("stored_copy_click").run(body_stored_copy_click, "handoff_stored_copy_click")
+    Row("no_click_guard").run(body_no_click_guard, "handoff_no_click_guard")
     fails = [n for n, ok in RESULTS if not ok]
-    print("\n==== W2-H78 VDH: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()),
-          flush=True)
+    print("\n==== test_visit_during_handoff: %d/%d cells PASS, wall %.1f s, CPU %s -> %s ====" % (
+        len(RESULTS) - len(fails), len(RESULTS), time.time() - T0, c0, cpu()), flush=True)
     if fails:
         print("FAILING: %s" % fails, flush=True)
     return 0 if not fails else 2
