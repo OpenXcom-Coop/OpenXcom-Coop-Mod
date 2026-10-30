@@ -1,11 +1,12 @@
-"""W2-H16b (S-9..S-11; D226 a; spec rewrite/prompts/w2h16b_soldier_allocations.md (f) + A1.5; TASK 0 rewrite/w2h16b-task0):
-crew seats from the crew-armor ctrl-click and the crew keys, and martial / psi allocations made on one machine reach the shared
-world; the training screens and the crew keys touch only the clicker's own soldiers (AUD-A48). Mod Coop_Allocation_Test: ONE
-gym place + ONE psi-lab place at (0, 3), index 9. Boot A (SHARED): H16b-1..7, 9, 10, 11; Boot B (SEPARATE): H16b-8.
-S0 = flags off, wounds healed, seats via the craft_assign lever, both equal, requests R0; clicks at the alloc_screen_probe
-row centre (ctrl: mod ctrl then modstate none, F6180); keys z 122 / x 120; poll = both machines' flags + seats every 0.25 s
-for 3 s, cells at its end; close = OK until GeoscapeState, requests == R0 (STOP-IF 5). RED: all rows but H16b-8 fail on
-their named cells; GREEN: all pass. "guard:" = guard (red and green; a miss prints one CAPTURE). ONE run; exit 0 iff all pass.
+"""Soldier allocations in a co-op campaign: crew seats from the crew-armor ctrl-click and the crew keys, and martial /
+psi allocations made on one machine reach the shared world; the training screens and the crew keys touch only the
+clicker's own soldiers. Mod Coop_Allocation_Test: ONE gym place + ONE psi-lab place at (0, 3), index 9. Shared boot
+(SHARED): allocation_1..7, 9, 10, 11; separate boot (SEPARATE): allocation_8.
+baseline = flags off, wounds healed, seats via the craft_assign test command, both equal, requests R0; clicks at the
+alloc_screen_probe row centre (ctrl: mod ctrl then modstate none); keys z 122 / x 120; poll = both machines' flags +
+seats every 0.25 s for 3 s, cells at its end; close = OK until GeoscapeState, requests == R0. Without the fix every row
+but allocation_8 fails on its named cells. "guard:" = guard (a miss prints one CAPTURE). There is no skip path; exit 0
+only when every row passes.
 """
 
 import json
@@ -20,14 +21,15 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Allocation_Test")
-BOOT_A, BOOT_B = ("w2h16ba", (49320, 49321, 47300)), ("w2h16bb", (49322, 49323), "47302")
-FAC, FAC_IDX, KEY_Z, KEY_X = "STR_ALLOCTEST_TRAINING", 9, 122, 120     # TASK 0 F6668; Options.cpp :528-534
+BOOT_SHARED, BOOT_SEPARATE = (("allocations_shared", (49320, 49321, 47300)),
+                              ("allocations_separate", (49322, 49323), "47302"))
+FAC, FAC_IDX, KEY_Z, KEY_X = "STR_ALLOCTEST_TRAINING", 9, 122, 120     # index measured; key codes: Options.cpp :528-534
 POLL_S, POLL_I, GEO, POP, H, C = 3.0, 0.25, "GeoscapeState", "CoopState", "host", "client"
 SCREEN = {"martial": "AllocateTrainingState", "psi": "AllocatePsiTrainingState",
           "craft_armor": "CraftArmorState", "craft_soldiers": "CraftSoldiersState"}
 PERSONAL, NONE = "STR_PERSONAL_ARMOR_UC", "STR_NONE_UC"
 SS_KEYS = ("cmd", "okCount", "failCount", "applyCount", "unknownCount", "lastFail")
-OWN = "the %s screen lists the partner's soldiers (AUD-A48): %d rows, listing %s"
+OWN = "the %s screen lists the partner's soldiers: %d rows, listing %s"
 
 short = lambda e, n=600: (lambda s: s if len(s) <= n else s[:n] + "...")(f"{type(e).__name__}: {e}")  # noqa: E731
 stack = session.states_stripped
@@ -42,7 +44,7 @@ craft = lambda gc, sid: record(gc, sid).get("craftId")  # noqa: E731
 crafts = lambda gc: {s["id"]: s.get("craft") for s in gc.ok({"cmd": "base_report"})["soldiers"]}  # noqa: E731
 store = lambda gc: gc.ok({"cmd": "base_report"}).get("storage", {}).get("STR_PERSONAL_ARMOR", 0)  # noqa: E731
 free_gym = lambda gc: gc.ok({"cmd": "soldier_training_probe", "ids": []})["bases"][0]["freeTraining"]  # noqa: E731
-lever = lambda gc, sid, **kv: gc.ok(dict({"cmd": "set_soldier_training", "soldierId": sid}, **kv))  # noqa: E731
+set_training = lambda gc, sid, **kv: gc.ok(dict({"cmd": "set_soldier_training", "soldierId": sid}, **kv))  # noqa: E731
 listing = lambda p, ids: ids_of(p) == ids and p.get("listing") == "own"  # noqa: E731
 pong = lambda *gcs: all(gc.cmd({"cmd": "ping"}).get("pong") for gc in gcs)  # noqa: E731
 class Miss(Exception):  # a blocking guard missed: the row stops
@@ -78,7 +80,7 @@ class Row:
         self.R0, self.popups, self.captured = {}, [], False
     def cell(self, name, ok, detail=""):
         (self.passed if ok else self.fails).append(name if ok else f"{name}: {detail}")
-        if not ok and name.startswith("guard:") and not self.captured:   # Setup-failure dump (STOP-IF 3)
+        if not ok and name.startswith("guard:") and not self.captured:   # setup-failure dump
             self.captured = True
             capture(self.rid, self.x, self.ids, name)
         return ok
@@ -92,7 +94,7 @@ class Row:
         print(f"PASS {self.rid}" if not self.fails else
               f"FAIL {self.rid}: {len(self.fails)} cell(s): " + " | ".join(self.fails), flush=True)
 def seat_to(x, want, timeout=6.0):
-    """Seats {id: 1 | -1} by the craft_assign lever (S-8 path), sent from a machine whose OWN seat differs (host first)."""
+    """Seats {id: 1 | -1} by the craft_assign test command, sent from a machine whose OWN seat differs (host first)."""
     h, c = x.host, x.client
     ch, cc = crafts(h), crafts(c)
     for i, w in want.items():
@@ -102,20 +104,20 @@ def seat_to(x, want, timeout=6.0):
     both = lambda a, b: all(a.get(i) == w and b.get(i) == w for i, w in want.items())  # noqa: E731
     return wait_until(lambda: both(crafts(h), crafts(c)), timeout, 0.2)
 def stage(x, r, tag, want):
-    """set_soldier_training {id: {field: value}} on the client, then the host (S25); guard: both machines hold it."""
+    """set_soldier_training {id: {field: value}} on the client, then the host; guard: both machines hold it."""
     for gc in (x.client, x.host):
         for i, kv in want.items():
-            lever(gc, i, **kv)
+            set_training(gc, i, **kv)
     f = r.ev[tag] = {gc.name: flags(gc, list(want)) for gc in (x.host, x.client)}
     k = {"training": "tr", "rtwh": "rtwh", "psiTraining": "psi", "psiSkill": "psiSkill"}
     bad = [(n, i, f2) for n in f for i, kv in want.items() for f2, v in kv.items() if f[n][i][k[f2]] != v]
     r.need(f"guard:{tag} staged", not bad, f"(machine, id, field) {bad}")
-def s0(x, r, seats=None, extra=None, tag="S0"):
+def reset_baseline(x, r, seats=None, extra=None, tag="baseline"):
     h, c = x.host, x.client
     want = {i: dict({"training": False, "rtwh": False, "psiTraining": False}, **(extra or {}).get(i, {})) for i in x.ids}
     for gc in (c, h):
         for i in x.ids:
-            lever(gc, i, **want[i])
+            set_training(gc, i, **want[i])
         for i in sorted(x.wounded):
             gc.ok({"cmd": "set_soldier_recovery", "soldierId": i, "days": 0})
     x.wounded.clear()
@@ -131,7 +133,7 @@ def open_screen(gc, r, kind, tag):
           {"cmd": "open_screen", "screen": kind, "craft_id": 1})
     r.need(f"guard:{tag} {gc.name} {SCREEN[kind]}", wait_until(lambda: top(gc) == SCREEN[kind], 3.0), stack(gc))
     p = wait_until(lambda: (lambda q: q if q.get("rows") or q.get("error") else None)(aprobe(gc)), 2.0) or aprobe(gc)
-    r.need(f"guard:{tag} {gc.name} probe", p.get("ok") and p.get("kind") == kind and p.get("rows"), p)   # STOP-IF 9
+    r.need(f"guard:{tag} {gc.name} probe", p.get("ok") and p.get("kind") == kind and p.get("rows"), p)
     r.ev[f"{tag} {gc.name} open [listing, [row, id, status]]"] = [
         p.get("listing"), [[w.get("row"), w.get("soldierId"), w.get("status")] for w in p["rows"]]]
     return p
@@ -154,7 +156,7 @@ def close(x, r, gc, tag):
         wait_until(lambda: top(gc) != t, 1.0)
     r.need(f"guard:{tag} {gc.name} closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
     now = {m.name: req(m) for m in (x.host, x.client)}
-    r.need(f"guard:{tag} requests", now == r.R0, f"requests {now} vs R0 {r.R0} (STOP-IF 5)")
+    r.need(f"guard:{tag} requests", now == r.R0, f"requests {now} vs R0 {r.R0}")
 def step(x, r, tag, gc, ids, kind=None, sid=None, sym=None, ctrl=False, done=True):
     """[Open `kind` on gc;] click `sid` (ctrl) or press `sym`; poll `ids` 3 s; e[H] / e[C] = the poll end, e["top"] /
     e["rows"] = gc's top state and rows [id, status] there; close the opened screen when `done`. Returns (open probe, e)."""
@@ -177,7 +179,7 @@ def step(x, r, tag, gc, ids, kind=None, sid=None, sym=None, ctrl=False, done=Tru
     return p, e
 def row_1(x, r):   # crew-armor ctrl-click OFF (client)
     h, c, C1 = x.host, x.client, x.C1
-    s0(x, r)
+    reset_baseline(x, r)
     a0 = ss(h)["applyCount"]
     p, e = step(x, r, "ctrl", c, [C1], "craft_armor", sid=C1, ctrl=True, done=False)
     st, da = next((s for i, s in e["rows"] if i == C1), None), ss(h)["applyCount"] - a0
@@ -185,25 +187,27 @@ def row_1(x, r):   # crew-armor ctrl-click OFF (client)
     r.cell("guard:rows own", ids_of(p) == x.C, ids_of(p))
     r.cell("guard:ctrl seen, client seat, cell", [e["top"], e[C][C1]["craft"], st] == [SCREEN["craft_armor"], -1, "NONE"],
            [e["top"], e[C][C1], st])
-    r.cell("seat", [e[H][C1]["craft"], da] == [-1, 1], "the client's crew-armor seat stayed on its machine (S-9a): "
+    r.cell("seat", [e[H][C1]["craft"], da] == [-1, 1], "the client's crew-armor seat stayed on its machine: "
            f"host C1 craft {e[H][C1]['craft']}, host applyCount +{da}")
     close(x, r, c, "ctrl")
 def row_2(x, r):   # crew-armor ctrl-click ON (client), OFF (host)
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
-    s0(x, r, seats={i: (-1 if i == C1 else 1) for i in x.ids})
+    reset_baseline(x, r, seats={i: (-1 if i == C1 else 1) for i in x.ids})
     _p, e = step(x, r, "(1)", c, [C1], "craft_armor", sid=C1, ctrl=True)
     r.cell("guard:(1) client seat", e[C][C1]["craft"] == 1, e[C][C1])
-    r.cell("(1)", e[H][C1]["craft"] == 1, f"the client's crew-armor seat stayed on its machine (S-9a): host C1 craft {e[H][C1]['craft']}")
+    r.cell("(1)", e[H][C1]["craft"] == 1,
+           f"the client's crew-armor seat stayed on its machine: host C1 craft {e[H][C1]['craft']}")
     p, e = step(x, r, "(2)", h, [H1], "craft_armor", sid=H1, ctrl=True)
     r.cell("guard:(2) host rows own, host seat", [ids_of(p), e[H][H1]["craft"]] == [x.H, -1], [ids_of(p), e[H][H1]])
-    r.cell("(2)", e[C][H1]["craft"] == -1, f"the host's crew-armor seat stayed on its machine (S-9a): client H1 craft {e[C][H1]['craft']}")
-def row_3(x, r):   # crew hotkeys z / x (client); crew C1, C2 only (roster positions < 4, F6169)
+    r.cell("(2)", e[C][H1]["craft"] == -1,
+           f"the host's crew-armor seat stayed on its machine: client H1 craft {e[C][H1]['craft']}")
+def row_3(x, r):   # crew hotkeys z / x (client); crew C1, C2 only (roster positions < 4)
     c, keep = x.client, [x.C1, x.C2]
-    s0(x, r, seats={i: (1 if i in keep else -1) for i in x.ids})
+    reset_baseline(x, r, seats={i: (1 if i in keep else -1) for i in x.ids})
     pos = {i: x.ids.index(i) for i in keep}
     r.cell("guard:roster positions", all(v < min(len(x.C), len(x.H)) for v in pos.values()), pos)
     open_screen(c, r, "craft_soldiers", "open")
-    for name, sym, site in (("z", KEY_Z, "S-9c"), ("x", KEY_X, "S-9b")):
+    for name, sym, site in (("z", KEY_Z, "remove-from-craft key"), ("x", KEY_X, "remove-from-all-crafts key")):
         if name == "x":
             r.need("guard:restage", seat_to(x, {i: 1 for i in keep}), "C1, C2 back on craft 1")
         _p, e = step(x, r, name, c, keep, sym=sym)
@@ -212,21 +216,23 @@ def row_3(x, r):   # crew hotkeys z / x (client); crew C1, C2 only (roster posit
         r.cell(name, all(e[H][i]["craft"] == -1 for i in keep),
                f"the crew hotkey stayed local ({site}): host C1, C2 craft {[e[H][i]['craft'] for i in keep]}")
     close(x, r, c, "close")
-def row_4(x, r):   # martial click, own rows, both directions (A1.5 H16b-4')
+def row_4(x, r):   # martial click, own rows, both directions
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
-    s0(x, r)
+    reset_baseline(x, r)
     p, e = step(x, r, "(1)", c, [C1], "martial", sid=C1)
     r.cell("(0) client rows", listing(p, x.C), OWN % ("martial", len(ids_of(p)), p.get("listing")))
     r.cell("guard:(1) client C1", e[C][C1]["tr"] is True, e[C][C1])
-    r.cell("(1)", e[H][C1]["tr"] is True, f"the client's martial click stayed on its machine (S-10a): host C1 training {e[H][C1]['tr']}")
+    r.cell("(1)", e[H][C1]["tr"] is True,
+           f"the client's martial click stayed on its machine: host C1 training {e[H][C1]['tr']}")
     stage(x, r, "(2) restage", {C1: {"training": False}, H1: {"training": True}})
     p, e = step(x, r, "(2)", h, [H1], "martial", sid=H1)
     r.cell("(0b) host rows", listing(p, x.H), OWN % ("martial", len(ids_of(p)), p.get("listing")))
     r.cell("guard:(2) host H1", e[H][H1]["tr"] is False, e[H][H1])
-    r.cell("(2)", e[C][H1]["tr"] is False, f"the host's martial click stayed on its machine (S-10a): client H1 training {e[C][H1]['tr']}")
+    r.cell("(2)", e[C][H1]["tr"] is False,
+           f"the host's martial click stayed on its machine: client H1 training {e[C][H1]['tr']}")
 def row_5(x, r):   # the last gym place, both at once (the client's applies held)
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
-    s0(x, r)
+    reset_baseline(x, r)
     open_screen(c, r, "martial", "open")
     try:
         r.need("guard:defer on", c.ok({"cmd": "shared_update_defer", "on": True}).get("deferred") is True)
@@ -234,7 +240,7 @@ def row_5(x, r):   # the last gym place, both at once (the client's applies held
         a0 = ss(h)["applyCount"]
         click(h, r, H1, "host")
         r.cell("guard:host H1", wait_until(lambda: flags(h, [H1])[H1]["tr"], 1.0), flags(h, [H1]))
-        wait_until(lambda: ss(h)["applyCount"] > a0, 1.0)   # green: the host's own apply lands before the client's click
+        wait_until(lambda: ss(h)["applyCount"] > a0, 1.0)   # the host's own apply lands before the client's click
         da, r.ev["client freeTraining before its click (stale world)"] = ss(h)["applyCount"] - a0, free_gym(c)
         click(c, r, C1, "client")
         r.cell("guard:stale click", wait_until(lambda: flags(c, [C1])[C1]["tr"], 1.0), flags(c, [C1]))
@@ -248,9 +254,9 @@ def row_5(x, r):   # the last gym place, both at once (the client's applies held
            f"two trainees in a one-place gym; the worlds disagree: [H1, C1] training {v}, freeTraining {free}, host applyCount +{da}")
     close(x, r, c, "close")
     close(x, r, h, "close")
-def row_6(x, r):   # queue when healed + the add-all key, own soldiers only (A1.5 H16b-6')
+def row_6(x, r):   # queue when healed + the add-all key, own soldiers only
     h, c, C1, C2, H1 = x.host, x.client, x.C1, x.C2, x.H1
-    s0(x, r)
+    reset_baseline(x, r)
     for gc in (c, h):
         for i in (C2, H1):
             gc.ok({"cmd": "set_soldier_recovery", "soldierId": i, "days": 5})
@@ -260,54 +266,65 @@ def row_6(x, r):   # queue when healed + the add-all key, own soldiers only (A1.
     p, e = step(x, r, "(1)", c, [C2], "martial", sid=C2, done=False)
     r.cell("guard:C2 status", status_of(p, C2) != status_of(p, C1), [status_of(p, C1), status_of(p, C2)])
     r.cell("guard:(1) client C2 rtwh", e[C][C2]["rtwh"] is True, e[C][C2])
-    r.cell("(1)", e[H][C2]["rtwh"] is True, f"the client's queue click stayed on its machine (S-10a): host C2 rtwh {e[H][C2]['rtwh']}")
+    r.cell("(1)", e[H][C2]["rtwh"] is True,
+           f"the client's queue click stayed on its machine: host C2 rtwh {e[H][C2]['rtwh']}")
     stage(x, r, "(2) restage", {C2: {"training": False, "rtwh": False, "psiTraining": False}})
     _p, e = step(x, r, "(2)", c, [C1, C2, H1], sym=KEY_Z)
     v, q = {m: [e[m][C1]["tr"], e[m][C2]["rtwh"]] for m in (H, C)}, [e[C][H1]["rtwh"], e[H][H1]["rtwh"]]
     r.cell("guard:(2) client C1 training, C2 rtwh", v[C] == [True, True], v[C])
-    r.cell("(2)", v[H] == [True, True], f"the client's add-all key stayed on its machine (S-10c): host [C1 training, C2 rtwh] {v[H]}")
-    r.cell("(3)", q == [False, False], f"the client's add-all key queued the partner's soldier (AUD-A48): H1 rtwh [client, host] {q}")
+    r.cell("(2)", v[H] == [True, True],
+           f"the client's add-all key stayed on its machine: host [C1 training, C2 rtwh] {v[H]}")
+    r.cell("(3)", q == [False, False],
+           f"the client's add-all key queued the partner's soldier: H1 rtwh [client, host] {q}")
     close(x, r, c, "close")
-def row_7(x, r):   # psi: own rows, click, remove-all, the open-screen clean-up (A1.5 H16b-7')
+def row_7(x, r):   # psi: own rows, click, remove-all, the open-screen clean-up
     h, c, C1, C2, H1, H2 = x.host, x.client, x.C1, x.C2, x.H1, x.H2
-    s0(x, r)
+    reset_baseline(x, r)
     p, e = step(x, r, "(1)", c, [C1], "psi", sid=C1)
     r.cell("(0) client rows", listing(p, x.C), OWN % ("psi", len(ids_of(p)), p.get("listing")))
     r.cell("guard:(1) client C1", e[C][C1]["psi"] is True, e[C][C1])
-    r.cell("(1)", e[H][C1]["psi"] is True, f"the client's psi click stayed on its machine (S-11a): host C1 psiTraining {e[H][C1]['psi']}")
+    r.cell("(1)", e[H][C1]["psi"] is True,
+           f"the client's psi click stayed on its machine: host C1 psiTraining {e[H][C1]['psi']}")
     stage(x, r, "(2) restage", {C1: {"psiTraining": True}})
     _p, e = step(x, r, "(2)", h, [C1], "psi", sym=KEY_X)
     v = [e[H][C1]["psi"], e[C][C1]["psi"]]
-    r.cell("(2)", v == [True, True], f"the host's remove-all key took the partner's soldier out (AUD-A48): C1 psiTraining [host, client] {v}")
-    s0(x, r, extra={H1: {"psiTraining": True}}, tag="(3) S0")
+    r.cell("(2)", v == [True, True],
+           f"the host's remove-all key took the partner's soldier out: C1 psiTraining [host, client] {v}")
+    reset_baseline(x, r, extra={H1: {"psiTraining": True}}, tag="(3) baseline")
     _p, e = step(x, r, "(3)", h, [H1], "psi", sym=KEY_X)
     r.cell("guard:(3) host H1", e[H][H1]["psi"] is False, e[H][H1])
-    r.cell("(3)", e[C][H1]["psi"] is False, f"the host's remove-all key stayed on its machine (S-11b): client H1 psiTraining {e[C][H1]['psi']}")
-    s0(x, r, extra={C2: {"psiTraining": True, "psiSkill": 100}}, tag="(4) S0")
+    r.cell("(3)", e[C][H1]["psi"] is False,
+           f"the host's remove-all key stayed on its machine: client H1 psiTraining {e[C][H1]['psi']}")
+    reset_baseline(x, r, extra={C2: {"psiTraining": True, "psiSkill": 100}}, tag="(4) baseline")
     _p, e = step(x, r, "(4)", c, [C2], "psi")
     r.cell("guard:(4) client C2 cleared", e[C][C2]["psi"] is False, e[C][C2])
     r.cell("(4)", e[H][C2]["psi"] is False,
-           f"the client's open-screen clean-up stayed on its machine (S-11c): host C2 psiTraining {e[H][C2]['psi']}")
-    s0(x, r, extra={H2: {"psiTraining": True, "psiSkill": 100}}, tag="(5) S0")
+           f"the client's open-screen clean-up stayed on its machine: host C2 psiTraining {e[H][C2]['psi']}")
+    reset_baseline(x, r, extra={H2: {"psiTraining": True, "psiSkill": 100}}, tag="(5) baseline")
     _p, e = step(x, r, "(5)", c, [H2], "psi")
     v = [e[C][H2]["psi"], e[H][H2]["psi"]]
-    r.cell("(5)", v == [True, True], f"the client's psi screen cleared the partner's soldier (AUD-A48): H2 psiTraining [client, host] {v}")
-def row_9(x, r):   # the crew keys keep the partner's soldier seated (C1, H1 at roster positions < 4, F6169)
+    r.cell("(5)", v == [True, True],
+           f"the client's psi screen cleared the partner's soldier: H2 psiTraining [client, host] {v}")
+def row_9(x, r):   # the crew keys keep the partner's soldier seated (C1, H1 at roster positions < 4)
     h, c, C1, H1, keep = x.host, x.client, x.C1, x.H1, [x.C1, x.H1]
-    s0(x, r, seats={i: (1 if i in keep else -1) for i in x.ids})
+    reset_baseline(x, r, seats={i: (1 if i in keep else -1) for i in x.ids})
     pos = {i: x.ids.index(i) for i in keep}
     r.cell("guard:roster positions", all(v < min(len(x.C), len(x.H)) for v in pos.values()), pos)
     _p, e = step(x, r, "z", c, keep, "craft_soldiers", sym=KEY_Z)
     r.cell("guard:z client C1, alive", e[C][C1]["craft"] == -1 and pong(c), e[C][C1])
     v = [e[C][H1]["craft"], e[H][H1]["craft"]]
-    r.cell("(z) partner", v == [1, 1], f"the client's crew key unseated the partner's soldier (AUD-A48): H1 craft [client, host] {v}")
-    r.cell("(z) host", e[H][C1]["craft"] == -1, f"the client's crew key stayed on its machine (S-9c): host C1 craft {e[H][C1]['craft']}")
+    r.cell("(z) partner", v == [1, 1],
+           f"the client's crew key unseated the partner's soldier: H1 craft [client, host] {v}")
+    r.cell("(z) host", e[H][C1]["craft"] == -1,
+           f"the client's crew key stayed on its machine: host C1 craft {e[H][C1]['craft']}")
     r.need("guard:restage", seat_to(x, {C1: 1, H1: 1}), "C1, H1 back on craft 1")
     _p, e = step(x, r, "x", h, keep, "craft_soldiers", sym=KEY_X)
     r.cell("guard:x host H1, alive", e[H][H1]["craft"] == -1 and pong(h, c), e[H][H1])
     v = [e[H][C1]["craft"], e[C][C1]["craft"]]
-    r.cell("(x) partner", v == [1, 1], f"the host's crew key unseated the partner's soldier (AUD-A48): C1 craft [host, client] {v}")
-    r.cell("(x) client", e[C][H1]["craft"] == -1, f"the host's crew key stayed on its machine (S-9b): client H1 craft {e[C][H1]['craft']}")
+    r.cell("(x) partner", v == [1, 1],
+           f"the host's crew key unseated the partner's soldier: C1 craft [host, client] {v}")
+    r.cell("(x) client", e[C][H1]["craft"] == -1,
+           f"the host's crew key stayed on its machine: client H1 craft {e[C][H1]['craft']}")
 def refuse(x, r, gc, tag, jcmd, payload, sid, field):
     """gc's shared_cmd for the partner's soldier: guard: gc failCount +1, the popup, the flag unchanged; cell: lastFail."""
     f0 = ss(gc)["failCount"]
@@ -323,7 +340,7 @@ def refuse(x, r, gc, tag, jcmd, payload, sid, field):
     r.need(f"guard:{tag} popup closed", wait_until(lambda: top(gc) == GEO, 3.0), stack(gc))
 def row_10(x, r):   # the host refuses the partner's soldier
     h, c, C1, H1 = x.host, x.client, x.C1, x.H1
-    s0(x, r)
+    reset_baseline(x, r)
     for gc in (h, c):
         gc.ok({"cmd": "shared_reset_stats"})
     a0 = ss(h)["applyCount"]
@@ -336,10 +353,11 @@ def row_10(x, r):   # the host refuses the partner's soldier
     da, v = ss(h)["applyCount"] - a1, [e[H][C1]["tr"], e[C][C1]["tr"]]
     r.cell("(3)", v == [True, True] and da == 1, f"the control stayed untrained: C1 training [host, client] {v}, "
            f"host applyCount +{da}, client lastFail {ss(c)['lastFail']!r}")
-    close(x, r, c, "(3)")   # the red control raises the unknown-command popup on the client (recorded in popups)
-def row_11(x, r):   # the client's reset-armor key keeps the partner's armor (OC-A1-1 (a))
+    # on a build without this command, the control raises the unknown-command popup on the client (recorded in popups)
+    close(x, r, c, "(3)")
+def row_11(x, r):   # the client's reset-armor key keeps the partner's armor
     h, c, C1, H1, pair = x.host, x.client, x.C1, x.H1, [x.C1, x.H1]
-    s0(x, r)
+    reset_baseline(x, r)
     st0 = {gc.name: store(gc) for gc in (h, c)}
     for gc in (c, h):
         for i in pair:
@@ -354,11 +372,11 @@ def row_11(x, r):   # the client's reset-armor key keeps the partner's armor (OC
     d, n = {gc.name: store(gc) - st0[gc.name] for gc in (h, c)}, sum(1 for i in pair if a[H][i] == NONE)
     r.ev["armor end, store delta, reset count"], v, now = [a, d, n], [a[H][H1], a[C][H1]], {m.name: req(m) for m in (h, c)}
     r.cell("guard:C1 reset", a[H][C1] == NONE and a[C][C1] == NONE, a)
-    r.cell("guard:store", d[H] == d[C] == n, f"store delta {d} vs {n} reset (R-H16b-T0-4: +2 on red)")
-    r.cell("guard:requests", now == r.R0, f"requests {now} vs R0 {r.R0} (STOP-IF 5)")
+    r.cell("guard:store", d[H] == d[C] == n, f"store delta {d} vs {n} reset (+2 without the fix)")
+    r.cell("guard:requests", now == r.R0, f"requests {now} vs R0 {r.R0}")
     r.cell("partner armor", v == [PERSONAL, PERSONAL],
-           f"the client's armor-reset key stripped the partner's soldier (aud-E1-11): H1 armor [host, client] {v}")
-def row_8(x, r):   # SEPARATE stays local (Boot B; guard row)
+           f"the client's armor-reset key stripped the partner's soldier: H1 armor [host, client] {v}")
+def row_8(x, r):   # SEPARATE stays local (the separate boot; guard row)
     h, c = x.host, x.client
     s_0, r.R0 = {gc.name: ss(gc) for gc in (h, c)}, {gc.name: req(gc) for gc in (h, c)}
     r.ev["fac_build"] = c.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok")    # local in SEPARATE
@@ -396,7 +414,7 @@ def run_row(rid, fn, x, results, ids):
                                             "requests": req(gc), "stack": stack(gc)} for gc in (x.host, x.client)}
         except Exception as e:
             r.ev["cleanupError"] = short(e)
-        r.cell("guard:no popup", not r.popups or rid == "H16b-10", r.popups)
+        r.cell("guard:no popup", not r.popups or rid == "allocation_10", r.popups)
         r.ev["popups"], r.ev["wallS"] = r.popups, round(time.time() - t0, 1)
         r.report(results)
     return r.ev["wallS"]
@@ -408,8 +426,9 @@ def boot_miss(tag, e, rids, results):
 def fac_index(gc):
     facs = ((gc.cmd({"cmd": "geo_state"}).get("bases") or [{}])[0]).get("facilities") or []
     return next((i for i, f in enumerate(facs) if (f.get("type"), f.get("x"), f.get("y")) == (FAC, 0, 3)), None)
-def setup_a(x):
-    """Boot A: the facility (index 9) and its capacities on both, the roster and the picks (STOP-IF 9). Raises on a miss."""
+def setup_shared(x):
+    """The shared boot: the facility (index 9) and its capacities on both, the roster and the picks. Raises on a
+    miss."""
     h, c = x.host, x.client
     ev = {"fac_build": h.cmd({"cmd": "fac_build", "facility": FAC, "x": 0, "y": 3}).get("ok"),
           "listed": wait_until(lambda: fac_index(h) == FAC_IDX and fac_index(c) == FAC_IDX, 10)}
@@ -422,12 +441,13 @@ def setup_a(x):
     x.C, x.H = [i for i, o in rep[H] if o == seat[C]], [i for i, o in rep[H] if o == seat[H]]
     if not (ev["listed"] and ev["buildTime"] == {H: 0, C: 0} and rep[H] == rep[C] and len(x.C) >= 2 and len(x.H) >= 2
             and all((b["psiLabs"], b["training"]) == (1, 1) for b in ev["capacities"].values())):
-        raise RuntimeError(f"facility / capacities / rosters / picks (STOP-IF 9): {json.dumps(ev, default=str)}")
+        raise RuntimeError(f"facility / capacities / rosters / picks: {json.dumps(ev, default=str)}")
     x.C1, x.C2, x.H1, x.H2 = x.C[0], x.C[1], x.H[0], x.H[1]
     ev.update({"C1 C2 H1 H2": [x.C1, x.C2, x.H1, x.H2], "C": x.C, "H": x.H})
-    print(f"EVIDENCE Boot A: {json.dumps(ev, sort_keys=True, default=str)}", flush=True)
-ROWS_A = (("H16b-1", row_1), ("H16b-2", row_2), ("H16b-3", row_3), ("H16b-4", row_4), ("H16b-5", row_5), ("H16b-6", row_6),
-          ("H16b-7", row_7), ("H16b-9", row_9), ("H16b-10", row_10), ("H16b-11", row_11))
+    print(f"EVIDENCE shared boot: {json.dumps(ev, sort_keys=True, default=str)}", flush=True)
+ROWS_SHARED = (("allocation_1", row_1), ("allocation_2", row_2), ("allocation_3", row_3), ("allocation_4", row_4),
+               ("allocation_5", row_5), ("allocation_6", row_6), ("allocation_7", row_7), ("allocation_9", row_9),
+               ("allocation_10", row_10), ("allocation_11", row_11))
 def boot(results, walls, tag, rows, up, down, setup=None):
     """up() -> (host, client); a miss fails every row of the boot "boot" with one CAPTURE line."""
     t0, x = time.time(), type("X", (), {})()
@@ -440,19 +460,19 @@ def boot(results, walls, tag, rows, up, down, setup=None):
         except Exception as e:
             return boot_miss(tag, e, [rid for rid, _f in rows], results)
         for rid, fn in rows:
-            ids = [1] if rid == "H16b-8" else {"H16b-3": [x.C1, x.C2], "H16b-6": [x.C1, x.C2, x.H1],
-                                               "H16b-7": [x.C1, x.C2, x.H1, x.H2]}.get(rid, [x.C1, x.H1])
+            ids = [1] if rid == "allocation_8" else {"allocation_3": [x.C1, x.C2], "allocation_6": [x.C1, x.C2, x.H1],
+                                                     "allocation_7": [x.C1, x.C2, x.H1, x.H2]}.get(rid, [x.C1, x.H1])
             walls[rid] = run_row(rid, fn, x, results, ids)
     finally:
         down(x)
         walls[tag] = round(time.time() - t0, 1)
-def up_a():
-    js = UP["js"] = shared_fixture.bring_up(BOOT_A[0], BOOT_A[1], mods=(MOD,))
+def up_shared():
+    js = UP["js"] = shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,))
     return js.host, js.client
-def up_b():
-    (tag, labels, lobby) = BOOT_B
-    h, c = UP["b"] = (GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,))),
-                      GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,))))
+def up_separate():
+    (tag, labels, lobby) = BOOT_SEPARATE
+    h, c = UP["separate"] = (GameClient("host", labels[0], make_user_dir(tag + "_host", mods=(MOD,))),
+                             GameClient("client", labels[1], make_user_dir(tag + "_client", mods=(MOD,))))
     h.spawn(), c.spawn(), h.connect(), c.connect()
     session.new_campaign(h, c, port=lobby, campaign_mode="coop")
     geo.wait_both_ready(h, c)
@@ -460,9 +480,11 @@ def up_b():
 UP = {}
 def main():
     t0, results, walls = time.time(), {}, {}
-    boot(results, walls, BOOT_A[0], ROWS_A, up_a, lambda x: UP.get("js") and UP["js"].shutdown(), setup_a)
-    boot(results, walls, BOOT_B[0], (("H16b-8", row_8),), up_b, lambda x: UP.get("b") and shutdown_clients(*UP["b"]))
-    failed = [n for n in ("H16b-%d" % k for k in range(1, 12)) if not results.get(n)]
+    boot(results, walls, BOOT_SHARED[0], ROWS_SHARED, up_shared, lambda x: UP.get("js") and UP["js"].shutdown(),
+         setup_shared)
+    boot(results, walls, BOOT_SEPARATE[0], (("allocation_8", row_8),), up_separate,
+         lambda x: UP.get("separate") and shutdown_clients(*UP["separate"]))
+    failed = [n for n in ("allocation_%d" % k for k in range(1, 12)) if not results.get(n)]
     print(f"\ntest_soldier_allocations: {11 - len(failed)}/11 passed (fail={failed}) walls {walls} in {time.time() - t0:.1f}s")
     return 0 if not failed else 2
 
