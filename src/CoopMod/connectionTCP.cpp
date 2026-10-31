@@ -24148,6 +24148,10 @@ struct GhostReplay
 	// time is up instead of ending; the `turn` ev then takes it over (onEvApplied).
 	std::uint32_t cueSeq = 0;
 	bool awaitingTurn = false;
+	// A unit with a turret (vanilla turns that turret one octant with each body octant) and, probe only, the
+	// turret facings a `turn` ghost's view draws while it runs (turretsShown: a unit with a turret only).
+	bool hasTurret = false;
+	std::vector<int> turretsShown;
 };
 
 // Battle-scoped: one live slot per unit id. Cleared by reset() (called from
@@ -24702,6 +24706,10 @@ void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t now
 	r["poseShown"] = g.poseShown;
 	r["maxGapMs"] = g.maxGapMs;
 	r["cueSeq"] = g.cueSeq;
+	Json::Value turrets(Json::arrayValue);
+	for (int d : g.turretsShown)
+		turrets.append(d);
+	r["turretsShown"] = turrets;
 	r["endStamp"] = ++g_combatProbe.stamp;
 	const std::string how = endedBy;
 	if (how == "natural")
@@ -26914,6 +26922,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.toDir = payload.get("toDir", unit->getDirection()).asInt();
 		rec.kneeledBefore = rec.kneeledAfter = unit->isKneeled();
 		rec.fromPos = rec.toPos = unit->getPosition();
+		rec.hasTurret = unit->getTurretType() > -1;
 		if (kind == "turn_start")
 		{
 			rec.cueSeq = rec.seq;
@@ -27084,9 +27093,12 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 				const BattleUnit* tu = CoopIdMaps::unit(tg.unitId);
 				int dir = tg.fromDir;
 				int status = tu ? (int)tu->getStatus() : -1;
+				int turret = tu ? tu->getTurretDirection() : -1; // the turret the view draws
 				turnPoseAt(tg, elapsed, &dir, &status);
 				if (tg.dirsShown.empty() || tg.dirsShown.back() != dir)
 					tg.dirsShown.push_back(dir);
+				if (tg.hasTurret && (tg.turretsShown.empty() || tg.turretsShown.back() != turret))
+					tg.turretsShown.push_back(turret);
 				if (tg.poseShown < 0)
 					tg.poseShown = status;
 			}
