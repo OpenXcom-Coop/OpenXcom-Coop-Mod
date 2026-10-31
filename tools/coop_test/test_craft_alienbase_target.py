@@ -4,24 +4,21 @@ that destination across a geoscape save and reload, as a craft sent to a UFO or 
 that id (coopAlienBaseId) across its owner's save. Without that, the save strips the mirror, Craft::load makes the
 destination a waypoint at the base's spot and the craft arrives with "has reached WAY POINT-1 / Now patrolling".
 
-Lobby keys "49134" / "49135" (bring-up / resume). Boot separate (dirs alienbase_target_separate_*), SEPARATE gm0:
-client_to_host_base (the client's Skyranger CSKY -> the host's alien base, target hab), host_to_client_base (the host's
-Skyranger HSKY -> the client's alien base, target cab), save_ids (both save files, the ids), ufo_control (the control:
-the client's Interceptor 2 CINT -> the host's crashed UFO, target ufo), separate-common. Boot pvp (dirs
-alienbase_target_pvp_*), gm3 with the host on the Alien team: pvp-mode, client_to_host_base_pvp (CSKY -> the alien
-host's base, target hab), save_ids_pvp, ufo_control_pvp, pvp-common.
-Each boot: targets on their OWNER (spawn_alien_base + host_alien_base_found; spawn_ufo crashed) and the peer's mirror;
+Lobby keys "49134" / "49135" (bring-up / resume). Boot pvp (dirs alienbase_target_pvp_*), gm3 with the host on the
+Alien team: pvp-mode, client_to_host_base_pvp (the client's Skyranger CSKY -> the alien host's base, target hab),
+save_ids_pvp, ufo_control_pvp (the control: the client's Interceptor 2 CINT -> the host's crashed UFO, target ufo),
+pvp-common. A Separate campaign has one world and no mirrors (each player sees the other's alien base and UFO
+themselves), so only the PvP campaign keeps mirrors.
+The boot: targets on their OWNER (spawn_alien_base + host_alien_base_found; spawn_ufo crashed) and the peer's mirror;
 seats; craft_force to "alienBaseCoop:" / "ufoCoop:" + the co-op id; the host's quick save (SaveGameState) then the named
-save (PyYAML: host world + client blob); both end; the host respawns on its dir, client2 on an EMPTY dir; boot separate
-session.resume_campaign, boot pvp resume_rr (through host_menu_host); the relink phase (idx 0), the arrival phase
-(idx 2); every popup recorded then closed with dismiss_popup (a landing is never confirmed). AB(n) = "DESTINATION: ALIEN
-BASE-" + n, n = the mirror's live Target id (m0 before the save, m1 after the resume; destKind is "other" for a base and
-a waypoint alike). client_to_host_base-arrive = the SEPARATE client's landing refusal (REFUSAL_TEXT);
-host_to_client_base-arrive / client_to_host_base_pvp-arrive = ConfirmLandingState at the base; ufo_control-arrive = CINT
-turned home (destKind "base" at a poll, or back at X in a base status right after "ufo": the leg is shorter than one
-poll). A staging miss prints ONE "CAPTURE separate:" / "CAPTURE pvp:" line and FAILs the boot's remaining cells "boot".
-A build without the fix fails the 9 FIX cells (12/21 pass, exit 2): "DESTINATION: WAY POINT-1", CraftPatrolState "has
-reached WAY POINT-1", no coopDestAlienBaseId key in the craft node. With the fix all 21 pass.
+save (PyYAML: host world + client blob); both end; the host respawns on its dir, client2 on an EMPTY dir; resume_rr
+(through host_menu_host); the relink phase (idx 0), the arrival phase (idx 2); every popup recorded then closed with
+dismiss_popup (a landing is never confirmed). AB(n) = "DESTINATION: ALIEN BASE-" + n, n = the mirror's live Target id
+(m0 before the save, m1 after the resume; destKind is "other" for a base and a waypoint alike).
+client_to_host_base_pvp-arrive = ConfirmLandingState at the base. A staging miss prints ONE "CAPTURE pvp:" line and FAILs
+the boot's remaining cells "boot".
+A build without the fix fails the 3 FIX cells: "DESTINATION: WAY POINT-1", CraftPatrolState "has reached WAY POINT-1",
+no coopDestAlienBaseId key in the craft node. With the fix all 8 pass.
 ONE foreground run, no skip path; exit 0 only when every cell passes, else 2.
 Run:  python tools/coop_test/test_craft_alienbase_target.py
 """
@@ -45,47 +42,30 @@ import yaml  # noqa: E402
 
 # ----- setup values -----
 KEY_BRINGUP, KEY_RESUME = "49134", "49135"                              # lobby keys: bring-up / resume
-TAGS, SAVE = ({"separate": "alienbase_target_separate", "pvp": "alienbase_target_pvp"},            # user-dir prefixes,
-              {"separate": "alienbase_target_separate.sav", "pvp": "alienbase_target_pvp.sav"})    # the named saves
-TARGETS = {"hab": ("host", "base", "X", (0.10, 0.35)), "ufo": ("host", "ufo", "X", (-0.35, 0.10)),     # owner,
-           "cab": ("client", "base", "H", (0.10, -0.30))}                                          # kind, from base, offset
+TAGS, SAVE = {"pvp": "alienbase_target_pvp"}, {"pvp": "alienbase_target_pvp.sav"}   # user-dir prefix, the named save
+TARGETS = {"hab": ("host", "base", "X", (0.10, 0.35)), "ufo": ("host", "ufo", "X", (-0.35, 0.10))}     # owner, kind,
+                                                                                                   # from base, offset
 CRAFTS = {"CSKY": ("client", "SKYRANGER", None, "X", (0.10, -0.15), "hab"),                         # owner, type,
-          "CINT": ("client", "INTERCEPTOR", 2, "X", (-0.35, -0.40), "ufo"),                         # id (None = the first), home,
-          "HSKY": ("host", "SKYRANGER", None, "H", (0.10, 0.45), "cab")}                            # start offset, target
+          "CINT": ("client", "INTERCEPTOR", 2, "X", (-0.35, -0.40), "ufo")}                         # id (None = the first), home,
+                                                                                                   # start offset, target
 UFO = {"type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA", "race": "STR_SECTOID",
        "trajectory": "P0", "state": "crashed", "speed": 0, "hours": 240}
-BOOTS = {"separate": {"targets": ["hab", "ufo", "cab"], "crafts": ["CSKY", "CINT", "HSKY"],
-                      "mode": (0, 0, False, False),
-                      "row": {"CSKY": "client_to_host_base", "HSKY": "host_to_client_base"},
-                      "file": {"CSKY": "save_ids-client", "HSKY": "save_ids-host"}, "ids": "save_ids-bases",
-                      "cint": "ufo_control-relink"},
-         "pvp": {"targets": ["hab", "ufo"], "crafts": ["CSKY", "CINT"], "mode": (3, 3, True, False),
+BOOTS = {"pvp": {"targets": ["hab", "ufo"], "crafts": ["CSKY", "CINT"], "mode": (3, 3, True, False),
                  "row": {"CSKY": "client_to_host_base_pvp"}, "file": {"CSKY": "save_ids_pvp"},
                  "ids": "save_ids_pvp-bases", "cint": "ufo_control_pvp"}}
 SEATS = 2                                                                # soldiers tried per Skyranger
 MIRROR_S, SAVE_S, RELINK_S, ARRIVE_S = 30, 90, 10, 90                   # s, each at least twice its measured value
 RELINK_POLL, ARRIVE_POLL, NEAR, FAR = 0.25, 0.4, 0.01, 0.05             # s, s, rad: arrival point, start distance
-REFUSAL_TEXT = ("In co-op only the host's craft can start a mission. "  # the SEPARATE client's landing refusal
-                "Seat your soldiers on the host's craft to take part.")
 AB = "DESTINATION: ALIEN BASE-"                                         # AB(n) = AB + n, n = the mirror's Target id
 HOME = ("STR_REFUELLING", "STR_REARMING", "STR_REPAIRS", "STR_READY")
 CK = ("type", "id", "name", "status", "destKind", "destId", "displayStatus", "lon", "lat")
-ROWS = {"separate": {"client_to_host_base": ["client_to_host_base-before", "client_to_host_base-relink",
-                                             "client_to_host_base-arrive"],
-                     "host_to_client_base": ["host_to_client_base-before", "host_to_client_base-relink",
-                                             "host_to_client_base-arrive"],
-                     "save_ids": ["save_ids-client", "save_ids-host", "save_ids-bases"],
-                     "ufo_control": ["ufo_control-file", "ufo_control-relink", "ufo_control-arrive"],
-                     "separate-common": ["separate-common"]},
-        "pvp": {"pvp-mode": ["pvp-mode"],
+ROWS = {"pvp": {"pvp-mode": ["pvp-mode"],
                 "client_to_host_base_pvp": ["client_to_host_base_pvp-before", "client_to_host_base_pvp-relink",
                                             "client_to_host_base_pvp-arrive"],
                 "save_ids_pvp": ["save_ids_pvp", "save_ids_pvp-bases"],
                 "ufo_control_pvp": ["ufo_control_pvp"], "pvp-common": ["pvp-common"]}}
-FIX = {"client_to_host_base-relink", "client_to_host_base-arrive", "host_to_client_base-relink",
-       "host_to_client_base-arrive", "save_ids-client", "save_ids-host", "client_to_host_base_pvp-relink",
-       "client_to_host_base_pvp-arrive", "save_ids_pvp"}
-RESULTS, EV, BOOT = [], {}, {"tag": "separate"}   # (cell, ok, detail); per boot: every value read; the boot in flight
+FIX = {"client_to_host_base_pvp-relink", "client_to_host_base_pvp-arrive", "save_ids_pvp"}
+RESULTS, EV, BOOT = [], {}, {"tag": "pvp"}   # (cell, ok, detail); per boot: every value read; the boot in flight
 
 class FixtureMiss(Exception): pass
 
@@ -265,18 +245,14 @@ def resume_rr(host, client, save_file, port):
                     timeout=120)
 
 def relaunch(x, ev):
-    """Both end; the host respawns on its dir, client2 on an EMPTY dir; boot separate session.resume_campaign, boot pvp
-    resume_rr."""
+    """Both end; the host respawns on its dir, client2 on an EMPTY dir; resume_rr."""
     t0 = time.time()
     x["client"].shutdown(); x["host"].shutdown()
     host = x["host"] = GameClient("host", None, x["host"].user_dir)
     c2 = x["client2"] = GameClient("client2", None, make_user_dir(x["tag"] + "_client2"))
     host.spawn(); host.connect(timeout=240); c2.spawn(); c2.connect(timeout=240)
     try:
-        if x["boot"] == "separate":
-            session.resume_campaign(host, c2, SAVE["separate"], port=KEY_RESUME)
-        else:
-            resume_rr(host, c2, SAVE["pvp"], KEY_RESUME)
+        resume_rr(host, c2, SAVE[x["boot"]], KEY_RESUME)
     except Exception as e:  # noqa: BLE001
         capture(f"resume: {type(e).__name__}: {str(e)[:300]}", host, c2)
     ev["resumeS"] = round(time.time() - t0, 2)
@@ -320,7 +296,7 @@ def relink(host, c2, snap, checks, ev):
 
 def arrival(host, c2, snap, owners, ev, home):
     """idx 2, ARRIVE_POLL polls, <= ARRIVE_S, until each craft in owners {name: machine} arrived: its first popup naming
-    it on its machine (client2's landing refusal names no craft: it is CSKY's), or CINT's turn home ("base", or at
+    it on its machine, or CINT's turn home ("base", or at
     `home` in a base status right after "ufo")."""
     t2, events, arr, prev = time.time(), [], {}, snap()
     while time.time() - t2 < ARRIVE_S and not set(owners) <= set(arr):
@@ -329,8 +305,7 @@ def arrival(host, c2, snap, owners, ev, home):
                 events.append(rec)
                 blob = " ".join(rec["texts"]).upper()
                 for n, m in owners.items():
-                    if n not in arr and m == gc.name and (str((rec["crafts"].get(n) or {}).get("name") or "?").upper() in blob or (
-                            n == "CSKY" and rec["top"] == "CraftErrorState" and REFUSAL_TEXT in rec["texts"])):
+                    if n not in arr and m == gc.name and str((rec["crafts"].get(n) or {}).get("name") or "?").upper() in blob:
                         arr[n] = rec
         cur = snap()
         for n in owners:
@@ -357,10 +332,7 @@ def boot(b, x, ev):
     for gc in m.values():
         gc.spawn(); gc.connect(timeout=240)
     try:
-        if b == "separate":
-            session.new_campaign(m["host"], m["client"], port=KEY_BRINGUP)
-        else:
-            ev["lobbyGamemode"] = PF.start_pvp_campaign(m["host"], m["client"], KEY_BRINGUP, alien_player="host")
+        ev["lobbyGamemode"] = PF.start_pvp_campaign(m["host"], m["client"], KEY_BRINGUP, alien_player="host")
     except Exception as e:  # noqa: BLE001
         capture(f"bring-up: {type(e).__name__}: {str(e)[:300]}", *m.values())
     geo.slow_clock(m["host"], m["client"])
@@ -399,9 +371,6 @@ def boot(b, x, ev):
     for n, name in B["file"].items():
         node_cell(name, files, part[CRAFTS[n][0]], bases[CRAFTS[n][3]]["name"], keys[n], "coopDestAlienBaseId", tg[CRAFTS[n][5]]["coopId"],
                   "STR_ALIEN_BASE", ev)
-    if b == "separate":
-        node_cell("ufo_control-file", files, "blob", bases["X"]["name"], keys["CINT"], "coopDestUfoId",
-                  tg["ufo"]["coopId"], None, ev)
     host, c2 = relaunch(x, ev)
     live.update(host=host, client=c2)
     if b == "pvp":
@@ -436,33 +405,19 @@ def boot(b, x, ev):
     cell(B["ids"], not bad, "; ".join(bad) or f"live mirrors at {first[B['ids']]} s; both saves' real bases carry coopAlienBaseId "
          f"{[tg[t]['coopId'] for t in bt]}")
     base = evs(c2)
-    owners = {n: ("client2" if CRAFTS[n][0] == "client" else "host") for n in (B["crafts"] if b == "separate" else sky)}
+    owners = {n: ("client2" if CRAFTS[n][0] == "client" else "host") for n in sky}
     events, arr = arrival(host, c2, snap, owners, ev, pos["X"])
     after = evs(c2)
     ev["refused"] = {"before": base, "after": after}
     for n in sky:
         a, cn, tp = arr.get(n) or {}, f"{B['row'][n]}-arrive", tg[CRAFTS[n][5]]["point"]
-        c, pt, e = (a.get("crafts") or {}).get(n), patrols(events, owners[n], (b0[n] or {}).get("name")), a.get("ev") or {}
+        c, pt = (a.get("crafts") or {}).get(n), patrols(events, owners[n], (b0[n] or {}).get("name"))
         head = f"{owners[n]} {n} arrival top {a.get('top')!r} at {a.get('t')} s texts {a.get('texts')}; CraftPatrolState naming {n} at {pt}"
-        if b == "separate" and n == "CSKY":            # the SEPARATE client's own craft never starts a battle
-            ok = (a.get("top") == "CraftErrorState" and REFUSAL_TEXT in a.get("texts", []) and not pt
-                  and (c or {}).get("destKind") == "base"
-                  and e.get("coopClientBattleRefused") == (base.get("coopClientBattleRefused") or 0) + 1
-                  and e.get("coopClientBattleRefusedLast") == f"landing:{keys[n][1]}")
-            cell(cn, ok, f"{head}; refused {base.get('coopClientBattleRefused')} -> {e.get('coopClientBattleRefused')} last "
-                 f"{e.get('coopClientBattleRefusedLast')!r}; {n} destKind {(c or {}).get('destKind')!r} (want "
-                 f"CraftErrorState REFUSAL_TEXT, +1, 'landing:{keys[n][1]}', 'base', no patrol)")
-        else:                                   # vanilla's landing prompt (the host; the gm3 X-COM client)
-            ok = a.get("top") == "ConfirmLandingState" and dist(c, tp) <= NEAR and not pt and (
-                owners[n] == "host" or after.get("coopClientBattleRefused") == base.get("coopClientBattleRefused"))
-            cell(cn, ok, f"{head}; {n} {dist(c, tp):.4f} rad from the base; client2 refused {base.get('coopClientBattleRefused')} -> "
-                 f"{after.get('coopClientBattleRefused')} (want ConfirmLandingState within {NEAR} rad, no patrol)")
-    if b == "separate":
-        a, pi = arr.get("CINT") or {}, patrols(events, "client2", (b0["CINT"] or {}).get("name"))
-        cell("ufo_control-arrive", a.get("kind") in ("base", "none") and not pi,
-             f"CINT {(a.get('from') or {}).get('destKind')!r} -> "
-             f"{a.get('kind')!r} {(a.get('craft') or {}).get('status')} at {a.get('t')} s (want 'base', or home at X); CraftPatrolState "
-             f"naming CINT at {pi}")
+        # vanilla's landing prompt (the gm3 X-COM client)
+        ok = a.get("top") == "ConfirmLandingState" and dist(c, tp) <= NEAR and not pt and (
+            owners[n] == "host" or after.get("coopClientBattleRefused") == base.get("coopClientBattleRefused"))
+        cell(cn, ok, f"{head}; {n} {dist(c, tp):.4f} rad from the base; client2 refused {base.get('coopClientBattleRefused')} -> "
+             f"{after.get('coopClientBattleRefused')} (want ConfirmLandingState within {NEAR} rad, no patrol)")
     reads += [("host@arrival", evs(host)), ("client2@arrival", after)]
     new = sorted(crash_set() - x["crash0"])
     bad = [f"{k} desyncSeen {v.get('desyncSeen')!r}" for k, v in reads if v.get("desyncSeen") is not False]
@@ -474,7 +429,7 @@ def boot(b, x, ev):
 def row_ev(b, row, ev):
     """A row's EVIDENCE: ids, mirrors, the craft at each read (cmp), the peer's view, save nodes, arrival popups / transitions, walls."""
     rl, ar = ev.get("relink") or {}, ev.get("arrival") or {}
-    crafts = dict({v: k for k, v in BOOTS[b]["row"].items()}, ufo_control="CINT", **{"ufo_control_pvp": "CINT"})
+    crafts = dict({v: k for k, v in BOOTS[b]["row"].items()}, ufo_control_pvp="CINT")
     polls, before = rl.get("polls") or [], ev.get("before") or {}
     if row in crafts:
         n = crafts[row]
@@ -499,8 +454,7 @@ def row_ev(b, row, ev):
                 relinkPopups=[sub(e, ("t", "machine", "top", "texts", "dismiss")) for e in rl.get("popups", [])])
 
 def run_boot(b, tag=None):
-    """One boot (separate or pvp): host and client, the rows, then every machine shut down; EVIDENCE and ROW lines per
-    row."""
+    """One boot: host and client, the rows, then every machine shut down; EVIDENCE and ROW lines per row."""
     BOOT["tag"], tag = b, tag or TAGS[b]
     x = {"boot": b, "tag": tag, "host": GameClient("host", None, make_user_dir(tag + "_host")),
          "client": GameClient("client", None, make_user_dir(tag + "_client")), "client2": None, "crash0": crash_set()}
@@ -530,12 +484,11 @@ def run_boot(b, tag=None):
 
 def main():
     t0 = time.time()
-    for b in ("separate", "pvp"):
-        run_boot(b)
+    run_boot("pvp")
     allc = [c for b in ROWS for r in ROWS[b].values() for c in r]
     fails = [n for n, ok, _ in RESULTS if not ok]
     print(f"\n==== craft -> mirrored alien base across a save and reload: {len(RESULTS) - len(fails)}/{len(allc)} "
-          f"cells PASS, wall {time.time() - t0:.1f} s, cpu {EV.get('separate', {}).get('load0')} -> "
+          f"cells PASS, wall {time.time() - t0:.1f} s, cpu {EV.get('pvp', {}).get('load0')} -> "
           f"{EV.get('pvp', {}).get('load1')} ====", flush=True)
     for n in fails:
         print(f"  FAIL {n}{' (FIX cell)' if n in FIX else ''}", flush=True)
