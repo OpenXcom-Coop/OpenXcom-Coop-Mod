@@ -439,7 +439,9 @@ void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType);
 void coopCueCorpse(const BattleUnit* unit);
 
 /// Hook (UnitDieBState::think, after its turn / fall step): HOST - adds the dying unit's pose after this think to
-/// its deathSteps record (coopDeathSteps()). A no-op off the host and for a death that skips the animation.
+/// its deathSteps record (coopDeathSteps()); for a `front` death one octant from 3, whose first think is its only
+/// turning step, sends the display-only `death_step` cue {victim, fallMs}: the ms from that step to the fall, which
+/// depends on the state timer's phase at the step. A no-op off the host and for a death that skips the animation.
 void coopDeathThink(const BattleUnit* unit);
 
 /// [deathSteps] HOST: the last 16 animated deaths this battle, oldest first, as [{seq (its `death` cue), unit, front,

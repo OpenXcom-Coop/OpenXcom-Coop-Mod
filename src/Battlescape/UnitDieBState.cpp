@@ -202,7 +202,7 @@ void UnitDieBState::think()
 			}
 		}
 	}
-	coopDeathThink(_unit); // coop: the host's record of this death's turn / fall step
+	coopDeathThink(_unit); // coop: the host's record of this death's turn / fall step, and the watcher's fall timing
 	if (_extraFrame == 2)
 	{
 		_parent->getMap()->setUnitDying(false);

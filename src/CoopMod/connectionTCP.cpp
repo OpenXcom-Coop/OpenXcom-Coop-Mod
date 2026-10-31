@@ -5228,7 +5228,8 @@ bool coopIsCueKind(const std::string& kind)
 		"prime", "sync", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner",
 		"skill", // the host's own skill use (coopHostSkill())
 		"mindprobe", "zero_tu", // the host's own mind probe / Zero TU press (coopHostMindProbe(), coopHostZeroTu())
-		"turn_start" }; // the display-only start of a pre-action turn (coopOnUnitTurnStarted())
+		"turn_start", // the display-only start of a pre-action turn (coopOnUnitTurnStarted())
+		"death_step" }; // the display-only fall timing of a death's only turning step (coopDeathThink())
 	for (const char* k : kCueKinds)
 	{
 		if (kind == k)
@@ -5441,6 +5442,21 @@ void coopDeathThink(const BattleUnit* unit)
 	if (r->steps.empty() || r->steps.back().direction != pose.direction || r->steps.back().status != pose.status
 		|| r->steps.back().phase != pose.phase)
 		r->steps.push_back(pose);
+	// A `front` death one octant from 3: its first think is its last turning step, and that think raises the state
+	// interval to DEFAULT_ANIM_SPEED (Ic) inside the timer's tick, so the timer's next base is the tick BEFORE this
+	// step plus Ic: the fall starts 2 x Ic - phase ms after this step (at least Ic), phase = the ms the timer had run
+	// since its last tick when this step ran. A death pushed inside a tick, or after a screen restarted the timer,
+	// steps at phase Is; one pushed between two ticks steps at once, at any phase. The watcher, which cannot see the
+	// host's timer, gets the delay in a display-only cue (no hash, no attachments).
+	if (r->thinks == 1 && r->front && r->fromDir == 2 && pose.direction == 3 && pose.status == (int)STATUS_STANDING
+		&& r->firstStepTimerMs >= 0)
+	{
+		const int ic = BattlescapeState::DEFAULT_ANIM_SPEED;
+		Json::Value p(Json::objectValue);
+		p["victim"] = unit->getId(); // `victim`, not `unit`: the apply path refreshes a `unit`'s sight
+		p["fallMs"] = std::max(2 * ic - r->firstStepTimerMs, ic);
+		coopEmitCue("death_step", p, /*displayOnly=*/true);
+	}
 }
 
 Json::Value coopDeathSteps()
@@ -24583,7 +24599,7 @@ struct DeathGhost
 	bool started = false;
 	std::uint32_t startedAtMs = 0;
 	// The schedule in ms from the start, fixed at start; fixed again from the same start only when a later
-	// death of a started `front` head's burst is applied (deathOnEv).
+	// death of a started `front` head's burst is applied (deathOnEv) or its `death_step` arrives (deathStepOnEv).
 	std::uint32_t intervalS = 0;    // Is: the state interval the pirouette steps at
 	std::uint32_t intervalC = 0;    // Ic: the collapse interval
 	std::uint32_t tc = 0;           // startFalling
@@ -24597,6 +24613,7 @@ struct DeathGhost
 	std::vector<int> dirsShown;
 	std::vector<int> turretsShown;  // probe only - the turret facings drawn (a unit with a turret only)
 	std::vector<int> phasesShown;
+	int fallMs = -1;                // the host's delay from the last turning step to the fall (its `death_step`); -1: none
 };
 /// The host-order death queue (index 0 = the head: started, or the next to start; a ghost leaves the
 /// queue at its release), the released ghosts still drawing their last frame until they end (the
@@ -26135,9 +26152,9 @@ bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* turr
 
 /// Fixes @a g's schedule in ms from its start for the state interval @a interval (Is), and writes it to its
 /// record. A victim that must turn: Ic = DEFAULT_ANIM_SPEED (the pirouette's end sets it, UnitDieBState :183)
-/// and tc = its last octant ((front ? 0 : Is) + (D - 1) x Is) + 2 x Ic - Is; a victim already facing 3: Ic = Is
-/// and tc = its first think (front ? 0 : Is); isOut = tc (a respawn victim) or tc + F x Ic; pop = isOut + 2 x Ic;
-/// the interval it leaves behind = Ic.
+/// and tc = its last octant ((front ? 0 : Is) + (D - 1) x Is) + 2 x Ic - Is, or + the host's own delay when its
+/// `death_step` gave one (fallMs); a victim already facing 3: Ic = Is and tc = its first think (front ? 0 : Is);
+/// isOut = tc (a respawn victim) or tc + F x Ic; pop = isOut + 2 x Ic; the interval it leaves behind = Ic.
 void deathSchedule(DeathGhost& g, int interval)
 {
 	const int is = std::max(1, interval);
@@ -26147,7 +26164,7 @@ void deathSchedule(DeathGhost& g, int interval)
 	if (g.octants > 0)
 	{
 		ic = BattlescapeState::DEFAULT_ANIM_SPEED;
-		tc = std::max(first, first + (g.octants - 1) * is + 2 * ic - is);
+		tc = std::max(first, first + (g.octants - 1) * is + (g.fallMs >= 0 ? g.fallMs : 2 * ic - is));
 	}
 	const int isOut = g.respawn ? tc : tc + std::max(0, g.frames) * ic;
 	g.intervalS = (std::uint32_t)is;
@@ -26162,7 +26179,38 @@ void deathSchedule(DeathGhost& g, int interval)
 		(*r)["tc"] = g.tc;
 		(*r)["isOutMs"] = g.isOutMs;
 		(*r)["popMs"] = g.popMs;
+		(*r)["fallMs"] = g.fallMs;
 	}
+}
+
+/// From combatOnEv() on a coop client: one applied display-only `death_step` {victim, fallMs} - the host's own
+/// delay from a `front` death's only turning step to its fall (coopDeathThink()). The death ghost of that victim
+/// (queued, started or holding) takes it; a started one has its schedule fixed again from its own start.
+void deathStepOnEv(const Json::Value& ev)
+{
+	const Json::Value& p = ev["payload"];
+	const int victim = p.get("victim", -1).asInt();
+	const int fallMs = p.get("fallMs", -1).asInt();
+	if (victim < 0 || fallMs < 0)
+		return;
+	DeathGhost* g = nullptr;
+	for (DeathGhost& h : g_deathGhosts)
+	{
+		if (h.unitId == victim && !h.ended)
+			g = &h;
+	}
+	for (DeathGhost& h : g_deathHolding)
+	{
+		if (!g && h.unitId == victim && !h.ended)
+			g = &h;
+	}
+	if (!g || !g->front || g->octants != 1)
+		return;
+	g->fallMs = fallMs;
+	if (g->started)
+		deathSchedule(*g, (int)g->intervalS);
+	else if (Json::Value* r = deathRecord(g->ordinal))
+		(*r)["fallMs"] = fallMs;
 }
 
 /// Starts the queue head at @a nowMs with its schedule fixed now (deathSchedule) for Is = the host's last state
@@ -26368,6 +26416,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["popMs"] = 0;
 	r["sound"] = Mod::NO_SOUND;
 	r["startedAfterSeq"] = 0;
+	r["fallMs"] = -1;
 	r["dirsShown"] = Json::Value(Json::arrayValue);
 	r["turretsShown"] = Json::Value(Json::arrayValue);
 	r["phasesShown"] = Json::Value(Json::arrayValue);
@@ -26795,6 +26844,12 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	fallSeenProbe(save, ev, kind, SDL_GetTicks()); // probe only
 	if (kind == "reveal")
 		return; // a nested reveal carries no delta - it neither ends nor starts a ghost
+	// The display-only `death_step` cue changes no state: it only times its victim's death ghost.
+	if (kind == "death_step")
+	{
+		deathStepOnEv(ev);
+		return;
+	}
 	const std::uint32_t nowMs = SDL_GetTicks();
 	turnCueEndOrphans(ev.get("actionId", 0u).asUInt(), false, nowMs);
 	// The display-only `turn_start` cue changes no state: it neither ends nor starts a combat ghost (onEvApplied
