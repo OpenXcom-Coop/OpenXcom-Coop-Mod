@@ -312,13 +312,6 @@ void SoldiersState::cbxSortByChange(Action *action)
 			_dynGetter = compFunc->getGetter();
 		}
 
-		// coop (issue #65, as in CraftSoldiersState): SHARED must not reorder the shared
-		// roster; keep the dynamic-stat column but skip the sort mutations.
-		if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
-		{
-			initList(_lstSoldiers->getScroll());
-			return;
-		}
 		// if CTRL is pressed, we only want to show the dynamic column, without actual sorting
 		if (!ctrlPressed)
 		{
@@ -370,12 +363,6 @@ void SoldiersState::cbxSortByChange(Action *action)
 	}
 	else
 	{
-		// coop (issue #65): in SHARED "original order" is the shared order - never re-append it.
-		if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
-		{
-			initList(_lstSoldiers->getScroll());
-			return;
-		}
 		// restore original ordering, ignoring (of course) those
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
