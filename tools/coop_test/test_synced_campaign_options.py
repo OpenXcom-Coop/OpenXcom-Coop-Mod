@@ -26,10 +26,11 @@ cannot disturb build_time_synced; leave_restores_own last):
 | | drain/world/both-false cells fail) |
 | leave_restores_own | precondition "client option_values of the 14 != its boot defaults before the leave" fails |
 
-Client shared_resync_stats `mismatches` also counts an apply's by-design in-flight skew, so layout_reseat_synced checks
-`no_resync` (resync `requests` unchanged over the row) + `quiet_after_apply` (`mismatches` unchanged over 2 s once the
-stores agree), and drain_before_apply adds `no_resync` (requests unchanged from before the defer test hook to release +
-2 s; the auto-resync repairs a divergence before its world_diff read).
+Client shared_resync_stats `mismatches` also counts an apply's by-design skew (the apply in flight, and the world
+checksum's store term, which each machine recomputes at most every 250 ms), so layout_reseat_synced checks `no_resync`
+(resync `requests` unchanged over the row) + `quiet_after_apply` (`mismatches` unchanged over 2 s once the stores agree
+and both machines stamp the same new store term), and drain_before_apply adds `no_resync` (requests unchanged from
+before the defer test hook to release + 2 s; the auto-resync repairs a divergence before its world_diff read).
 
 Guard every row: the 16 ids in each machine's options.cfg (parsed) == OWN_FILE. Each row prints ONE "EVIDENCE <id>:"
 line (both machines' synced_options_state minus `advanced`, and option_values of the 16) then "PASS <id>" or "FAIL <id>:
@@ -193,6 +194,11 @@ def shared_stats(gc):
 
 def resync_stats(gc):
     return gc.ok({"cmd": "shared_resync_stats"})
+
+
+def store_term(gc):
+    """The store term this machine stamps into the world checksum (recomputed at most every 250 ms)."""
+    return gc.ok({"cmd": "shared_checksum"})["chkStores"]
 
 
 def item_qty(gc, item):
@@ -510,6 +516,7 @@ def row_layout_reseat_synced(r, x):
     x.c.cmd({"cmd": "give_layout", "item": LAYOUT_ITEM, "count": 1, "slot": LAYOUT_SLOT, "name": sol["name"]})
     ac1 = shared_stats(x.c)["applyCount"]
     rq0 = resync_stats(x.c)["requests"]
+    term0 = {"host": store_term(x.h), "client": store_term(x.c)}  # the stores last changed before this row
     x.c.cmd({"cmd": "craft_assign", "soldier_id": sol["id"], "craft_id": transport["id"], "on": True})
     okA, W = wait_until(lambda: shared_stats(x.c)["applyCount"] >= ac1 + 1, APPLY_S)
     after = {"host": item_qty(x.h, LAYOUT_ITEM), "client": item_qty(x.c, LAYOUT_ITEM)}
@@ -522,17 +529,27 @@ def row_layout_reseat_synced(r, x):
     r.cell("item_eq", after["host"] == after["client"],
            f"{LAYOUT_ITEM} stores host {after['host']} client {after['client']} (N {after['host'] - after['client']})")
     r.cell("world_eq", not wd, f"world_diff {wd[:25]}")
-    # `mismatches` also counts the by-design in-flight skew of an apply, so it is read only once the applied
-    # stores agree; the divergence metric is `requests` (a mismatch persisting >= 3000 ms).
+    # `mismatches` also counts the by-design skew of an apply: the apply in flight, and the checksum's store term,
+    # which each machine recomputes at most every 250 ms, so the heartbeat compare can still differ for a moment
+    # after the stores agree. It is read only once the stores agree and both machines stamp the same new store
+    # term; the divergence metric is `requests` (a mismatch persisting >= 3000 ms).
     eq, _ = wait_until(lambda: item_qty(x.h, LAYOUT_ITEM) == item_qty(x.c, LAYOUT_ITEM), APPLY_S)
+    terms = {}
+
+    def new_term_on_both():
+        terms.update(host=store_term(x.h), client=store_term(x.c))
+        return terms["host"] == terms["client"] and terms["host"] != term0["host"]
+    term_eq, term_s = wait_until(new_term_on_both, APPLY_S)
     m0 = resync_stats(x.c)["mismatches"]
     time.sleep(RESYNC_S)
     rs = resync_stats(x.c)
     m1, rq1 = rs["mismatches"], rs["requests"]
-    r.ev.update(resyncRequests=(rq0, rq1), mismatchesAfterApply=(m0, m1), itemEqHeld=eq)
+    r.ev.update(resyncRequests=(rq0, rq1), mismatchesAfterApply=(m0, m1), itemEqHeld=eq,
+                storeTermBefore=term0, storeTermAfter=dict(terms), storeTermSettleS=term_s)
     r.cell("no_resync", rq1 == rq0, f"client resync requests {rq0}->{rq1} over the row's read window")
-    r.cell("quiet_after_apply", eq and m1 == m0,
-           f"item_eq held {eq}; client mismatches {m0}->{m1} over {RESYNC_S}s after the stores agreed")
+    r.cell("quiet_after_apply", eq and term_eq and m1 == m0,
+           f"item_eq held {eq}; new store term on both {term_eq} ({term_s}s); client mismatches {m0}->{m1} "
+           f"over {RESYNC_S}s after both machines stamped it")
     guard_file(r, x)
 
 
