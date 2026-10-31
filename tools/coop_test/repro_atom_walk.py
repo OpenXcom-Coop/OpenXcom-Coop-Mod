@@ -817,15 +817,21 @@ def phase_reserve_refusal(host, client, client_ids):
     set_reserve(client, mode="none", kneel=False)
 
     found = None
+    # Every probe of the search, for the failure message: (unit, weapon, reserve
+    # mode, [(TU before the probe, outcome), ...]).
+    trail = []
     # highest-TU actor first: the reserve-bite window is reached by walking an
     # actor DOWN, so an actor that starts with the most room is the one that can
     # be walked into it.
     for actor_id in sorted(client_ids, key=lambda u: -unit_of(host, u)["tu"]):
         for mode in ("aimed", "snap"):
+            probes = []
+            trail.append((actor_id, unit_of(host, actor_id).get("weapon"), mode, probes))
             for _ in range(14):
                 ev_before = event_state(client)
                 host_seq_before = event_state(host)["lastSeqEmitted"]
                 warn_before = warning_text(client)
+                tu_before = unit_of(host, actor_id)["tu"]
                 # reserve_probe() returns a 4-tuple on its "truncated" branch and
                 # a 2-tuple on every other branch, so read it by index: unpacking
                 # straight into `kind, out` raises "ValueError: too many values to
@@ -835,6 +841,7 @@ def phase_reserve_refusal(host, client, client_ids):
                 # phase_reserve_truncation reads the 4-tuple the same way.
                 probe = reserve_probe(host, client, actor_id, mode, radius=1)
                 kind, out = probe[0], probe[1]
+                probes.append((tu_before, kind))
                 if kind == "refused":
                     found = (actor_id, mode, out[1], ev_before, host_seq_before,
                              warn_before)
@@ -850,7 +857,8 @@ def phase_reserve_refusal(host, client, client_ids):
         "RESERVE REFUSAL PHASE: no client actor could be walked into the TU window where its "
         "OWN reserve refuses the FIRST step - see reserve_probe()'s docstring for "
         "why that window is one step wide. FIXTURE failure, and with it the CONTROL "
-        "that keeps RESERVE TRUNCATION PHASE honest.")
+        "that keeps RESERVE TRUNCATION PHASE honest. Probes (unit, weapon, reserve, "
+        f"[(TU before the probe, outcome)]): {trail}")
     actor_id, mode, resp, ev_before, host_seq_before, warn_before = found
     ev_after = event_state(client)
 
