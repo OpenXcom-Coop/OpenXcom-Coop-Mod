@@ -16,9 +16,10 @@ The SHARED boot (shared_fixture.bring_up "text_fidelity_shared"): guard:language
                   (item key, qty) == the host's.
 The SEPARATE boot (session.new_campaign + geo.wait_both_ready):
   partner_craft   host spawn_mission_site STR_ALIEN_TERROR at base + (0.35, 0.10), craft_force SKYRANGER-1 STR_OUT at
-                  base + (0.05, 0) to site:<id>, speed idx 0; the client's mirror Skyranger polled to STR_OUT (<= 10
-                  s; landing comes at ~76 s): name == "MERCURE-1" and status (displayStatus) == "DESTINATION : SITE DE
-                  TERREUR-<id>" [fix]; guard:coop true, guard:mirrorStatus STR_OUT, guard:hostOwn == "DESTINATION:
+                  base + (0.05, 0) to site:<id>, speed idx 0; the host's Skyranger in the client's world (one
+                  world: the same craft at the host's base) polled to STR_OUT (<= 10 s; landing comes at ~76 s): name
+                  == "MERCURE-1" and status (displayStatus) == "DESTINATION : SITE DE TERREUR-<id>" [fix];
+                  guard:partnerBase HostBase, guard:partnerStatus STR_OUT, guard:hostOwn == "DESTINATION:
                   TERROR SITE-<id>", guard:clientOwn == "PATROUILLE".
 
 Without the fix (the geo_state craft `name` probe and this file; ONE run, exit 2): exactly the [fix] cells fail (the
@@ -83,7 +84,7 @@ def safe(fn):
 
 
 def crafts(gc, mirror):
-    """The crafts (with their base name) of the real bases (mirror False) or the coop mirror bases (True), geo_state."""
+    """The crafts (with their base name) of this machine's own bases (mirror False) or the partner's bases (True), geo_state."""
     out = []
     for b in gc.ok({"cmd": "geo_state"}).get("bases") or []:
         if bool(b.get("coopBase") or b.get("coopIcon")) == mirror:
@@ -283,16 +284,16 @@ def row_partner(host, client, ev):
     sp = host.cmd({"cmd": "geo_set_speed", "idx": 0})
     ev["craft_force"] = {k: cf.get(k) for k in ("ok", "craft_id", "status", "displayStatus")}
     ev["geo_set_speed"] = {k: sp.get(k) for k in ("ok", "error")}
-    ok, secs = wait_until(lambda: craft(client, "STR_SKYRANGER", mirror=True).get("status") == "STR_OUT", PROBE_S, 0.25)
-    mirror = craft(client, "STR_SKYRANGER", mirror=True)
+    ok, secs = wait_until(lambda: craft(client, "STR_SKYRANGER", sky["id"], mirror=True).get("status") == "STR_OUT", PROBE_S, 0.25)
+    partner = craft(client, "STR_SKYRANGER", sky["id"], mirror=True)
     own_h, own_c = craft(host, "STR_SKYRANGER", sky["id"]), craft(client, "STR_SKYRANGER")
-    ev.update(mirrorOutS=[ok, secs], mirror=mirror, hostOwn=own_h, clientOwn=own_c,
+    ev.update(partnerOutS=[ok, secs], partner=partner, hostOwn=own_h, clientOwn=own_c,
               speed={gc.name: gc.cmd({"cmd": "geo_state"}).get("timeSpeedIndex") for gc in m},
               hostTop=top(host))
-    return [("name", mirror.get("name"), FR_CRAFT, NOTE_PARTNER),
-            ("status", mirror.get("displayStatus"), FR_DEST.format(sid), NOTE_PARTNER),
-            ("guard:coop", mirror.get("coop"), True, "the client's mirror of the host's Skyranger"),
-            ("guard:mirrorStatus", mirror.get("status"), "STR_OUT", f"polled {secs}s"),
+    return [("name", partner.get("name"), FR_CRAFT, NOTE_PARTNER),
+            ("status", partner.get("displayStatus"), FR_DEST.format(sid), NOTE_PARTNER),
+            ("guard:partnerBase", partner.get("base"), "HostBase", "the host's Skyranger at the host's base in the client's world"),
+            ("guard:partnerStatus", partner.get("status"), "STR_OUT", f"polled {secs}s"),
             ("guard:hostOwn", own_h.get("displayStatus"), EN_DEST.format(sid), HOST_OWN),
             ("guard:clientOwn", own_c.get("displayStatus"), FR_PATROLLING, "the client's own Skyranger renders French")]
 
