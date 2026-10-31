@@ -33,6 +33,7 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -56,7 +57,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, const std::string &filename, 
  * @param type Type of auto-save being used.
  * @param palette Parent state palette.
  */
-SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(false)
+SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *palette, int currentTurn, bool quitAfterSave) : _firstRun(0), _origin(origin), _type(type), _quitAfterSave(quitAfterSave) // coop
 {
 	switch (type)
 	{
@@ -94,7 +95,7 @@ SaveGameState::SaveGameState(OptionsOrigin origin, SaveType type, SDL_Color *pal
 		break;
 	case SAVE_IRONMAN:
 	case SAVE_IRONMAN_END:
-		_filename = CrossPlatform::sanitizeFilename(_game->getSavedGame()->getName()) + ".sav";
+		_filename = CrossPlatform::sanitizeFilename(connectionTCP::coopPvpSaveOwner(_game->getSavedGame())->getName()) + ".sav"; // coop
 		break;
 	default:
 		break;
@@ -158,6 +159,28 @@ void SaveGameState::think()
 	else
 	{
 		_game->popState();
+
+		// Drain first: every
+		// mid-battle coop save funnels here - the quick-save/insta-save
+		// keys (BattlescapeState.cpp, vanilla-gated on ironman/preview only,
+		// NOT on busy), the pause-menu Save (vanilla-gated on !busy
+		// already), ListSave SAVE & QUIT, and the harness's test command
+		// (save_game_ui type:"quick_battle") - so ONE shared gate here,
+		// before any write, covers all of them regardless of how busy-gated
+		// each trigger's own UI happens to be (a client-origin action can
+		// start executing on the host between "Save is enabled" and the
+		// click). If a coop battle is live and NOT quiescent, defer: arm
+		// the latch with exactly the constructor arguments needed to
+		// re-push this SAME SaveGameState once the battle drains (
+		// coopBattleQuiescent() preserves the isBattlescapeStateLive
+		// guard), and return without writing - the deferred re-push runs
+		// the vanilla backup+move exactly once, never duplicated.
+		if (isCoopBattle() && !coopBattleQuiescent())
+		{
+			armDeferredBattleSave(static_cast<int>(_origin), _type != SAVE_DEFAULT,
+				static_cast<int>(_type), _filename, _quitAfterSave);
+			return;
+		}
 
 		switch (_type)
 		{
@@ -235,7 +258,9 @@ void SaveGameState::think()
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
 				{
+					const long long coopOldSaveID = connectionTCP::saveID; // coop
 					connectionTCP::saveID = _game->getCoopMod()->getDateTimeCoop();
+					connectionTCP::rekeyHostClientBlobs(coopOldSaveID); // a partner who drops before its fresh world lands keeps its world
 				}
 
 				// PRD-06/E1: arm the deferral and SKIP the immediate write. The
@@ -264,17 +289,25 @@ void SaveGameState::think()
 			}
 
 			std::string backup = _filename + ".bak";
-			_game->getSavedGame()->save(backup, _game->getMod());
+			// coop: a co-op wait dialog's SAVE & QUIT reaches this write with a practice screen open (a preview, a base
+			// equipment screen - vanilla has no save path there): write the world as vanilla holds it once that screen is closed.
+			CoopPracticeBattleHidden coopPracticeHidden(_game->getSavedGame());
+			_game->getCoopMod()->coopPvpSaveWorld(backup); // coop: the live world; while the gm3 alien host borrows, its own world with the X-COM world embedded
 			std::string fullPath = Options::getMasterUserFolder() + _filename;
 			std::string bakPath = Options::getMasterUserFolder() + backup;
 
-			// coop
-			if (!CrossPlatform::moveFile(bakPath, fullPath) && _game->getCoopMod()->getCoopStatic() == false)
+			// coop: a co-op save's rename retries while another process holds the file
+			// (CrossPlatform::moveFileRetry), and a rename that still fails is reported as vanilla reports it: the save stays in the
+			// backup. A vanilla save moves once, as before. Co-op = localSavesAllowed()'s own split (a session, or a connected player).
+			const bool coopSave = _game->getCoopMod()->isCoopSession() || _game->getCoopMod()->getCoopStatic();
+			if (!(coopSave ? CrossPlatform::moveFileRetry(bakPath, fullPath) : CrossPlatform::moveFile(bakPath, fullPath)))
 			{
 				throw Exception("Save backed up in " + backup);
 			}
 
-			if (_type == SAVE_IRONMAN_END)
+			// coop: a co-op ironman save that quits (a wait dialog's SAVE & QUIT, the borrowed battle's SAVE AND
+			// ABANDON) leaves through quitToMainMenu below, the session's own teardown, as issue #81's SAVE & QUIT does.
+			if (_type == SAVE_IRONMAN_END && !_quitAfterSave)
 			{
 				// issue #82: the rescale and the world teardown both live in
 				// GoToMainMenuState::init, which runs after the popped states are freed.
@@ -325,11 +358,23 @@ void SaveGameState::quitToMainMenu()
 {
 	_game->resetTouchButtonFlags();
 
+	// Same capture-before-teardown as
+	// CoopState::btnAbandonClick - SAVE & QUIT's own end-control path onto
+	// the identical GoToMainMenuState chokepoint. peerAbsent is true only
+	// when this SAVE & QUIT is closing a mid-battle co-op pause, never
+	// for issue #81's original pre-battle campaign-wait case.
+	const bool seatLeftTeardown = coopBattleAuthority().peerAbsent;
+
 	// Role is cleared AFTER the teardown, never before: disconnectTCP branches
 	// on it, and clearing it early makes the host tear down as a client.
 	_game->getCoopMod()->disconnectTCP(true);
 	_game->getCoopMod()->setServerOwner(false);
 	connectionTCP::session.resetSession();
+
+	if (seatLeftTeardown)
+	{
+		Log(LOG_INFO) << "[coop] battle ended: reason=\"seatLeft\" (SAVE & QUIT, local teardown, no debrief)";
+	}
 
 	// issue #82: GoToMainMenuState::init owns the geoscape rescale and drops the
 	// SavedGame (battle included) once the popped states have actually been freed.

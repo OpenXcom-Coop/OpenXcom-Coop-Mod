@@ -18,6 +18,8 @@ en-US:
   STR_SAVE_UPGRADE_NEED_FILE: "Select the other player's save file from the list, or choose Skip."
   STR_SAVE_UPGRADE_NEED_NAME: "Enter the other player's name, or choose Skip."
   STR_SAVE_UPGRADE_BLOCKED: "This save cannot be upgraded:"
+  STR_SAVE_UPGRADE_PARTNER_BATTLE: "This save was made during a battle that the other player's craft started, so it does not hold your own campaign. Load a save from before that mission. This save was not changed."
+  STR_SAVE_UPGRADE_PARTNER_MISSION: "This save was made right after a mission the other player's craft started, so it does not hold your own campaign. Load a save from before that mission. This save was not changed."
   STR_SAVE_UPGRADE_WARN_INTRO: "The upgrade found these warnings:"
   STR_SAVE_UPGRADE_CONTINUE_ANYWAY: "Continue anyway"
   STR_SAVE_UPGRADE_FAILED: "The save could not be upgraded."
@@ -29,12 +31,19 @@ en-US:
   STR_SAVE_UPGRADE_REJOIN_FRESH: "No other-player world was included. That player will start fresh when they rejoin."
   STR_SAVE_UPGRADE_CLIENT_FILE_NOTE: "The other player's save file you selected is no longer needed and can be archived."
   STR_SAVE_UPGRADE_LOAD_BTN: "Load upgraded save"
-  # coop (PRD-P6): action-intent deny / timeout flashes.
-  STR_COOP_PLAYER_BUSY: "Another action is running - try again"
+  # coop: client-side battle ORDER FEEDBACK. Battle orders have no separate "player busy",
+  # "not your soldier" or generic "action refused" key: the first two would duplicate the
+  # deny rows STR_COOP_DENY_BUSY / STR_COOP_DENY_NOT_YOUR_UNIT, and distinct
+  # refusals are never collapsed into one generic message. Accounting:
+  # tools/coop_test/COOP_STRING_DISPOSITIONS.md.
+  # STR_COOP_TURN_OVER is the LOCAL end-turn refusal - distinct
+  # from the wire deny reason STR_COOP_DENY_TURN_OVER, which keeps its own text.
+  STR_COOP_TURN_OVER: "Only the host can end the turn"
+  STR_COOP_ORDER_SENT: "Order sent - waiting for the host"
+  # coop: mission owner labels and Separate campaign command refusals.
   STR_COOP_MISSION_BELONGS_TO_PLAYER: "This mission belongs to {0}."
   STR_COOP_MISSION_OWNER: "Owner: {0}"
   STR_COOP_SHARED: "Shared"
-  STR_COOP_TURN_OVER: "The turn has already ended"
   STR_COOP_NOT_YOUR_SOLDIER: "Not one of your soldiers"
   STR_COOP_ACTION_REFUSED: "Action refused"
   STR_COOP_ACTION_TIMEOUT: "No answer from the host - action dropped"
@@ -44,7 +53,7 @@ en-US:
   STR_COOP_END_TURN_TALLY: "END TURN {0}/{1}"
   # coop (PRD-P2 rider): battle desync auto-report bundle. {0} is the full path
   # of the zip, pre-wrapped onto dialog-width lines by the caller.
-  STR_COOP_DESYNC_REPORT_SAVED: "CO-OP DESYNC DETECTED{NEWLINE}The two games no longer agree. A diagnostic report (log, save and context) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can reproduce and fix it."
+  STR_COOP_DESYNC_REPORT_SAVED: "CO-OP DESYNC REPAIRED{NEWLINE}The two games disagreed and were repaired automatically: the host sent its battle again. A diagnostic report (log, battle data and context) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can reproduce and fix it."
   # coop (PRD-I4): desync auto-report one-click UX + attribution headline.
   STR_COOP_DESYNC_OPEN_FOLDER: "OPEN FOLDER"
   STR_COOP_DESYNC_REPORT_GITHUB: "REPORT ON GITHUB"
@@ -61,6 +70,96 @@ en-US:
   STR_COOP_CRASH_REPORT_NOT_NOW: "NOT NOW"
   STR_COOP_CRASH_REPORT_NEVER: "NEVER"
   STR_COOP_CRASH_REPORT_SAVED: "CRASH REPORT BUNDLED{NEWLINE}A crash report (dump, log and system info) was saved to>{NEWLINE}{0}{NEWLINE}Please attach that file to a new issue at github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues or post it in the Discord, so the developers can diagnose it."
+  # coop: admission-model deny/cancel string table.
+  # Wire carries a machine reason/cause enum only; this is the single client-side
+  # enum->STR table, routed through the _txtCoopWait presenter (CoopBattleUi),
+  # never through vanilla _warning.
+  STR_COOP_DENY_BUSY: "Waiting - another action is in progress"
+  STR_COOP_DENY_PATH_CHANGED: "Order cancelled - path blocked"
+  STR_COOP_DENY_COST_CHANGED: "Order cancelled - cost changed"
+  STR_COOP_DENY_TARGET_MOVED: "Order cancelled - target moved"
+  STR_COOP_DENY_TARGET_DEAD: "Order cancelled - target is down"
+  STR_COOP_DENY_WEAPON_MISSING: "Order cancelled - weapon unavailable"
+  STR_COOP_DENY_ITEM_MISSING: "Order cancelled - item unavailable"
+  STR_COOP_DENY_NOT_YOUR_UNIT: "Not one of your soldiers"
+  STR_COOP_DENY_TURN_OVER: "The turn has already ended"
+  # coop: the combat admission deny `cannot_use` - the one
+  # refusal vanilla has no text for (canUseWeapon() false with no message).
+  STR_COOP_DENY_CANNOT_USE: "Order cancelled - this weapon cannot be used"
+  # coop (traditional turn mode): the baton refusal and
+  # the persistent off-turn banner. {0} is the baton holder's
+  # seat name (seatDisplayName()).
+  STR_COOP_DENY_NOT_YOUR_GO: "Not your turn - waiting for {0}"
+  STR_COOP_WAIT_TURN: "It is {0}'s turn"
+  STR_COOP_CANCEL_ENEMY_SPOTTED: "Order cancelled - enemy spotted"
+  STR_COOP_CANCEL_UNIT_UNDER_FIRE: "Order cancelled - unit under fire"
+  STR_COOP_CANCEL_UNIT_DOWN: "Order cancelled - unit down"
+  STR_COOP_CANCEL_NEW_CONTACT: "Order cancelled - new contact"
+  # {0}=event kind name, used only for unrecognized cancel-cause kinds
+  STR_COOP_CANCEL_EVENT: "Order cancelled - {0}"
+  # coop: the WALK HALT
+  # presenter's one key. The walk-halt enum is DISTINCT from the deny
+  # enum - one answers "why did the executed action stop", the other "why was
+  # your order refused" - and it has NO {0} catch-all: an unknown halt reason
+  # shows nothing rather than rendering a raw wire enum. Of the eight reasons,
+  # spot/reaction/unit_down reuse the three _CANCEL_ rows above as-is, no_tu and
+  # no_energy reuse VANILLA's own STR_NOT_ENOUGH_TIME_UNITS /
+  # STR_NOT_ENOUGH_ENERGY, and prox (STR_COOP_HALT_PROXIMITY: a proximity-mine
+  # halt shows no message) and fall (STR_COOP_HALT_FELL: a fall halt has no row)
+  # are reserved and deliberately not minted here. WORDING RULE: a halted walk is NOT
+  # "cancelled" - the unit MOVED and the emitted step events are truth - so this
+  # is phrased as stop-after-partial-execution, never as "Order cancelled - ...",
+  # which is reserved for orders that never executed. Shown only on the
+  # ORDERING seat.
+  STR_COOP_HALT_PATH_BLOCKED: "Move stopped - path blocked"
+  # coop: sticky banner shown
+  # once on a client-side hash-mismatch desync - never auto-cleared.
+  STR_COOP_DESYNC_HALTED: "Desync detected - battle halted"
+  # coop: the pre-battle equip
+  # freeze notice, raised on BOTH machines at battle entry through the same
+  # _txtCoopWait presenter. Shown because the equip screen is SKIPPED, not because
+  # a button was refused - so it explains an absence rather than naming a trigger.
+  STR_COOP_EQUIP_FROZEN: "Pre-battle equipment is locked in co-op"
+  # coop: the host input freeze
+  # banner. Raised each time BattlescapeState::handle() refuses a host input
+  # while the battle handshake has not yet reached phase Active (the window
+  # that opens because the coop blob snapshot is taken AFTER
+  # SavedBattleGame::startFirstTurn()) - an entry notice explaining an
+  # absence (the client has not joined yet), not a refused press.
+  STR_COOP_WAITING_FOR_JOIN: "Waiting for the other player to join the battle"
+  # coop: shown on the pre-battle equip screen while you are ready and {0} still equips.
+  STR_COOP_WAITING_FOR_EQUIP: "Waiting for {0} to finish equipping"
+  # coop: the pre-battle equip screen's line over a partner's soldier, as older versions show it ({0} = that player).
+  STR_COOP_EQUIP_OWNER: "Owner: {0}"
+  # coop: the client HARD GATES.
+  # Four battlescape controls plus the
+  # quick-load hotkey. One key per control on purpose - distinct refusals are
+  # never collapsed into one generic message, so
+  # there is deliberately no shared "Action refused" here. All five route
+  # through the _txtCoopWait presenter, never vanilla _warning. The
+  # "not one of your soldiers" case reuses STR_COOP_DENY_NOT_YOUR_UNIT above
+  # rather than minting a sixth key for a reason that already has one.
+  STR_COOP_ABORT_HOST_ONLY: "Only the host can abort the mission"
+  STR_COOP_ZERO_TU_HOST_ONLY: "Only the host can expend a soldier's time units"
+  STR_COOP_REACTIONS_HOST_ONLY: "Only the host can change reaction fire settings"
+  STR_COOP_LEVEL_CHANGE_HOST_ONLY: "Only the host can move a unit between levels"
+  STR_COOP_LOCAL_LOAD_BLOCKED: "Saved games cannot be loaded during a co-op session"
+  # coop: battle-entry SPECTATOR
+  # notice - this seat commands no unit in this battle, so the entry auto-select
+  # had nothing to select. Older versions raised the same message from their own client
+  # unit selector ("You are in spectator
+  # mode"). A real path, not defensive framing: a plain classic "NEW BATTLE >
+  # COOP" skirmish never calls Soldier::setCoop(), so the joining client owns
+  # zero battle units. The click-select ownership refusal deliberately reuses
+  # STR_COOP_DENY_NOT_YOUR_UNIT above - same reason, same words as the wire deny.
+  STR_COOP_SPECTATOR_MODE: "You command no soldiers - spectator mode"
+  STR_COOP_CHAT_SYSTEM: "System"
+  STR_COOP_SYNCED_OPTION_CHANGED: "{0} changed {1} to {2}"
+  STR_COOP_SYNCED_OPTION: "[Synced] {0}"
+  # coop: the presence line on a SHARED Sell / Transfer / Alien Containment screen.
+  STR_COOP_ALSO_ON_SCREEN: "Also on this screen: {0}"
+  # coop: a NEW co-op campaign lobby refuses the pick that would put both players on the Alien team.
+  STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER: "There must be at least one player on the X-COM team for campaign games."
   STR_OPENXCOM: "OpenXcom"
   STR_NEW_GAME: "New Game"
   STR_LOAD_SAVED_GAME: "Load Game"

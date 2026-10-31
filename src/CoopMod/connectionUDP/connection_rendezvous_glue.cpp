@@ -18,6 +18,12 @@
 #include "connection_lan_discovery.h"
 #include "rendezvous_config.h"
 #include "../connectionTCP.h"
+// handleUdpRemotePeerLost() below needs
+// coopBattleAuthority()/isCoopBattle() for the mid-Active-battle peer-leave
+// gate - the same reason connectionTCP.cpp includes this header directly.
+#include "../BattleAuthority.h"
+// coop: handleUdpRemotePeerLost() records a fresh battle start before its reset.
+#include "../CoopHandshake.h"
 
 #include <array>
 #include <atomic>
@@ -356,6 +362,15 @@ static void reopenHostRoomAfterRemoteDisconnectAsync()
 		// Give the old UDP socket time to close before opening a new one
 		// with the same local UDP port during relist.
 		std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+        // coop: the host gave up its role in that second - a failed co-op skirmish start
+        // unwound to the main menu, whose init ended the session (MainMenuState::init: setServerOwner(false),
+        // disconnectTCP(true), resetSession()). The session is over: relist nothing (no re-host behind the main menu).
+        if (!connectionTCP::getServerOwner())
+        {
+            std::lock_guard<std::mutex> lock(g_relistMutex);
+            g_relistInProgress = false;
+            return;
+        }
         // The old full room/session cannot be listed again. Close it if it still
         // exists, then create a fresh listed room with a fresh rendezvous token.
         closeListedRoomNow();
@@ -615,9 +630,58 @@ void disconnectRendezvousUdp()
 
 void handleUdpRemotePeerLost()
 {
+    // coop: a rejoiner lost during its in-memory rejoin handshake keeps the pause - the UDP twin
+    // of connectionTCP::disconnectTCP()'s rejoinLost (the spare below, then the pause restored). Read before the clear.
+    const bool udpRejoinLost = connectionTCP::getServerOwner() && onConnect != -1 && CoopHandshake::coopHostRejoinPending();
+
+    // The UDP twin of
+    // connectionTCP::disconnectTCP()'s host branch: a mid-`Active`-battle
+    // peer loss on the HOST keeps the co-op battle authority ALIVE instead
+    // of tearing it down to Idle. Must be read BEFORE clearNetworkSessionQueues()
+    // below (it decides that call's resetAuthority argument) and BEFORE
+    // onConnect is overwritten a few lines down. isCoopBattle() is
+    // getCoopStatic() (onConnect==1, still true on every path that reaches
+    // this function while a battle is live) && phase==Active - exactly the
+    // mid-Active-battle condition the pause needs.
+    const bool sparePeerAbsentUdp =
+        connectionTCP::getServerOwner()
+        && onConnect != -1
+        && (isCoopBattle() || udpRejoinLost)
+        && !connectionTCP::campaignEnded();
+
     // Drop packets from the old peer before the host relists or the client
     // returns to menus. This matches a fresh process start more closely.
-    clearNetworkSessionQueues();
+    // resetAuthority=false on the mid-Active-battle spare path
+    // (see sparePeerAbsentUdp above). stopUdpPeer()'s
+    // later clear keeps the authority too while udpPausedBattleHeld().
+    // The UDP twin of disconnectTCP()'s battle_leave peek. A
+    // battle_leave still queued in g_rxQ (mutex-guarded) would be wiped by the
+    // clear below before onTCPMessage() saw it: read it on the way past.
+    if (sparePeerAbsentUdp)
+    {
+        std::string queuedMsg;
+        while (g_rxQ.pop(queuedMsg))
+        {
+            Json::CharReaderBuilder rb;
+            std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+            Json::Value queuedObj;
+            std::string errs;
+            if (reader->parse(queuedMsg.data(), queuedMsg.data() + queuedMsg.size(), &queuedObj, &errs)
+                && queuedObj.get("state", "").asString() == "battle_leave")
+                coopBattleAuthority().peerLeftByChoice = true;
+        }
+    }
+    // coop: record a fresh co-op battle start in flight before the clear below resets
+    // it, so the main thread's disconnectTCP() still unwinds it as a failed start (the TCP path reads it before its reset).
+    if (connectionTCP::getServerOwner() && onConnect != -1)
+        CoopHandshake::latchFreshStartLostUdp();
+    clearNetworkSessionQueues(!sparePeerAbsentUdp);
+    if (sparePeerAbsentUdp)
+    {
+        coopBattleAuthority().peerAbsent = true;
+        if (udpRejoinLost)
+            CoopHandshake::coopRestorePauseAfterLostRejoin(); // coop
+    }
 
     // Called by connectionUDP glue when the UDP worker stops by itself. This
     // covers both a graceful F_CLOSE and a forced client shutdown detected by

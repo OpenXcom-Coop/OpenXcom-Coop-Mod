@@ -28,7 +28,8 @@
 #include "../Engine/Options.h"
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
-#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -40,8 +41,6 @@ namespace OpenXcom
 UnitFallBState::UnitFallBState(BattlescapeGame *parent) : BattleState(parent), _terrain(0)
 {
 
-	// coop
-
 }
 
 /**
@@ -49,8 +48,6 @@ UnitFallBState::UnitFallBState(BattlescapeGame *parent) : BattleState(parent), _
  */
 UnitFallBState::~UnitFallBState()
 {
-
-	// coop
 
 }
 
@@ -60,15 +57,14 @@ UnitFallBState::~UnitFallBState()
 void UnitFallBState::init()
 {
 	_terrain = _parent->getTileEngine();
-	// coop (PRD-P7): fast-forwarded chains run their fall animation at frame rate
-	// too - a fall is locomotion, and the peer is told the landing tile explicitly.
-	// Parallel mode only; classic keeps the original two lines.
-	if (_parent->getCoopFastForward())
-		_parent->setStateInterval(0);
-	else if (_parent->getSave()->getSide() == FACTION_PLAYER)
-		_parent->setStateInterval(Options::battleXcomSpeed);
+	if (_parent->getSave()->getSide() == FACTION_PLAYER)
+		_parent->setStateInterval(CoopSpeed::xcomSpeedFor(nullptr));
 	else
-		_parent->setStateInterval(Options::battleAlienSpeed);
+		_parent->setStateInterval(CoopSpeed::alienSpeedFor(nullptr));
+	// ONE guarded coop call - on the co-op HOST the
+	// `fall` cue {units:[{unit, from}]} for the units about to fall. No-op in
+	// single player and on a client.
+	coopCueFall(_parent->getSave());
 
 }
 
@@ -149,15 +145,6 @@ void UnitFallBState::think()
 				{
 					unit->getTile()->ignite(1);
 					Position groundVoxel = (unit->getPosition().toVoxel()) + Position(8,8,-(unit->getTile()->getTerrainLevel()));
-					// coop (PRD-I3 SEAM-3 close): a burn-floor tile destruction that runs
-					// OUTSIDE any admitted chain (the fall is pushed from think() with the
-					// state queue empty) would ship its destroy_tile / set_fire_tile UNSTAMPED
-					// = seq-0 always-consume, and a lagging client can fold that terrain change
-					// into a neighbouring chain's post-N hash (the SEAM-3 residual class the
-					// ExplosionBState "expl" stamp misses). Own a seq so the outcome rides the
-					// I1 apply-before-hash gate. No-op unless the parallel host is between
-					// chains; the chain closes when the fall drains (coopCloseActionChain).
-					connectionTCP::coopStampLooseOutcomeChain("burn");
 					_parent->getTileEngine()->hit(BattleActionAttack{ BA_NONE, unit, }, groundVoxel, unit->getBaseStats()->strength, _parent->getMod()->getDamageType(DT_IN), false);
 
 					if (unit->getStatus() != STATUS_STANDING) // ie: we burned a hole in the floor and fell through it
@@ -172,48 +159,6 @@ void UnitFallBState::think()
 				_terrain->calculateFOV(unit, true, false); //update tiles
 				if (unit->getStatus() == STATUS_STANDING)
 				{
-					// coop (PRD-I3 z-gravity close): the unit finished falling and is
-					// standing on its landed tile. The host's applyGravity re-dropped it
-					// after a mid-side blast destroyed the floor under it, and
-					// UnitFallBState runs only on the EXECUTOR (_isActivePlayerSync-gated in
-					// BattlescapeGame::think) in BOTH modes, so the NON-acting peer never falls
-					// its copy (a classic peer as well as the parallel client) until next_turn: a
-					// unitsCore z-divergence for the whole side (test_coop_outcome_gaps).
-					// Ship the absolute landed tile so the peer applies it AT the fall; a
-					// position, never a decision. gate on the EXECUTOR, not parallelTurnActive() - the fall is pushed on an EMPTY
-					// queue (no action chain) so that is false here; classic crosses too (additive).
-					if (_parent->getCoopMod()->getCoopStatic() && _parent->getCoopMod()->_isActivePlayerSync && !unit->isOut())
-					{
-						Json::Value fallRoot;
-						fallRoot["state"] = "unit_fall";
-						fallRoot["unit_id"] = unit->getId();
-						// E4 (explosion ordered-replay / atomic-death Phase 3): stamp the fall so it orders
-						// in its chain and the parallel client applies it under the rank-1 per-unit watermark.
-						// The stamp helpers no-op outside the parallel host, so classic co-op ships this
-						// UNSTAMPED exactly as before (byte-identical). Boundary-phase falls carry bnd:true+
-						// side_seq (no action_seq); mid-side falls ride the burn chain opened at :160 if any,
-						// else open a "fall" loose chain (coopStampLooseOutcomeChain no-ops if a chain is open).
-						if (_parent->getCoopMod()->parallelTurnActive() && _parent->getCoopMod()->getHost())
-						{
-							const bool coopBoundaryPhase = _parent->coopBoundaryCasualty()
-								|| connectionTCP::_coopBoundaryDecay
-								|| !connectionTCP::_pendingBoundaries.empty();
-							if (coopBoundaryPhase)
-							{
-								fallRoot["bnd"] = true;
-								fallRoot["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
-							}
-							else
-							{
-								connectionTCP::coopStampLooseOutcomeChain("fall");
-								connectionTCP::coopStampChainSeq(fallRoot);
-							}
-						}
-						fallRoot["x"] = unit->getPosition().x;
-						fallRoot["y"] = unit->getPosition().y;
-						fallRoot["z"] = unit->getPosition().z;
-						_parent->sendPacketData(fallRoot.toStyledString());
-					}
 					BattleAction fall;
 					fall.type = BA_WALK;
 					fall.actor = unit;
@@ -239,15 +184,14 @@ void UnitFallBState::think()
 			bool escapeFound = false;
 
 			// We need to move all sections of the unit out of the way.
-			std::vector<Position> bodySections;
-			for (int x = unitBelow->getArmor()->getSize() - 1; x >= 0; --x)
+			const int bodyTotalSize = unitBelow->getArmor()->getTotalSize();
+			const Position bodyOffsets[4] =
 			{
-				for (int y = unitBelow->getArmor()->getSize() - 1; y >= 0; --y)
-				{
-					Position bs = unitBelow->getPosition() + Position(x, y, 0);
-					bodySections.push_back(bs);
-				}
-			}
+				{ 0, 0, 0 },
+				{ 1, 0, 0 },
+				{ 0, 1, 0 },
+				{ 1, 1, 0 },
+			};
 
 			// Check in each compass direction.
 			for (int dir = 0; dir < Pathfinding::DIR_UP && !escapeFound; dir++)
@@ -255,10 +199,19 @@ void UnitFallBState::think()
 				Position offset;
 				Pathfinding::directionToVector(dir, &offset);
 
-				for (auto bsIt = bodySections.begin(); bsIt < bodySections.end(); )
+				_parent->getSave()->getPathfinding()->setUnit(unitBelow); //TODO: remove as was done by `getTUCost`
+				PathfindingStep r = _parent->getSave()->getPathfinding()->getTUCost(unitBelow->getPosition(), dir, unitBelow, 0, BAM_NORMAL);
+				if (r.cost.time == Pathfinding::INVALID_MOVE_COST)
 				{
-					Position originalPosition = (*bsIt);
+					// can't move this way, try another direction
+					continue;
+				}
+
+				for (auto bs = 0; bs < bodyTotalSize; )
+				{
+					Position originalPosition = unitBelow->getPosition() + bodyOffsets[bs];
 					Position endPosition = originalPosition + offset;
+
 					Tile *t = _parent->getSave()->getTile(endPosition);
 					if (t == nullptr)
 					{
@@ -269,18 +222,14 @@ void UnitFallBState::think()
 					bool aboutToBeOccupiedFromAbove = std::find(tilesToFallInto.begin(), tilesToFallInto.end(), t) != tilesToFallInto.end();
 					bool alreadyTaken = std::find(escapeTiles.begin(), escapeTiles.end(), t) != escapeTiles.end();
 					bool alreadyOccupied = t->getUnit() && (t->getUnit() != unitBelow);
-					_parent->getSave()->getPathfinding()->setUnit(unitBelow); //TODO: remove as was done by `getTUCost`
-					PathfindingStep r = _parent->getSave()->getPathfinding()->getTUCost(originalPosition, dir, unitBelow, 0, BAM_NORMAL);
-					bool movementBlocked = r.cost.time == Pathfinding::INVALID_MOVE_COST;
-					endPosition = r.pos;
 					bool hasFloor = !t->hasNoFloor(_parent->getSave());
 					bool unitCanFly = unitBelow->getMovementType() == MT_FLY;
 
-					bool canMoveToTile = !alreadyOccupied && !alreadyTaken && !aboutToBeOccupiedFromAbove && !movementBlocked && (hasFloor || unitCanFly);
+					bool canMoveToTile = !alreadyOccupied && !alreadyTaken && !aboutToBeOccupiedFromAbove && (hasFloor || unitCanFly);
 					if (canMoveToTile)
 					{
 						// Check next section of the unit.
-						++bsIt;
+						++bs;
 					}
 					else
 					{
@@ -289,7 +238,7 @@ void UnitFallBState::think()
 					}
 
 					// If all sections of the fallen onto unit can be moved, then we move it.
-					if (bsIt == bodySections.end())
+					if (bs == bodyTotalSize)
 					{
 						if (_parent->getSave()->addFallingUnit(unitBelow))
 						{
@@ -312,7 +261,7 @@ void UnitFallBState::think()
 			}
 			if (!escapeFound)
 			{
-				// STOMP THAT GOOMBAH!
+				// STOMP THAT GOOMBA!
 				unitBelow->knockOut(_parent);
 				ubIt = unitsToMove.erase(ubIt);
 			}

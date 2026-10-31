@@ -8,6 +8,7 @@ Exit 0 = pass; 2 = failure.
 """
 
 import os, sys, time
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session, geo
@@ -37,6 +38,8 @@ def test_campaign_battle(fails, alien_player, expect_mode):
         client.wait_for('x',lambda:_has(client,'LobbyMenu'),timeout=120)
         for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'Profile'));g.ok({"cmd":"profile_ok"})
         host.wait_for('x',lambda:host.cmd({"cmd":"lobby_state"}).get("startEligible"))
+        host.wait_for('START CAMPAIGN shown',
+                      lambda:host.cmd({"cmd":"lobby_state"}).get("buttonVisible") or None,timeout=10)
         ls=host.cmd({"cmd":"lobby_state"})
         want='ClientPlayer' if alien_player=='client' else 'HostPlayer'
         for i,n in enumerate(ls.get('players',[])):
@@ -45,10 +48,11 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 
         session.start_campaign_via_button(host)
         xcom_gc=client if alien_player=='host' else host
+        xcom_gc.wait_for('XCOM base placement screen', lambda: _has(xcom_gc, 'BuildNewBaseState') or None, timeout=60)
         if _has(xcom_gc,'BuildNewBaseState'):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XB"})
         time.sleep(2)
-        if _has(host,'CoopState'):host.ok({"cmd":"coop_dialog_back"})
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # once the wait dialog shows its button
         for g in (host,client):g.wait_for('x',lambda g=g:_has(g,'GeoscapeState')and not _has(g,'CoopState'),timeout=120)
         print(f"PASS {tag}: both on geoscape")
 
@@ -110,15 +114,9 @@ def test_campaign_battle(fails, alien_player, expect_mode):
                         timeout=180, interval=1.0)
             print(f"    {gc.name} battle_state.inBattle=True")
 
-        # Wait for inventory screens
-        for gc in (host, client):
-            gc.wait_for("briefing", lambda gc=gc: _has(gc, "BriefingState") or None,
-                        timeout=120, interval=0.5)
-            gc.ok({"cmd": "close_briefing"})
-        for gc in (host, client):
-            gc.wait_for("inventory", lambda gc=gc: _has(gc, "InventoryState") or None,
-                        timeout=120, interval=0.5)
-            gc.ok({"cmd": "battle_inventory", "action": "ok"})
+        # Both briefings at once, each seat equips its own soldiers (the PvP alien seat has nothing to equip and
+        # holds on the Turn-1 screen), turn 1 on both.
+        session.briefings_to_battlescape(host, client)
         for gc in (host, client):
             gc.wait_for("tactical", lambda gc=gc: _has(gc, "BattlescapeState") or None,
                         timeout=120, interval=0.5)
@@ -133,7 +131,7 @@ def test_campaign_battle(fails, alien_player, expect_mode):
 def main():
     fails=[]
     test_campaign_battle(fails, "client", 2)
-    test_campaign_battle(fails, "host", 3)
+    test_campaign_battle(fails, "host", 3)  # gm3: the host plays the aliens
     print("\n==== PvP campaign battle summary ====")
     if fails:
         for f in fails:print(f"  FAIL {f}")

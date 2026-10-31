@@ -29,6 +29,7 @@
 #include "../Interface/TextButton.h"
 #include "../Engine/Unicode.h"
 #include "../Interface/TextList.h"
+#include "../CoopMod/BattleAuthority.h"
 #include <algorithm>
 
 namespace OpenXcom
@@ -160,7 +161,7 @@ namespace OpenXcom
 					for (auto* type : *ammo_data)
 					{
 						ArticleDefinition *ammo_article = _game->getMod()->getUfopaediaArticle(type->getType(), true);
-						if (Ufopaedia::isArticleAvailable(_game->getSavedGame(), ammo_article))
+						if (coopViewerArticleAvailable(_game->getSavedGame(), ammo_article))
 						{
 							if (skipShow > 0)
 							{

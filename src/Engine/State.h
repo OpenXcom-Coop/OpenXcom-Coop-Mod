@@ -33,6 +33,7 @@ class Action;
 class SavedBattleGame;
 class RuleInterface;
 class Sound;
+class Base;
 
 enum SoldierGender : char;
 
@@ -90,6 +91,15 @@ protected:
 	virtual void handle(Action *action);
 	/// Runs state functionality every cycle.
 	virtual void think();
+	/// coop: true when this screen shows a base that is gone from the live base list (the other player
+	/// removed it, or a world reload replaced it). Game::coopCloseGoneBaseHolders then closes it before it reads that base again.
+	virtual bool coopHoldsGoneBase() const { return false; }
+	/// coop: closes this screen for coopHoldsGoneBase (a plain pop; a screen with a close-time step overrides it).
+	virtual void coopCloseGoneBase();
+	/// coop: in a co-op world, @a base is not in the live base list (pointers compared, never dereferenced); null: never.
+	static bool coopBaseGone(const Base *base);
+	/// coop: coopBaseGone for any base of a list.
+	static bool coopBasesGone(const std::vector<Base*> &bases);
 	/// Blits the state to the screen.
 	virtual void blit();
 	/// Hides all the state surfaces.

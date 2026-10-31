@@ -317,9 +317,11 @@ void TransferItemsState::init()
 	// snapshots of BOTH bases, so this screen binds base-agnostically (null base =
 	// every apply is relevant) rather than filtering to one index. The post-battle
 	// (debriefing) variant keeps its own lifecycle.
-	if (!_debriefingState)
+	// coop: in SHARED page 3 refreshes too - the rebuild re-reads the debriefing's counts.
+	if (!_debriefingState || _game->getCoopMod()->isSharedCampaign())
 	{
 		_sharedRefresh.bind(_game, this, nullptr);
+		_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop
 	}
 }
 
@@ -330,6 +332,7 @@ void TransferItemsState::think()
 {
 	State::think();
 
+	if (SharedEcon::xferScreenShouldClose(_game, _baseFrom, _baseTo, _debriefingState != 0)) { _game->popState(); _game->popState(); return; } // coop: answered - itself + TransferBaseState
 	// PRD-J10: pop-and-rebuild - the constructor is this screen's refresh. Both
 	// bases must still exist; if either went away there is nothing to transfer
 	// between, so just leave.
@@ -339,10 +342,12 @@ void TransferItemsState::think()
 		if (SharedEcon::baseIndex(_game, _baseFrom) >= 0
 			&& SharedEcon::baseIndex(_game, _baseTo) >= 0)
 		{
+			_sharedSel.carryOver(); // coop
 			_game->pushState(new TransferItemsState(_baseFrom, _baseTo, _debriefingState));
 		}
 		return; // `this` is now queued for deletion - touch nothing else
 	}
+	_sharedSel.think(this); // coop
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -561,6 +566,7 @@ void TransferItemsState::updateList()
  */
 void TransferItemsState::btnOkClick(Action *)
 {
+	if (SharedEcon::awaiting(SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0))) return; // coop: one confirm at a time
 	// COOP
 	if (Options::storageLimitsEnforced && !AreSame(_iQty, 0.0))
 	{
@@ -575,9 +581,6 @@ void TransferItemsState::btnOkClick(Action *)
 			return;
 		}
 	}
-
-	// coop
-	_baseTo->old_bases = _baseFrom->old_bases;
 
 	_game->pushState(new TransferConfirmState(_baseTo, this));
 }
@@ -741,7 +744,7 @@ void TransferItemsState::createPendingTransfers()
  * This is the SHARED replacement for completeTransfer()/createPendingTransfers()
  * (the SEPARATE cross-player syncTrade flow) and must not run those.
  */
-void TransferItemsState::submitSharedTransfer()
+bool TransferItemsState::submitSharedTransfer()
 {
 	Json::Value items(Json::arrayValue);
 	Json::Value soldiers(Json::arrayValue);
@@ -776,8 +779,8 @@ void TransferItemsState::submitSharedTransfer()
 		case TRANSFER_ENGINEER:  engineers  += row.amount; break;
 		}
 	}
-	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers)
-		return;
+	if (items.empty() && soldiers.empty() && crafts.empty() && !scientists && !engineers && !_sharedSel.listed()) // coop: the shared list's hidden rows
+		return false;
 
 	// A transferred soldier's gear travels with it when "alternate craft equipment
 	// management" is on, the same as the SEPARATE path - but as ordinary rows on
@@ -838,6 +841,8 @@ void TransferItemsState::submitSharedTransfer()
 	payload["crafts"] = crafts;
 	payload["scientists"] = scientists;
 	payload["engineers"] = engineers;
+	if (_debriefingState) payload["debrief"] = true; // coop: page 3 rides the apply
+	_sharedSel.stamp(payload); // coop
 	// Separate, option OFF: a soldier sent to another player's base leaves its
 	// gear behind and arrives with an empty layout, so it never re-equips from
 	// that player's stores.
@@ -845,9 +850,12 @@ void TransferItemsState::submitSharedTransfer()
 		&& !Options::oxceAlternateCraftEquipmentManagement && _baseTo->_isForeignBase)
 		payload["stripLayout"] = true;
 	if (_game->getCoopMod()->isSharedCampaign())
-		SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload);
-	else
-		SeparateEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+	{
+		const int coopSeq = SharedEcon::submitLocalCmd(_game, "transfer", fromId, payload); // coop
+		return SharedEcon::keepAfterSubmit(_game, SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0), coopSeq, _sharedRefresh.bound()); // coop: wait for the host
+	}
+	SeparateEcon::submitLocalCmd(_game, "transfer", fromId, payload);
+	return false;
 }
 
 /**
@@ -1194,6 +1202,7 @@ void TransferItemsState::completeTransfer()
  */
 void TransferItemsState::btnCancelClick(Action *)
 {
+	SharedEcon::forgetResult(SharedEcon::xferKey(_game, _baseFrom, _baseTo, _debriefingState != 0)); // coop
 	_game->popState();
 	_game->popState();
 }
@@ -1578,6 +1587,7 @@ void TransferItemsState::decreaseByValue(int change)
  */
 void TransferItemsState::updateItemStrings()
 {
+	_sharedSel.localEdit(this); // coop
 	std::ostringstream ss1, ss2;
 	ss1 << getRow().qtySrc - getRow().amount;
 	ss2 << getRow().amount;

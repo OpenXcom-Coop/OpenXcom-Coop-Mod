@@ -251,7 +251,6 @@ public:
 	PathfindingStep getTUCost(Position startPosition, int direction, const BattleUnit *unit, const BattleUnit *missileTarget, BattleActionMove bam) const;
 	/// Aborts the current path.
 	void abortPath();
-	void abortPathCoop();
 	/// Gets the strafe move setting.
 	bool getStrafeMove() const;
 	/// Checks, for the up/down button, if the movement is valid.
@@ -280,6 +279,8 @@ public:
 	const std::vector<int> &getPath() const;
 	/// Makes a copy to the path.
 	std::vector<int> copyPath() const;
+	/// coop: Keeps only the first steps of the path.
+	void keepFirstSteps(size_t steps);
 };
 
 }

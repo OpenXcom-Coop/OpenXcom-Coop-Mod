@@ -45,6 +45,7 @@ class PurchaseState : public TouchState
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	CannotReequipState *_parent;
 	bool _autoBuyDone;
 	std::map<RuleItem*, int> _missingItemsMap;
@@ -67,6 +68,8 @@ private:
 	Timer *_timerInc, *_timerDec;
 	/// PRD-J10: live refresh when another player's shared_apply moves this base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	SharedEcon::SelectionBinder _sharedSel; // coop
+	friend class SharedEcon::SelectionBinder; // coop
 	/// Gets the category of the current selection.
 	std::string getCategory(int sel) const;
 	/// Determines if the current selection belongs to a given category.
@@ -139,6 +142,7 @@ public:
 	/// rebuilt - which is exactly what the live-refresh test asserts.
 	std::string harnessFundsText() const;
 	int harnessRowStock(const std::string& itemType) const;
+	void harnessSelectRow(size_t row) { _sel = row; } // coop: test hook row select
 };
 
 }

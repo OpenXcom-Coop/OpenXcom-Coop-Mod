@@ -235,7 +235,7 @@ public:
 	/// Gets the floor object footstep sound.
 	int getFootstepSound(Tile *tileBelow) const;
 	/// Open a door, returns the ID, 0(normal), 1(ufo) or -1 if no door opened.
-	int openDoor(TilePart part, BattleUnit *unit = 0, BattleActionType reserve = BA_NONE, bool rClick = false, bool costFree = false, bool replayNeutral = false);
+	int openDoor(TilePart part, BattleUnit *unit = 0, BattleActionType reserve = BA_NONE, bool rClick = false);
 
 	/**
 	 * Check if the ufo door is open or opening. Used for visibility/light blocking checks.
@@ -298,7 +298,6 @@ public:
 	void resetLight(LightLayers layer);
 	/// Reset light to zero for this tile and multiple layers.
 	void resetLightMulti(LightLayers layer);
-	void setLightCoop(int light, LightLayers layer);
 	/// Add light to this tile.
 	void addLight(int light, LightLayers layer);
 	/// Get max light to this tile.
@@ -309,8 +308,6 @@ public:
 	int getShade() const;
 	/// Destroy a tile part.
 	bool destroy(TilePart part, SpecialTileType type);
-	// coop
-	bool destroyCoop(TilePart part, SpecialTileType type);
 	/// Damage a tile part.
 	bool damage(TilePart part, int power, SpecialTileType type);
 	/// Set a "virtual" explosive on this tile, to detonate later.
@@ -350,14 +347,26 @@ public:
 	BattleUnit *getOverlappingUnit(const SavedBattleGame *saveBattleGame, TileUnitOverlapping range = TUO_NORMAL) const;
 	/// Set fire, does not increment overlaps.
 	void setFire(int fire);
-	void setFireCoop(int fire, int animationOffset);
+	/// Absolute tile-fire
+	/// set for the `side_transition` restate's perTile applier. Keeps
+	/// setFire()'s own Clamp(fire,0,255) but drops its RNG::generate(0,3)
+	/// _animationOffset roll - _animationOffset is cosmetic, not serialized,
+	/// and the restate applier must never call RNG.
+	void coopSetTileFireAbsolute(int fire);
 	/// Get fire.
 	int getFire() const;
 	/// Add smoke, increments overlap.
 	void addSmoke(int smoke);
 	/// Set smoke, does not increment overlaps.
 	void setSmoke(int smoke);
-	void setSmokeCoop(int smoke, int animationOffset, int overlaps);
+	/// absolute tile-smoke set for the `side_transition` restate's
+	/// perTile applier. Same discipline as coopSetTileFireAbsolute() above:
+	/// keeps setSmoke()'s Clamp(smoke,0,255), drops the RNG roll.
+	void coopSetSmokeAbsolute(int smoke);
+	/// absolute UFO-door open state of @a part
+	/// for the delta applier (frame 1 = opening, 0 = closed, as openDoor()/
+	/// closeUfoDoor() write it). No-op on a part that is not a UFO door.
+	void coopSetUfoDoorOpen(TilePart part, bool open);
 	/// Get smoke.
 	int getSmoke() const;
 	/// Get flammability.

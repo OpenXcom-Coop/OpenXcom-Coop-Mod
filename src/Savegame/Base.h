@@ -136,7 +136,6 @@ private:
 
 	using Target::load;
 public:
-	std::vector<Base*> old_bases;
 	int coop_hangar = 0;
 	int coop_laboratory = 0;
 	int coop_quarters = 0;

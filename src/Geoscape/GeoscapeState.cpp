@@ -108,6 +108,11 @@
 #include "../Savegame/AlienBase.h"
 #include "../Mod/RuleRegion.h"
 #include "MissionDetectedState.h"
+#include "TargetInfoState.h" // coop: GeoscapeState::coopHeldTargets
+#include "ConfirmDestinationState.h" // coop
+#include "SelectDestinationState.h" // coop: GeoscapeState::coopHeldCrafts
+#include "ConfirmCydoniaState.h" // coop
+#include "CraftNotEnoughPilotsState.h" // coop
 #include "AlienBaseState.h"
 #include "../Savegame/Region.h"
 #include "../Savegame/Country.h"
@@ -138,7 +143,9 @@
 #include "../fallthrough.h"
 
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/CoopHandshake.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopBattleSetup.h"
 #include "../CoopMod/SeparateEcon.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
@@ -619,15 +626,157 @@ void GeoscapeState::startCoopMission()
 		bgen.run();
 		_pause = true;
 
-		//_game->pushState(new BriefingState(0, temp_base));
-
-		BriefingState* bri = new BriefingState(0, _game->getSavedGame()->getSelectedBase());
-		bri->setupCoop();
-
+		// The deferred base-defense battle rides the SAME
+		// offer/accept/stream/ready handshake as the skirmish and mission-confirm
+		// entry points. BriefingState is pushed exactly like vanilla SP immediately
+		// after generation (see CoopHandshake.h's top doc comment for why this
+		// push may never be deferred past this point); offerBattle() itself
+		// never touches the state stack.
+		// Labels + deployment BEFORE the offer builds its blob snapshot (the
+		// ORDERING TRAP in CoopHandshake.h). The BASE-DEFENSE call site - base
+		// defense still gets an operation-name target whenever the
+		// loaded mod defines operationNames, so this is not a target-less path by
+		// construction. One of FOUR identical call sites; no-op off the coop host.
+		CoopHandshake::mintMissionLabels(_game, nullptr, _game->getSavedGame()->getSelectedBase());
+		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
+		_game->pushState(new BriefingState(0, _game->getSavedGame()->getSelectedBase()));
 	}
 
 
 
+}
+
+/**
+ * coop: the partner's game was lost during the start of this host's co-op base defense, so the
+ * attack waits for the partner. Puts back what the start took from the base - the stores the battle generator moved
+ * into the battle (BattlescapeGenerator::deployXCOM keeps the pre-battle stores in getBaseStorageItems()) and the tanks
+ * Base::setupDefenses rolled out (vanilla's reclaim, Base::cleanupDefenses) - clears the base's battle mark and
+ * remembers the base; think() starts the defense again once the partner is back and RESUME is pressed. The unwind
+ * (connectionTCP.cpp, coopUnwindFailedStart()) calls it before the battle is dropped.
+ * @return The battle marks cleared (1: the base's; 0: no marked base).
+ */
+int GeoscapeState::coopRearmBaseDefense()
+{
+	SavedGame* save = _game->getSavedGame();
+	SavedBattleGame* battle = save ? save->getSavedBattle() : nullptr;
+	if (!battle)
+		return 0;
+	for (size_t i = 0; i < save->getBases()->size(); ++i)
+	{
+		Base* base = save->getBases()->at(i);
+		if (!base->isInBattlescape())
+			continue;
+		for (const auto& pair : *battle->getBaseStorageItems()->getContents())
+		{
+			const int now = base->getStorageItems()->getItem(pair.first);
+			if (pair.second > now)
+			{
+				base->getStorageItems()->addItem(pair.first, pair.second - now);
+			}
+		}
+		base->cleanupDefenses(true);
+		base->setInBattlescape(false);
+		_coopRearmBase = (int)i;
+		return 1;
+	}
+	return 0;
+}
+
+/**
+ * coop: starts a co-op base defense that waited for the partner (coopRearmBaseDefense()) again,
+ * the way the attack first started it: the arrival's Base::setupDefenses (when the base has a retaliation mission),
+ * handleBaseDefense()'s co-op stamps, then the deferred start (startCoopMission()) on the snapshot the attack took.
+ * Only on the host, with the partner back (its world acknowledged: RESUME's own condition) and no battle in flight;
+ * otherwise the waiting attack is dropped.
+ */
+void GeoscapeState::coopStartRearmedBaseDefense()
+{
+	const int index = _coopRearmBase;
+	_coopRearmBase = -1;
+	SavedGame* save = _game->getSavedGame();
+	if (!save || !connectionTCP::getServerOwner() || !connectionTCP::session.resumeAck || save->getSavedBattle()
+		|| index < 0 || index >= (int)save->getBases()->size())
+	{
+		return;
+	}
+	Base* base = save->getBases()->at(index);
+	if (AlienMission* am = base->getRetaliationMission())
+	{
+		base->setupDefenses(am);
+	}
+	save->setSelectedBase(index);
+	_game->getCoopMod()->setGeoscapeState(this);
+	_game->getCoopMod()->_isMainCampaignBaseDefense = true;
+	_game->getCoopMod()->setHost(true);
+	for (auto* s : *base->getSoldiers())
+	{
+		int owner = s->getOwnerPlayerId();
+		s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+		s->setCoopBase(-1);
+	}
+	for (auto* v : *base->getVehicles())
+	{
+		v->setCoop(0);
+		v->setCoopBase(-1);
+	}
+	g_coopBaseDefense.pending = true;
+	startCoopMission();
+}
+
+/**
+ * coop: the gm3 alien host starts the
+ * X-COM player's base defence in the borrowed X-COM world (the live world while it borrows) from the attack the player's
+ * handleBaseDefense handed off. As the arrival and handleBaseDefense start it: the base's tanks rolled out with the attacking UFO's
+ * mission (Base::setupDefenses; the player reclaimed them before its world was pushed), the co-op stamps, the snapshot, then the
+ * deferred start (startCoopMission()).
+ * @param attack The `pvp_land` message: baseIndex, missionId, lon, lat, damage, deploy, race.
+ * @return True when the battle was generated (startCoopMission() pushed the BriefingState).
+ */
+bool GeoscapeState::coopStartBorrowedBaseDefense(const Json::Value& attack)
+{
+	SavedGame* save = _game->getSavedGame();
+	const int index = attack.get("baseIndex", -1).asInt();
+	if (!save || !connectionTCP::coopPvpBorrowActive() || save->getSavedBattle() || index < 0 || index >= (int)save->getBases()->size())
+	{
+		return false;
+	}
+	AlienMission* mission = nullptr;
+	for (auto* am : save->getAlienMissions())
+	{
+		if (!am->_coop && am->getId() == attack.get("missionId", -1).asInt())
+		{
+			mission = am;
+		}
+	}
+	if (!mission)
+	{
+		return false;
+	}
+	Base* base = save->getBases()->at(index);
+	base->setupDefenses(mission);
+	save->setSelectedBase(index);
+	_game->getCoopMod()->_isMainCampaignBaseDefense = true;
+	_game->getCoopMod()->setHost(true);
+	for (auto* s : *base->getSoldiers())
+	{
+		int owner = s->getOwnerPlayerId();
+		s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+		s->setCoopBase(-1);
+	}
+	for (auto* v : *base->getVehicles())
+	{
+		v->setCoop(0);
+		v->setCoopBase(-1);
+	}
+	g_coopBaseDefense.pending = true;
+	g_coopBaseDefense.coop = false;
+	g_coopBaseDefense.lon = attack.get("lon", base->getLongitude()).asDouble();
+	g_coopBaseDefense.lat = attack.get("lat", base->getLatitude()).asDouble();
+	g_coopBaseDefense.damagePercentage = attack.get("damage", 0).asInt();
+	g_coopBaseDefense.missionCustomDeploy = attack.get("deploy", "").asString();
+	g_coopBaseDefense.alienRace = attack.get("race", "").asString();
+	startCoopMission();
+	return save->getSavedBattle() != nullptr;
 }
 
 /**
@@ -1009,6 +1158,7 @@ void GeoscapeState::init()
 
 		}
 
+		if (!_game->getCoopMod()->isSharedCampaign()) _game->getCoopMod()->coopRemoveGuestMemorialCopies(); // coop
 		_game->getCoopMod()->coopMissionEnd = false;
 
 		if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
@@ -1025,7 +1175,8 @@ void GeoscapeState::init()
 		// replica is byte-identical and the frozen-replica relationship resumes -
 		// same bootstrap channel as J02 (streamSharedWorldToClient -> resume-blob
 		// streamer -> MAP_RESULT_LOAD_PROGRESS -> CoopState(555) -> LoadGameState).
-		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getServerOwner() == true)
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getCoopMod()->getServerOwner() == true
+			&& !_game->getCoopMod()->coopTakePostBattleWorldSent()) // coop: skipped once the post-battle world went out at the debriefing
 		{
 			// The client's automatic resume-hold (pushed by LoadGameState whenever a
 			// streamed world is adopted) is released by the resume_ack handler: after
@@ -1233,6 +1384,8 @@ void GeoscapeState::init()
 
 		_game->getCoopMod()->inventory_battle_window = true;
 
+		_game->getCoopMod()->gamePaused = 0;
+
 		_game->getCoopMod()->_battleWindow = false;
 		_game->getCoopMod()->_battleInit = false;
 
@@ -1277,6 +1430,7 @@ void GeoscapeState::init()
 	}
 
 	State::init();
+	SharedEcon::flushEventWindows(_game, this); // event windows that arrived while this machine was off the geoscape
 	timeDisplay();
 	updateSlackingIndicator();
 
@@ -1287,7 +1441,14 @@ void GeoscapeState::init()
 	_globe->draw();
 
 	// Pop up save screen if it's a new ironman game
-	if (_game->getSavedGame()->isIronman() && _game->getSavedGame()->getName().empty())
+	// coop: only a machine that may save is asked (a co-op client never
+	// saves), and the init that raises the SHARED start hold below queues none: the hold's own close inits again and queues it, so a
+	// SHARED host is asked twice, as solo and every other co-op host.
+	const bool coopSharedStartHoldInit = _game->getSavedGame()->getMonthsPassed() == -1 && !_game->getSavedGame()->getBases()->empty()
+		&& !_game->getSavedGame()->getBases()->front()->getName().empty() && _game->getCoopMod()->isSharedCampaign()
+		&& _game->getCoopMod()->getServerOwner() && connectionTCP::session.lobbyMode == 1;
+	if (_game->getSavedGame()->isIronman() && _game->getSavedGame()->getName().empty()
+		&& _game->getCoopMod()->localSavesAllowed() && !coopSharedStartHoldInit)
 	{
 		popup(new ListSaveState(OPT_GEOSCAPE));
 	}
@@ -1421,6 +1582,14 @@ void GeoscapeState::think()
 	_zoomOutEffectTimer->think(this, 0);
 	_dogfightStartTimer->think(this, 0);
 
+	// coop: a co-op base defense waiting for the partner starts again for both once the host's
+	// RESUME made this the top state again (only the top state thinks; the wait dialog pops itself on RESUME).
+	if (_coopRearmBase != -1)
+	{
+		coopStartRearmedBaseDefense();
+		return;
+	}
+
 	// coop
 	// research
 	if (_game->getCoopMod()->getCoopStatic()
@@ -1428,7 +1597,24 @@ void GeoscapeState::think()
 		&& !_game->getCoopMod()->waitedResearch.empty())
 	{
 
-		if (_game->getSavedGame()->getSelectedBase())
+		// coop:
+		// the base a partner's finished research is learned at. The selected base, unless it is a partner's base (_isForeignBase true: losing the
+		// first base leaves the selected index on the partner's mirror after it, and no removal re-points it); then the first own base
+		// (_isForeignBase false). With none (the partner's view world: every base _isForeignBase) the queue holds as before. The index is not moved.
+		Base* coopResearchBase = _game->getSavedGame()->getBases()->empty() ? nullptr : _game->getSavedGame()->getSelectedBase();
+		if (coopResearchBase != nullptr && coopResearchBase->_isForeignBase == true)
+		{
+			coopResearchBase = nullptr;
+			for (Base* coopOwnCandidate : *_game->getSavedGame()->getBases())
+			{
+				if (coopOwnCandidate->_isForeignBase == false)
+				{
+					coopResearchBase = coopOwnCandidate;
+					break;
+				}
+			}
+		}
+		if (coopResearchBase != nullptr) // coop
 		{
 
 			if (_game->getSavedGame()->getSelectedBase()->_isForeignBase == false)
@@ -1447,7 +1633,7 @@ void GeoscapeState::think()
 					double base_lat = root_research["base_lat"].asDouble();
 					double base_lon = root_research["base_lon"].asDouble();
 
-					Base* selected_base = _game->getSavedGame()->getSelectedBase();
+					Base* selected_base = coopResearchBase; // coop (a partner base at the sender's coordinates still wins below)
 
 					for (auto &base : *_game->getSavedGame()->getBases())
 					{
@@ -1472,7 +1658,7 @@ void GeoscapeState::think()
 						// as in time1Day.
 						Mod* mod = _game->getMod();
 						SavedGame* save = _game->getSavedGame();
-						Base* ownBase = save->getSelectedBase();
+						Base* ownBase = coopResearchBase; // coop: the topics are learned at an own base
 						RuleResearch* bonus = bonus_name.empty() ? nullptr : mod->getResearch(bonus_name);
 
 						const std::string& articleTopic = research->getLookup().empty() ? research->getName() : research->getLookup();
@@ -1500,7 +1686,11 @@ void GeoscapeState::think()
 						std::vector<const RuleResearch*> topicsToCheck = { research };
 						if (bonus)
 							topicsToCheck.push_back(bonus);
+						const size_t coopEventsBefore = save->getGeoscapeEvents().size(); // coop
 						save->handlePrimaryResearchSideEffects(topicsToCheck, mod, ownBase, false);
+						// coop: the sender's world spawned these topics' events too (a project or an event's research;
+						// not a mission outcome), so each copy is a window both worlds hold
+						GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore, root_research.get("sender_side_effects", false).asBool());
 
 						// Nothing new to this player (e.g. its own copy of the project
 						// finished after the peer's): no popup.
@@ -1773,15 +1963,14 @@ void GeoscapeState::think()
 						// new!
 						root["crafts"][craft_index]["shield"] = craft->getShield();
 						root["crafts"][craft_index]["interceptionOrder"] = craft->getInterceptionOrder();
-						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage());
+						root["crafts"][craft_index]["craft_name"] = craft->getName(_game->getLanguage()) == craft->getDefaultName(_game->getLanguage()) ? std::string() : craft->getName(_game->getLanguage()); // coop: a custom name only - the peer renders a default name in its own language
 						// returning-state flags, so the peer shows the correct craft
 						// status ("LOW FUEL" vs "MISSION COMPLETE" vs "RETURNING")
 						root["crafts"][craft_index]["lowFuel"] = craft->getLowFuel();
 						root["crafts"][craft_index]["mission"] = craft->getMissionComplete();
-						// full pre-localized airborne status string (destination /
-						// dogfight state is not replicated, so the peer can't derive
-						// it locally). Renders identically to the owner's own UI.
-						root["crafts"][craft_index]["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
+						// the owner's airborne status as a text node (its destination / dogfight state is not replicated); the peer
+						// renders it in its own language (coop)
+						root["crafts"][craft_index]["geoStatusText"] = SharedEcon::craftStatusText(_game, craft);
 						// vehciles
 						root["crafts"][craft_index]["num_total_vehicles"] = craft->getNumTotalVehicles();
 						// soldiers
@@ -2004,11 +2193,11 @@ void GeoscapeState::think()
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
 						jc["shield"] = craft->getShield();
-						// Separate: the airborne status string, as the two-world
-						// snapshot sends it for a peer's craft. The replica holds no
-						// destination, dogfight or fuel simulation to derive it from.
+						// Separate: the airborne status as a text node. The replica holds no
+						// destination, dogfight or fuel simulation to derive it from, and
+						// renders it in its own language.
 						if (separateWorld)
-							jc["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
+							jc["geoStatusText"] = SharedEcon::craftStatusText(_game, craft);
 						jcrafts.append(jc);
 					}
 				}
@@ -2103,6 +2292,8 @@ void GeoscapeState::think()
 			// new !!!
 			root["monthsPassed"] = _game->getSavedGame()->getMonthsPassed();
 			root["daysPassed"] = _game->getSavedGame()->getDaysPassed();
+			// coop: the ticks this host's own loop has stepped, so a SEPARATE client runs exactly those, once each
+			root["ticks"] = Json::Int64(connectionTCP::_geoTicksStepped);
 
 			// PRD-J04: piggyback a lightweight world checksum (funds + base / tech /
 			// item / soldier / transfer / production counts - GAP-4) on the periodic
@@ -2155,6 +2346,12 @@ void GeoscapeState::think()
 			if (dfs->isLocallyVisible() && !dfs->isMinimized())
 			{ inDogfight = true; break; }
 		root["geo_focus"] = inDogfight ? 0 : -1;
+		// coop: a client with a popup queued or shown asks the host to hold the shared clock at once; the
+		// host's 1000 ms grace stays the fallback for a lost heartbeat. A client whose own world walks the host's ticks (SEPARATE)
+		// keeps asking after the close until its geoscape has run a step (the catch-up). An open dogfight window keeps
+		// time running, as above.
+		if (_game->getCoopMod()->getServerOwner() == false)
+			root["hold"] = !_popups.empty() || (_coopPopupHold && !inDogfight && _game->getCoopMod()->coopClientOwnClock());
 
 		// time/focus heartbeat via the conflation slot (last-write-wins).
 		_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_TIME, root.toStyledString());
@@ -2215,6 +2412,7 @@ void GeoscapeState::think()
 		else
 		{
 			sharedReconcileReplicaDogfights();
+		SharedEcon::flushLostCrafts(_game, this); // coop: a replica removes a lost craft only from its own geoscape
 			replicaRemoveDespawnedUfos();
 		}
 	}
@@ -2543,7 +2741,7 @@ void GeoscapeState::timeAdvance()
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
 		// Separate only: in SHARED and PvP the host freezes on
-		// a stale client heartbeat alone. A SHARED client's open dogfight window
+		// a stale client heartbeat, or on the client's popup hold. A SHARED client's open dogfight window
 		// reports focus 0 while it stays on the geoscape, and time keeps
 		// running through it.
 		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
@@ -2554,10 +2752,17 @@ void GeoscapeState::timeAdvance()
 			if (_game->getCoopMod()->peerFocusScreen >= 0 || peerStale)
 				timeSpan = 0;
 		}
-		else if (_game->getCoopMod()->getServerOwner() && peerStale)
+		else if (_game->getCoopMod()->getServerOwner()
+			&& (peerStale || _game->getCoopMod()->peerGeoHold.load())) // the client's heartbeat says it has a popup
 		{
 			timeSpan = 0;
 		}
+
+		// coop: a SEPARATE client's own loops run on the ticks the HOST stepped - each once, in
+		// order, as vanilla's 5-second walk below - instead of its own speed span from a clock the heartbeat moved.
+		const int coopPendingTicks = _game->getCoopMod()->coopClientPendingGeoTicks();
+		if (coopPendingTicks >= 0)
+			timeSpan = coopPendingTicks;
 
 	}
 
@@ -2569,10 +2774,12 @@ void GeoscapeState::timeAdvance()
 	if (_game->getCoopMod()->isCampaignReplica())
 		timeSpan = 0;
 
+	const bool coopPausedIn = _pause; // coop
 	for (int i = 0; i < timeSpan && !_pause; ++i)
 	{
 		TimeTrigger trigger;
 		trigger = _game->getSavedGame()->getTime()->advance();
+		_game->getCoopMod()->coopGeoTickDone(); // coop: the host counts its ticks; a SEPARATE client, the host ticks it ran
 		switch (trigger)
 		{
 		case TIME_1MONTH:
@@ -2594,6 +2801,11 @@ void GeoscapeState::timeAdvance()
 			time5Seconds();
 		}
 	}
+
+	// coop: the popup hold ends with the first step that ran with no popup in the way (there a SEPARATE client
+	// walks the host ticks it missed)
+	if (!coopPausedIn && _popups.empty())
+		_coopPopupHold = false;
 
 	_pause = !_dogfightsToBeStarted.empty() || _zoomInEffectTimer->isRunning() || _zoomOutEffectTimer->isRunning();
 
@@ -2779,7 +2991,7 @@ void GeoscapeState::time5Seconds()
 				{
 					std::string msg = tr("STR_UFO_HAS_LANDED").arg(ufo->getName(_game->getLanguage()));
 					popup(new CraftErrorState(this, msg, true, ufo));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_UFO_HAS_LANDED", {SharedEcon::textName(_game, ufo)})); // coop
 				}
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty())
 				{
@@ -2787,7 +2999,7 @@ void GeoscapeState::time5Seconds()
 					if (!(ufo->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && ufo->getStatus() == Ufo::LANDED) && ufo->_coop == false)
 					{
 						popup(new UfoLostState(ufo->getName(_game->getLanguage())));
-						SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
+						SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, ufo)); // coop
 					}
 				
 				}
@@ -2818,8 +3030,8 @@ void GeoscapeState::time5Seconds()
 					// would double-apply the consequences. The client gets the alert, and
 					// then the outcome - the battle (battlehost), base_damaged, or
 					// base_destroyed - through its own replicated path.
-					SharedEcon::hostAlert(_game, "CraftErrorState",
-						tr("STR_BASE_UNDER_ATTACK").arg(base->getName()), base);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", // coop
+						SharedEcon::textKey("STR_BASE_UNDER_ATTACK", {SharedEcon::textLiteral(base->getName())}), base); // coop
 					if (!base->getDefenses()->empty() && !ufo->getMission()->getRules().ignoreBaseDefenses())
 					{
 						bool instaHyper = ufo->getRules()->isInstaHyper() || mission->getRules().isInstaHyper();
@@ -2867,7 +3079,7 @@ void GeoscapeState::time5Seconds()
 				if (detected != ufo->getDetected() && !ufo->getFollowers()->empty() && ufo->_coop == false)
 				{
 					popup(new UfoLostState(ufo->getName(_game->getLanguage())));
-					SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
+					SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, ufo)); // coop
 				}
 			}
 			break;
@@ -2916,6 +3128,7 @@ void GeoscapeState::time5Seconds()
 					}
 				}
 
+				const Json::Value h18bCrew = SharedEcon::craftLostMark(_game, xbase, xcraft); // coop: the crew aboard before vanilla's evacuation
 				//if (_ufoIsAttacking)
 				{
 					// Note: this was moved from DogfightState.cpp, as it was not 100% reliable there
@@ -2937,6 +3150,7 @@ void GeoscapeState::time5Seconds()
 						}
 					}
 				}
+				SharedEcon::hostCraftLost(_game, xbase, xcraft, h18bCrew); // coop: the replica mirrors the lost craft and its crew
 				_game->getSavedGame()->stopHuntingXcomCraft(xcraft); // craft destroyed in dogfight
 				Craft *craft = *craftIt;
 				craftIt = xbase->removeCraft(craft, false);
@@ -2948,7 +3162,10 @@ void GeoscapeState::time5Seconds()
 				Ufo* u = dynamic_cast<Ufo*>(xcraft->getDestination());
 				if (u != 0)
 				{
-					if (!u->getDetected())
+					// A skirmish/New-Battle UFO has monthsPassed==-1
+					// and NO trajectory (Ufo::load skips the mission+trajectory block for -1), so
+					// this campaign-only craft-chase block must not deref u->getTrajectory() on it.
+					if (!u->getDetected() && _game->getSavedGame()->getMonthsPassed() != -1)
 					{
 						if (u->getTrajectory().getID() == UfoTrajectory::RETALIATION_ASSAULT_RUN && (u->getStatus() == Ufo::LANDED || u->getStatus() == Ufo::DESTROYED))
 						{
@@ -3095,7 +3312,7 @@ void GeoscapeState::time5Seconds()
 								{
 									if (dogfight->isLocallyVisible())
 										popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_DEPTH")));
-									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId());
+									SharedEcon::hostAlertText(_game, "DogfightErrorState", SharedEcon::textKey("STR_UNABLE_TO_ENGAGE_DEPTH"), nullptr, xcraft->getId()); // coop
 									dogfight->setMinimized(true);
 									dogfight->setWaitForAltitude(true);
 								}
@@ -3103,7 +3320,7 @@ void GeoscapeState::time5Seconds()
 								{
 									if (dogfight->isLocallyVisible())
 										popup(new DogfightErrorState(xcraft, tr("STR_UNABLE_TO_ENGAGE_AIRBORNE")));
-									SharedEcon::hostAlert(_game, "DogfightErrorState", tr("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId());
+									SharedEcon::hostAlertText(_game, "DogfightErrorState", SharedEcon::textKey("STR_UNABLE_TO_ENGAGE_AIRBORNE"), nullptr, xcraft->getId()); // coop
 									dogfight->setMinimized(true);
 									dogfight->setWaitForPoly(true);
 								}
@@ -3483,7 +3700,7 @@ void GeoscapeState::ufoHuntingAndEscorting()
 							.arg(ufo->getName(_game->getLanguage()))
 							.arg(newTarget->getName(_game->getLanguage()));
 						popup(new CraftErrorState(this, msg));
-						SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+						SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_UFO_STARTED_HUNTING", {SharedEcon::textName(_game, ufo), SharedEcon::textName(_game, newTarget)})); // coop
 					}
 				}
 			}
@@ -3617,7 +3834,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 			if (!noFollowers)
 			{
 				popup(new UfoLostState(site->getName(_game->getLanguage())));
-				SharedEcon::hostAlert(_game, "UfoLostState", site->getName(_game->getLanguage()));
+				SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, site)); // coop
 			}
 		}
 		else
@@ -3627,6 +3844,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 	}
 	if (removeSite)
 	{
+		const Json::Value h17cMark = SharedEcon::eventMark(_game); // coop: the despawn's research and counters, from here
 		// Unlock research defined in alien deployment, if the mission site despawned
 		const RuleResearch* research = _game->getMod()->getResearch(site->getDeployment()->getUnlockedResearchOnDespawn());
 		const RuleResearch* bonus = nullptr;
@@ -3649,6 +3867,7 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterDespawn());
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterFailure()); // despawn is also a type of failure
 		_game->getSavedGame()->decreaseCustomCounter(site->getDeployment()->getDecreaseCounterAll());
+		SharedEcon::hostResearchGrant(_game, h17cMark, "despawn", true); // coop: before the despawn event's geo_event
 
 		// Generate a despawn event
 		auto* eventRules = _game->getMod()->getEvent(site->getDeployment()->chooseDespawnEvent());
@@ -3656,20 +3875,22 @@ bool GeoscapeState::processMissionSite(MissionSite *site)
 		if (canSpawn)
 		{
 			timerReset();
+			const Json::Value eventFxMark = SharedEcon::eventMark(_game); // coop: the world before the event's reward
 			const std::string eventOwner = site->getOwnerPlayerName();
 			GeoscapeEventState* eventState = new GeoscapeEventState(*eventRules, eventOwner);
 			const std::string eventResearch = eventState->getResearchName();
 			const std::string eventBonus = eventState->getBonusResearchName();
 			const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
-			if (eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat()))
+			const bool eventShown = eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat());
+			if (eventShown)
 				popup(eventState);
-			else
-				delete eventState;
 			if (_game->getCoopMod()->isSeparateCampaign())
 				SeparateEcon::hostGeoscapeEvent(_game, eventRules->getName(),
 					eventResearch, eventBonus, eventOwner, &eventDisplay);
 			else
-				SharedEcon::hostAlert(_game, "GeoscapeEventState", eventRules->getName());
+				SharedEcon::hostGeoEvent(_game, *eventRules, eventFxMark, eventState); // the reward's result rides geo_event
+			if (!eventShown)
+				delete eventState;
 		}
 	}
 
@@ -3801,7 +4022,7 @@ void GeoscapeState::time30Minutes()
 					{
 						std::string msg = tr("STR_CRAFT_IS_READY").arg(xcraft->getName(_game->getLanguage())).arg(xbase->getName());
 						popup(new CraftErrorState(this, msg));
-						SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+						SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_CRAFT_IS_READY", {SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())})); // coop
 					}
 					// auto-patrol
 					if (xcraft->getStatus() == "STR_READY" && xcraft->getRules()->canAutoPatrol())
@@ -3828,7 +4049,7 @@ void GeoscapeState::time30Minutes()
 										.arg(xcraft->getName(_game->getLanguage()))
 										.arg(xbase->getName());
 					popup(new CraftErrorState(this, msg));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+					SharedEcon::hostAlertText(_game, "CraftErrorState", SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REFUEL_CRAFT_AT_BASE", {SharedEcon::textKey(item), SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())})); // coop
 				}
 			}
 		}
@@ -4029,26 +4250,31 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	if (!interrupted)
 	{
 		timerReset();
+		const Json::Value eventFxMark = SharedEcon::eventMark(_game); // coop: the world before the event's reward
 		const std::string eventOwner = ge->getOwnerPlayerName();
-		GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner, ge->isCoopShared());
+		GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner, ge->isCoopShared(), nullptr,
+			ge->getRewardPlayerName());
 		const std::string eventResearch = eventState->getResearchName();
 		const std::string eventBonus = eventState->getBonusResearchName();
 		const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();
-		if (eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat()))
+		const bool eventShown = eventOwner.empty() || eventOwner == connectionTCP::seatName(connectionTCP::localSeat());
+		if (eventShown)
 			popup(eventState);
-		else
-			delete eventState;
 		if (_game->getCoopMod()->isSeparateCampaign())
 			SeparateEcon::hostGeoscapeEvent(_game, ge->getRules().getName(),
 				eventResearch, eventBonus, eventOwner, &eventDisplay);
 		else
-			SharedEcon::hostAlert(_game, "GeoscapeEventState", ge->getRules().getName());
+			SharedEcon::hostGeoEvent(_game, ge->getRules(), eventFxMark, eventState); // the reward's result rides geo_event
+		if (!eventShown)
+			delete eventState;
 	}
 
 	// coop SEPARATE: the client's copy of a shared event fires with this one
 	if (ge->isCoopShared())
 	{
-		_game->getCoopMod()->sendCertainEventFire(ge);
+		// coop: the host's research pick rides the fire (its window, pushed above); none when this copy showed no window
+		const GeoscapeEventState* coopWindow = interrupted || _popups.empty() ? nullptr : dynamic_cast<GeoscapeEventState*>(_popups.back());
+		_game->getCoopMod()->sendCertainEventFire(ge, coopWindow != nullptr, coopWindow ? coopWindow->coopResearchPick() : std::pair<std::string, std::string>());
 	}
 }
 
@@ -4112,7 +4338,7 @@ void GeoscapeState::ufoDetection(Ufo* ufo, const std::vector<Craft*>* activeCraf
 			if (!ufo->getFollowers()->empty() && ufo->_coop == false)
 			{
 				popup(new UfoLostState(ufo->getName(_game->getLanguage())));
-				SharedEcon::hostAlert(_game, "UfoLostState", ufo->getName(_game->getLanguage()));
+				SharedEcon::hostAlertText(_game, "UfoLostState", SharedEcon::textName(_game, ufo)); // coop
 			}
 		}
 	}
@@ -4168,7 +4394,8 @@ void GeoscapeState::time1Hour()
 									   .arg(xbase->getName());
 					if (SeparateEcon::showBaseNotification(_game, xbase))
 						popup(new CraftErrorState(this, msg));
-					SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true);
+					SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true, Json::Value(),
+						SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_CRAFT_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textName(_game, xcraft), SharedEcon::textLiteral(xbase->getName())}));
 				}
 			}
 			if (xcraft->getShieldCapacity() > 0 && xcraft->getStatus() != "STR_OUT")
@@ -4193,7 +4420,8 @@ void GeoscapeState::time1Hour()
 					.arg(xbase->getName());
 				if (SeparateEcon::showBaseNotification(_game, xbase))
 					popup(new CraftErrorState(this, msg));
-				SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true);
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg, xbase, -1, {}, {}, true, Json::Value(),
+					SharedEcon::textKey("STR_NOT_ENOUGH_ITEM_TO_REARM_FACILITY_AT_BASE", {SharedEcon::textKey(ammo->getType()), SharedEcon::textKey(facility->getRules()->getType()), SharedEcon::textLiteral(xbase->getName())}));
 			}
 		}
 	}
@@ -4241,6 +4469,8 @@ void GeoscapeState::time1Hour()
 			Json::Value j;
 			j["type"] = r.type;
 			j["name"] = r.name;
+			j["text"] = r.nameKey.empty() ? SharedEcon::textLiteral(r.name) : r.nameId < 0 ? SharedEcon::textKey(r.nameKey) // coop
+				: SharedEcon::textKey("STR_CRAFTNAME", {SharedEcon::textKey(r.nameKey), Json::Value(r.nameId)}); // coop
 			j["qty"] = r.qty;
 			j["base"] = r.base;
 			j["baseIdx"] = r.baseIdx;
@@ -4275,6 +4505,9 @@ void GeoscapeState::time1Hour()
 		std::map<Production*, std::pair<int, size_t> > before;
 		// And the soldiers it spawned (spawnedPersonType) before this step.
 		std::map<Production*, size_t> spawnedBefore;
+		// coop: a SHARED replica takes each unit by prod_fx in the hour it is made (prod_done then only ends the batch);
+		// a Separate replica takes the units by prod_done below.
+		const bool prodFx = _game->getCoopMod()->isSharedCampaign();
 		{
 			// Separate: unit costs, the money check and sale proceeds belong to
 			// the base owner's wallet, not to the host seat's.
@@ -4284,7 +4517,10 @@ void GeoscapeState::time1Hour()
 			{
 				before[prod] = std::make_pair(materialized(prod), prod->getCoopBuiltCraftIds().size());
 				spawnedBefore[prod] = prod->getCoopSpawnedSoldierIds().size();
+				const Json::Value fxMark = prodFx ? SharedEcon::productionFxMark(_game, xbase) : Json::Value(Json::nullValue); // coop: the base before this production's hour
 				toRemove[prod] = prod->step(xbase, _game->getSavedGame(), _game->getMod(), _game->getLanguage());
+				if (prodFx)
+					SharedEcon::hostProductionFx(_game, xbase, prod->getRules()->getName(), fxMark); // coop: each unit reaches the replica in the hour it is made
 			}
 		}
 		for (const auto& pair : toRemove)
@@ -4310,7 +4546,7 @@ void GeoscapeState::time1Hour()
 					pair.first->getSellItems(), newCrafts, true, spawned);
 				xbase->removeProduction(pair.first);
 			}
-			else if (units > 0)
+			else if (units > 0 && !prodFx)
 			{
 				SharedEcon::hostProductionDone(_game, sharedBaseId(xbase),
 					pair.first->getRules()->getName(), units, pair.second,
@@ -4623,6 +4859,7 @@ void GeoscapeState::time1Day()
 				}
 			}
 		}
+		const Json::Value h17Mark = SharedEcon::researchFxMark(_game, !finished.empty()); // coop: snapshot before 3a
 		// 3. add finished research, including lookups and getonefrees (up to 4x)
 		std::vector<const RuleResearch*> topicsToCheck;
 		for (auto* project : finished)
@@ -4803,9 +5040,19 @@ void GeoscapeState::time1Day()
 			// 1. remove obsolete research projects from all bases
 			// 2. handle items spawned by research
 			// 3. handle events spawned by research
-			// coop: a SHARED or SEPARATE host mirrors the removed projects and the
-			// spawned items to the replica (research_effects).
-			SharedEcon::hostResearchSideEffects(_game, topicsToCheck, xbase);
+			const size_t coopEventsBefore = saveGame->getGeoscapeEvents().size(); // coop
+			if (_game->getCoopMod()->isSeparateCampaign())
+			{
+				// coop Separate: the host mirrors the removed projects and the
+				// spawned items to the replica (research_effects).
+				SharedEcon::hostResearchSideEffects(_game, topicsToCheck, xbase);
+			}
+			else
+			{
+				saveGame->handlePrimaryResearchSideEffects(topicsToCheck, _game->getMod(), xbase);
+				SharedEcon::hostResearchFx(_game, sharedBaseId(xbase), h17Mark); // coop: corpse, refunds, obsolete projects, spawned items and counters reach the replica
+			}
+			GeoscapeEventState::coopMarkResearchEvents(_game, coopEventsBefore); // coop: ResearchCompleteState synced these topics, so the other world spawns the same events
 		}
 
 		// Handle soldier wounds and martial training
@@ -5053,6 +5300,15 @@ void GeoscapeState::time1Day()
 				.arg(Unicode::formatFunding(maintenance))
 				.arg(Unicode::formatFunding(projection));
 		};
+		// the same warning as a text node a peer renders in its own language
+		auto economyWarningText = [&](int64_t funds, int64_t maintenance, int64_t projection) -> Json::Value
+		{
+			projection = std::abs(projection);
+			projection = ((projection / 100000) + 1) * 100000; // round up to 100k
+			return SharedEcon::textKey("STR_ECONOMY_WARNING", {SharedEcon::textLiteral(Unicode::formatFunding(funds)),
+				SharedEcon::textLiteral(Unicode::formatFunding(income)), SharedEcon::textLiteral(Unicode::formatFunding(maintenance)),
+				SharedEcon::textLiteral(Unicode::formatFunding(projection))});
+		};
 		const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
 		if (_game->getCoopMod()->isSeparateCampaign() && !players.empty())
 		{
@@ -5084,7 +5340,8 @@ void GeoscapeState::time1Day()
 			{
 				std::string msg = economyWarning(funds, maintenance, projection);
 				popup(new CraftErrorState(this, msg, false));
-				SharedEcon::hostAlert(_game, "CraftErrorState", msg);
+				SharedEcon::hostAlert(_game, "CraftErrorState", msg, nullptr, -1, {}, {}, false, Json::Value(),
+					economyWarningText(funds, maintenance, projection));
 			}
 		}
 	}
@@ -5135,6 +5392,7 @@ void GeoscapeState::time1Month()
 
 	// Determine alien mission for this month.
 	determineAlienMissions();
+	const Json::Value h18MonthMark = SharedEcon::soldierFxMark(_game); // coop
 
 	// Handle Psi-Training and initiate a new retaliation mission, if applicable
 	if (!Options::anytimePsiTraining)
@@ -5156,6 +5414,7 @@ void GeoscapeState::time1Month()
 		}
 	}
 
+	SharedEcon::hostSoldierFx(_game, h18MonthMark); // coop: the host's month-end psi results
 	// Handle funding
 	timerReset();
 
@@ -5254,6 +5513,8 @@ void GeoscapeState::time1MonthCoop()
 			sg->getExpenditures().back() = _game->getCoopMod()->sharedMonthlyExpenditure;
 		if (!sg->getResearchScores().empty())
 			sg->getResearchScores().back() = _game->getCoopMod()->sharedMonthlyResearchScore;
+		if (sg->getResearchScores().size() >= 2) // coop: the month the host just ended, as the host settled it
+			sg->getResearchScores()[sg->getResearchScores().size() - 2] = _game->getCoopMod()->sharedMonthlyResearchScoreEnded; // coop
 		_game->getCoopMod()->sharedMonthlyPending = false;
 	}
 	else if (_game->getCoopMod()->isSeparateCampaign()
@@ -5331,6 +5592,156 @@ void GeoscapeState::timerReset()
 }
 
 /**
+ * coop: the targets a geoscape popup holds as raw pointers.
+ * A co-op mirror (a partner's UFO, site, alien base, base or craft) can be deleted under them; the
+ * pointers are copied here, never dereferenced.
+ * @param state Any state.
+ * @param out Receives every non-null pointer the popup holds.
+ * @return true when @a state is one of the eight popups, even one that holds nothing.
+ */
+bool GeoscapeState::coopHeldTargets(State* state, std::vector<Target*>& out)
+{
+	if (auto* uds = dynamic_cast<UfoDetectedState*>(state))
+	{
+		if (uds->coopHeldUfo())
+			out.push_back(uds->coopHeldUfo());
+		return true;
+	}
+	if (auto* mds = dynamic_cast<MissionDetectedState*>(state))
+	{
+		if (mds->coopHeldSite())
+			out.push_back(mds->coopHeldSite());
+		return true;
+	}
+	if (auto* tis = dynamic_cast<TargetInfoState*>(state))
+	{
+		if (tis->coopHeldTarget())
+			out.push_back(tis->coopHeldTarget());
+		return true;
+	}
+	if (auto* ist = dynamic_cast<InterceptState*>(state))
+	{
+		if (ist->coopHeldTarget())
+			out.push_back(ist->coopHeldTarget());
+		return true;
+	}
+	if (auto* cds = dynamic_cast<ConfirmDestinationState*>(state))
+	{
+		if (cds->coopHeldTarget())
+			out.push_back(cds->coopHeldTarget());
+		return true;
+	}
+	if (auto* mts = dynamic_cast<MultipleTargetsState*>(state))
+	{
+		for (Target* t : mts->coopHeldTargets())
+		{
+			if (t)
+				out.push_back(t);
+		}
+		return true;
+	}
+	if (auto* uts = dynamic_cast<UfoTrackerState*>(state))
+	{
+		for (Target* t : uts->coopHeldTargets())
+		{
+			if (t)
+				out.push_back(t);
+		}
+		return true;
+	}
+	if (auto* gcs = dynamic_cast<GeoscapeCraftState*>(state))
+	{
+		if (gcs->coopHeldCraft())
+			out.push_back(gcs->coopHeldCraft());
+		return true;
+	}
+	return false;
+}
+
+/**
+ * coop: the crafts a geoscape window or notice holds as raw pointers.
+ * In SHARED they are the crafts of every base, and base_destroyed deletes a base's crafts under them;
+ * coopCloseMirrorHolders reads them beside coopHeldTargets. The pointers are copied here, never dereferenced.
+ * @param state Any state.
+ * @param out Receives every non-null craft pointer the window holds.
+ * @return true when @a state is one of the nine windows, even one that holds nothing.
+ */
+bool GeoscapeState::coopHeldCrafts(State* state, std::vector<Target*>& out)
+{
+	const std::vector<Craft*>* list = nullptr;
+	Craft* craft = nullptr;
+	if (auto* ist = dynamic_cast<InterceptState*>(state))
+		list = &ist->harnessListedCrafts(); // its rows (_selCrafts is a subset of them)
+	else if (auto* cds = dynamic_cast<ConfirmDestinationState*>(state))
+		list = &cds->coopHeldCrafts();
+	else if (auto* mts = dynamic_cast<MultipleTargetsState*>(state))
+		list = &mts->coopHeldCrafts();
+	else if (auto* sds = dynamic_cast<SelectDestinationState*>(state))
+		list = &sds->coopHeldCrafts();
+	else if (auto* cps = dynamic_cast<CraftPatrolState*>(state))
+		craft = cps->coopHeldCraft();
+	else if (auto* des = dynamic_cast<DogfightErrorState*>(state))
+		craft = des->coopHeldCraft();
+	else if (auto* cls = dynamic_cast<ConfirmLandingState*>(state))
+		craft = cls->coopHeldCraft();
+	else if (auto* ccs = dynamic_cast<ConfirmCydoniaState*>(state))
+		craft = ccs->coopHeldCraft();
+	else if (auto* nps = dynamic_cast<CraftNotEnoughPilotsState*>(state))
+		craft = nps->coopHeldCraft();
+	else
+		return false;
+	if (list)
+	{
+		for (Craft* c : *list)
+		{
+			if (c)
+				out.push_back(c);
+		}
+	}
+	if (craft)
+		out.push_back(craft);
+	return true;
+}
+
+/**
+ * coop: drops every queued popup (not yet shown) that holds
+ * one of @a doomed - co-op mirrors about to be deleted - so none opens later on a freed object. Pointers are compared, never
+ * dereferenced; a queued popup was never pushed, so it is deleted here (TestServer's "ufo_popup" test command deletes one the same way).
+ * @param doomed The objects about to be deleted.
+ * @return The number of queued popups dropped.
+ */
+int GeoscapeState::coopDropQueuedPopupsHolding(const std::vector<Target*>& doomed)
+{
+	int dropped = 0;
+	for (auto it = _popups.begin(); it != _popups.end();)
+	{
+		std::vector<Target*> held;
+		coopHeldTargets(*it, held);
+		coopHeldCrafts(*it, held); // coop: a queued patrol, dogfight or landing notice on a doomed craft
+		bool hit = false;
+		for (Target* t : held)
+		{
+			if (std::find(doomed.begin(), doomed.end(), t) != doomed.end())
+			{
+				hit = true;
+				break;
+			}
+		}
+		if (hit)
+		{
+			delete *it;
+			it = _popups.erase(it);
+			++dropped;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	return dropped;
+}
+
+/**
  * Adds a new popup window to the queue
  * (this prevents popups from overlapping)
  * and pauses the game timer respectively.
@@ -5339,6 +5750,7 @@ void GeoscapeState::timerReset()
 void GeoscapeState::popup(State *state)
 {
 	_pause = true;
+	_coopPopupHold = true; // coop
 	_popups.push_back(state);
 }
 
@@ -5606,6 +6018,22 @@ void GeoscapeState::btnBasesClick(Action *)
 			);
 			_game->getSavedGame()->setSelectedBase(xbaseSorting.front().first);
 		}
+		// coop: BASES never opens
+		// a partner's _coopIcon mirror (BasescapeState shows it as a visit). A lost base leaves the selected index
+		// on the mirror after it (BaseDestroyedState erases without re-pointing) and the nearest-base sort above can pick one: the first own base
+		// opens instead. With no own base left nothing changes.
+		if (_game->getSavedGame()->getSelectedBase()->_coopIcon == true)
+		{
+			std::vector<Base*>* coopBases = _game->getSavedGame()->getBases();
+			for (size_t i = 0; i < coopBases->size(); ++i)
+			{
+				if (coopBases->at(i)->_coopIcon == false && coopBases->at(i)->_isForeignBase == false)
+				{
+					_game->getSavedGame()->setSelectedBase(i);
+					break;
+				}
+			}
+		}
 		_game->pushState(new BasescapeState(_game->getSavedGame()->getSelectedBase(), _globe));
 	}
 	else
@@ -5810,12 +6238,107 @@ void GeoscapeState::zoomOutEffect()
 	}
 }
 
+// coop (test-harness counter): the dogfights handleDogfights()
+// met whose UFO pointer was no longer in the saved game; process-wide, read by TestServer "dogfight_ufo_check".
+static int g_coopDanglingDogfightsSeen = 0;
+
+int GeoscapeState::harnessDanglingDogfightsSeen()
+{
+	return g_coopDanglingDogfightsSeen;
+}
+
+/**
+ * coop test-harness: counts the dogfights (@a pending: those queued to start) whose UFO is not in the saved game's UFO
+ * list. Pointers are compared, never dereferenced, so a freed UFO is safe to count.
+ * @param pending true: _dogfightsToBeStarted; false: _dogfights.
+ * @return The number of such dogfights.
+ */
+int GeoscapeState::harnessDanglingDogfights(bool pending) const
+{
+	SavedGame* save = _game->getSavedGame();
+	if (!save)
+		return 0;
+	const std::vector<Ufo*>& ufos = *save->getUfos();
+	int n = 0;
+	for (auto* dfs : pending ? _dogfightsToBeStarted : _dogfights)
+	{
+		if (std::find(ufos.begin(), ufos.end(), dfs->getUfo()) == ufos.end())
+			++n;
+	}
+	return n;
+}
+
+/**
+ * coop: ends and deletes every dogfight - open,
+ * minimized or still waiting to start - whose UFO is @a ufo, before co-op code deletes that UFO (a partner's mirror: the
+ * partner's drop, connectionTCP::deleteAllCoopBases(), or the partner's position snapshot sweep). Vanilla does the same in
+ * time5Seconds() for a destroyed UFO; without it the next handleDogfights() reads and writes the freed UFO.
+ * The craft leaves the dogfight as in vanilla's interrupt (time5Seconds' hunter-killer start); the UFO's destructor then
+ * sends it home (Target::~Target). The geoscape is left as handleDogfights() leaves it after its last dogfight.
+ * @param ufo The UFO about to be deleted.
+ */
+void GeoscapeState::coopDropDogfightsFor(Ufo* ufo)
+{
+	if (!ufo)
+		return;
+	bool dropped = false;
+	for (auto it = _dogfights.begin(); it != _dogfights.end();)
+	{
+		if ((*it)->getUfo() == ufo)
+		{
+			if (Craft* craft = (*it)->getCraft())
+			{
+				craft->setInDogfight(false);
+				craft->setInterceptionOrder(0);
+			}
+			delete *it;
+			it = _dogfights.erase(it);
+			dropped = true;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	for (auto it = _dogfightsToBeStarted.begin(); it != _dogfightsToBeStarted.end();)
+	{
+		if ((*it)->getUfo() == ufo)
+		{
+			if (Craft* craft = (*it)->getCraft())
+			{
+				craft->setInDogfight(false);
+				craft->setInterceptionOrder(0);
+			}
+			delete *it;
+			it = _dogfightsToBeStarted.erase(it);
+			dropped = true;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	if (!dropped)
+		return;
+	_minimizedDogfights = minimizedDogfightsCount();
+	if (_dogfights.empty() && _dogfightsToBeStarted.empty())
+	{
+		// as handleDogfights() after the last dogfight: the dogfight timers stop and the globe zooms back out
+		_dogfightStartTimer->stop();
+		_zoomInEffectTimer->stop();
+		_dogfightTimer->stop();
+		_zoomOutEffectTimer->start();
+	}
+}
+
 /**
  * Dogfight logic. Moved here to have the code clean.
  */
 void GeoscapeState::handleDogfights()
 {
 	// Handle dogfights logic.
+	// coop (test-harness counter): a dogfight whose UFO has left the saved game (pointer compare, no read).
+	g_coopDanglingDogfightsSeen += harnessDanglingDogfights(false);
 	_minimizedDogfights = 0;
 
 	for (auto* dfs : _dogfights)
@@ -6130,6 +6653,14 @@ void GeoscapeState::sharedLandingReply(Craft* craft, bool yes, bool patrol,
 			return;
 		}
 	}
+
+	// coop: the partner's answer can arrive while the host is off its geoscape (its own copy of this prompt still
+	// queued) with a practice battle open - a preview or a base equipment screen. setBattleGame below frees that battle under the
+	// screen showing it, which the debriefing returns to; close the host's screens down to the geoscape first. A battle on the
+	// host's world here is always a practice one: a real battle's entry unwinds every other seat's prompt.
+	if (_game->getSavedGame()->getSavedBattle())
+		while (!_game->getStates().empty() && _game->getStates().back() != this)
+			_game->popState();
 
 	// Yes: generate the battle exactly as the host's own dialog would. Drive the
 	// REAL state rather than duplicating its logic - its SHARED branch stamps the
@@ -6659,26 +7190,42 @@ void GeoscapeState::handleBaseDefense(Base *base, Ufo *ufo)
 					return;
 				}
 
-				if (_game->getCoopMod()->getHost() == true)
+				// SEPARATE-campaign base defense rides the SAME host-builds-and-ships
+				// handshake as every other battle entry (skirmish/mission/Cydonia). Only
+				// the coop server owner (the immutable battle host) generates and offers
+				// the battle; the peer must NOT generate a local copy (that would be a
+				// divergent second battle) - it receives the host's offer via
+				// CoopHandshake::onOffer and lands straight in BattlescapeState. The
+				// attacked base already holds BOTH players' garrison soldiers, so the
+				// host generates the full battle with no soldier-transfer step. The
+				// legacy changeHost/craftSoldiers wire messages are quarantined, so no
+				// CoopState(77) two-machine assembly runs; the handshake covers both
+				// campaign types (gamemode 0/1).
+				if (connectionTCP::getServerOwner() == true)
 				{
-					CoopState* coopWindow = new CoopState(77);
-					_game->pushState(coopWindow);
+					_game->getCoopMod()->setHost(true);
+					for (auto* s : *base->getSoldiers())
+					{
+						int owner = s->getOwnerPlayerId();
+						s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+						s->setCoopBase(-1);
+					}
+					for (auto* v : *base->getVehicles())
+					{
+						v->setCoop(0);
+						v->setCoopBase(-1);
+					}
+					startCoopMission();
 				}
-				// The client wants to start a COOP mission!!! Transferring them to HOST!!!
 				else
 				{
-
-					Json::Value root;
-
-					root["state"] = "changeHost";
-
-					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-					_game->getCoopMod()->setHost(true);
-
-					// fix
-					CoopState* coopWindow = new CoopState(77);
-					_game->pushState(coopWindow);
+					// Peer: never build a local base-defense battle. Clear the
+					// one-shot so the deferred startCoopMission() can never fire
+					// here, and await the host's offer (onOffer -> BattlescapeState).
+					g_coopBaseDefense.pending = false;
+					// coop: a gm3 PvP campaign client (the X-COM side) hands the defence of
+					// its base to the alien host, which runs it in this machine's world; a no-op on every other machine and mode.
+					CoopHandshake::requestPvpBaseDefense(_game, base, ufo);
 				}
 
 			}
@@ -7035,6 +7582,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			}
 		}
 
+		const Json::Value h17cArcMark = save->getMonthsPassed() > 0 ? SharedEcon::eventMark(_game) : Json::Value(); // coop: month 0 rides the first world stream
 		// With private Separate research each monthly pass belongs to its mission
 		// owner, like an owned geoscape event. The host runs every player's pass
 		// but opens an arc's Ufopaedia article only during its own player's pass.
@@ -7087,6 +7635,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				auto* ruleResearchSeq = mod->getResearch(disabledSeqArcs.front(), true); // take first
 				save->addFinishedResearch(ruleResearchSeq, mod, hq, true);
+				SharedEcon::noteGrantArticle(_game, ruleResearchSeq); // coop: the article vanilla opens below
 				++arcsEnabled;
 				if (ruleResearchSeq)
 				{
@@ -7108,6 +7657,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 			{
 				auto* ruleResearchRng = mod->getResearch(disabledRngArcs.choose(), true); // take random
 				save->addFinishedResearch(ruleResearchRng, mod, hq, true);
+				SharedEcon::noteGrantArticle(_game, ruleResearchRng); // coop: the article vanilla opens below
 				++arcsEnabled; // for good measure :)
 				if (ruleResearchRng)
 				{
@@ -7125,6 +7675,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 				}
 			}
 		}
+		SharedEcon::hostResearchGrant(_game, h17cArcMark, "arc", false); // coop: no score - the monthly roll carries the ended month
 	}
 
 	// well, here it is, ladies and gents, the nuts and bolts behind the geoscape mission scheduling.
@@ -8136,6 +8687,22 @@ void GeoscapeState::setTimeSpeedIndex(int idx)
 	ev.button.button = SDL_BUTTON_LEFT;
 	Action a = Action(&ev, 0.0, 0.0, 0, 0);
 	btns[idx]->mousePress(&a, this);
+}
+
+/**
+ * The index of the currently selected time-speed button, in the same
+ * {5s,1min,5min,30min,1hr,1day} order setTimeSpeedIndex uses, or -1 if none
+ * matches. lets the test harness read the selected speed back
+ * instead of sampling the clock. No behaviour change.
+ * @return index 0..5, or -1.
+ */
+int GeoscapeState::getTimeSpeedIndex() const
+{
+	TextButton* btns[6] = {_btn5Secs, _btn1Min, _btn5Mins, _btn30Mins, _btn1Hour, _btn1Day};
+	for (int i = 0; i < 6; ++i)
+		if (_timeSpeed == btns[i])
+			return i;
+	return -1;
 }
 
 /**

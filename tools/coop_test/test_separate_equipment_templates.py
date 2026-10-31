@@ -22,7 +22,8 @@ slots and the sets stored in the player profiles.
   restream        a replica drift forces a world restream: both machines keep
                   their own sets exactly
   battle          the client saves layout slot 7 from the pre-battle inventory
-                  of its own mission; after the battle ends and the client's
+                  of its own mission (the host, with no soldier aboard, gets no
+                  equip screen); after the battle ends and the client's
                   world is replaced, the client still has it and the host
                   stored it
   reload-rejoin   the host saves the campaign to disk, both go to the main
@@ -307,10 +308,16 @@ def row_battle(host, client, state):
                     lambda gc=gc: abort_flow.has(gc, "BriefingState") or None,
                     timeout=120, interval=0.5)
         gc.ok({"cmd": "close_briefing"})
-    for gc in (host, client):
-        gc.wait_for(gc.name + " inventory",
-                    lambda gc=gc: abort_flow.has(gc, "InventoryState") or None,
+    # Only the client has soldiers on its craft: it gets the pre-battle equip
+    # screen, and the host, with nothing to equip, skips it and waits on the
+    # Turn 1 screen until the client presses OK.
+    client.wait_for("client inventory",
+                    lambda: abort_flow.has(client, "InventoryState") or None,
                     timeout=120, interval=0.5)
+    host.wait_for("host on the Turn 1 screen with no equip screen",
+                  lambda: (abort_flow.top(host) == "NextTurnState"
+                           and not abort_flow.has(host, "InventoryState")) or None,
+                  timeout=60, interval=0.5)
 
     units = client.ok({"cmd": "inventory_ground"})["soldiers"]
     assert units, "precondition: no soldier in the client's pre-battle inventory"
@@ -326,8 +333,7 @@ def row_battle(host, client, state):
     expected["layouts"][BATTLE_SLOT] = saved
     state["client"] = expected
 
-    for gc in (host, client):
-        gc.ok({"cmd": "battle_inventory", "action": "ok"})
+    client.ok({"cmd": "battle_inventory", "action": "ok"})
     for _ in range(20):
         if all(abort_flow.top(gc) == "BattlescapeState" for gc in (host, client)):
             break
@@ -342,7 +348,7 @@ def row_battle(host, client, state):
             break
         time.sleep(0.5)
     time.sleep(2)
-    abort_flow.vote_abort(host, client)
+    abort_flow.vote_abort(host, client, host)
     for gc in (host, client):
         drain_to_geoscape(gc)
     for gc in (host, client):

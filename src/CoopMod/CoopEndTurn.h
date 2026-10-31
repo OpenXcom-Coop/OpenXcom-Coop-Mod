@@ -1,0 +1,250 @@
+#pragma once
+/*
+ * Copyright 2010-2016 OpenXcom Developers.
+ * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
+ *
+ * This file is part of OpenXcom.
+ *
+ * OpenXcom is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * OpenXcom is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include <string>
+#include <vector>
+
+#include <json/json.h>
+
+namespace OpenXcom
+{
+
+class SavedBattleGame;
+class BattlescapeState;
+
+/**
+ * The END-TURN readiness tally and its FROZEN wire pair:
+ *
+ *   bt_end_turn_ready {state, battleId, seat, turn:int, ready:bool}  client->host
+ *   bt_end_turn_tally {state, battleId, turn:int, side, ready:[seat...],
+ *                       count:int, needed:int, activeSeat?:seat}     host->all
+ *
+ * Both are top-level messages (no `payload`) and both bypass the seq-ordered
+ * apply queue - they are `bt_`-prefixed (battle lane) but neither `bt_ev` nor
+ * `bt_action_end`, so BattleWire.h's isSeqOrdered() already routes them to
+ * the direct lane dispatcher with NO edit to that file.
+ *
+ * `activeSeat` (the TRADITIONAL baton) is OPTIONAL: present in the tally ONLY
+ * in traditional mode (ABSENT in parallel), `needed` forced to 1, `ready`
+ * naming exactly the baton holder. See onBattleActive() below for the entry
+ * initialiser and BattleAuthority.h's `activeSeat` field for where the
+ * HONOURED value lives on the receiving side.
+ *
+ * ALL LOGIC LIVES IN src/CoopMod (body: connectionTCP.cpp, next to
+ * CoopSideTransition's own code - the two share the same boundary quiescence
+ * point). The vanilla touch is exactly
+ * BattlescapeState::btnEndTurnClick's existing coop guard (widened, not
+ * duplicated) plus the two small accessors declared on BattlescapeState
+ * itself (getCoopEndTurnArmed() / the paired arming setter) - see that
+ * class's own doc comments.
+ *
+ * `turn` here is the HOST-MINTED SIDE-PHASE COUNTER -
+ * incremented once per APPLIED side_transition, NEVER read from or written
+ * to SavedBattleGame::_turn. `needed` is the count of LIVE seats: a
+ * CONNECTED seat with at least one live commandable unit on
+ * the ACTIVE side. A side with zero human seats is INERT: no tally is ever
+ * emitted for it and no press can arm anything, though the counter still
+ * advances through it.
+ */
+namespace CoopEndTurn
+{
+
+/// Battle-scoped reset, called from resetBattleAuthority() (connectionTCP.cpp)
+/// so a new battle never inherits the previous one's side-phase counter,
+/// ready map, or tallies-seen count.
+void reset();
+
+/// HOST-ONLY (self-guarded: isCoopBattle() && hostSim). Called from
+/// coopEmitSideTransition() (CoopSideTransition.h) immediately after its own
+/// side_begin ev has gone out - the same per-boundary quiescence point
+/// CoopSideTransition already uses. Implements the boundary discipline: (1)
+/// increments the side-phase counter, (2) clears every stored ready bit,
+/// (3) recomputes `needed` for the NEW side, (4) re-emits the tally - unless
+/// the new side has zero human seats, in which case the tally stays INERT
+/// (no wire message; the counter still advanced).
+void onSideTransition(SavedBattleGame* save);
+
+/// the TRADITIONAL baton's
+/// entry initialiser. HOST-ONLY (self-guarded exactly like onSideTransition()
+/// above), and additionally a no-op in parallel mode. Called ONCE, from the
+/// host-side point where coopBattleAuthority().phase becomes Active (after
+/// the seat->faction store is populated) - without it `activeSeat` sits at
+/// resetBattleAuthority()'s -1 default through the whole first player side,
+/// so coopMayCommand()'s baton term would be false for every seat. Seeds the
+/// baton at seat 0 and emits the ENTRY tally (activeSeat = the first LIVE
+/// seat in seat order, count 0, needed 1). Parallel mode emits NOTHING here:
+/// no tally at t=0.
+void onBattleActive(SavedBattleGame* save);
+
+/// The DISK-RESUME twin of onBattleActive()
+/// above - called INSTEAD OF it, HOST-ONLY (self-guarded identically) and
+/// only for a disk resume (never a fresh battle - that's onBattleActive()'s -
+/// and never an in-memory rejoin, which skips this whole authoring step, see
+/// connectionTCP.cpp's onReady()). A no-op in parallel mode, same as
+/// onBattleActive(). @a savedSeat is the battle-save's persisted
+/// coopActiveSeat, read by the CALLER from the BattleAuthority::activeSeat
+/// MIRROR coopLoadActiveSeat() (BattleAuthority.h) populated at
+/// SavedBattleGame::load() time (-1 = absent key, or a parallel-mode save).
+/// Restores the EXACT holder when it still names a live seat with
+/// commandable units: g_batonSeat is seeded to @a savedSeat and emitTally()'s
+/// OWN re-resolve (coopBatonResolve(save, g_batonSeat, wrap=true), the same
+/// call every tally re-entry already makes) starts searching AT that seat and
+/// only falls through past it - wrapping to the first live seat - when
+/// @a savedSeat is no longer live. One call therefore covers both "restore
+/// the exact holder" and the first-live-seat fallback, with no separate branch here; the
+/// re-emitted tally is what makes the client mirror the restored holder.
+void onBattleResumed(SavedBattleGame* save, int savedSeat);
+
+/// CLIENT-ONLY (self-guarded). Called from CoopApply::applyEvPayload()'s
+/// "side_transition" branch, once per applied restate - this machine's own
+/// mirror of the side-phase counter, used ONLY to stamp this machine's own
+/// bt_end_turn_ready presses (the client stamps turn from the last
+/// APPLIED side_transition, never from a wire value it has not applied
+/// yet). Never driven by an incoming bt_end_turn_tally.
+/// it also clears this machine's END TURN text and armed
+/// button when they still show an earlier side's tally (the host's own
+/// boundary clears its own in emitTally()'s INERT branch); a tally that
+/// arrived ahead of this restate is kept.
+void onClientAppliedSideTransition();
+
+/// the in-memory rejoin's side-phase counter.
+/// HOST-ONLY read: offerRejoinBattle() writes it into the rejoin battle_offer's
+/// additive `endTurnPhase` key. The rejoiner's own counter restarts at 0 (its
+/// leave ran reset(), or it is a fresh process) while the host's survives the
+/// pause, so without the seed below every press it makes is stale to the host.
+int rejoinPhase();
+
+/// CLIENT-ONLY (self-guarded: isCoopBattle() && !hostSim; a no-op for
+/// @a phase < 0, an offer without the key). Called ONCE, from
+/// onBlobChunkAppended() right after phase Active: this machine's counter
+/// starts at the host's. The traditional baton mirror needs no seed here: the
+/// rejoin blob carries coopActiveSeat (coopLoadActiveSeat()).
+void seedRejoinPhase(int phase);
+
+/// HOST-ONLY (self-guarded:
+/// isCoopBattle() && hostSim). Called ONCE per in-memory rejoin, from
+/// onReady()'s in-memory branch (connectionTCP.cpp), after phase Active, while
+/// the rejoiner's BattlescapeState is live. The pause kept every stored press;
+/// this drops the returning seat's own (it must press again: a
+/// press made before the leave never ends a turn after the rejoin), then
+/// re-emits the tally so both machines show the true count. Never commits:
+/// clearing a press cannot complete a side.
+void onSeatRejoined(SavedBattleGame* save);
+
+/// A seat departing mid-side changes the live-seat set: recomputes
+/// `needed`, discards the departed seat's own stored ready, and re-emits the
+/// tally. HOST-ONLY (self-guarded); called from the host's own client-drop
+/// teardown path. A no-op with no live battle.
+void onSeatSetChanged(SavedBattleGame* save);
+
+/// HOST-ONLY (self-guarded: isCoopBattle() && hostSim; inert while a seat is
+/// paused away (peerAbsent), while the pre-battle equip phase is open, and without a live
+/// BattlescapeState). Called once per pump pass from connectionTCP::updateCoopTask() with that pass's
+/// coopBattleQuiescent(). When the unit half of the live-seat set changed since the last tally (a seat's last
+/// unit went out, or one came back), re-emits the tally and runs the commit check: parallel - every remaining
+/// live seat pressed ends the side; traditional - a holder whose last unit went out passes: the next
+/// live seat forward holds the baton, or, none forward, the side ends. A battle's first observation is a
+/// silent baseline (no tally at t=0).
+void onQuiescentPass(SavedBattleGame* save, bool quiescent);
+
+/// PvE2 (gamemode 4) opens with
+/// the AI-run X-COM side, as older versions play it (their BattlescapeState::think's one-time pve2_init
+/// hand-off). HOST-ONLY: armed once per battle start by the pre-battle equip barrier (a resumed or rejoined
+/// battle has no equip phase, so it never arms); onQuiescentPass() then ends the players' turn-1 side by
+/// itself through requestEndTurn(false) once the host's battle screen is on top. Cleared by the next side
+/// transition and by reset().
+void armPve2Opening();
+
+/// true from armPve2Opening() until the next side transition - CoopArbiter::onIntent() denies every
+/// order `turn_over` meanwhile (the players' first side is already ending).
+bool pve2OpeningPending();
+
+/// BattlescapeState::btnEndTurnClick's (widened) coop guard, for BOTH the
+/// host's own press and a client's. Toggles THIS machine's own readiness bit
+/// (the inverse of @a bs's current getCoopEndTurnArmed()) and either applies
+/// it directly + broadcasts (host) or paints it optimistically + ships
+/// bt_end_turn_ready for the host to confirm/undo (client). Self-guarded
+/// (isCoopBattle()); the caller only reaches this inside an active coop
+/// battle, so SP never does.
+void toggleReady(BattlescapeState* bs);
+
+/// Host-inbound: a client's bt_end_turn_ready. HOST-ONLY (self-guarded). A
+/// press whose `turn` does not match the current side-phase counter is
+/// DROPPED and answered with a re-emitted tally to the whole battle -
+/// never a silent drop.
+void onReadyReceived(const Json::Value& msg);
+
+/// Inbound bt_end_turn_tally: adopts it into THIS machine's presentation
+/// (the inverted button + the persistent text) and event_state snapshot,
+/// bumping the tallies-seen counter. The HOST never receives its own
+/// broadcast over the wire (2-machine transport) - its own emitTally() path
+/// applies the same snapshot directly instead of round-tripping.
+void onTallyReceived(const Json::Value& msg);
+
+/// The test-only `battle_end_turn_ready {turn, ready}` test command. Ships the
+/// bt_end_turn_ready message with THIS machine's own seat and the GIVEN
+/// `turn`, touching no local state - so the harness can CONSTRUCT a stale
+/// press deterministically instead of racing for one. Never
+/// forwarded, nothing emitted beyond the one message, never called from
+/// product code.
+void testSendReady(int turn, bool ready);
+
+// ----- event_state introspection (test-only, never
+// read by game logic) -----
+
+/// The raw side-phase counter, current value - the "3 vs 1" and
+/// "advances exactly once per cycle" assertions both need this distinct
+/// from tallyTurn() below, which stays frozen through an INERT phase.
+int phaseCounter();
+
+/// The last APPLIED-or-EMITTED (non-inert) tally's own fields.
+int tallyTurn();
+std::string tallySide();
+int tallyCount();
+int tallyNeeded();
+std::vector<int> tallyReadySeats();
+
+/// The last tally MESSAGE's own
+/// `activeSeat` field (the wire echo, set unconditionally by
+/// applyTallySnapshot() on BOTH the host's emit and a client's receive) -
+/// distinct from BattleAuthority::activeSeat (the "honoured" mirror
+/// coopMayCommand() reads, written only when the tally's `turn` matches
+/// this machine's own last APPLIED side_transition counter). TestServer's
+/// event_state probe mirrors it into the existing coopEndTurnTally object
+/// alongside turn/side/count/needed/ready.
+int tallyActiveSeat();
+
+/// Read-only accessor for the traditional baton's
+/// current HOST-ONLY holder (-1 in parallel mode, or before
+/// onBattleActive() seeds it) - so the battle-save hook pair
+/// (coopSaveActiveSeat, connectionTCP.cpp beside coopSaveTurnMode) can
+/// persist it without a forward reference to this namespace's file statics
+/// (g_batonSeat is declared further down the same translation unit).
+int batonSeat();
+
+/// How many genuine (non-inert) tallies this machine has emitted-or-applied
+/// this battle - a test asserts its "+1" on a real tally application.
+/// Does NOT move on an inert boundary.
+int talliesSeen();
+
+} // namespace CoopEndTurn
+
+} // namespace OpenXcom

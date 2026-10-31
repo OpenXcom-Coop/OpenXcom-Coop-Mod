@@ -15,17 +15,66 @@ the split roster, flies them to a mission, enters the SHARED battle, and asserts
 If this fails, the bootstrap split is not reaching battle control ("all soldiers
 co-owned").
 
+The bring-up goes through `session.bring_up_shared_mixed_battle(js, owners=None)`
+(the briefing closes first), which boards the roster's two LOWEST ids unstamped -
+exactly the bootstrap pair this test needs, since consecutive soldier ids
+alternate owner under the bootstrap split (SavedGame.cpp:785-795, `getId() % 2`).
+The shared battle checks (the control split with expected coop = bootstrap owner,
+then the seat commands) run right after the battle-control assertion, mid-battle,
+so the on-load-migration coverage below still runs unconditionally; the battle
+exit is last (it ends the battle).
+
+Battle exit: `session.coop_abort_battle` uses the host-authoritative abort (host
+btnAbortClick -> vanilla AbortMissionState -> confirm -> finishBattle ->
+geoscape). SHARED finishBattle returns BOTH machines (both on GeoscapeState, no
+crash, no desyncSeen).
+
 Run:  python tools/coop_test/test_shared_soldier_ownership_battle.py
 """
 
 import os
 import sys
-import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 import session
-import test_shared_battle as B  # reuse the vetted battle-entry helpers
+
+
+def _roster(gc):
+    out = []
+    for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+        out.extend(b["soldiers"])
+    return out
+
+
+def _failure_dump(host, client, when):
+    """ONE evidence block on a failure of the seat-command check or
+    of the on-load-migration set_soldier_owner loop - both machines' player
+    units and base rosters, from the existing battle_state / get_soldiers
+    probes. Never raises: the caller re-raises the original failure."""
+    print(f"EVIDENCE FAILURE-DUMP BEGIN ({when})", flush=True)
+    for tag, gc in (("host", host), ("client", client)):
+        try:
+            bs = session.battle_state(gc)
+            units = [(u.get("id"), u.get("soldierId"), u.get("status"), u.get("health"),
+                      u.get("stun"), u.get("coop"), u.get("owner"),
+                      (u.get("x"), u.get("y"), u.get("z")), u.get("isOut"))
+                     for u in bs.get("units", [])
+                     if u.get("originalFaction") == session.FACTION_PLAYER
+                     or u.get("soldierId", -1) != -1]
+            print(f"  {tag}: selectedId={bs.get('selectedId')} turn={bs.get('turn')} "
+                  f"side={bs.get('side')} playerUnits(id,soldierId,status,health,stun,"
+                  f"coop,owner,pos,isOut)={units}", flush=True)
+        except Exception as e:  # noqa: BLE001 - evidence only, never masks the failure
+            print(f"  {tag}: battle_state probe failed: {e!r}", flush=True)
+        try:
+            for b in gc.ok({"cmd": "get_soldiers"})["bases"]:
+                print(f"  {tag}: base {b.get('name')!r} roster(id,owner,dead)="
+                      f"{[(s['id'], s['owner'], s.get('dead')) for s in b['soldiers']]}",
+                      flush=True)
+        except Exception as e:  # noqa: BLE001 - evidence only, never masks the failure
+            print(f"  {tag}: get_soldiers probe failed: {e!r}", flush=True)
+    print("EVIDENCE FAILURE-DUMP END", flush=True)
 
 
 def main():
@@ -33,61 +82,33 @@ def main():
     host, client = js.host, js.client
     try:
         # bootstrap owners (NO set_soldier_owner) - must already be split.
-        owner = {s["id"]: s["owner"] for s in B._roster(host)}
-        assert owner == {s["id"]: s["owner"] for s in B._roster(client)}, \
+        owner = {s["id"]: s["owner"] for s in _roster(host)}
+        assert owner == {s["id"]: s["owner"] for s in _roster(client)}, \
             "host/client disagree on bootstrap owners"
         seat0 = sorted(sid for sid, o in owner.items() if o == 0)
         seat1 = sorted(sid for sid, o in owner.items() if o == 1)
         assert seat0 and seat1, f"bootstrap roster not split: seat0={seat0} seat1={seat1}"
-        squad = [seat0[0], seat1[0]]  # one host-owned, one client-owned - straight from bootstrap
-        want_coop = {squad[0]: 0, squad[1]: 1}
-        print(f"PASS bootstrap: split roster; squad {squad} owners "
-              f"{[owner[s] for s in squad]} (no manual stamping)")
+        print(f"PASS bootstrap: roster split seat0={seat0} seat1={seat1} (no manual stamping)")
 
-        b0 = B._base0(host)
-        blon, blat = b0["lon"], b0["lat"]
-        cid = B._skyranger(host)["id"]
-
-        # board exactly the two bootstrap-owned soldiers on the shared craft.
-        for sid in owner:
-            host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": False})
-        for sid in squad:
-            host.ok({"cmd": "craft_assign", "craft_id": cid, "soldier_id": sid, "on": True})
-
-        def _aboard(gc):
-            return sorted(s["id"] for s in B._roster(gc) if s["craftId"] == cid)
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} squad aboard",
-                        lambda gc=gc: (_aboard(gc) == sorted(squad)) or None,
-                        timeout=40, interval=0.5)
-
-        site = host.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR",
-                        "deployment": "STR_TERROR_MISSION", "lon": blon + 0.35,
-                        "lat": blat + 0.10, "race": "STR_SECTOID", "hours": 240})
-        site_id = site["site_id"]
-        host.wait_for("site on host",
-                      lambda: any(s["id"] == site_id for s in B._geo(host)["missionSites"]) or None,
-                      timeout=30)
-        host.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT",
-                 "lon": blon + 0.34, "lat": blat + 0.10, "dest": f"site:{site_id}",
-                 "fuel": 999999, "lowFuel": False})
-
-        def _landing_prompt():
-            if B._has(host, "ConfirmLandingState"):
-                return True
-            host.cmd({"cmd": "geo_set_speed", "idx": 2})
-            return None
-        host.wait_for("ConfirmLandingState on host", _landing_prompt, timeout=90, interval=0.5)
-        host.ok({"cmd": "confirm_landing"})
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} entered the battle",
-                        lambda gc=gc: B._battle(gc).get("inBattle") or None,
-                        timeout=180, interval=1.0)
-        print("PASS entry: both machines entered the SHARED battle from the bootstrap roster")
+        # board exactly the two bootstrap-owned soldiers on the shared craft and
+        # enter the battle LIVE, the briefing closed first (session.bring_up_shared_mixed_
+        # battle with owners=None: no set_soldier_owner call, existing owners
+        # kept, the roster's two LOWEST ids boarded - the bootstrap split's own
+        # getId() % 2 rule means those two ids already straddle both seats).
+        _, _, squad = session.bring_up_shared_mixed_battle(js, owners=None)
+        assert len(squad) == 2 and {owner[squad[0]], owner[squad[1]]} == {0, 1}, (
+            f"FIXTURE: the default squad {squad} (owners {[owner[s] for s in squad]}) "
+            f"is not one seat-0 + one seat-1 soldier - this test needs the bootstrap "
+            f"split's two LOWEST roster ids to already straddle both seats")
+        want_coop = {sid: owner[sid] for sid in squad}
+        print(f"PASS entry: bootstrap squad {squad} owners {[owner[s] for s in squad]} "
+              f"boarded and the SHARED battle entered live from the bootstrap roster "
+              f"(no manual stamping)")
 
         # THE ASSERTION: bootstrap owner -> battle _coop, split, agreed on both.
         for tag, gc in (("host", host), ("client", client)):
-            us = {u["soldierId"]: u for u in B._battle(gc)["units"] if u["soldierId"] != -1}
+            us = {u["soldierId"]: u for u in session.battle_state(gc)["units"]
+                  if u["soldierId"] != -1}
             assert sorted(us) == sorted(squad), \
                 f"{tag}: deployed {sorted(us)} want {sorted(squad)}"
             coops = set()
@@ -106,11 +127,29 @@ def main():
         # units. The per-unit coop split asserted above is the only SHARED-specific input
         # that path needs, so validating it here guards #3 against ownership regressions.
 
+        # ---- control split / seat commands (mid-battle, before the battle exit) --
+        session.assert_control_split(host, client, want_coop, what="bootstrap ownership")
+        seat1_actor = next(sid for sid in squad if want_coop[sid] == 1)
+        seat0_actor = next(sid for sid in squad if want_coop[sid] == 0)
+        try:
+            session.assert_seat_commands(host, client, seat1_actor, seat0_actor,
+                                 what="bootstrap ownership")
+        except Exception:
+            _failure_dump(host, client, "seat-command check failed")
+            raise
+        print(f"after the seat-command check: host selectedId="
+              f"{session.battle_state(host).get('selectedId')} client selectedId="
+              f"{session.battle_state(client).get('selectedId')}", flush=True)
+
         # ---- ON-LOAD MIGRATION: an OLD save (pre-split) must heal on load. -----
         # Simulate a save created before the split existed: force every soldier back
         # to the unowned sentinel 999, then round-trip through SavedGame::load.
         for sid in owner:
-            host.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": 999})
+            try:
+                host.ok({"cmd": "set_soldier_owner", "soldier_id": sid, "owner": 999})
+            except Exception:
+                _failure_dump(host, client, f"set_soldier_owner {sid} failed")
+                raise
         rt = host.ok({"cmd": "reload_save_roundtrip"})
         assert rt.get("ok"), f"roundtrip failed: {rt}"
         loaded = {s["id"]: s["owner"] for s in rt["soldiers"]}
@@ -122,6 +161,11 @@ def main():
         assert abs(n0 - n1) <= 1, f"on-load migration split uneven: seat0={n0} seat1={n1}"
         print(f"PASS migration: a 999-owned (pre-fix) save healed on load -> "
               f"seat0={n0} seat1={n1}, no soldier left co-owned")
+
+        # ---- the battle exit closes the battle via the host-authoritative
+        # abort: SHARED finishBattle returns BOTH machines cleanly.
+        session.assert_battle_exit(host, client, what="bootstrap ownership")
+
         print("ALL SHARED BOOTSTRAP-OWNERSHIP-IN-BATTLE TESTS PASSED")
     finally:
         js.shutdown()

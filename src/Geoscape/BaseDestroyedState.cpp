@@ -37,9 +37,15 @@
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include <map> // coop
 
 namespace OpenXcom
 {
+
+// coop: the own bases whose
+// loss this machine announced (the constructor's delete_base) while their BaseDestroyedState lives: the base is erased only at OK. The own-base
+// marker lists in connectionTCP.cpp leave these ids out, so a partner's base request answered meanwhile cannot bring the base back.
+std::map<const BaseDestroyedState*, int> g_coopAnnouncedBaseLosses;
 
 BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles, bool partialDestruction) :
 	_base(base), _missiles(missiles), _partialDestruction(partialDestruction)
@@ -65,6 +71,10 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
 			root["base_id"] = base->_coop_base_id;
 
 			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
+			if (!partialDestruction)
+			{
+				g_coopAnnouncedBaseLosses[this] = base->_coop_base_id; // coop; the destructor erases it
+			}
 		}
 
 	}
@@ -173,6 +183,7 @@ BaseDestroyedState::BaseDestroyedState(Base *base, const Ufo* ufo, bool missiles
  */
 BaseDestroyedState::~BaseDestroyedState()
 {
+	g_coopAnnouncedBaseLosses.erase(this); // coop
 }
 
 /**
@@ -215,11 +226,13 @@ void BaseDestroyedState::removeBase()
 			// unless this machine is the SHARED host.
 			std::string destroyedName = xbase->getName();
 			int baseId = (int)i;
+			// carry the CAUSE so the replica shows the same message the host does. Sent while the base is still
+			// listed: the command keys the base by its id at this index, so the replica erases this base, never
+			// the one that moves into its place.
+			SharedEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
 			_game->getSavedGame()->stopHuntingXcomCrafts(xbase); // destroyed together with the base
 			delete xbase;
 			bases->erase(bases->begin() + i);
-			// carry the CAUSE so the replica shows the same message the host does
-			SharedEcon::hostBaseDestroyed(_game, baseId, destroyedName, _missiles);
 			break;
 		}
 	}

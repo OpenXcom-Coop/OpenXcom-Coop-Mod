@@ -39,6 +39,7 @@ class SelectDestinationState : public State
 private:
 	std::vector<Craft*> _crafts; 
 	Globe *_globe;
+	State *_coopGeo = nullptr; // coop: the geoscape that owns _globe; compared by pointer only, never dereferenced
 	InteractiveSurface *_btnRotateLeft, *_btnRotateRight, *_btnRotateUp, *_btnRotateDown, *_btnZoomIn, *_btnZoomOut;
 	Window *_window;
 	Text *_txtTitle;
@@ -46,6 +47,7 @@ private:
 public:
 	/// Creates the Select Destination state.
 	SelectDestinationState(std::vector<Craft*> crafts, Globe *globe);
+	const std::vector<Craft*>& coopHeldCrafts() const { return _crafts; } // coop: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Select Destination state.
 	~SelectDestinationState();
 	/// Resets globe.

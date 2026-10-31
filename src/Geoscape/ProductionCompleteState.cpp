@@ -33,6 +33,7 @@
 #include "../Savegame/Base.h"
 #include "../Savegame/ItemContainer.h"
 #include "../Savegame/SavedGame.h"
+#include "../CoopMod/SharedEcon.h" // coop
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
 
@@ -245,11 +246,11 @@ void ProductionCompleteState::sellSummaryRow(unsigned int sel)
 			_index.erase(_index.begin() + sel);
 		}
 
-		if (itemCount > 0 && _game->getCoopMod()
-			&& (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		if (SharedEcon::submitRandomProductionSale(_game, _base, itemName, itemCount)) itemCount = 0; // coop: SHARED - the host sells it for both worlds
+		if (itemCount > 0 && _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
 		{
-			// One-world campaigns: the host sells from its stores into the seller's
-			// wallet and every machine applies the result (the "sell" command).
+			// Separate campaign (one world): the host sells from its stores into the
+			// seller's wallet and every machine applies the result (the "sell" command).
 			Json::Value item;
 			item["rule"] = itemName;
 			item["qty"] = itemCount;

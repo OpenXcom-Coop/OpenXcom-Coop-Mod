@@ -1346,6 +1346,24 @@ void Soldier::setWoundRecovery(int recovery)
 	_recovery = std::max(recovery, 0);
 }
 
+/**
+ * coop: the exact wound recovery (the SHARED replica adopts the host's).
+ * @return Hospital attention left (fractional with sick-bay bonuses).
+ */
+float Soldier::getWoundRecoveryExact() const
+{
+	return _recovery;
+}
+
+/**
+ * coop: sets the exact wound recovery, clamped at 0 as setWoundRecovery.
+ * @param recovery Hospital attention left.
+ */
+void Soldier::setWoundRecoveryExact(float recovery)
+{
+	_recovery = std::max(recovery, 0.0f);
+}
+
 
 /**
  * Heals soldier wounds.

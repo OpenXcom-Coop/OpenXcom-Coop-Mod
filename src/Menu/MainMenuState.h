@@ -48,6 +48,7 @@ private:
 	Window *_window;
 	// coop
 	Text *_txtTitle, *_txtUpdateInfo, *_textCoopVersion;
+	bool _coopInitDone = false;
 #ifdef _WIN32
 	bool _debugInVisualStudio;
 	std::string _newVersion;
@@ -74,6 +75,8 @@ public:
 	/// Update the resolution settings, we just resized the window.
 	void resize(int &dX, int &dY) override;
 	void init() override;
+	/// coop: whether init() has run (its co-op disconnect and session reset are done); the test server reports it.
+	bool coopInitDone() const { return _coopInitDone; }
 };
 
 }

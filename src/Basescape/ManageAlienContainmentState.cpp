@@ -212,6 +212,7 @@ void ManageAlienContainmentState::init()
 	// in-place rebuild (resetListAndTotals, used by init above), so it needs no
 	// pop-and-push - see think().
 	_sharedRefresh.bind(_game, this, _base);
+	_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop
 }
 
 /**
@@ -322,13 +323,20 @@ void ManageAlienContainmentState::think()
 {
 	State::think();
 
+	if (SharedEcon::contScreenShouldClose(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop: answered / solved
 	// PRD-J10: a peer's shared_apply moved this base's prisoners/funds. This screen
 	// rebuilds in place (no pop-and-push) - the pending selection is cleared, which
 	// is correct: it was quantities against a prison that no longer looks like that.
 	if (_sharedRefresh.consume())
 	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // coop: this base is gone, as the eleven other bound base screens do
+			return;
+		}
 		resetListAndTotals();
 	}
+	_sharedSel.think(this); // coop: also re-applies the list after a rebuild in place
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -374,6 +382,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 	// both. SEPARATE/solo path below is unchanged.
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
+		if (SharedEcon::awaiting(SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE))) return; // coop: one confirm at a time
 		Json::Value prisoners(Json::arrayValue);
 		for (size_t i = 0; i < _qtys.size(); ++i)
 		{
@@ -385,18 +394,22 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
 				prisoners.append(e);
 			}
 		}
+		int coopSeq = 0; // coop: the submitted command's seq
 		if (!prisoners.empty())
 		{
 			Json::Value payload;
 			payload["prisoners"] = prisoners;
 			payload["sell"] = sell;
+			if (_origin == OPT_BATTLESCAPE) { payload["origin"] = "forced"; payload["prisonType"] = _prisonType; } // coop
+			_sharedSel.stamp(payload); // coop
 			int baseId = 0;
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
-			if (_game->getCoopMod()->isSharedCampaign()) SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
+			if (_game->getCoopMod()->isSharedCampaign()) coopSeq = SharedEcon::submitLocalCmd(_game, "containment", baseId, payload);
 			else SeparateEcon::submitLocalCmd(_game, "containment", baseId, payload);
 		}
+		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop: wait for the host
 		_game->popState();
 		return;
 	}
@@ -451,6 +464,7 @@ void ManageAlienContainmentState::dealWithSelectedAliens(bool sell)
  */
 void ManageAlienContainmentState::btnCancelClick(Action *)
 {
+	SharedEcon::forgetResult(SharedEcon::contKey(_game, _base, _prisonType, _origin == OPT_BATTLESCAPE)); // coop
 	_game->popState();
 }
 
@@ -675,6 +689,7 @@ void ManageAlienContainmentState::decreaseByValue(int change)
  */
 void ManageAlienContainmentState::updateStrings()
 {
+	_sharedSel.localEdit(this); // coop
 	std::ostringstream ss, ss2;
 	int qty = getQuantity() - _qtys[_sel];
 	ss << qty;

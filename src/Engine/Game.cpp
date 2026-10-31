@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <cmath>
 #include <sstream>
+#include <typeinfo>
 #include <SDL_mixer.h>
 #include "State.h"
 #include "Screen.h"
@@ -50,6 +51,8 @@
 #include "../CoopMod/CrashHandler.h" // coop
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/TestServer.h" // coop test automation
+#include "../CoopMod/CoopArbiter.h" // coop: the covered-battle driver
+#include "../CoopMod/connectionUDP/connection_udp_glue.h" // coop UDP transport (shutdown)
 
 namespace OpenXcom
 {
@@ -123,6 +126,9 @@ Game::Game(const std::string &title) : _screen(0), _cursor(0), _lang(0), _save(0
  */
 Game::~Game()
 {
+	TestServer::instance().stop();
+	stopUdpPeer();
+
 	Sound::stop();
 	Music::stop();
 
@@ -194,6 +200,10 @@ void Game::run()
 			DebugLog((msg + "\n").c_str());
 			CRASH_LOG(msg);
 		}
+
+		// coop: a removal the drain above applied closes the screens that still show that base, before
+		// any of them runs init(), handle() or think()
+		coopCloseGoneBaseHolders();
 
 		// Clean up states
 		while (!_deleted.empty())
@@ -369,7 +379,7 @@ void Game::run()
 									// Battle. The menu calls giftBattleUnit(), which delegates to the
 									// persistent Soldier transfer path when the BattleUnit belongs to
 									// a campaign soldier. This also remains valid for 3-4 players.
-									pushState(new GiftSoldierMenu(giftUnit, connectionTCP::unitSeat(giftUnit)));
+									pushState(new GiftSoldierMenu(giftUnit, (int)giftUnit->getCoopSeat()));
 								}
 							}
 
@@ -435,7 +445,9 @@ void Game::run()
 		if (runningState != PAUSED)
 		{
 			// Process logic
+			coopCloseGoneBaseHolders(); // coop: a dialog closed above a screen whose base is gone - close it before its think()
 			_states.back()->think();
+			coopThinkCoveredBattle(this); // coop: a covered host battle keeps running the partner's action
 			_fpsCounter->think();
 			if (Options::FPS > 0 && !(Options::useOpenGL && Options::vSyncForOpenGL))
 			{
@@ -585,6 +597,12 @@ void Game::setState(State *state)
 void Game::pushState(State *state)
 {
 	_states.push_back(state);
+	// the screen record. pushState/popState are the COMPLETE chokepoint
+	// onto the screen stack (private member, no friends, const accessor), so this
+	// pair is a full history of what was shown - including the direct pushes that
+	// bypass the geoscape popup queue. LOG_INFO because Release runs at LOG_INFO.
+	Log(LOG_INFO) << "[coop-ui] push " << typeid(*state).name()
+		<< " depth=" << _states.size();
 	_init = false;
 }
 
@@ -596,9 +614,76 @@ void Game::pushState(State *state)
  */
 void Game::popState()
 {
-	_deleted.push_back(_states.back());
+	State *popped = _states.back();
+	_deleted.push_back(popped);
 	_states.pop_back();
+	// the matching record. The state is still alive here (the delete
+	// happens at the start of the next cycle), so typeid is safe, and depth is
+	// the size AFTER the pop - so a pop's depth is its push's depth minus one.
+	Log(LOG_INFO) << "[coop-ui] pop  " << typeid(*popped).name()
+		<< " depth=" << _states.size();
 	_init = false;
+}
+
+/**
+ * coop: in a co-op world, is @a base gone from the
+ * live base list? Pointers are compared, never dereferenced, so a freed base may be passed. Single player, no world, a null base: never.
+ */
+bool State::coopBaseGone(const Base *base)
+{
+	SavedGame *save = _game ? _game->getSavedGame() : nullptr;
+	if (!base || !save || !save->isCoopSave())
+	{
+		return false;
+	}
+	for (const Base *live : *save->getBases())
+	{
+		if (live == base)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
+/// coop: coopBaseGone for any base of a list (a null entry is never gone).
+bool State::coopBasesGone(const std::vector<Base*> &bases)
+{
+	for (const Base *base : bases)
+	{
+		if (coopBaseGone(base))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+/// coop: the default close of a screen whose base is gone - a plain pop, as the eleven SHARED base screens do.
+void State::coopCloseGoneBase()
+{
+	_game->popState();
+}
+
+/**
+ * coop: the other player removed a base (SHARED fac_dismantle or base_destroyed,
+ * SEPARATE delete_base), or a world reload replaced every base. Every screen on top that still shows such a base closes, top down, before
+ * it runs init(), handle() or think() again; the first screen that does not stops it (BasescapeState falls back to the first base itself, a
+ * co-op dialog stays). Called right after the co-op drain and right before think().
+ */
+void Game::coopCloseGoneBaseHolders()
+{
+	while (_states.size() > 1 && _states.back()->coopHoldsGoneBase())
+	{
+		State *top = _states.back();
+		const size_t before = _states.size();
+		Log(LOG_INFO) << "[coop] removed base: closed " << typeid(*top).name() << " - the base it shows is gone";
+		top->coopCloseGoneBase();
+		if (_states.size() >= before)
+		{
+			break; // the close did not pop: never loop
+		}
+	}
 }
 
 /**
@@ -609,6 +694,19 @@ void Game::setSavedGame(SavedGame *save)
 {
 	delete _save;
 	_save = save;
+}
+
+/**
+ * coop: replaces the saved game without deleting the old one - the gm3 PvP alien host
+ * parks its own world while it runs a battle in the X-COM player's world.
+ * @param save The new saved game.
+ * @return The previous saved game (the caller owns it).
+ */
+SavedGame *Game::swapSavedGame(SavedGame *save)
+{
+	SavedGame *old = _save;
+	_save = save;
+	return old;
 }
 
 /**

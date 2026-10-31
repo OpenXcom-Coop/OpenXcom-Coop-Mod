@@ -35,6 +35,8 @@
 #include "../Engine/Options.h"
 #include "../Engine/Action.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/BattleAuthority.h"
+#include "../Engine/Logger.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SeparateEcon.h"
 #include "CraftErrorState.h"
@@ -145,6 +147,16 @@ void MultipleTargetsState::popupTarget(Target *target)
 				&& !b->getOwnerPlayerName().empty()
 				&& !b->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat())))
 			{
+
+				// coop: while a co-op battle is being
+				// handed to this machine (phase Handshake: its battle_offer accepted, the battle blob streaming) a click on
+				// the partner's base does nothing; the briefing follows. MultipleTargetsState is already popped (:122).
+				if (coopBattleAuthority().phase.load() == CoopBattlePhase::Handshake)
+				{
+					Log(LOG_INFO) << "[coop-visit] base click ignored: a battle hand-off is in flight";
+					return;
+				}
+
 				auto* bases = _game->getSavedGame()->getBases();
 				for (size_t i = 0; i < bases->size(); ++i)
 				{

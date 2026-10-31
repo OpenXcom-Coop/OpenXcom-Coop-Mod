@@ -161,7 +161,7 @@ void BattleItem::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 	}
 	if (_tile)
 		writer.write("position", _tile->getPosition());
-	if (_ammoQuantity)
+	if (_ammoQuantity || _rules->isAmmoRechargeable()) // To consider: maybe it would be better to just always write also zero?
 		writer.write("ammoqty", _ammoQuantity);
 	if (_ammoItem[0])
 		writer.write("ammoItem", _ammoItem[0]->getId());
@@ -745,8 +745,8 @@ bool BattleItem::isWeaponWithAmmo() const
 }
 
 /**
- * Check if weapon has enough ammo to shoot.
- * @return True if has enough ammo.
+ * Check if the weapon is loaded with any ammo item(s). IMPORTANT: ammo quantity can also be zero!
+ * @return True if the weapon is loaded. IMPORTANT: empty clip also counts as a loaded weapon! empty "built-in" clip also counts as a loaded weapon!
  */
 bool BattleItem::haveAnyAmmo() const
 {
@@ -871,7 +871,7 @@ const BattleItem *BattleItem::getAmmoForAction(BattleActionType action) const
 	}
 
 	auto* ammo = getAmmoForSlot(conf->ammoSlot);
-	if (ammo && ammo->getAmmoQuantity() == 0)
+	if (ammo && ammo->getAmmoQuantity() == 0 && !ammo->getRules()->isAmmoRechargeable())
 	{
 		return nullptr;
 	}
@@ -931,7 +931,7 @@ void BattleItem::spendAmmoForAction(BattleActionType action, SavedBattleGame* sa
 	auto* ammo = getAmmoForAction(action, nullptr, &spendPerShot);
 	if (ammo)
 	{
-		if (ammo->getRules()->getClipSize() > 0 && ammo->spendBullet(spendPerShot) == false)
+		if (ammo->getRules()->getClipSize() > 0 && ammo->spendBullet(spendPerShot) == false && !ammo->getRules()->isAmmoRechargeable())
 		{
 			save->removeItem(ammo);
 			ammo->setIsAmmo(false);
@@ -1085,15 +1085,6 @@ void BattleItem::setTile(Tile *tile)
 int BattleItem::getId() const
 {
 	return _id;
-}
-
-/**
- * coop (PRD-P4): re-stamps the item's id with the host's.
- * @param id The id the HOST minted for this instance.
- */
-void BattleItem::setIdCoop(int id)
-{
-	_id = id;
 }
 
 /**
@@ -1280,14 +1271,26 @@ bool BattleItem::isAmmo() const
 	return _isAmmo;
 }
 
-void BattleItem::setCoopID(int id)
+/**
+ * the raw script-value vector.
+ * @return values (element i = tag index i + 1)
+ */
+const std::vector<int>& BattleItem::coopScriptValuesRaw() const
 {
-	_coopID = id;
+	return _scriptValues.getValuesRaw();
 }
 
-int BattleItem::getCoopID() const
+/**
+ * absolute raw script-value set; every index past @a values is
+ * zeroed. Runs no script and draws no RNG.
+ * @param values new values (element i = tag index i + 1)
+ */
+void BattleItem::coopSetScriptValuesRaw(const std::vector<int>& values)
 {
-	return _coopID;
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+		_scriptValues.set(CoopTag::make(i + 1), i < values.size() ? values[i] : 0);
 }
 
 

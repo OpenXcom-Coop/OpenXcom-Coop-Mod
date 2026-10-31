@@ -43,6 +43,7 @@ class SoldierDiaryPerformanceState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _soldierId;
 	SoldierDiaryOverviewState *_soldierDiaryOverviewState;
 	Soldier *_soldier;

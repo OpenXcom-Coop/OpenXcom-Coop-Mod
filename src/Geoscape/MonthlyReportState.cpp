@@ -460,6 +460,9 @@ void MonthlyReportState::btnOkClick(Action *)
 				_game->getSavedGame()->setEnding(END_LOSE);
 			}
 
+			// coop: as GeoscapeEventState - both SHARED machines show this report and play a video without an ending at their own OK
+			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->isSharedCampaign() && _game->getSavedGame()->getEnding() == END_NONE) // coop
+				_game->getCoopMod()->allow_cutscene = false; // coop: CutsceneState::init skips the relay; GeoscapeState::init re-arms the latch
 			_game->pushState(new CutsceneState(cutsceneId));
 			if (_game->getSavedGame()->isIronman())
 			{
@@ -728,6 +731,8 @@ void MonthlyReportState::calculateChanges()
 				root["separateDebt"] = _separateDebt;
 				root["separateWarned"] = _separateWasWarned;
 			}
+			const auto& h17cScores = _game->getSavedGame()->getResearchScores(); // coop: the month just ended
+			root["sharedResearchScoreEnded"] = h17cScores.size() >= 2 ? h17cScores[h17cScores.size() - 2] : 0; // coop (council bonus, arcs)
 		}
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());

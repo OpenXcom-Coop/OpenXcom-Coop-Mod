@@ -42,6 +42,7 @@ class SoldierTransformationListState : public State
 {
 private:
 	Base* _base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	ComboBox* _screenActions;
 	TextButton* _btnOK;
 	ToggleTextButton* _btnOnlyEligible;

@@ -66,12 +66,15 @@
 #include "BaseFacility.h"
 #include "MissionStatistics.h"
 #include "SoldierDeath.h"
+#include "BattleUnitStatistics.h" // BattleUnitKills fields in the [coop-roster] killSoldier log line
 #include "SoldierDiary.h"
 #include "ResearchDiary.h"
 #include "../Mod/AlienRace.h"
 #include "RankCount.h"
 
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 #include "Upgrade/SaveUpgrade.h"
 #include "../version.h" // SAVE_SCHEMA_CURRENT
 
@@ -126,7 +129,7 @@ SavedGame::SavedGame() :
 	_difficulty(DIFF_BEGINNER), _end(END_NONE), _ironman(false), _coop(false), _campaignType(CoopCampaignType::Separate), _globeLon(0.0), _globeLat(0.0), _globeZoom(0),
 	_battleGame(0), _previewBase(nullptr), _debug(false), _warned(false),
 	_togglePersonalLight(true), _toggleNightVision(false), _toggleBrightness(0),
-	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
+	_monthsPassed(-1), _daysPassed(0), _vehiclesLost(0), _craftLostMission(0), _selectedBase(0), _autosales(), _disableSoldierEquipment(false), _alienContainmentChecked(false)
 {
 	_time = new GameTime(6, 1, 1, 1999, 12, 0, 0);
 	_alienStrategy = new AlienStrategy();
@@ -355,7 +358,24 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 	reader.tryRead("monthsPassed", _monthsPassed);
 
 	// coop
-	reader.tryRead("saveID", connectionTCP::saveID);
+	{
+		long long blobSaveId = connectionTCP::saveID;
+		reader.tryRead("saveID", blobSaveId);
+		// coop: a "client_" key is
+		// this machine's own world (connectionTCP::pvpClientWorldKey; only a client loads one): the world the host serves at a rejoin or a resume
+		// (CoopState 555), the battle-entry snapshot, the guest-craft sync, a SHARED adoption. The host may serve a stored world whose saveID
+		// is older than the one it sent at the join (the host's stored copy after a drop during a host save; a resumed save's embedded world); taking
+		// it made this machine's next upload move the host's saveID back and erase the key a later rejoin looks up, and the partner got a new
+		// campaign. The id the host sent stays; with no id yet (0) the blob's is taken, as before.
+		if (key.compare(0, 7, "client_") == 0 && connectionTCP::saveID != 0)
+		{
+			if (blobSaveId != connectionTCP::saveID)
+				Log(LOG_INFO) << "[coop] own world \"" << key << "\" loaded - saveID stays " << connectionTCP::saveID
+					<< " (the blob's is " << blobSaveId << ")";
+		}
+		else
+			connectionTCP::saveID = blobSaveId;
+	}
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
 	{
 		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
@@ -370,19 +390,18 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		_separateCampaign.reconcilePlayerNames(_coopPlayers);
 		_separateCampaign.ensurePlayers(_coopPlayers);
 	}
-	// coop (PRD-P5): coop_parallel_turns is NOT read here. Every in-memory load
-	// is a world swapped inside a live session (often into a throwaway
-	// SavedGame), and the COOP_READY handshake already decided the session mode.
-	// A blob written before the handshake latched carries a stale false, so
-	// reading it switched parallel turns off for the rest of the session. Only
-	// the disk load (SavedGame::load, the resume path) restores the mode.
 	if (connectionTCP::getServerOwner() == false)
 	{
-		reader.tryRead("no_bases", connectionTCP::no_bases);
+		// coop: a client's PvP alien-side flag is its
+		// machine's role, not the loaded world's - the gm2 client is the alien side, every other client is not. Read from
+		// the blob, the gm2 alien client took the host world's false at a battle's blob load, wrote it into its own-world
+		// snapshot and came back from the battle with its own geoscape sim running.
+		connectionTCP::no_bases = (connectionTCP::_coopGamemode == 2);
 	}
 
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
+	reader.tryRead("craftLostMission", _craftLostMission);
 	reader.tryRead("graphRegionToggles", _graphRegionToggles);
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
@@ -671,10 +690,10 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 
-	// Separate: every player keeps their own saved templates. The world's
-	// template slots are the host's own set; a client takes its set from its
-	// player profile (LoadGameState carries a client's set over instead when it
-	// already holds a campaign world).
+	// Separate: every player keeps their own saved templates and craft type
+	// deployments. The world's template slots and deployment map are the host's
+	// own; a client takes its set from its player profile (LoadGameState carries
+	// a client's set over instead when it already holds a campaign world).
 	if (isSeparateCoopCampaign() && !connectionTCP::getServerOwner())
 	{
 		const int seat = connectionTCP::localSeat();
@@ -682,6 +701,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 			(seat >= 0 && static_cast<size_t>(seat) < _coopPlayers.size())
 			? _separateCampaign.getPlayer(_coopPlayers[seat]) : nullptr;
 		setTemplates(profile ? profile->equipmentTemplates : SeparateEcon::EquipmentTemplates(), mod);
+		_customRuleCraftDeployments = profile ? profile->craftDeployments : std::map<std::string, RuleCraftDeployment>();
 	}
 	else
 	{
@@ -873,6 +893,69 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_campaignType = static_cast<CoopCampaignType>(coopCampaignTypeInt);
 	}
 
+	// coop: a save the gm3 alien host wrote while it borrowed the X-COM player's world for a
+	// battle - the borrow's record, kept for the RESUME (connectionTCP::coopPvpResumeBorrow). Every menu load resets it first.
+	connectionTCP::coopPvpLoadedBorrow = Json::Value();
+	if (_coop && header["coopPvpBorrowed"])
+	{
+		const auto& borrowedReader = header["coopPvpBorrowed"];
+		std::string kind, craftType, targetKind;
+		int craftId = -1, targetCoopId = 0;
+		bool targetMirror = false;
+		borrowedReader.tryRead("kind", kind);
+		borrowedReader.tryRead("craftType", craftType);
+		borrowedReader.tryRead("craftId", craftId);
+		borrowedReader.tryRead("targetKind", targetKind);
+		borrowedReader.tryRead("targetCoopId", targetCoopId);
+		borrowedReader.tryRead("targetMirror", targetMirror);
+		Json::Value rec(Json::objectValue);
+		rec["kind"] = kind; rec["craftType"] = craftType; rec["craftId"] = craftId;
+		rec["targetKind"] = targetKind; rec["targetCoopId"] = targetCoopId; rec["targetMirror"] = targetMirror;
+		connectionTCP::coopPvpLoadedBorrow = rec;
+	}
+
+	// A mid-battle coop save is
+	// stamped with the wire protocol it was written under (coopBattleProtocol,
+	// save()'s header write). A DIFFERENT BUILD (a full host restart on a
+	// newer/older version) resuming a save whose body carries a battle
+	// refuses HERE, before the schema gate below even finishes classifying
+	// the rest of the document - the same "classify before you build more of
+	// the SavedGame" discipline. `header["turn"]` is battle-only (written
+	// only when _battleGame != 0 in save(); it is getSaveInfo()'s own
+	// battle-vs-geoscape discriminator too), so a geoscape coop save or a
+	// solo save - which never carry coopBattleProtocol at all - are
+	// UNAFFECTED and stay byte-identical. This is a MENU load only
+	// (loadCoopSaveFromMemory(), the coop-orchestrated blob load, is a
+	// SEPARATE function and never reaches this gate - same discipline as the
+	// schema gate immediately below, which is menu-load-only too).
+	// coop: an UNSTAMPED mid-battle co-op save
+	// was made by an older version (older versions never write coopBattleProtocol). One whose game mode the conversion
+	// handles loads on and is converted once its battle is loaded (the hook after the battleGame block below); any other
+	// unstamped one, and every stamp other than 1, still refuses.
+	bool coopOlderBattle = false;
+	if (_coop && header["turn"])
+	{
+		int coopBattleProtocol = -1;
+		const bool coopStamped = header.tryRead("coopBattleProtocol", coopBattleProtocol);
+		int coopOlderGamemode = 0;
+		documents[1].tryRead("coop_gamemode", coopOlderGamemode);
+		if (!coopStamped && coopOlderBattleConvertible(coopOlderGamemode))
+		{
+			coopOlderBattle = true;
+		}
+		else if (!coopStamped || coopBattleProtocol != 1)
+		{
+			// coop: an UNSTAMPED gm3 PvP campaign
+			// battle save (an older version's: it holds no world of the alien player, so it is never converted) refuses with where to ask
+			// for a repair. Every other refusal here keeps the text below.
+			if (!coopStamped && coopOlderGamemode == 3)
+			{
+				throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it, or ask the developers to repair your save by opening an issue at https://github.com/OpenXcom-Coop/OpenXcom-Coop-Mod/issues");
+			}
+			throw Exception("This mid-battle co-op save was made by a different version of the mod and cannot be resumed. Finish or abandon the battle on the version that saved it.");
+		}
+	}
+
 	// Get full save data
 	const auto& reader = documents[1].useIndex();
 
@@ -911,6 +994,9 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	connectionTCP::saveID = 0;
 	reader.tryRead("saveID", connectionTCP::saveID);
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+	// coop: the mode this save was played in, kept on the save itself - the host window resets the live
+	// mode of every resume that is not PvP to 1 (HostMenu::hostTCPGame), so LobbyMenu::resumeCampaign reads this, never the global.
+	reader.tryRead("coop_gamemode", _coopLoadedGamemode);
 	{
 		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
 		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
@@ -924,12 +1010,15 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_separateCampaign.reconcilePlayerNames(_coopPlayers);
 		_separateCampaign.ensurePlayers(_coopPlayers);
 	}
-	// coop (PRD-P5): the parallel-turns session mode survives a save/load so a
-	// mid-battle resume comes back in the same mode it was played in.
-	reader.tryRead("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	// Only adversarial PvP keeps distinct player worlds. Shared and Separate
 	// campaigns always load one authoritative host world and never restore
 	// player-world blobs.
+	// Single-authority: a PvP host save embeds every client-world blob captured
+	// at save time. Restore them as the served copies (memory only - the
+	// reconnect flow streams from these), so a rolled-back save rolls every
+	// client back too. The load defines the full served set: stale host blobs
+	// from another campaign/session are dropped first, so a solo or different
+	// save never serves (or re-embeds) a foreign client world.
 	if (connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3)
 	{
 		std::lock_guard<std::mutex> lock(connectionTCP::coopFilesMutex);
@@ -961,6 +1050,7 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 
 	reader.tryRead("daysPassed", _daysPassed);
 	reader.tryRead("vehiclesLost", _vehiclesLost);
+	reader.tryRead("craftLostMission", _craftLostMission);
 	reader.tryRead("graphRegionToggles", _graphRegionToggles);
 	reader.tryRead("graphCountryToggles", _graphCountryToggles);
 	reader.tryRead("graphFinanceToggles", _graphFinanceToggles);
@@ -1273,6 +1363,23 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 		_battleGame->load(battle, mod, this);
 	}
 
+	// coop: a co-op Custom Battle saved
+	// mid-battle by an older version carries no header `coop`, so the gate above never sees it. It is converted the same way
+	// (seat tags, the turn mode it was played in, the mission deployment), so CONTINUE BATTLE resumes it with each player
+	// commanding its own soldiers and nobody the aliens. A save this build wrote is never converted (BattleAuthority.h).
+	if (!_coop && _battleGame && coopOlderCustomBattleSave(reader))
+	{
+		Log(LOG_INFO) << "[coop-convert] an older version's co-op Custom Battle save - converted as a classic co-op battle";
+		coopOlderBattle = true;
+	}
+
+	// coop: an older version's mid-battle co-op save (the gate above) - convert its battle, the
+	// partner worlds this load restored and the battle mirrors (BattleAuthority.h).
+	if (coopOlderBattle && _battleGame)
+	{
+		coopConvertOlderBattleSave(this, mod, reader);
+	}
+
 	_scriptValues.load(reader, mod->getScriptGlobal());
 
 }
@@ -1358,6 +1465,20 @@ void SavedGame::setTemplates(const SeparateEcon::EquipmentTemplates& templates, 
 	loadTemplates(reader, mod);
 }
 
+const std::map<std::string, RuleCraftDeployment>& SavedGame::getCraftDeploymentsOf(const Craft* craft) const
+{
+	// Separate: the world's own map is this machine's player's; another
+	// player's craft uses the deployments kept in that player's profile.
+	if (craft && craft->getBase() && craft->getBase()->_isForeignBase && isSeparateCoopCampaign())
+	{
+		static const std::map<std::string, RuleCraftDeployment> none;
+		const SeparateEcon::CampaignData::PlayerState* profile =
+			_separateCampaign.getPlayer(craft->getBase()->getOwnerPlayerName());
+		return profile ? profile->craftDeployments : none;
+	}
+	return _customRuleCraftDeployments;
+}
+
 void SavedGame::loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader)
 {
 	reader.tryReadVal(_ufopediaRuleStatus);
@@ -1413,7 +1534,11 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	// See src/Savegame/Upgrade/ and PRD save-upgrader.md.
 	headerWriter.write("saveSchema", saveSchemaStamp(*this));
 	_time->save(headerWriter["time"]);
-	if (_battleGame != 0)
+	// coop: a preview battle (the Ufopaedia craft deployment, the base preview) is not part of the world - vanilla never
+	// saves one, and a peer loading it null-derefs the Ufopaedia's stand-in soldiers (ids -1..-n, in no base), the crash buildCoopStub
+	// avoids below: a co-op blob carries neither the preview battle nor its header markers.
+	const bool coopSaveBattle = _battleGame != 0 && !_battleGame->isPreview();
+	if (coopSaveBattle)
 	{
 		headerWriter.write("mission", _battleGame->getMissionType());
 		headerWriter.write("target", _battleGame->getMissionTarget());
@@ -1456,13 +1581,12 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 		writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
-	// coop (PRD-P5)
-	writer.write("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	writer.write("no_bases", connectionTCP::no_bases);
 
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("craftLostMission", _craftLostMission);
 	writer.write("graphRegionToggles", _graphRegionToggles);
 	writer.write("graphCountryToggles", _graphCountryToggles);
 	writer.write("graphFinanceToggles", _graphFinanceToggles);
@@ -1499,6 +1623,13 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 
 	for (auto& base : _bases)
 	{
+		// coop: a partner-base mirror is never
+		// written (the "bases" filter below), so its name cannot make this world invalid. A mirror built while the partner was still naming
+		// its base has the name "": it refused every save of this world and a visit then reloaded an older snapshot over the live world.
+		if (base->_coopIcon)
+		{
+			continue;
+		}
 
 		// Every named-owner base is real in schema-3 Separate. _isForeignBase is only
 		// the current seat's foreign-base UI flag and may still reflect the seat
@@ -1624,7 +1755,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	for (const auto& optionInfo : Options::getOptionInfo())
 		optionInfo.save(optionsWriter);
 
-	if (_battleGame)
+	if (coopSaveBattle)
 		_battleGame->save(writer["battleGame"]);
 	_scriptValues.save(writer.toBase(), mod->getScriptGlobal());
 
@@ -1724,6 +1855,7 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("craftLostMission", _craftLostMission);
 	writer.write("graphRegionToggles", _graphRegionToggles);
 	writer.write("graphCountryToggles", _graphCountryToggles);
 	writer.write("graphFinanceToggles", _graphFinanceToggles);
@@ -1929,6 +2061,49 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		headerWriter.write("coopCampaignType", static_cast<int>(_campaignType));
 	}
 
+	// coop: the gm3 alien host's save while it borrows the X-COM player's world
+	// for a battle (connectionTCP::coopPvpSaveWorld writes this world, the host's own, as the body): the borrow's record for the RESUME,
+	// and the battle's save-list keys and version stamp as every mid-battle co-op save carries them (the battle itself rides in the X-COM
+	// player's embedded world, coopClientSaves).
+	if (_coop && connectionTCP::coopPvpSaveMarker.isObject())
+	{
+		const Json::Value& m = connectionTCP::coopPvpSaveMarker;
+		auto borrowedWriter = headerWriter["coopPvpBorrowed"];
+		borrowedWriter.setAsMap();
+		borrowedWriter.write("kind", m.get("kind", "").asString());
+		borrowedWriter.write("craftType", m.get("craftType", "").asString());
+		borrowedWriter.write("craftId", m.get("craftId", -1).asInt());
+		borrowedWriter.write("targetKind", m.get("targetKind", "").asString());
+		borrowedWriter.write("targetCoopId", m.get("targetCoopId", 0).asInt());
+		borrowedWriter.write("targetMirror", m.get("targetMirror", false).asBool());
+		headerWriter.write("mission", m.get("mission", "").asString());
+		headerWriter.write("target", m.get("target", "").asString());
+		headerWriter.write("craftOrBase", m.get("craftOrBase", "").asString()).setAsQuotedAndEscaped();
+		headerWriter.write("turn", m.get("turn", 0).asInt());
+		headerWriter.write("coopBattleProtocol", 1);
+		headerWriter.write("coopBattleId", m.get("battleId", 0).asInt());
+	}
+
+	// A mid-battle coop save is
+	// resumed by a DIFFERENT process (a full host restart) that must reject
+	// an incompatible wire protocol before it ever tries to rebuild the
+	// battle authority/seat store from this file's body - so the stamp
+	// lives in the HEADER, read by SavedGame::load() BEFORE the body is
+	// touched, the same "classify before you build more of the SavedGame"
+	// discipline the schema gate above uses. `coopBattleProtocol` is the
+	// wire `protocolVersion` (the integer 1, connectionTCP.cpp's
+	// offerBattle()/offerRejoinBattle()) - NOT the save schema
+	// (SAVE_SCHEMA_CURRENT), which gates the whole save format and is
+	// unrelated. `coopBattleId` is purely informational (a resume mints a
+	// fresh one) and is never read back. GATED on a LIVE battle only, so a
+	// geoscape coop save and a solo save stay byte-identical - the key is
+	// simply ABSENT there.
+	if (_coop && _battleGame != 0)
+	{
+		headerWriter.write("coopBattleProtocol", 1);
+		headerWriter.write("coopBattleId", (int)coopBattleAuthority().battleId.load());
+	}
+
 	// Saves the full game data to the save
 	YAML::YamlRootNodeWriter writer(1000000); //1MB starting buffer
 	writer.setAsMap();
@@ -1945,8 +2120,6 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 		writer.write("saveID", connectionTCP::saveID);
 	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
-	// coop (PRD-P5)
-	writer.write("coop_parallel_turns", connectionTCP::_enable_parallel_turns);
 	writer.write("no_bases", connectionTCP::no_bases);
 	// PvP still owns distinct player worlds. Campaign modes do not embed client
 	// worlds: their single host save already contains every base and roster.
@@ -2004,6 +2177,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	writer.write("monthsPassed", _monthsPassed);
 	writer.write("daysPassed", _daysPassed);
 	writer.write("vehiclesLost", _vehiclesLost);
+	writer.write("craftLostMission", _craftLostMission);
 	writer.write("graphRegionToggles", _graphRegionToggles);
 	writer.write("graphCountryToggles", _graphCountryToggles);
 	writer.write("graphFinanceToggles", _graphFinanceToggles);
@@ -2763,6 +2937,27 @@ const std::vector<Base*> *SavedGame::getBases() const
 }
 
 /**
+ * coop: the base
+ * the game treats as the player's HQ, vanilla's first base. A SEPARATE or PvP world lists the partner's base copies (_isForeignBase and
+ * _coopIcon true, never saved) after the bases it loaded, so after a player loses its first base the first base can be a copy; an
+ * event's rewards, its stores check and the research cascades then went there and were lost. Returns the first own base (both flags
+ * false); else the first base, as before (a partner's view world, where every base is _isForeignBase); nullptr with no base. SHARED, single
+ * player and skirmish worlds hold no copy, so this is their first base, as before.
+ * @return Pointer to the HQ base, or nullptr.
+ */
+Base *SavedGame::getCoopHqBase()
+{
+	for (Base* coopHqCandidate : _bases)
+	{
+		if (coopHqCandidate->_isForeignBase == false && coopHqCandidate->_coopIcon == false)
+		{
+			return coopHqCandidate;
+		}
+	}
+	return _bases.empty() ? nullptr : _bases.front();
+}
+
+/**
  * Adds up the monthly maintenance of all the bases.
  * @return Total maintenance.
  */
@@ -2839,6 +3034,56 @@ void SavedGame::setBattleGame(SavedBattleGame *battleGame)
 {
 	delete _battleGame;
 	_battleGame = battleGame;
+}
+
+/**
+ * coop: is the battle a real one - neither a preview nor a base equipment screen's practice battle?
+ * @return True when a battle exists and it is neither.
+ */
+bool SavedGame::coopHasRealBattle() const
+{
+	return _battleGame != 0 && !_battleGame->isPreview() && !_battleGame->isBaseCraftInventory();
+}
+
+/**
+ * coop: hides a practice battle and the base / craft battlescape marks a practice screen set, for a co-op write.
+ * @param save The world; with no battle or a real one nothing is hidden.
+ */
+CoopPracticeBattleHidden::CoopPracticeBattleHidden(SavedGame *save) : _save(save), _battle(0)
+{
+	if (!_save || !_save->getSavedBattle() || _save->coopHasRealBattle())
+		return;
+	_battle = _save->detachBattleGame();
+	for (auto* base : *_save->getBases())
+	{
+		if (base->isInBattlescape())
+		{
+			_bases.push_back(base);
+			base->setInBattlescape(false);
+		}
+		for (auto* craft : *base->getCrafts())
+		{
+			if (craft->isInBattlescape())
+			{
+				_crafts.push_back(craft);
+				craft->setInBattlescape(false);
+			}
+		}
+	}
+}
+
+/**
+ * coop: puts the hidden practice battle and the marks back.
+ */
+CoopPracticeBattleHidden::~CoopPracticeBattleHidden()
+{
+	if (!_battle)
+		return;
+	for (auto* base : _bases)
+		base->setInBattlescape(true);
+	for (auto* craft : _crafts)
+		craft->setInBattlescape(true);
+	_save->reattachBattleGame(_battle);
 }
 
 /**
@@ -4068,9 +4313,40 @@ Soldier *SavedGame::getSoldier(int id) const
  */
 bool SavedGame::handlePromotions(std::vector<Soldier*> &participants, const Mod *mod)
 {
+	// coop, Separate campaign: each player's army is its own. The openings count only that player's
+	// soldiers, and only the players with a soldier in the battle promote.
+	if (isSeparateCoopCampaign())
+	{
+		std::set<int> owners;
+		for (const auto* participant : participants)
+			owners.insert(participant->getOwnerPlayerId());
+		const std::vector<Soldier*> all = getAllActiveSoldiers();
+		bool promoted = false;
+		for (int owner : owners)
+		{
+			std::vector<Soldier*> own;
+			for (auto* soldier : all)
+				if (soldier->getOwnerPlayerId() == owner)
+					own.push_back(soldier);
+			promoted = handlePromotions(own, participants, mod) || promoted;
+		}
+		return promoted;
+	}
+	std::vector<Soldier*> soldiers = getAllActiveSoldiers();
+	return handlePromotions(soldiers, participants, mod);
+}
+
+/**
+ * Handles the higher promotions among the given soldiers.
+ * @param soldiers the live soldiers whose ranks are counted and who may be promoted.
+ * @param participants a list of soldiers that were actually present at the battle.
+ * @param mod the Game Mod
+ * @return Whether or not some promotions happened.
+ */
+bool SavedGame::handlePromotions(std::vector<Soldier*> &soldiers, std::vector<Soldier*> &participants, const Mod *mod)
+{
 	int soldiersPromoted = 0;
 	Soldier *highestRanked = 0;
-	std::vector<Soldier*> soldiers = getAllActiveSoldiers();
 	RankCount rankCounts = RankCount(soldiers);
 
 	int totalSoldiers = rankCounts.getTotalSoldiers();
@@ -4745,6 +5021,31 @@ bool SavedGame::isUfoOnIgnoreList(int ufoId)
 	return _ignoredUfos.find(ufoId) != _ignoredUfos.end();
 }
 
+// one co-op log line per SavedGame::killSoldier call - the soldier and its owner, the base
+// roster it was removed from (or none), the cause and the battle turn/side. OXCE erases a dead soldier from its
+// base silently. Logging only: reads its arguments, writes nothing.
+static void coopLogKillSoldier(const Soldier* soldier, const Base* base, int baseIndex, bool resetArmor, const BattleUnitKills* cause, const SavedBattleGame* battle)
+{
+	std::ostringstream ss;
+	ss << "[coop-roster] killSoldier: soldier " << (soldier ? soldier->getId() : -1) << " '" << (soldier ? soldier->getName() : std::string())
+	   << "' owner " << (soldier ? soldier->getOwnerPlayerId() : -1);
+	if (base)
+		ss << " removed from base " << baseIndex << " '" << base->getName() << "' (coopBase " << (base->_isForeignBase ? 1 : 0) << ")";
+	else
+		ss << " is on no base roster - nothing removed";
+	ss << "; resetArmor " << (resetArmor ? 1 : 0);
+	if (cause)
+		ss << "; cause kill: killer '" << (!cause->type.empty() ? cause->type : cause->name) << "' faction " << (int)cause->faction
+		   << " weapon " << cause->weapon << " ammo " << cause->weaponAmmo;
+	else
+		ss << "; cause none (missing in action, debriefing re-check or craft lost)";
+	if (battle)
+		ss << "; battle turn " << battle->getTurn() << " side " << (int)battle->getSide();
+	else
+		ss << "; battle none";
+	Log(LOG_INFO) << ss.str();
+}
+
 /**
  * Registers a soldier's death in the memorial.
  * @param soldier Pointer to dead soldier.
@@ -4774,10 +5075,14 @@ std::vector<Soldier*>::iterator SavedGame::killSoldier(bool resetArmor, Soldier 
 			{
 				soldier->die(new SoldierDeath(*_time, cause));
 				_deadSoldiers.push_back(soldier);
+				if (connectionTCP::getCoopStatic() || isCoopSave())
+					coopLogKillSoldier(soldier, xbase, (int)(std::find(_bases.begin(), _bases.end(), xbase) - _bases.begin()), resetArmor, cause, _battleGame);
 				return xbase->getSoldiers()->erase(soldierIt);
 			}
 		}
 	}
+	if (connectionTCP::getCoopStatic() || isCoopSave())
+		coopLogKillSoldier(soldier, nullptr, -1, resetArmor, cause, _battleGame);
 	return soldierIt;
 }
 
@@ -5081,7 +5386,7 @@ bool SavedGame::handleResearchUnlockedByMissions(const RuleResearch* research, c
 	{
 		return false; // all bases lost, game over
 	}
-	Base* base = _bases.front();
+	Base* base = getCoopHqBase(); // coop: a mission topic's cascade runs at the first own base, never a partner's base copy
 
 	// Private Separate research: the topics belong to the mission owner (every
 	// player when the mission has no owner). addFinishedResearch credits the
@@ -5268,7 +5573,9 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		}
 		// 3l. handle spawned events
 		RuleEvent* spawnedEventRule = mod->getEvent(myResearchRule->getSpawnedEvent());
-		spawnEvent(spawnedEventRule, researchOwner);
+		// coop SEPARATE, shared research: the event has no owner; its rewards go to the player whose base finished it
+		if (spawnEvent(spawnedEventRule, researchOwner) && !playerScoped && base && isSeparateCoopCampaign())
+			_geoscapeEvents.back()->setRewardPlayerName(base->getOwnerPlayerName());
 		// 3m. handle counters
 		for (auto& inc : myResearchRule->getIncreaseCounter())
 		{
@@ -5453,6 +5760,14 @@ void isResearchedScript(const SavedGame* sg, int& val, const RuleResearch* name)
 {
 	if (sg)
 	{
+		// coop: in a co-op battle with separate research a battle script run
+		// for a unit (CoopScriptOwner) answers from that unit's owner's research; -1 = not routed (vanilla below).
+		const int coopRouted = coopScriptIsResearched(sg, name);
+		if (coopRouted >= 0)
+		{
+			val = coopRouted;
+			return;
+		}
 		if (sg->isResearched(name, false))
 		{
 			val = 1;

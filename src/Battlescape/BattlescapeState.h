@@ -80,21 +80,26 @@ private:
 	Timer *_animTimer, *_gameTimer;
 	SavedBattleGame *_save;
 	Text *_txtDebug, *_txtTooltip;
-	// coop (PRD-P8): the end-turn readiness tally ("END TURN 1/2"), shown next to
-	// the END TURN button while a parallel side has at least one seat armed.
-	// Deliberately NOT on the _warning surface - that one fades, and the tally has
-	// to stay up for as long as somebody is waiting.
-	Text *_txtCoopEndTurn;
-	int _coopTallyReady, _coopTallySeats;
-	bool _coopTallyLocalReady;
-	// coop (parallel turns): persistent "Please wait for <player>'s action to
-	// finish" banner, in the map strip just above the toolbar. Shown while another
-	// seat's action blocks this machine's input; off the fading _warning surface.
+	// coop: persistent deny/cancel banner in the map strip
+	// above the toolbar, driven by the CoopBattleUi presenter (src/CoopMod/
+	// CoopBattleUi.h). Deliberately off the fading _warning surface - a deny/cancel
+	// message needs to stay up for as long as the presenter keeps it live.
 	Text *_txtCoopWait;
-	// Owner seat latched for the current busy window (-1 = idle/unresolved). Latched
-	// once per window so a consequence state (death/fall/explosion) pushed to the
-	// front of the queue mid-chain cannot re-attribute the banner to the victim.
-	int _coopBusyOwnerSeat;
+	// coop: the SECOND coop surface, the END TURN readiness tally. Right-aligned
+	// so it ends flush with the END TURN button, on the tooltip's row (y - 10) -
+	// one row BELOW _txtCoopWait, so the two never overlap.
+	//
+	// It is deliberately a plain TEXT surface with a text-only setter
+	// (setCoopEndTurnText below) and no policy of its own, so the readiness tally
+	// (CoopEndTurn.h) can drive it from EITHER turn model - the parallel same-side
+	// tally OR the traditional sequential baton - without touching this class.
+	Text *_txtCoopEndTurn;
+	// coop: this machine's OWN END-TURN arm bit, per the last tally applied by
+	// CoopEndTurn.h (src/CoopMod). Written only by setCoopEndTurnArmed() above,
+	// read only by getCoopEndTurnArmed(): the armed bit cannot be read off
+	// BattlescapeButton (no reader, private _inverted), so this class stores
+	// the same value its own repaint feeds _btnEndTurn->toggle().
+	bool _coopEndTurnArmed;
 	Uint8 _tooltipDefaultColor;
 	Uint8 _medikitRed, _medikitGreen, _medikitBlue, _medikitOrange;
 	std::vector<State*> _popups;
@@ -125,50 +130,7 @@ private:
 	void blinkHealthBar();
 	/// Shows the unit kneel state.
 	void toggleKneelButton(BattleUnit* unit);
-	/// coop (PRD-P8): repaints the END TURN readiness lamp + tally from the
-	/// connectionTCP tally. No-op (and hidden) outside a parallel side.
-	void updateCoopEndTurnTally();
-	/// coop: refresh the "Please wait for <player>'s action" banner (per frame).
-	void updateCoopWaitBanner();
-  public:
-	/// coop (PRD-P8 §5): the classic reserve mirror packet (`TU_COOP` /
-	/// `kneel_reserved`). Suppressed in parallel mode, where reserve is a
-	/// per-machine setting and travels per-action on `action_intent` instead.
-	void coopSendReserveState(bool kneel);
-	// coop
-	void setSelectedCoopUnit(int actor_id);
-	// coop (PRD-P6): healer_id/weapon_* are additive - an older peer omits them
-	// and the classic branch (which reads the local _currentAction) still runs.
-	void coopHealing(int actor_id, int type, int part, std::string medkit_state, std::string action_result, int time,
-					 int healer_id = -1, int weapon_id = -1, std::string weapon_type = "", std::string hand = "");
-	void coopActiveGranade(int actor_id, int type, std::string hand, int fusetimer, int item_id);
-	void coopActionClick(int actor_id, std::string hand, int type, bool fuse, int fusetimer, int target_x, int target_y, int target_z, int time, std::string weapon_type, int weapon_id);
-	// This should end the co-op battle.
-	void EndCoopBattle();
-	// This should end the co-op turn.
-	void EndCoopTurn();
-	std::string _hand = "right";
-	void coopPsiButtonAction();
-	void coopLaunchPress();
-	void coopCancelAction();
-	int getCurrentTurn();
-	void setCurrentTurn(int turn);
-	void moveCoopInventory(std::string ammos, std::string item_name, std::string inv_id, int inv_x, int inv_y, int unit_id, int item_id, int move_cost, int slot_x, int slot_y, int getHealQuantity, int getPainKillerQuantity, int getStimulantQuantity, int getFuseTimer, bool getXCOMProperty, bool isAmmo, bool isWeaponWithAmmo, bool isFuseEnabled, int getAmmoQuantity, int tile_x, int tile_y, int tile_z, bool tu, int sel_item_id, std::string sel_item_type, bool unload_weapon);
-	void toggeCoopKneel(int id);
-	void endTurnCoop();
-	void movePlayerTarget(std::string obj);
-	void turnPlayerTarget(std::string str_obj);
-	void turnPlayerTargetAfter(std::string str_obj);
-	void psi_attack(std::string str_obj);
-	void melee_attack(std::string str_obj);
-	void shootPlayerTarget(std::string str_obj);
-	void showCoopWarning(const std::string &message);
-	/// coop (PRD-P5): the banner currently on the warning widget ("" = none).
-	std::string getCoopWarningText() const;
-	/// coop: the visible "Please wait..." banner text ("" when hidden), for tests.
-	std::string getCoopWaitText() const;
-	void showCoopLongWarning(const std::string &message);
-	void doAbortPath();
+public:
 	/// Selects the next soldier.
 	void selectNextPlayerUnit(bool checkReselect = false, bool setReselect = false, bool checkInventory = false, bool checkFOV = true, bool byDistance = false);
 	/// Selects the previous soldier.
@@ -183,6 +145,10 @@ private:
 	void init() override;
 	/// Runs the timers and handles popups.
 	void think() override;
+	/// grays the bottom bar while off-baton in
+	/// traditional-mode coop (CoopBattleUi::coopGrayBottomBar decides whether
+	/// to act; this override carries no logic of its own).
+	void blit() override;
 	/// Handler for moving mouse over the map.
 	void mapOver(Action *action);
 	/// Handler for pressing the map.
@@ -226,8 +192,6 @@ private:
 	void btnEndTurnClick(Action *action);
 	/// Handler for clicking the Abort button.
 	void btnAbortClick(Action *action);
-	/// Executes a host-approved multiplayer abandon vote on this machine.
-	void abortMissionByVote();
 	/// Handler for clicking the stats.
 	void btnStatsClick(Action *action);
 	/// Handler for clicking the left hand item button.
@@ -282,6 +246,7 @@ private:
 	void handleState();
 	/// Sets the state timer interval.
 	void setStateInterval(Uint32 interval);
+	void coopStepCovered(); // coop: one step of the battle's timer while another screen covers this state
 	/// Gets game.
 	Game *getGame() const;
 	/// Gets map.
@@ -296,6 +261,50 @@ private:
 	void warningRaw(const std::string &message);
 	/// Show warning message that stay longer on screen, no translation.
 	void warningLongRaw(const std::string &message);
+	/// coop: show/hide setter for the _txtCoopWait deny/cancel banner.
+	/// Thin - just sets text + visibility. Driven only by CoopBattleUi.
+	void setCoopWaitText(const std::string &text);
+	/// coop: read-only getter for the _txtCoopWait banner's current
+	/// text - test-only introspection (TestServer's "battle_state" command);
+	/// no production caller. Empty string means the banner is hidden.
+	std::string getCoopWaitText() const;
+	/// coop (test introspection only): the VANILLA warning surface's current
+	/// text. Distinct from getCoopWaitText() above on purpose - every co-op
+	/// message goes through _txtCoopWait and never through _warning, so the two
+	/// surfaces answer different questions. The one thing tests read off
+	/// _warning is the LOCAL VANILLA reserve refusal shown when a client's own
+	/// TU reserve stops a walk at step 1.
+	std::string getWarningText() const;
+	/// coop (test introspection only): the unit ids behind the visible-unit indicator buttons now shown, in button order,
+	/// and the three section boundaries (directly seen, enemies, wounded). Never read by game logic.
+	void coopHudUnits(std::vector<int>& ids, int& direct, int& enemies, int& wounded) const;
+	/// coop (test introspection only): the four HUD NUMBERS currently PAINTED
+	/// on the map strip - the values the NumberText widgets hold, not the values
+	/// the model holds. On a thin client an applied event that changes the
+	/// selected unit's stats must repaint them, or model and paint disagree
+	/// indefinitely. Reading the widgets is what makes "the HUD moved" an
+	/// assertion rather than an inference. Never read by game logic.
+	void getHudNumbers(int& tu, int& energy, int& health, int& morale) const;
+	/// coop: show/hide setter for the _txtCoopEndTurn surface. Thin and
+	/// policy-free - sets text + visibility only, exactly like setCoopWaitText
+	/// above. Empty text hides the surface. The readiness tally (CoopEndTurn.h)
+	/// drives it; a text-only entry point is what lets it be driven from either
+	/// turn model.
+	void setCoopEndTurnText(const std::string &text);
+	/// coop: this machine's own END-TURN arm state - toggles the inverted button
+	/// surface (`_btnEndTurn->toggle(mine)`) and records the bit
+	/// getCoopEndTurnArmed() below reports. Its OWN entry point, never folded
+	/// into setCoopEndTurnText() above: that setter stays text-only by design,
+	/// so the armed bit gets its own.
+	void setCoopEndTurnArmed(bool armed);
+	/// coop: read-only companion to setCoopEndTurnText, for test
+	/// introspection only (TestServer's "battle_state"). Empty means hidden.
+	std::string getCoopEndTurnText() const;
+	/// coop: read-only probe for test
+	/// introspection only - this machine's OWN seat armed per the last
+	/// applied tally, the same value the repaint feeds
+	/// setCoopEndTurnArmed()/_btnEndTurn->toggle().
+	bool getCoopEndTurnArmed() const;
 	/// Gets melee damage preview.
 	std::string getMeleeDamagePreview(BattleUnit *actor, BattleItem *weapon) const;
 	/// Handles keypresses.
@@ -349,8 +358,6 @@ private:
 	void autosave(int currentTurn);
 	/// Is busy?
 	bool isBusy() const;
-	// coop
-	std::string obj_shoot = "";
 };
 
 }

@@ -43,6 +43,7 @@ private:
 	Text* _txtCaveat;
 	TextButton *_btnPurchase, *_btnOk;
 	Base * _base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 public:
 	/// Creates the NewPossiblePurchaseState state.
 	NewPossiblePurchaseState(Base * base, const std::vector<RuleItem *> & possibilities);

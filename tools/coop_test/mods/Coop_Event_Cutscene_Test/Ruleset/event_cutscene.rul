@@ -1,0 +1,27 @@
+# Test fixture for test_event_cutscene_once.py. No language file (raw keys).
+# Each cutscene has no videos, no slideshow, no winGame / loseGame: a play logs "cutscene definition empty: <id>".
+# defeatScore and gameOver are read only by MonthlyReportState: the first month end is a game over whose video
+# (STR_EVCUT_MR) does not end the game.
+defeatScore: 100000
+gameOver:
+  loseRating: STR_EVCUT_MR
+cutscenes:
+  - type: STR_EVCUT_A
+  - type: STR_EVCUT_B
+  - type: STR_EVCUT_MR
+events:
+  - name: STR_EVCUT_EV_A
+    description: STR_EVCUT_EV_A
+    cutscene: STR_EVCUT_A
+  - name: STR_EVCUT_EV_B
+    description: STR_EVCUT_EV_B
+    cutscene: STR_EVCUT_B
+research:
+  - name: STR_EVCUT_T_A
+    cost: 1
+    points: 5
+    spawnedEvent: STR_EVCUT_EV_A
+  - name: STR_EVCUT_T_B
+    cost: 1
+    points: 5
+    spawnedEvent: STR_EVCUT_EV_B

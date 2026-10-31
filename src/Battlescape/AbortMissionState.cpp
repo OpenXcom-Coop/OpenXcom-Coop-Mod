@@ -33,6 +33,8 @@
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/Tile.h"
+#include "../CoopMod/SharedEcon.h" // coop
+#include "../CoopMod/CoopArbiter.h" // coop
 
 namespace OpenXcom
 {
@@ -106,7 +108,7 @@ AbortMissionState::AbortMissionState(SavedBattleGame *battleGame, BattlescapeSta
 	}
 
 	// Calculate values
-	BattlescapeTally tally = _battleGame->isPreview() ? _battleGame->tallyUnitsForPreview() : _battleGame->getBattleGame()->tallyUnits();
+	BattlescapeTally tally = _battleGame->isPreview() ? _battleGame->tallyUnitsForPreview() : coopAbortDialogTally(_battleGame); // coop: a co-op client's dialog counts read-only
 	_inEntrance = tally.inEntrance;
 	_inExit = tally.inExit;
 	_outside = tally.inField;
@@ -181,15 +183,6 @@ AbortMissionState::AbortMissionState(SavedBattleGame *battleGame, BattlescapeSta
 	_btnCancel->onKeyboardPress((ActionHandler)&AbortMissionState::btnCancelClick, Options::keyBattleAbort);
 
 	centerAllSurfaces();
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		_btnOk->setVisible(false);
-
-	}
-
 }
 
 /**
@@ -212,6 +205,7 @@ void AbortMissionState::btnOkClick(Action *)
 		{
 			// dummy craft, generic deployment schema
 			_battleGame->saveDummyCraftDeployment();
+			SharedEcon::craftDeploymentSaved(_game, _battleGame->getCraftForPreview()->getRules()->getType()); // coop: the type's deployment end-state to the host
 		}
 		else
 		{
@@ -224,9 +218,9 @@ void AbortMissionState::btnOkClick(Action *)
 	}
 
 	_game->popState();
+	if (coopAbortVoteRequest(_game, _battleGame)) return; // coop: a co-op battle votes
 	_battleGame->setAborted(true);
 	_state->finishBattle(true, _inExit);
-
 }
 
 /**
@@ -235,8 +229,6 @@ void AbortMissionState::btnOkClick(Action *)
  */
 void AbortMissionState::btnCancelClick(Action *)
 {
-	// coop
-
 	_game->popState();
 }
 

@@ -32,6 +32,7 @@ Run:  python tools/coop_test/test_coop_transferred_equipment.py
 import os
 import sys
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import separate_campaign_fixture as fixture

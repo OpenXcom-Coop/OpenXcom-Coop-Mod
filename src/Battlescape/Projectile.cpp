@@ -32,6 +32,8 @@
 #include "../Engine/RNG.h"
 #include "../Engine/Options.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -48,7 +50,7 @@ namespace OpenXcom
 Projectile::Projectile(Mod *mod, SavedBattleGame *save, BattleAction action, Position origin, Position targetVoxel, BattleItem *ammo) : _mod(mod), _save(save), _action(action), _ammo(ammo), _origin(origin), _targetVoxel(targetVoxel), _position(0), _distance(0.0f), _bulletSprite(-1), _reversed(false), _vaporColor(-1), _vaporDensity(-1), _vaporProbability(5)
 {
 	// this is the number of pixels the sprite will move between frames
-	_speed = Options::battleFireSpeed;
+	_speed = CoopSpeed::fireSpeedFor(_action.actor);
 	if (_action.weapon)
 	{
 		if (_action.type != BA_THROW)
@@ -131,7 +133,7 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 		!_trajectory.empty() &&
 		_action.actor->getFaction() == FACTION_PLAYER &&
 		_action.autoShotCounter == 1 &&
-		(!_save->isCtrlPressed(true) || !Options::forceFire) &&
+		!coopForceFirePressed(_save) && // a partner's order carries its own key
 		_save->getBattleGame()->getPanicHandled() &&
 		_action.type != BA_LAUNCH &&
 		!_action.sprayTargeting)
@@ -142,10 +144,8 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 			hitPos = Position(hitPos.x, hitPos.y, hitPos.z-1);
 		}
 
-		// coop fix
-		if (hitPos != _action.target && _action.result.empty() && _action.actor->coop_action == false)
+		if (hitPos != _action.target && _action.result.empty())
 		{
-
 			if (test == V_NORTHWALL)
 			{
 				if (hitPos.y - 1 != _action.target.y)
@@ -198,98 +198,6 @@ int Projectile::calculateTrajectory(double accuracy, const Position& originVoxel
 		extendLine = _action.waypoints.size() <= 1;
 	}
 
-	// only host!
-	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
-	{
-
-		_save->getBattleGame()->getCoopMod()->_coopAllow = false;
-
-		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
-		auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-
-		auto* conf = _action.weapon->getActionConf(_action.type);
-
-		int max_shots = 1;
-
-		if (conf)
-		{
-			max_shots = conf->shots;
-		}
-
-		// coop (PRD-P3 GAP-5): a shotgun fires ONE queued shot and then traces
-		// getShotgunPellets()-1 extra trajectories per shot. Only the shots were
-		// pre-rolled, so the peer ran dry mid-pellet and started rolling aim points
-		// off its own RNG stream: different pellet endpoints, a different number of
-		// TileEngine::hit() calls, and from there a permanently mis-paired hit
-		// stream. Pre-roll the pellets too, interleaved in the exact order both
-		// machines consume them (shot, its pellets, next shot, its pellets, ...).
-		int pellets = 1;
-		if (_ammo && _ammo->getRules()->getShotgunPellets() != 0 && _ammo->getRules()->getDamageType()->isDirect())
-		{
-			pellets = _ammo->getRules()->getShotgunPellets();
-		}
-		const int shotgunSpread = pellets > 1 ? _ammo->getRules()->getShotgunSpread() : 0;
-		const int shotgunBehavior = pellets > 1 ? _ammo->getRules()->getShotgunBehaviorType() : 0;
-		const int shotgunChoke = pellets > 1 ? _action.weapon->getRules()->getShotgunChoke() : 0;
-		// The pellet rolls must not walk _targetVoxel forward the way the shot rolls
-		// deliberately do, so they run off a saved copy of the original aim.
-		const Position pelletBaseTarget = _targetVoxel;
-
-		bool accuracyLossCoop = false;
-		double accuracyLossCoopValue = 0;
-
-		for (int i = 0; i < max_shots; ++i)
-		{
-
-			if (i > 0)
-			{
-				accuracyLossCoop = true;
-			}
-
-			applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine, accuracyLossCoop, &accuracyLossCoopValue);
-
-			Json::Value projectile(Json::objectValue);
-
-			projectile["rng_x"] = _targetVoxel.x;
-			projectile["rng_y"] = _targetVoxel.y;
-			projectile["rng_z"] = _targetVoxel.z;
-			projectile["seed"] = RNG::getSeedCoop();
-			projectile["origin_x"] = originVoxel.x;
-			projectile["origin_y"] = originVoxel.y;
-			projectile["origin_z"] = originVoxel.z;
-
-			_coopProjectilesClient.append(projectile);
-			_coopProjectilesHost.append(projectile);
-
-			for (int p = 1; p < pellets; ++p)
-			{
-				double pelletAccuracy = shotgunBehavior == 1
-											? std::max(0.0, (1.0 - shotgunSpread / 100.0) * shotgunChoke / 100.0)
-											: std::max(0.0, accuracy - p * 5.0 * shotgunSpread / 100.0);
-
-				Position pelletTarget = pelletBaseTarget;
-				applyAccuracy(originVoxel, &pelletTarget, pelletAccuracy, false, extendLine);
-
-				Json::Value pelletShot(Json::objectValue);
-
-				pelletShot["rng_x"] = pelletTarget.x;
-				pelletShot["rng_y"] = pelletTarget.y;
-				pelletShot["rng_z"] = pelletTarget.z;
-				pelletShot["seed"] = RNG::getSeedCoop();
-				pelletShot["origin_x"] = originVoxel.x;
-				pelletShot["origin_y"] = originVoxel.y;
-				pelletShot["origin_z"] = originVoxel.z;
-
-				_coopProjectilesClient.append(pelletShot);
-				_coopProjectilesHost.append(pelletShot);
-			}
-
-		}
-
-		_save->getBattleGame()->getCoopMod()->_coopAllow = true;
-
-	}
-
 	// apply some accuracy modifiers.
 	// This will results in a new target voxel
 	applyAccuracy(originVoxel, &_targetVoxel, accuracy, false, extendLine);
@@ -322,7 +230,7 @@ int Projectile::calculateThrow(double accuracy)
 	else
 	{
 		BattleUnit *tu = targetTile->getOverlappingUnit(_save);
-		if (Options::forceFire && _save->isCtrlPressed(true) && _save->getSide() == FACTION_PLAYER)
+		if (coopForceFirePressed(_save) && _save->getSide() == FACTION_PLAYER) // a partner's order carries its own key
 		{
 			targets.push_back(_action.target.toVoxel() + Position(0, 0, 12));
 			forced = true;
@@ -397,49 +305,9 @@ int Projectile::calculateThrow(double accuracy)
 			deltas = Position(0,0,0);
 		}
 
-		// coop
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
-		{
 
-			_save->getBattleGame()->getCoopMod()->_coopAllow = false;
-
-			auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
-			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-
-			Json::Value projectile(Json::objectValue);
-
-			projectile["rng_x"] = targetVoxel.x;
-			projectile["rng_y"] = targetVoxel.y;
-			projectile["rng_z"] = targetVoxel.z;
-			projectile["seed"] = RNG::getSeedCoop();
-			projectile["origin_x"] = originVoxel.x;
-			projectile["origin_y"] = originVoxel.y;
-			projectile["origin_z"] = originVoxel.z;
-
-			_coopProjectilesClient.append(projectile);
-			_coopProjectilesHost.append(projectile);
-			
-			_save->getBattleGame()->getCoopMod()->_coopAllow = true;
-		}
-
+		coopNoteThrowArc(originVoxel, targetVoxel, deltas, curvature);
 		test = _save->getTileEngine()->calculateParabolaVoxel(originVoxel, targetVoxel, true, &_trajectory, _action.actor, curvature, deltas);
-
-		// coop
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true)
-		{
-
-			_save->getBattleGame()->getCoopMod()->_trajectoryCoop = _trajectory;
-
-		}
-
-		// coop
-		if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == false)
-		{
-
-			_trajectory = _save->getBattleGame()->getCoopMod()->_trajectoryCoop;
-
-		}
-
 		if (forced) return O_OBJECT; //fake hit
 		Position endPoint = getPositionFromEnd(_trajectory, ItemDropVoxelOffset).toTile();
 		Tile *endTile = _save->getTile(endPoint);
@@ -464,104 +332,8 @@ int Projectile::calculateThrow(double accuracy)
  * @param keepRange Whether range affects accuracy.
  * @param extendLine should this line get extended to maximum distance?
  */
-void Projectile::applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine, bool accuracyLossCoop, double *accuracyLossCoopValue)
+void Projectile::applyAccuracy(Position origin, Position *target, double accuracy, bool keepRange, bool extendLine)
 {
-
-	// coop
-	if (_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_coopAllow == true)
-	{
-
-		auto& _coopProjectilesHost = _save->getBattleGame()->getCoopMod()->_coopProjectilesHost;
-
-		if (!_coopProjectilesHost.empty())
-		{
-
-			Json::Value first;
-			bool found = _coopProjectilesHost.removeIndex(0, &first);
-			if (found)
-			{
-
-				if (first.isObject() &&
-					first.isMember("rng_x") &&
-					first.isMember("rng_y") &&
-					first.isMember("rng_z"))
-				{
-					int rng_target_x = first["rng_x"].asInt();
-					int rng_target_y = first["rng_y"].asInt();
-					int rng_target_z = first["rng_z"].asInt();
-
-					target->x = rng_target_x;
-					target->y = rng_target_y;
-					target->z = rng_target_z;
-
-				}
-
-				if (first.isObject() &&
-					first.isMember("origin_x") &&
-					first.isMember("origin_y") &&
-					first.isMember("origin_z"))
-				{
-					int origin_target_x = first["origin_x"].asInt();
-					int origin_target_y = first["origin_y"].asInt();
-					int origin_target_z = first["origin_z"].asInt();
-
-					origin.x = origin_target_x;
-					origin.y = origin_target_y;
-					origin.z = origin_target_z;
-
-				}
-
-				return;
-
-			}
-		}
-		else
-		{
-
-			auto& _coopProjectilesClient = _save->getBattleGame()->getCoopMod()->_coopProjectilesClient;
-
-			if (!_coopProjectilesClient.empty())
-			{
-
-				Json::Value first;
-				bool found = _coopProjectilesClient.removeIndex(0, &first);
-				if (found)
-				{
-
-					if (first.isObject() &&
-						first.isMember("rng_x") &&
-						first.isMember("rng_y") &&
-						first.isMember("rng_z"))
-					{
-						int rng_target_x = first["rng_x"].asInt();
-						int rng_target_y = first["rng_y"].asInt();
-						int rng_target_z = first["rng_z"].asInt();
-
-						target->x = rng_target_x;
-						target->y = rng_target_y;
-						target->z = rng_target_z;
-					}
-
-					if (first.isObject() &&
-						first.isMember("origin_x") &&
-						first.isMember("origin_y") &&
-						first.isMember("origin_z"))
-					{
-						int origin_target_x = first["origin_x"].asInt();
-						int origin_target_y = first["origin_y"].asInt();
-						int origin_target_z = first["origin_z"].asInt();
-
-						origin.x = origin_target_x;
-						origin.y = origin_target_y;
-						origin.z = origin_target_z;
-					}
-
-					return;
-				}
-			}
-		}
-	}
-
 	int xdiff = origin.x - target->x;
 	int ydiff = origin.y - target->y;
 	int zdiff = origin.z - target->z;
@@ -577,7 +349,6 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 
 		double distance = realDistance / 16; // distance in tiles, but still fractional
 		double accuracyLoss = 0.0;
-
 		if (distance > upperLimit)
 		{
 			accuracyLoss = (dropoff * (distance - upperLimit)) / 100;
@@ -586,18 +357,7 @@ void Projectile::applyAccuracy(Position origin, Position* target, double accurac
 		{
 			accuracyLoss = (dropoff * (lowerLimit - distance)) / 100;
 		}
-
-		// coop fix
-		if (accuracyLossCoopValue)
-		{
-			if (accuracyLossCoop)
-				accuracyLoss = *accuracyLossCoopValue;
-			else
-				*accuracyLossCoopValue = accuracyLoss;
-		}
-
 		accuracy = std::max(0.0, accuracy - accuracyLoss);
-
 	}
 
 	int xDist = abs(origin.x - target->x);
@@ -763,11 +523,6 @@ bool Projectile::move()
  */
 Position Projectile::getPositionFromStart(const std::vector<Position>& trajectory, int pos)
 {
-	// coop fix
-	if (trajectory.empty())
-	{
-		return Position(0,0,0);
-	}
 	if (pos >= 0 && pos < (int)trajectory.size())
 		return trajectory.at(pos);
 	else if (pos < 0)
@@ -794,11 +549,6 @@ Position Projectile::getPositionFromEnd(const std::vector<Position>& trajectory,
  */
 Position Projectile::getPosition(int offset) const
 {
-	// coop fix
-	if (_trajectory.empty())
-	{
-		return _origin;
-	}
 	return getPositionFromStart(_trajectory, (int)_position + offset);
 }
 

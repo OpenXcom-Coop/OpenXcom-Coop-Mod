@@ -100,10 +100,59 @@ OPT bool debugMode;
 OPT bool logInfoToFile;
 OPT bool logPacketMessages;
 OPT bool EnableHotseatDebugMode;
-// PRD-P1: follow a replayed teammate action with the camera (classic coop).
-// Default true = the pre-P1 behaviour. PRD-P5 suppresses camera-follow during a
-// parallel player side regardless of this option.
+// The "Follow Teammate
+// Actions with Camera" (as in older versions). On: this machine's camera follows the co-op partner's units
+// as it follows an alien on its own side's turn (coopCameraFollowsPartner(), CoopMod/CoopDelta.h). DEFAULT false
+// here (main: true), so by default the partner's actions never move your camera. Per player: read
+// only on this machine, never on the wire, not in the synced table (CoopMod/CoopSyncedOptions.h); its row is on the
+// Multiplayer options screen (OPTION_OTHER, Battlescape group).
 OPT bool coopFollowPeerActions;
+
+// The four CLIENT-SIDE auto-cancel toggles for a busy-held
+// pending battle intent. Per-machine, read LIVE at each evaluation, zero
+// wire/hash impact - cancel policy never touches the protocol. They are
+// real user options with OptionInfo registrations (Options.cpp), never bare
+// statics. All four OFF = pure auto-retry, still safe (plan-validation is not
+// optional).
+OPT bool coopCancelOnEnemySpotted;
+OPT bool coopCancelOnOwnUnitHit;
+OPT bool coopCancelOnVisibilityGain;
+OPT bool coopCancelOnAnyPartnerAction;
+
+// How
+// long a co-op CLIENT waits for the host's answer to a battle intent before it
+// gives up, shows STR_COOP_ACTION_TIMEOUT and releases the one-slot input
+// lock. SECONDS; <= 0 disables the timeout entirely. Behind a real user option
+// (an OptionInfo registration, never a
+// connectionTCP static) so real-network play can tune it without a rebuild.
+OPT int coopIntentTimeoutSeconds;
+
+// The HOST's remembered TURN MODE for co-op battles.
+//   "parallel"    - all seats on the active side act simultaneously, actions
+//                   serialized through host admission. THE DEFAULT.
+//   "traditional" - one seat commands at a time; END TURN passes the baton.
+// A STRING so it maps 1:1 onto the wire value with no translation layer.
+// Anything other than "traditional" is normalized to parallel, so a hand-edited
+// options.cfg can never put a garbage value on the wire
+// (coopSessionTurnModeFromOptions(), CoopMod/BattleAuthority.h).
+//
+// HOST-ONLY by design: a client's own setting is irrelevant - the host stamps the
+// session's mode onto every battle_offer and the client MIRRORS it, the
+// session-decided-once shape of older versions. Its user-facing control is the HOST/lobby
+// toggle, NOT the advanced-options list, which is why the registration
+// below carries no description or category.
+OPT std::string CoopTurnMode;
+
+// The GHOST STEPPER -
+// a partner's turn/kneel/walk ANIMATES on the observing machine instead of
+// snapping, display-only (never SavedBattleGame/BattleUnit/Tile - see
+// CoopMod/CoopGhost.h). A real user option (an OptionInfo
+// registration, the coopCancelOnAnyPartnerAction precedent above), never a
+// connectionTCP static, so the harness's set_option test command can toggle it.
+// DEFAULT true. Turning it off enqueues nothing (CoopDisplayQueue::
+// onApplied() still applies every ev exactly the same - the option only
+// gates the DISPLAY side) and moves no hash bucket either way.
+OPT bool coopGhostStepper;
 
 OPT bool oxceAlternateCraftEquipmentManagement;
 OPT bool oxceBaseInfoScaleEnabled;
@@ -186,6 +235,7 @@ OPT bool oxceReplaceNotesLink;
 
 OPT bool oxceInventorySplitScrollButton;
 OPT bool oxceInventoryDropItemOverPaperdoll;
+OPT bool oxceInventoryUnloadFixedWeapons;
 
 OPT int oxceMaxEquipmentLayoutTemplates;
 
@@ -197,9 +247,4 @@ OPT std::vector< std::pair<std::string, bool> > mods; // ordered list of availab
 OPT SoundFormat currentSound;
 
 OPT int battleXcomSpeedOrig;
-
-// PRD-P0/P5 parallel battlescape turns. Declared here (no OptionInfo yet) so
-// the test harness can set them before PRD-P5 lands the toggle that reads
-// them; P5 registers them in createAdvancedOptionsOTHER() for the UI +
-// options.cfg persistence and drops the default-init in Options.cpp.
-OPT bool EnableCoopParallelTurns;
+OPT int battleAlienSpeedOrig;

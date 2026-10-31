@@ -1,0 +1,3 @@
+# Test-only mod (armor multipliers). Mod::loadFile reads armorMultipliersAbs
+# (one value per difficulty); BattleUnit::adjustStats adds it to an original-HOSTILE unit's maximum armor.
+armorMultipliersAbs: [20, 20, 20, 20, 20]

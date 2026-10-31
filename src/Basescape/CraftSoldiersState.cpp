@@ -328,6 +328,12 @@ void CraftSoldiersState::cbxSortByChange(Action *)
 	}
 	else
 	{
+		// coop (issue #65): in SHARED "original order" is the shared order - never re-append it.
+		if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
+		{
+			initList(_lstSoldiers->getScroll());
+			return;
+		}
 		// restore original ordering, ignoring (of course) those
 		// soldiers that have been sacked since this state started
 		for (const auto* origSoldier : _origSoldierOrder)
@@ -573,13 +579,12 @@ void CraftSoldiersState::moveSoldierUp(Action *action, unsigned int row, bool ma
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
 	// roster locally, and the row is an index into the owner-filtered list, not
-	// into _base->getSoldiers(). Separate sends the player's new order at their
-	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED does not reorder at all, and a visitor never reorders
-	// another player's roster.
+	// into _base->getSoldiers(). The player's new order of their own soldiers
+	// goes to the host (soldier_order); the list refreshes when it lands. A
+	// visitor never reorders another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
-		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+		if (_base->_isForeignBase
 			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, true, max))
 			return;
 		if (!max && action)
@@ -650,13 +655,12 @@ void CraftSoldiersState::moveSoldierDown(Action *action, unsigned int row, bool 
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
 	// roster locally, and the row is an index into the owner-filtered list, not
-	// into _base->getSoldiers(). Separate sends the player's new order at their
-	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED does not reorder at all, and a visitor never reorders
-	// another player's roster.
+	// into _base->getSoldiers(). The player's new order of their own soldiers
+	// goes to the host (soldier_order); the list refreshes when it lands. A
+	// visitor never reorders another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
-		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+		if (_base->_isForeignBase
 			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, false, max))
 			return;
 		if (!max && action)
@@ -848,6 +852,7 @@ void CraftSoldiersState::lstSoldiersGiveUnitPress(Action *)
  */
 void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
 {
+	if (SharedEcon::submitCraftDeassign(_game, _base, nullptr)) return; // coop: SHARED - the host unseats this player's soldiers
 	// One-world campaigns: unseating moves craft/store gear in the host's world,
 	// so each one goes to the host as craft_assign (Separate: own soldiers only).
 	if (submitOneWorldDeassign(nullptr))
@@ -877,6 +882,7 @@ void CraftSoldiersState::btnDeassignAllSoldiersClick(Action *action)
  */
 void CraftSoldiersState::btnDeassignCraftSoldiersClick(Action *action)
 {
+	if (SharedEcon::submitCraftDeassign(_game, _base, _base->getCrafts()->at(_craft))) return; // coop: SHARED - the host takes this player's soldiers off the craft
 	Craft *c = _base->getCrafts()->at(_craft);
 	if (submitOneWorldDeassign(c))
 	{

@@ -33,42 +33,11 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "TileEngine.h"
-#include "BattlescapeGame.h"
-#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
-
-/**
- * coop: adds the healer/medikit identity a classic `medkit` packet never
- * carried. Without it the receiver has to guess the medikit from its own
- * _currentAction, which in parallel mode belongs to the other player. Additive -
- * an older peer ignores these keys and keeps its classic behaviour.
- */
-static void coopStampMedikitPacket(Json::Value& obj, const BattleAction* action)
-{
-	if (action && action->actor)
-	{
-		obj["healer_id"] = action->actor->getId();
-	}
-	if (action && action->weapon)
-	{
-		obj["weapon_id"] = action->weapon->getId();
-		obj["weapon_type"] = action->weapon->getRules()->getType();
-		obj["hand"] = BattlescapeGame::coopHandOf(action->actor, action->weapon, "right");
-	}
-	if (action && action->actor)
-	{
-		// coop (PRD-P9 soak finding, same shape as rider R2): the ACTOR's cost.
-		// Prime, unprime and medikit mutate synchronously inside a UI handler, so
-		// they push no BattleState and the peer has nothing that would charge them
-		// - it mirrored the EFFECT (fuse, wounds) but never the price, and the two
-		// copies of the soldier drifted apart by the action's TU on every use
-		// (measured: 31 vs 62 after one prime). Additive and presence-gated.
-		obj["tu"] = action->actor->getTimeUnits();
-		obj["energy"] = action->actor->getEnergy();
-	}
-}
 
 /**
  * Helper function that returns a string representation of a type (mainly used for numbers).
@@ -98,7 +67,7 @@ public:
  * @param y The title's y origin.
  * @param title The title.
  */
-MedikitTitle::MedikitTitle (int y, const std::string & title) : Text (73, 9, 186, y)
+MedikitTitle::MedikitTitle (int y, const std::string & title) : Text (73 + 60, 9, 186 - 30, y)
 {
 	this->setText(title);
 	this->setHighContrast(true);
@@ -184,9 +153,9 @@ MedikitState::MedikitState (BattleUnit *targetUnit, BattleAction *action, TileEn
 	add(_bg);
 	add(_medikitView, "body", "medikit", _bg);
 	add(_endButton, "buttonEnd", "medikit", _bg);
-	add(new MedikitTitle (37, tr("STR_PAIN_KILLER")), "textPK", "medikit", _bg);
-	add(new MedikitTitle (73, tr("STR_STIMULANT")), "textStim", "medikit", _bg);
-	add(new MedikitTitle (109, tr("STR_HEAL")), "textHeal", "medikit", _bg);
+	add(new MedikitTitle (37, tr(_item->getRules()->getPainKillerActionName())), "textPK", "medikit", _bg);
+	add(new MedikitTitle (73, tr(_item->getRules()->getStimulantActionName())), "textStim", "medikit", _bg);
+	add(new MedikitTitle (109, tr(_item->getRules()->getHealActionName())), "textHeal", "medikit", _bg);
 	add(_healButton, "buttonHeal", "medikit", _bg);
 	add(_stimulantButton, "buttonStim", "medikit", _bg);
 	add(_pkButton, "buttonPK", "medikit", _bg);
@@ -239,47 +208,6 @@ void MedikitState::handle(Action *action)
 }
 
 /**
- * coop (PRD-P6): routes this press through the action-intent door. Returns true
- * when nothing local may run (a parallel client shipped an intent; a parallel
- * host was refused admission and flashed busy).
- */
-bool MedikitState::coopForwardMedikit(int medikitMode, int bodyPart)
-{
-	SavedBattleGame* battle = _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : nullptr;
-	BattlescapeGame* bg = battle ? battle->getBattleGame() : nullptr;
-	if (!bg)
-	{
-		return false;
-	}
-	if (bg->coopRouteMedikit(_action, _targetUnit, medikitMode, bodyPart))
-	{
-		update();
-		return true;
-	}
-	return false;
-}
-
-void MedikitState::coopHandle(std::string state, int part)
-{
-
-	if (_item->getHealQuantity() == 0)
-	{
-		return;
-	}
-
-	if (_action->spendTU(&_action->result))
-	{
-		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)part);
-
-		_medikitView->updateSelectedPart();
-		_medikitView->invalidate();
-		update();
-	
-	}
-
-}
-
-/**
  * Returns to the previous screen.
  * @param action Pointer to an action.
  */
@@ -291,7 +219,7 @@ void MedikitState::onEndClick(Action *)
 		_game->getScreen()->resetDisplay(false);
 	}
 	_game->popState();
-	_tileEngine->medikitRemoveIfEmpty(_action);
+	if (!coopClientSkipsMedikitRemoval()) _tileEngine->medikitRemoveIfEmpty(_action);
 }
 
 /**
@@ -305,34 +233,11 @@ void MedikitState::onHealClick(Action *)
 		return;
 	}
 
-	// coop (PRD-P6): the parallel client asks instead of healing. The panel is
-	// still refreshed - the host's `medkit` broadcast is what actually changes
-	// the numbers it reads.
-	if (coopForwardMedikit(BMA_HEAL, _medikitView->getSelectedPart()))
-	{
-		return;
-	}
-
+	if (coopInterceptMedikitPress(_action, _targetUnit, BMA_HEAL, _medikitView->getSelectedPart())) return;
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_HEAL, (UnitBodyPart)_medikitView->getSelectedPart());
-
-		// COOP healing
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "medkit";
-			obj["actor_id"] = _targetUnit->getId();
-			obj["type"] = (int)_action->type;
-			obj["part"] = _medikitView->getSelectedPart();
-			obj["medkit_state"] = "heal";
-			coopStampMedikitPacket(obj, _action);
-			obj["action_result"] = &_action->result;
-			obj["time"] = _action->Time;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
+		coopHostMedikit(_action, _targetUnit, BMA_HEAL, _medikitView->getSelectedPart());
 		_medikitView->updateSelectedPart();
 		_medikitView->invalidate();
 		update();
@@ -358,36 +263,16 @@ void MedikitState::onStimulantClick(Action *)
 		return;
 	}
 
-	// coop (PRD-P6)
-	if (coopForwardMedikit(BMA_STIMULANT, BODYPART_TORSO))
-	{
-		return;
-	}
-
+	if (coopInterceptMedikitPress(_action, _targetUnit, BMA_STIMULANT, BODYPART_TORSO)) return;
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_STIMULANT, BODYPART_TORSO);
+		coopHostMedikit(_action, _targetUnit, BMA_STIMULANT, BODYPART_TORSO);
 		update();
 		if (!canContinueHealing)
 		{
 			onEndClick(0);
 		}
-
-		// COOP stimulant
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "medkit";
-			obj["actor_id"] = _targetUnit->getId();
-			obj["type"] = (int)_action->type;
-			obj["part"] = _medikitView->getSelectedPart();
-			obj["medkit_state"] = "stimulant";
-			coopStampMedikitPacket(obj, _action);
-			obj["action_result"] = &_action->result;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-		}
-
 	}
 	else
 	{
@@ -406,38 +291,16 @@ void MedikitState::onPainKillerClick(Action *)
 		return;
 	}
 
-	// coop (PRD-P6)
-	if (coopForwardMedikit(BMA_PAINKILLER, BODYPART_TORSO))
-	{
-		return;
-	}
-
+	if (coopInterceptMedikitPress(_action, _targetUnit, BMA_PAINKILLER, BODYPART_TORSO)) return;
 	if (_action->spendTU(&_action->result))
 	{
 		bool canContinueHealing = _tileEngine->medikitUse(_action, _targetUnit, BMA_PAINKILLER, BODYPART_TORSO);
+		coopHostMedikit(_action, _targetUnit, BMA_PAINKILLER, BODYPART_TORSO);
 		update();
 		if (!canContinueHealing)
 		{
 			onEndClick(0);
 		}
-
-		
-		// COOP painkiller
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2)
-		{
-			Json::Value obj;
-			obj["state"] = "medkit";
-			obj["actor_id"] = _targetUnit->getId();
-			obj["type"] = (int)_action->type;
-			obj["part"] = _medikitView->getSelectedPart();
-			obj["medkit_state"] = "painkiller";
-			coopStampMedikitPacket(obj, _action);
-			obj["action_result"] = &_action->result;
-
-			_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-		}
-
 	}
 	else
 	{
@@ -454,6 +317,28 @@ void MedikitState::update()
 	_stimulantTxt->setText(toString(_item->getStimulantQuantity()));
 	_healTxt->setText(toString(_item->getHealQuantity()));
 	_medikitView->invalidate();
+}
+
+/**
+ * co-op: on a co-op client the host runs
+ * a button's use; when its answer arrives this runs the handler's own post-use
+ * lines (the charges and wounds are already applied).
+ * @param refreshPart True after a heal (the selected body part is refreshed).
+ * @param keepOpen False closes the screen (the host's `continue: false`, or a
+ * refused order - vanilla closes on a failed spendTU).
+ */
+void MedikitState::coopAnswered(bool refreshPart, bool keepOpen)
+{
+	if (refreshPart)
+	{
+		_medikitView->updateSelectedPart();
+	}
+	_medikitView->invalidate();
+	update();
+	if (!keepOpen)
+	{
+		onEndClick(0);
+	}
 }
 
 }

@@ -64,7 +64,8 @@ public:
 	static void ScriptRegister(ScriptParserBase* parser);
 	/// Register useful function used by graphic scripts.
 	static void ScriptRegisterUnitAnimations(ScriptParserBase* parser);
-  private:
+
+private:
 	bool _isPreview;
 	SDL_Rect _craftPos;
 	int _craftZ;
@@ -375,7 +376,9 @@ public:
 	}
 
 	/// Gets the currently selected unit.
-	BattleUnit *getSelectedUnit() const;
+	BattleUnit *getSelectedUnit();
+	/// Gets the currently selected unit.
+	const BattleUnit *getSelectedUnit() const;
 	/// Sets the currently selected unit.
 	void setSelectedUnit(BattleUnit *unit);
 	/// Gets the "undo" unit.
@@ -397,15 +400,39 @@ public:
 	TileEngine *getTileEngine() const;
 	/// Gets the playing side.
 	UnitFaction getSide() const;
-	// coop
-	void setSideCoop(int side);
-	void itemDropInventoryCoop(Tile* t, BattleUnit* unit, bool unprimeItems, bool deleteFixedItems);
 	/// Can unit use that weapon?
 	bool canUseWeapon(const BattleItem *weapon, const BattleUnit *unit, bool isBerserking, BattleActionType actionType, std::string* message = nullptr) const;
 	/// Gets the turn number.
 	int getTurn() const;
-	// coop
-	void setTurnCoop(int turn);
+	/// Absolute
+	/// turn-counter set - the coop thin client's counterpart of the
+	/// `_turn = 1` line inside startFirstTurn() below, and of NOTHING else
+	/// that function does (no randomizeItemLocations/resetUnitTiles/
+	/// prepareNewTurn/newTurnUpdateScripts). The client never runs the
+	/// Briefing/NextTurn/Inventory chain that calls startFirstTurn(), and its
+	/// streamed snapshot was taken while the host was still at turn 0, so the
+	/// counter is the one thing it has to mirror by hand. Consumer:
+	/// CoopHandshake::onBlobChunkAppended() in src/CoopMod/connectionTCP.cpp.
+	/// Sim code must never call this - vanilla owns _turn through
+	/// startFirstTurn()/endTurn().
+	void setTurn(int turn);
+	/// Absolute active-side
+	/// set - the coop client-apply counterpart of the `newSide` field on the
+	/// `side_transition` restate. Plain assignment to the private _side field
+	/// (getSide() is the only other accessor). Sim code must never call this -
+	/// vanilla owns _side through endTurn(); the client applier is the one
+	/// caller (connectionTCP.cpp's CoopApply::applyEvPayload).
+	void coopSetSide(UnitFaction side);
+	/// the destroyed-objective counter (no
+	/// vanilla getter; addDestroyedObjective() is its only writer).
+	int coopGetObjectivesDestroyed() const;
+	/// absolute destroyed-objective set for the delta applier.
+	void coopSetObjectivesDestroyed(int objectivesDestroyed);
+	/// the raw battle script-value vector (element i = tag i + 1).
+	const std::vector<int>& coopScriptValuesRaw() const;
+	/// absolute raw battle script-value set; entries past
+	/// @a values are zeroed. Runs no script and draws no RNG.
+	void coopSetScriptValuesRaw(const std::vector<int>& values);
 	/// Sets the bug hunt turn number.
 	void setBughuntMinTurn(int bughuntMinTurn);
 	/// Gets the bug hunt turn number.
@@ -418,10 +445,10 @@ public:
 	void saveCustomCraftDeployment();
 	/// Saves the custom RuleCraft deployment. Invalidates corresponding custom craft deployments.
 	void saveDummyCraftDeployment();
-	/// Does the given craft type have a custom deployment?
-	bool hasCustomDeployment(const RuleCraft* rule) const;
-	/// Gets a custom deployment for the given craft type.
-	const RuleCraftDeployment& getCustomDeployment(const RuleCraft* rule) const;
+	/// Does the given craft type have a custom deployment (@a craft's owner's, see SavedGame::getCraftDeploymentsOf)?
+	bool hasCustomDeployment(const RuleCraft* rule, const Craft* craft = nullptr) const;
+	/// Gets a custom deployment for the given craft type (@a craft's owner's).
+	const RuleCraftDeployment& getCustomDeployment(const RuleCraft* rule, const Craft* craft = nullptr) const;
 	/// Ends the turn.
 	void endTurn();
 	/// Gets animation frame.
@@ -441,8 +468,6 @@ public:
 	void loadMapResources(Mod *mod);
 	/// Resets tiles units are standing on
 	void resetUnitTiles();
-	// coop pvp
-	void resetCoopTiles();
 	/// Add item to delete list.
 	void deleteList(BattleItem *item);
 	/// Removes an item from the game.
@@ -459,7 +484,7 @@ public:
 	/// Create new special built-in item for unit.
 	BattleItem *createItemForUnitSpecialBuiltin(const RuleItem *rule, BattleUnit *unit);
 	/// Create new item for tile.
-	BattleItem *createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor = nullptr, int coopID = 0);
+	BattleItem *createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor = nullptr);
 	/// Create new item for tile.
 	BattleItem *createItemForTile(const std::string& type, Tile *tile);
 	/// Create new temporary item.
@@ -479,18 +504,8 @@ public:
 	void addDestroyedObjective();
 	/// Checks if all the objectives are destroyed.
 	bool allObjectivesDestroyed() const;
-	/// coop (explosion ordered-replay E0): host->client parity readout for the
-	/// objective counter (LEAK-OBJ gates the client's own increment, so it
-	/// converges to the host's absolute instead - see NextTurnState/connectionTCP).
-	int getObjectivesDestroyed() const { return _objectivesDestroyed; }
-	/// coop (explosion ordered-replay E0): counterpart readout, for parity assertions.
-	int getObjectivesNeeded() const { return _objectivesNeeded; }
-	/// coop (explosion ordered-replay E0): client-side apply of the host's absolute.
-	void setObjectivesDestroyed(int n) { _objectivesDestroyed = n; }
 	/// Gets the current item ID.
 	int *getCurrentItemId();
-	/// Gets the current item ID value (const read; the co-op drift tripwire).
-	int getCurrentItemIdValue() const;
 	/// Gets a spawn node.
 	Node *getSpawnNode(int nodeRank, BattleUnit *unit);
 	/// Gets a patrol node.
@@ -690,12 +705,6 @@ public:
 	const HitLog *getHitLog() const;
 	/// Reset all the unit hit state flags.
 	void resetUnitHitStates();
-
-	// coop
-	void abortPathCoop();
-	void coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov);
-	bool moveBaseCoopInventory(std::string item_type, int coop_item_id, int coopbase_id, int craft_id, std::string craft_type, int slot_type, int item_slot_type, std::string str_coop_items);
-	void moveBaseCoopInventorySave(Base* base, Craft* craft, BattleItem* item, int slot_type_int);
 };
 
 }

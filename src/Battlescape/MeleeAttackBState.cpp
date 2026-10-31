@@ -32,23 +32,10 @@
 #include "../Mod/Mod.h"
 #include "../Mod/RuleItem.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
-
-// coop (wire-order report alignment, Increment 2 / A1): the master lever, file-scope in
-// connectionTCP.cpp; extern-declared here (matching TestServer.cpp) to fence the display-
-// replay ammo spend without a connectionTCP.h recompile.
-extern std::atomic<bool> g_wireOrderState;
-// True only when THIS machine is the parallel CLIENT with the wire-order lever on - the one
-// case where a display replay's spendAmmoForAction would clobber the host's SEAM-11 itemAmmo
-// absolute (docs carrier-census A1). Lever-off / host / classic -> false -> ammo is spent
-// exactly as before (byte-identical).
-static bool coopFenceReplayAmmoSpend()
-{
-	return g_wireOrderState.load(std::memory_order_relaxed)
-		&& connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
-}
 
 /**
  * Sets up a MeleeAttackBState.
@@ -73,100 +60,6 @@ void MeleeAttackBState::init()
 	if (_initialized) return;
 	_initialized = true;
 
-	// coop (PRD-P6 pre-task): melee had no receive-gate coverage - the peer could
-	// apply an unrelated packet halfway through a melee chain. Mirrors
-	// UnitTurnBState. Guarded: popState() re-init()s this state when the
-	// ExplosionBState it pushes in front of itself pops.
-	if (!_coopGateHeld)
-	{
-		_coopGateHeld = true;
-		_parent->setCoopTaskCompleted(false);
-	}
-
-	
-	// coop
-	if (_parent->getCoopMod()->_isActivePlayerSync == false && _parent->getCoopMod()->getCoopStatic() == true)
-	{
-
-		if (_parent->getCoopMod()->_melee_target_id != -1)
-		{
-
-			// unit
-			for (auto u : *_parent->getSave()->getUnits())
-			{
-
-				if (u->getId() == _parent->getCoopMod()->_melee_target_id)
-				{
-					_target = u;
-					_parent->getCoopMod()->_melee_target_id = -1;
-					break;
-				}
-			}
-
-		}
-
-		if (_parent->getCoopMod()->_melee_hit_number != -1)
-		{
-
-			_hitNumber = _parent->getCoopMod()->_melee_hit_number;
-
-		}
-
-		
-		if (_parent->getCoopMod()->_currentAmmoID != -1 && _parent->getCoopMod()->currentAmmoType != "")
-		{
-
-			bool found = false;
-
-			for (auto ammo_item : *_parent->getSave()->getItems())
-			{
-
-				if (ammo_item->getId() == _parent->getCoopMod()->_currentAmmoID && ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
-				{
-
-					found = true;
-					_ammo = ammo_item;
-					break;
-				}
-			}
-
-			// coop (issue #74): fall back ONLY to ammo this actor is carrying, and
-			// never fabricate a BattleItem - a global by-type scan picks another
-			// unit's identical clip, and a receiver-side allocation drifts this
-			// machine's item-id counter away from the peer's for good.
-			if (found == false && _action.weapon)
-			{
-				BattleItem* own = _action.weapon->getAmmoForAction(_action.type);
-				if (own && own->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
-				{
-					found = true;
-					_ammo = own;
-				}
-			}
-
-			if (found == false && _action.actor)
-			{
-				for (auto ammo_item : *_action.actor->getInventory())
-				{
-
-					if (ammo_item->getRules()->getType() == _parent->getCoopMod()->currentAmmoType)
-					{
-
-						found = true;
-						_ammo = ammo_item;
-						break;
-					}
-				}
-			}
-
-			_parent->getCoopMod()->currentAmmoType = "";
-			_parent->getCoopMod()->_currentAmmoID = -1;
-		}
-
-		coop_action = true;
-		
-	}
-
 	int terrainMeleeTilePart = _action.terrainMeleeTilePart;
 	_action.terrainMeleeTilePart = 0; // reset!
 
@@ -180,26 +73,20 @@ void MeleeAttackBState::init()
 	_unit = _action.actor;
 
 	bool reactionShoot = _unit->getFaction() != _parent->getSave()->getSide();
-
-	// coop
+	_ammo = _action.weapon->getAmmoForAction(BA_HIT, reactionShoot ? nullptr : &_action.result);
 	if (!_ammo)
 	{
-		_ammo = _action.weapon->getAmmoForAction(BA_HIT, reactionShoot ? nullptr : &_action.result);
+		_parent->popState();
+		return;
 	}
 
-	if (!_ammo && !coop_action)
+	if (!_parent->getSave()->getTile(_action.target)) // invalid target position
 	{
 		_parent->popState();
 		return;
 	}
 
-	if (!_parent->getSave()->getTile(_action.target) && !coop_action) // invalid target position
-	{
-		_parent->popState();
-		return;
-	}
-
-	if (_unit->isOut() || _unit->isOutThresholdExceed() && !coop_action)
+	if (_unit->isOut() || _unit->isOutThresholdExceed())
 	{
 		// something went wrong - we can't shoot when dead or unconscious, or if we're about to fall over.
 		_parent->popState();
@@ -211,7 +98,11 @@ void MeleeAttackBState::init()
 	{
 		// no ammo or target is dead: give the time units back and cancel the shot.
 		BattleUnit* target = _parent->getSave()->getTile(_action.target)->getUnit();
-		if (!target || target->isOut() || target->isOutThresholdExceed() || target != _parent->getSave()->getSelectedUnit() && !coop_action)
+		// coop: ONE guarded coop call - on the
+		// co-op HOST the target must be the unit whose action triggered the reaction (a
+		// client's walker is never the host's selected unit); vanilla's selected unit
+		// everywhere else.
+		if (!target || target->isOut() || target->isOutThresholdExceed() || target != coopReactionTrigger(_parent->getSave()->getSelectedUnit()))
 		{
 			_parent->popState();
 			return;
@@ -224,11 +115,7 @@ void MeleeAttackBState::init()
 	}
 
 	//spend TU
-	// coop: spendTU() was the LEFT operand, so a replayed melee spent the TU
-	// AGAIN on top of the authoritative value the packet had just written
-	// (measured 49 vs 29). The guard has to short-circuit, not just suppress the
-	// popState.
-	if (!coop_action && !_action.spendTU(&_action.result))
+	if (!_action.spendTU(&_action.result))
 	{
 		_parent->popState();
 		return;
@@ -242,150 +129,39 @@ void MeleeAttackBState::init()
 		return;
 	}
 
-	// coop
-	if (coop_action == false)
+	AIModule *ai = _unit->getAIModule();
+
+	if (_unit->getFaction() == _parent->getSave()->getSide() &&
+		_unit->getFaction() != FACTION_PLAYER &&
+		_parent->_debugPlay == false &&
+		ai && ai->getTarget())
 	{
-
-		AIModule* ai = _unit->getAIModule();
-
-		if (_unit->getFaction() == _parent->getSave()->getSide() &&
-			_unit->getFaction() != FACTION_PLAYER &&
-			_parent->_debugPlay == false &&
-			ai && ai->getTarget())
-		{
-			_target = ai->getTarget();
-		}
-		else
-		{
-			_target = _parent->getSave()->getTile(_action.target)->getUnit();
-		}
-
-		if (!_target)
-		{
-			throw Exception("This is a known (but tricky) bug... still fixing it, sorry. In the meantime, try save scumming option or kill all aliens in debug mode to finish the mission.");
-		}
-
-		int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
-		_voxel = _action.target.toVoxel() + Position(8, 8, height);
-
-		if (!_parent->getSave()->getTile(_voxel.toTile()))
-		{
-			throw Exception("Melee attack animation overflow: target voxel is outside of the map boundaries.");
-		}
-
-		if (_unit->getFaction() == FACTION_HOSTILE)
-		{
-			_hitNumber = _weapon->getRules()->getAIMeleeHitCount() - 1;
-		}
-
+		_target = ai->getTarget();
 	}
 	else
 	{
-
-		if (_target)
-		{
-
-			int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
-			_voxel = _action.target.toVoxel() + Position(8, 8, height);
-
-		}
-
+		_target = _parent->getSave()->getTile(_action.target)->getUnit();
 	}
 
-	// coop (PRD-P3 GAP-4b): decide hit/miss HERE, before the ExplosionBState this
-	// pushes can roll it, and park the answer for TileEngine::meleeAttack to
-	// replay. The sender is the machine that already owns every other pre-roll
-	// for this action (the aim/trajectory queue), and deciding it now is what
-	// lets the boolean ride the SAME packet - a follow-up would race the peer's
-	// own ExplosionBState, which starts one frame after its MeleeAttackBState.
-	bool coopMeleeHit = false;
-	const bool coopMeleeSender = _parent->getCoopMod()->getCoopStatic() == true
-								 && _parent->getCoopMod()->_isActivePlayerSync == true;
-	if (coopMeleeSender)
+	if (!_target)
 	{
-		coopMeleeHit = (terrainMeleeTilePart > 0) // terrain melee never misses
-					   || (_parent->getTileEngine()->meleeAttackCalculate(
-							   BattleActionAttack::GetAferShoot(_action, _ammo), _target) > 0);
-		_parent->getCoopMod()->_meleeResults.push_back(coopMeleeHit ? 1 : 0);
+		throw Exception("This is a known (but tricky) bug... still fixing it, sorry. In the meantime, try save scumming option or kill all aliens in debug mode to finish the mission.");
+	}
+
+	int height = _target->getFloatHeight() + (_target->getHeight() / 2) - _parent->getSave()->getTile(_action.target)->getTerrainLevel();
+	_voxel = _action.target.toVoxel() + Position(8, 8, height);
+
+	if (!_parent->getSave()->getTile(_voxel.toTile()))
+	{
+		throw Exception("Melee attack animation overflow: target voxel is outside of the map boundaries.");
+	}
+
+	if (_unit->getFaction() == FACTION_HOSTILE)
+	{
+		_hitNumber = _weapon->getRules()->getAIMeleeHitCount() - 1;
 	}
 
 	performMeleeAttack();
-
-	// coop
-	if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-		Json::Value obj;
-		obj["state"] = "melee_attack";
-		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-		// client's action_end apply-barrier accounts for this parked melee hit/miss
-		// result (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(obj);
-		obj["hit"] = coopMeleeHit;
-
-		int index = 0;
-
-		obj["unit_id"] = _unit->getId();
-		obj["target_id"] = _target->getId();
-
-		int startx = _unit->getPosition().x;
-		int starty = _unit->getPosition().y;
-		int startz = _unit->getPosition().z;
-
-		obj["coords"]["start"]["x"] = startx;
-		obj["coords"]["start"]["y"] = starty;
-		obj["coords"]["start"]["z"] = startz;
-
-		int endx = _action.target.x;
-		int endy = _action.target.y;
-		int endz = _action.target.z;
-
-		obj["coords"]["end"]["x"] = endx;
-		obj["coords"]["end"]["y"] = endy;
-		obj["coords"]["end"]["z"] = endz;
-
-		obj["tu"] = _unit->getTimeUnits();
-		obj["energy"] = _unit->getEnergy();
-		obj["health"] = _unit->getHealth();
-		obj["morale"] = _unit->getMorale();
-		obj["stunlevel"] = _unit->getStunlevel();
-		obj["mana"] = _unit->getMana();
-
-		// new!
-		obj["weapon_type"] = _action.weapon->getRules()->getType();
-		obj["type"] = (int)_action.type;
-		// coop (issue #74): the weapon that actually acted, and the hand it is
-		// really in - not the sender's last hand-button click.
-		obj["weapon_id"] = _action.weapon->getId();
-		obj["hand"] = BattlescapeGame::coopHandOf(_action.actor, _action.weapon, _parent->getCoopWeaponHand());
-
-		obj["hitNumber"] = _hitNumber;
-
-		obj["ammo_type"] = "";
-		obj["ammo_id"] = -1;
-
-		if (_ammo)
-		{
-
-			obj["ammo_type"] = _ammo->getRules()->getType();
-			obj["ammo_id"] = _ammo->getId();
-		}
-
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-	}
-
-}
-
-/**
- * Deinitializes the state - releases the co-op receive gate init() took.
- */
-void MeleeAttackBState::deinit()
-{
-	if (_coopGateHeld)
-	{
-		_coopGateHeld = false;
-		_parent->setCoopTaskCompleted(true);
-	}
 }
 
 /**
@@ -429,7 +205,10 @@ void MeleeAttackBState::think()
 			_parent->getMap()->invalidate();
 		}
 
-		if (_unit->getFaction() == _parent->getSave()->getSide()) // not a reaction attack
+		// coop: ONE guarded coop term - on the co-op HOST
+		// a partner's admitted melee never resets the HOST player's own current
+		// action (its aim mode); false in SP, on a client and for the host's own.
+		if (_unit->getFaction() == _parent->getSave()->getSide() && !coopIsRemoteIntentAction(_action)) // not a reaction attack
 		{
 			_parent->getCurrentAction()->type = BA_NONE; // do this to restore cursor
 		}
@@ -452,10 +231,7 @@ void MeleeAttackBState::performMeleeAttack(int terrainMeleeTilePart)
 	_unit->aim(true);
 
 	// use up ammo if applicable
-	// coop (wire-order Increment 2 / A1): fence the parallel client's display-replay ammo
-	// spend lever-on; the host's SEAM-11 itemAmmo absolute authors canonical ammo.
-	if (!coopFenceReplayAmmoSpend())
-		_action.weapon->spendAmmoForAction(BA_HIT, _parent->getSave());
+	_action.weapon->spendAmmoForAction(BA_HIT, _parent->getSave());
 	_parent->getMap()->setCursorType(CT_NONE);
 
 	// offset the damage voxel ever so slightly so that the target knows which side the attack came from

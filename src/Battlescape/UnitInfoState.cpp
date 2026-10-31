@@ -35,6 +35,7 @@
 #include "BattlescapeGame.h"
 #include "BattlescapeState.h"
 #include "../Mod/RuleInterface.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -49,9 +50,6 @@ namespace OpenXcom
  */
 UnitInfoState::UnitInfoState(BattleUnit *unit, BattlescapeState *parent, bool fromInventory, bool mindProbe) : _unit(unit), _parent(parent), _fromInventory(fromInventory), _mindProbe(mindProbe)
 {
-
-	// coop
-
 	if (Options::maximizeInfoScreens)
 	{
 		Options::baseXResolution = Screen::ORIGINAL_WIDTH;
@@ -483,8 +481,6 @@ UnitInfoState::UnitInfoState(BattleUnit *unit, BattlescapeState *parent, bool fr
 UnitInfoState::~UnitInfoState()
 {
 
-	// coop
-
 }
 
 /**
@@ -594,7 +590,7 @@ void UnitInfoState::init()
 
 	if (_game->getMod()->isManaFeatureEnabled())
 	{
-		if (_game->getSavedGame()->isManaUnlocked(_game->getMod()))
+		if (coopIsManaUnlockedFor(_game, _unit, _game->getMod()))
 		{
 			ss.str("");
 			ss << _unit->getMana();
@@ -619,7 +615,7 @@ void UnitInfoState::init()
 	{
 		psiSkillWithoutAnyBonuses = _unit->getGeoscapeSoldier()->getCurrentStats()->psiSkill;
 	}
-	if (psiSkillWithoutAnyBonuses > 0 || (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements())))
+	if (psiSkillWithoutAnyBonuses > 0 || (Options::psiStrengthEval && coopIsResearchedFor(_game, _unit, _game->getMod()->getPsiRequirements())))
 	{
 		ss.str("");
 		ss << _unit->getBaseStats()->psiStrength;

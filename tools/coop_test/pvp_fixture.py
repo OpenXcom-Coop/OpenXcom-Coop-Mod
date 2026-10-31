@@ -79,10 +79,15 @@ def start_pvp_skirmish_lobby(host, client, port, alien_player="client"):
     gamemode = r["gamemode"]
     assert gamemode in (2, 3), \
         f"expected a PvP mode (2 or 3), got gamemode {gamemode}"
-    time.sleep(1)
-
-    host_ls = _lobby(host)
-    client_ls = _lobby(client)
+    # until the host's roster shows the row Alien and the client's teams equal the host's (the
+    # change has reached it), at most the old fixed 1 s; the lobby views refresh on their own timer, so both are re-read
+    end = time.time() + 1.0
+    while True:
+        host_ls, client_ls = _lobby(host), _lobby(client)
+        ht = host_ls.get("playerTeams") or []
+        if (row < len(ht) and ht[row] == "Alien" and client_ls.get("playerTeams") == ht) or time.time() >= end:
+            break
+        time.sleep(0.02)
     return gamemode, host_ls, client_ls
 
 
@@ -168,6 +173,7 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
 
     host.wait_for("start eligible",
                   lambda: _lobby(host).get("startEligible") or None)
+    host.wait_for("START CAMPAIGN shown", lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
     if alien_player == "client":
         row = row_for(host, "ClientPlayer")
@@ -187,6 +193,7 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
 
     # XCOM player places base via BuildNewBaseState.
     # The alien player (if host) enters COOP_DLG_WAIT_PLAYERS instead.
+    xcom_gc.wait_for("XCOM base placement screen", lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
     if _has(xcom_gc, "BuildNewBaseState"):
         xcom_gc.wait_for(f"{alien_player} XCOM base placement",
                          lambda gc_=xcom_gc: _has(gc_, "BuildNewBaseState"))
@@ -202,9 +209,8 @@ def start_pvp_campaign(host, client, port, alien_player="client"):
         pass
 
     # ---- host clicks BEGIN to release both machines to the geoscape ----
-    if _has(host, "CoopState"):
-        # WAIT_BASES/WAIT_PLAYERS always shows BEGIN (see CoopState::waitSatisfied).
-        host.ok({"cmd": "coop_dialog_back"})
+    # Press BEGIN only once a player could (the 60 / 62 dialog shows its button): a press while it is hidden is refused.
+    session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))
 
     time.sleep(2)
     if _has(alien_gc if alien_player == "client" else host, "BuildNewBaseState"):

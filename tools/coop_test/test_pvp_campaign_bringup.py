@@ -19,6 +19,7 @@ import os
 import sys
 import time
 
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
@@ -59,6 +60,8 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
             gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
             gc.ok({"cmd":"profile_ok"})
         host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
+        host.wait_for("START CAMPAIGN shown",
+                      lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
         ls = host.cmd({"cmd": "lobby_state"})
         names = ls.get("players", [])
@@ -79,6 +82,8 @@ def test_campaign_bringup(fails, alien_player, expect_mode):
         alien_gc = client if alien_player == "client" else host
 
         # ---- XCOM player places base ----
+        xcom_gc.wait_for("XCOM base placement screen",
+                         lambda: _has(xcom_gc, "BuildNewBaseState") or None, timeout=60)
         if _has(xcom_gc, "BuildNewBaseState"):
             xcom_gc.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
             print(f"PASS {tag}: XCOM player placed base")

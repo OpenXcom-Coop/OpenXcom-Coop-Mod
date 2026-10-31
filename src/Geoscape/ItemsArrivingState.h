@@ -39,6 +39,7 @@ struct ArrivalRow
 	std::string base;
 	int baseIdx;
 	int ownerSeat;
+	std::string nameKey; int nameId = -1; // coop: the replica renders name from these ("" = language-neutral; nameId >= 0 = a craft's default name)
 	std::string ownerPlayerName;
 };
 
@@ -51,6 +52,7 @@ class ItemsArrivingState : public State
 private:
 	GeoscapeState *_state;
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	TextButton *_btnOk, *_btnGotoBase;
 	Window *_window;
 	Text *_txtTitle, *_txtItem, *_txtQuantity, *_txtDestination;

@@ -53,6 +53,7 @@ private:
 	size_t _sel;
 	int _labSpace;
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	std::vector<Soldier *> _origSoldierOrder;
 	std::vector<SortFunctor *> _sortFunctors;
 	std::vector<SortFunctor *> _sortFunctorsPlus;

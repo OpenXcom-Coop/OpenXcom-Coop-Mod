@@ -28,6 +28,7 @@
 #include "Profile.h"
 #include "ChatMenu.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
+#include "BattleAuthority.h" // coopTurnMode* helpers
 
 namespace OpenXcom
 {
@@ -51,8 +52,10 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	int x = 20;
 	
 	// Create objects
-	// coop (PRD-P5): 18px taller than stock - the PARALLEL TURNS toggle takes the
-	// old button row (152) and START HOST / CANCEL move down to 172.
+	// coop: the geometry of older versions, byte for byte:
+	// the window is 18px taller than stock, the
+	// TURN MODE toggle takes the old button row (152) and START HOST / CANCEL
+	// move down to 172.
 	_window = new Window(this, 260, 178, x, 20, POPUP_BOTH);
 	_lstSaves = new TextList(224, 18, x + 18, 60);
 
@@ -63,7 +66,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_port = new TextEdit(this, 116, 18, x + 126, 92);
 	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
 	_tcpButtonHost = new TextButton(112, 18, x + 18, 172);
-	_btnParallelTurns = new TextButton(224, 18, x + 18, 152);
+	_btnTurnMode = new TextButton(224, 18, x + 18, 152);
 	_cbxVisibility = new ComboBox(this, 224, 18, x + 18, 50);
 	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112); 
 	_cbxMaxPlayers = new ComboBox(this, 112, 18, x + 130, 112); 
@@ -87,7 +90,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_serverName, "text", "pauseMenu");
 	add(_password, "text", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
-	add(_btnParallelTurns, "button", "pauseMenu");
+	add(_btnTurnMode, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_cbxVisibility, "button", "pauseMenu");
 	add(_cbxRegions, "button", "pauseMenu");
@@ -160,10 +163,12 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_tcpButtonHost->onMouseClick((ActionHandler)&HostMenu::hostTCPGame);
 	_tcpButtonHost->setVisible(true);
 
-	// coop (PRD-P5)
-	updateParallelTurnsButton();
-	_btnParallelTurns->onMouseClick((ActionHandler)&HostMenu::btnParallelTurnsClick);
-	_btnParallelTurns->setVisible(true);
+	// coop: the TURN MODE toggle. Label + visibility
+	// are driven by updateTurnModeButton() - called here and after every one of
+	// the three places that flip the hosting controls' visibility, the same four
+	// call points older versions used.
+	_btnTurnMode->onMouseClick((ActionHandler)&HostMenu::btnTurnModeClick);
+	updateTurnModeButton();
 
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
@@ -251,6 +256,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 		_cbxRegions->setVisible(true);
 
 	}
+	updateTurnModeButton(); // coop
 
 	// READ HOST ADDRESS
 
@@ -361,163 +367,64 @@ void HostMenu::init()
 		_cbxRegions->setVisible(true);
 
 	}
-
-	// coop (PRD-P5): the toggle lives and dies with the hosting controls - it is a
-	// pre-session switch, and once the session is live the handshake has already
-	// frozen the mode.
-	updateParallelTurnsButton();
+	updateTurnModeButton(); // coop
 }
 
 void HostMenu::convertUnits()
 {
-
-	// Convert single-player save to multiplayer save (PvE)
-	if (_game->getCoopMod()->getCoopGamemode() == 0 || _game->getCoopMod()->getCoopGamemode() == 1)
+	// coop: a single-player Custom Battle hosted from the
+	// pause menu becomes a classic co-op battle before the lobby opens. Soldiers
+	// split in unit-list order (v2.0.6's order): the second player (seat 1) takes the first floor(N/2), the host (seat 0) the rest -
+	// the extra one of an odd squad, a 1-soldier squad included. Every other original-PLAYER unit (a tank) is the host's; every
+	// other unit has no seat. Each soldier's owner follows its seat (as NewBattleState seats a fresh co-op battle). The battle
+	// plays in the host window's TURNS mode and the traditional baton opens at the first live seat; offerResumedBattle()
+	// rebuilds the seat->faction store from these tags.
+	SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
+	if (!battle)
 	{
-
-		_game->getCoopMod()->setPlayerTurn(3);
-
-		connectionTCP::_coopGamemode = 1;
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-
-			_game->getSavedGame()->getSavedBattle()->getBattleState()->setCurrentTurn(3);
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
-			}
-		}
+		return;
 	}
-
-	// if pve2 gamemode
-	if (_game->getCoopMod()->getCoopGamemode() == 4)
+	int soldiers = 0;
+	for (auto* unit : *battle->getUnits())
 	{
-		// swapper
-		for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-				_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
-				unit->setAIModule(0);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->convertToFaction(FACTION_HOSTILE);
-				unit->setOriginalFaction(FACTION_HOSTILE);
-			}
-		}
-
-		// Split the soldiers in half
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-
-			int soldier_total_count = 0;
-
-			// check soldiers count
-			for (auto& entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (entity->getFaction() == FACTION_PLAYER)
-				{
-					soldier_total_count++;
-				}
-			}
-
-			int soldier_used = (soldier_total_count / 2);
-
-			// make coop soldiers
-			for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					unit->setCoop(1);
-
-					if (soldier_used <= 0)
-					{
-						break;
-					}
-
-					soldier_used--;
-				}
-			}
-		}
+		if (unit && unit->getOriginalFaction() == FACTION_PLAYER && unit->getGeoscapeSoldier())
+			++soldiers;
 	}
-	// if pvp gamemode
-	else if (_game->getCoopMod()->getCoopGamemode() == 2)
+	int toClient = soldiers / 2;
+	int seat0 = 0, seat1 = 0, others = 0, unseated = 0;
+	for (auto* unit : *battle->getUnits())
 	{
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		if (!unit)
+			continue;
+		if (unit->getOriginalFaction() != FACTION_PLAYER)
 		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-				unit->setCoop(1);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->setCoop(0);
-			}
+			unit->setCoopSeat(COOP_SEAT_NONE);
+			++unseated;
+			continue;
 		}
-	}
-	// pvp2
-	else if (_game->getCoopMod()->getCoopGamemode() == 3)
-	{
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
+		Soldier* soldier = unit->getGeoscapeSoldier();
+		CoopSeat seat = COOP_SEAT_0;
+		if (soldier && toClient > 0)
 		{
-
-			if (unit->getFaction() == FACTION_HOSTILE)
-			{
-
-				unit->setCoop(0);
-			}
-			else if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				unit->setCoop(1);
-			}
+			seat = COOP_SEAT_1;
+			--toClient;
 		}
-
+		unit->setCoopSeat(seat);
+		if (soldier)
+			soldier->setCoop((int)seat);
+		if (seat == COOP_SEAT_1)
+			++seat1;
+		else if (soldier)
+			++seat0;
+		else
+			++others;
 	}
-
+	connectionTCP::_coopGamemode = 1;
+	coopBattleAuthority().turnMode = coopSessionTurnModeFromOptions();
+	coopBattleAuthority().activeSeat = -1;
+	Log(LOG_INFO) << "[coop] the single-player Custom Battle is now co-op: " << soldiers << " soldier(s), seat 1: "
+		<< seat1 << ", seat 0: " << seat0 << " + " << others << " other unit(s), " << unseated << " unit(s) unseated, turn mode "
+		<< coopTurnModeName(coopBattleAuthority().turnMode.load());
 }
 
 void HostMenu::btnChatClick(Action* action)
@@ -566,9 +473,7 @@ void HostMenu::cbxVisibilityChange(Action* action)
 		_isUDPconnection = false;
 	}
 
-	// coop (PRD-P5)
-	updateParallelTurnsButton();
-
+	updateTurnModeButton(); // coop
 }
 
 void HostMenu::cbxMaxPlayersChange(Action* action)
@@ -666,14 +571,21 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
-	// A resume keeps the mode serialized in the save (campaign and Custom
-	// Battle alike). Resetting a loaded PvP skirmish to 1 here ran the PVE unit
-	// conversion and changed both ownership and turn semantics before streaming.
-	const bool preserveLoadedMode =
-		(_game->getCoopMod()->inCoopCampaignContext()
-			&& connectionTCP::session.lobbyMode == 2)
-		|| connectionTCP::session.customBattleResumePending;
-	if (!preserveLoadedMode)
+	// coop: a co-op campaign RESUME (lobbyMode 2, derived above from the save's locked roster) keeps the PvP mode the save was
+	// played in - PVP (2) or PVP2 (3) - so the lobby, the world service and every battle read it (older versions' preserveLoadedMode
+	// shape). The kept PvP mode is the save's own (SavedGame::getCoopLoadedGamemode, written only by SavedGame::load), not the
+	// live one: the host's own DISCONNECT in the resume lobby zeroes the live mode (disconnectTCP), so a second START HOST in
+	// the same session would read 0 and resume the PvP campaign as PVE (1) on both machines. Every other host starts as PVE (1)
+	// below.
+	const int coopLoadedMode = (_game->getCoopMod()->inCoopCampaignContext() && connectionTCP::session.lobbyMode == 2)
+		? _game->getSavedGame()->getCoopLoadedGamemode() : 0;
+	const bool coopKeepLoadedPvpMode = coopLoadedMode == 2 || coopLoadedMode == 3;
+	if (coopKeepLoadedPvpMode)
+	{
+		connectionTCP::_coopGamemode = coopLoadedMode;
+	}
+	// coop: as #181 does, also keep the loaded mode for a saved Custom Battle co-op resume.
+	if (!(coopKeepLoadedPvpMode || connectionTCP::session.customBattleResumePending))
 	{
 		connectionTCP::_coopGamemode = 1;
 	}
@@ -695,7 +607,7 @@ void HostMenu::hostTCPGame(Action* action)
 		for (auto unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
 		{
 
-			if (unit->getCoop() == 1)
+			if ((int)unit->getCoopSeat() == 1)
 			{
 
 				convert = false;
@@ -711,8 +623,11 @@ void HostMenu::hostTCPGame(Action* action)
 
 	}
 
+	// coop: only a single-player Custom Battle hosted from the pause menu (main #181's
+	// CONTINUE BATTLE route, customBattleResumePending) converts, and only when no unit carries seat 1 yet (the scan above); a
+	// campaign never does, and every other host keeps its battle as it is.
 	if (_game->getCoopMod()->getCoopCampaign() == true
-		|| connectionTCP::session.customBattleResumePending)
+		|| !connectionTCP::session.customBattleResumePending)
 	{
 		convert = false;
 	}
@@ -813,36 +728,53 @@ void HostMenu::testHostWithFields(int comboIndex, const std::string& server,
 	testHostWithVisibility(comboIndex);
 }
 
+/**
+ * coop: the TURN MODE toggle. Flips the HOST's remembered preference between the two
+ * models; the value is shipped to the client on every battle_offer,
+ * so only the host's setting matters and only before a battle starts.
+ *
+ * The shape of older versions (which flipped the old boolean
+ * Options::EnableCoopParallelTurns). The shape is kept and the value changed:
+ * the option is a STRING carrying the wire spelling, so there
+ * is no bool->enum->string translation anywhere in the path.
+ *
+ * NOTHING HERE BRANCHES BEHAVIOUR: this writes a preference.
+ * The baton logic consumes it.
+ */
+void HostMenu::btnTurnModeClick(Action*)
+{
+	Options::CoopTurnMode =
+		(coopSessionTurnModeFromOptions() == CoopTurnMode::Traditional)
+			? coopTurnModeName(CoopTurnMode::Parallel)
+			: coopTurnModeName(CoopTurnMode::Traditional);
+	updateTurnModeButton();
+}
+
+/**
+ * coop: keeps the toggle's label in sync with the
+ * option and its visibility in sync with the rest of the hosting controls -
+ * hidden once a session is live, exactly like START HOST, as in older
+ * versions.
+ *
+ * The label is read back through coopSessionTurnModeFromOptions() rather than
+ * from the raw string, so a hand-edited options.cfg shows what the game will
+ * ACTUALLY send (anything but "traditional" is parallel) instead of
+ * echoing a value that would never reach the wire.
+ */
+void HostMenu::updateTurnModeButton()
+{
+	_btnTurnMode->setText(coopSessionTurnModeFromOptions() == CoopTurnMode::Traditional
+		? "TURNS: TRADITIONAL"
+		: "TURNS: PARALLEL");
+	_btnTurnMode->setVisible(_tcpButtonHost->getVisible());
+}
+
 bool HostMenu::hostControlsVisible() const
 {
 	// the window counts as usable if the primary action (START HOST) or the
 	// connection-type combo can be interacted with
 	return _tcpButtonHost->getVisible()
 		|| _cbxVisibility->getVisible();
-}
-
-/**
- * coop (PRD-P5): PARALLEL TURNS toggle. Flips the HOST's option; the value is
- * shipped to the client on COOP_READY_HOST, so only the host's setting matters
- * and only before the session goes live.
- */
-void HostMenu::btnParallelTurnsClick(Action*)
-{
-	Options::EnableCoopParallelTurns = !Options::EnableCoopParallelTurns;
-	updateParallelTurnsButton();
-}
-
-/**
- * coop (PRD-P5): keeps the toggle's label in sync with the option and its
- * visibility in sync with the rest of the hosting controls (hidden in hotseat
- * mode, which has a single machine, and once a session is live).
- */
-void HostMenu::updateParallelTurnsButton()
-{
-	_btnParallelTurns->setText(Options::EnableCoopParallelTurns
-		? "PARALLEL TURNS: ON"
-		: "PARALLEL TURNS: OFF");
-	_btnParallelTurns->setVisible(_tcpButtonHost->getVisible());
 }
 
 /**

@@ -104,8 +104,14 @@ AbandonGameState::~AbandonGameState()
 void AbandonGameState::btnYesClick(Action *)
 {
 
+	// coop: read before the disconnect below, which ends the gm3 alien host's borrow. An
+	// ironman alien host in a borrowed battle saves its own world first and leaves through SaveGameState's quit (the session ends after
+	// the write, as a wait dialog's SAVE & QUIT): after the disconnect the save would name and write the borrowed X-COM world.
+	SavedGame* coopOwner = connectionTCP::coopPvpSaveOwner(_game->getSavedGame());
+	const bool coopIronmanBorrow = coopOwner != _game->getSavedGame() && coopOwner->isIronman();
+
 	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
+	if (_game->getCoopMod()->getCoopStatic() == true && !coopIronmanBorrow)
 	{
 		_game->getCoopMod()->disconnectTCP();
 	}
@@ -116,7 +122,7 @@ void AbandonGameState::btnYesClick(Action *)
 
 	if (_origin == OPT_BATTLESCAPE && _game->getSavedGame()->getSavedBattle()->getAmbientSound() != Mod::NO_SOUND)
 		_game->getMod()->getSoundByDepth(0, _game->getSavedGame()->getSavedBattle()->getAmbientSound())->stopLoop();
-	if (!_game->getSavedGame()->isIronman())
+	if (!coopIronmanBorrow && !_game->getSavedGame()->isIronman()) // coop
 	{
 		// issue #82: one chokepoint owns the geoscape rescale AND dropping the world.
 		// Clearing the save here would delete it while the states popped by setState are
@@ -125,7 +131,7 @@ void AbandonGameState::btnYesClick(Action *)
 	}
 	else
 	{
-		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN_END, _palette));
+		_game->pushState(new SaveGameState(OPT_GEOSCAPE, SAVE_IRONMAN_END, _palette, 0, coopIronmanBorrow)); // coop: quit after the write
 	}
 }
 

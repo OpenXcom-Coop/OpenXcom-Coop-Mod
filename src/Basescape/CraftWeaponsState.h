@@ -40,6 +40,7 @@ class CraftWeaponsState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	Craft *_craft;
 	size_t _weapon;
 

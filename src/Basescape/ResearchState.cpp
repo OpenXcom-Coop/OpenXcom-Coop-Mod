@@ -236,6 +236,11 @@ void ResearchState::onCurrentGlobalResearchClick(Action *)
 void ResearchState::init()
 {
 	State::init();
+	if (SharedEcon::baseIndex(_game, _base) < 0)
+	{
+		_game->popState(); // coop: a SHARED removal took this base while a window above it was open
+		return;
+	}
 	fillProjectList(0);
 
 	// PRD-J10: silent live refresh. A peer's res_start/res_alloc/res_cancel (or the
@@ -323,6 +328,8 @@ void ResearchState::lstResearchLeftArrowClick(Action* action)
  */
 void ResearchState::moveTopicUp(Action* action, unsigned int row, bool max)
 {
+	// coop (issue #65): SHARED must not reorder the shared research list.
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false) return;
 	auto& topics = _base->getResearch();
 	if (max)
 	{
@@ -374,6 +381,8 @@ void ResearchState::lstResearchRightArrowClick(Action* action)
  */
 void ResearchState::moveTopicDown(Action* action, unsigned int row, bool max)
 {
+	// coop (issue #65): SHARED must not reorder the shared research list.
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false) return;
 	auto& topics = _base->getResearch();
 	if (max)
 	{

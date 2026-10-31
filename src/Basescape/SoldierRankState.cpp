@@ -30,6 +30,7 @@
 #include "../Savegame/SavedGame.h"
 #include "../Savegame/Soldier.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {
@@ -83,7 +84,7 @@ SoldierRankState::SoldierRankState(Base* base, size_t soldierId) : _base(base), 
 	_lstRanks->setBackground(_window);
 	_lstRanks->setMargin(8);
 
-	PromotionOpenings openings = PromotionOpenings(_game->getSavedGame()->getAllActiveSoldiers(), _game->getMod());
+	PromotionOpenings openings = PromotionOpenings(SharedEcon::promotionSoldiers(_game, soldier), _game->getMod()); // coop: SEPARATE counts the player's own soldiers
 
 	// a copy is unavoidable here because me may want to modify this set.
 	std::vector<std::string> rankStringsCopy = soldier->getRules()->getRankStrings();
@@ -149,6 +150,7 @@ void SoldierRankState::lstRankClick(Action*)
 	{
 		Soldier* soldier = _base->getSoldiers()->at(_soldierId);
 		soldier->setRank(selectedRank.rank);
+		SharedEcon::submitSoldierRank(_game, _base, soldier); // coop: SHARED - the host decides the rank both worlds hold
 
 		_game->popState();
 	}

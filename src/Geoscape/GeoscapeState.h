@@ -42,6 +42,7 @@ class Craft;
 class Target;
 class Ufo;
 class MissionSite;
+class Target;
 class Base;
 class RuleMissionScript;
 class RuleEvent;
@@ -71,6 +72,9 @@ private:
 	Text *_peerScreenMarker[6];
 	Timer *_gameTimer, *_zoomInEffectTimer, *_zoomOutEffectTimer, *_dogfightStartTimer, *_dogfightTimer;
 	bool _pause, _zoomInEffectDone, _zoomOutEffectDone;
+	// coop: set by popup(), cleared by the first timeAdvance() that runs with no popup in the way; a co-op
+	// client's "time" heartbeat asks the host to hold the shared clock while it is set (see think()).
+	bool _coopPopupHold = false;
 	Text *_txtDebug;
 	ComboBox *_cbxRegion, *_cbxZone, *_cbxArea, *_cbxCountry;
 	Text *_txtSlacking;
@@ -104,6 +108,11 @@ private:
 	// this - NOT the replica's own local minimize - gates whether the world clock runs,
 	// so host and replica agree regardless of a replica's per-machine minimize choice.
 	bool _dfHostAnyOpen = true;
+	// coop: the index (SavedGame::getBases()) of the base whose co-op base defense waits for the
+	// partner after its start failed on a lost partner; -1 = none. think() starts it again once RESUME made this the top state.
+	int _coopRearmBase = -1;
+	/// coop: starts the waiting base defense again (host, partner back, no battle in flight).
+	void coopStartRearmedBaseDefense();
 	/// HOST: emit df_open on a membership change + one df_state frame per tick.
 	void sharedBroadcastDogfights();
 	/// REPLICA: reconcile render-only windows toward _dfDesired (open new, close gone).
@@ -138,6 +147,12 @@ public:
 	~GeoscapeState();
 	// coop
 	void startCoopMission();
+	/// coop: the start of this host's co-op base defense failed on a lost partner - put back what
+	/// it took from the base and wait for the partner (think() starts it again); returns the battle marks cleared.
+	int coopRearmBaseDefense();
+	/// coop: HOST, while it borrows the X-COM world - starts the X-COM player's base defence there
+	/// from the attack the player handed off (@a attack: its `pvp_land` message); true when the battle was generated.
+	bool coopStartBorrowedBaseDefense(const Json::Value& attack);
 	/// Handle keypresses.
 	void handle(Action *action) override;
 	/// Updates the palette and timer.
@@ -277,8 +292,29 @@ public:
 	bool hasSharedLandingPending() const { return !_sharedLandingPending.empty(); }
 	/// Test-harness introspection of the live dogfight list.
 	const std::list<DogfightState*>& getDogfights() const { return _dogfights; }
+	/// coop: ends and deletes every dogfight (open, minimized or waiting to start) on @a ufo; co-op code
+	/// calls it right before it deletes that UFO (a partner's mirror), as vanilla's time5Seconds() does for a destroyed UFO.
+	void coopDropDogfightsFor(Ufo* ufo);
+	/// coop: drops (deletes) every queued popup that holds one of @a doomed - co-op mirrors about to be
+	/// deleted - so none opens later on a freed object. Returns how many were dropped.
+	int coopDropQueuedPopupsHolding(const std::vector<Target*>& doomed);
 	/// Test-harness: dogfights queued but not yet started.
 	size_t pendingDogfightCount() const { return _dogfightsToBeStarted.size(); }
+	/// coop test-harness: the dogfights (@a pending: those queued to start) whose UFO pointer is not in the
+	/// saved game's UFO list - compared as pointers, never dereferenced.
+	int harnessDanglingDogfights(bool pending) const;
+	/// coop test-harness: how many such dogfights handleDogfights() has met since the game started (every GeoscapeState).
+	static int harnessDanglingDogfightsSeen();
+	/// coop: the pointers a geoscape popup (UfoDetectedState, MissionDetectedState, TargetInfoState, InterceptState,
+	/// ConfirmDestinationState, MultipleTargetsState, UfoTrackerState, GeoscapeCraftState) holds; copied, never dereferenced. Returns
+	/// true when @a state is such a popup, even one that holds nothing.
+	static bool coopHeldTargets(State* state, std::vector<Target*>& out);
+	/// coop: the crafts a geoscape window or notice holds - the INTERCEPT list, a destination pick, list or confirm,
+	/// a patrol, dogfight, landing, Cydonia or pilots notice (in SHARED: the crafts of every base); copied, never dereferenced. Returns
+	/// true when @a state is one of those nine windows, even one that holds nothing.
+	static bool coopHeldCrafts(State* state, std::vector<Target*>& out);
+	/// coop test-harness: the popups queued to open (pushed one per think while the geoscape is on top).
+	const std::list<State*>& coopQueuedPopups() const { return _popups; }
 	/// PRD-DF03 test-harness: this machine's dogfight membership epoch (host: the
 	/// current _dfEpoch it broadcasts; replica: _dfReplicaEpoch, the epoch of the last
 	/// df_open it applied). Lets a test assert host/replica epoch lock-step across an
@@ -290,6 +326,8 @@ public:
 	void btnTimerClick(Action *action);
 	/// Selects a time-speed button by index (0=5s,1=1min,2=5min,3=30min,4=1hr,5=1day). For the test harness.
 	void setTimeSpeedIndex(int idx);
+	/// the index of the currently selected time-speed button in the same order, or -1. For the test harness.
+	int getTimeSpeedIndex() const;
 	/// Updates the co-op ally markers on the speed/toolbar buttons.
 	void updatePeerSpeedIndicators();
 	/// Tells the other player which geoscape sub-screen this player navigated to (0..5).

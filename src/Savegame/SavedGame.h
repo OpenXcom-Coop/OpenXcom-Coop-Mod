@@ -173,6 +173,9 @@ private:
 	// _coop permanently distinguishes co-op campaigns from solo; _coopPlayers
 	// is the locked player list (host first).
 	bool _coop;
+	// coop: the game mode this loaded save was played in (its body's coop_gamemode, read by SavedGame::load); 0 for a world
+	// this process created or was served. Never written to a save.
+	int _coopLoadedGamemode = 0;
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
@@ -222,6 +225,7 @@ private:
 	int _monthsPassed;
 	int _daysPassed;
 	int _vehiclesLost;
+	int _craftLostMission;
 	std::string _graphRegionToggles;
 	std::string _graphCountryToggles;
 	std::string _graphFinanceToggles;
@@ -301,6 +305,8 @@ private:
 	/// Is this a co-op campaign save (permanent solo/co-op distinction)?
 	bool isCoopSave() const { return _coop; }
 	void setCoopSave(bool coop) { _coop = coop; }
+	/// coop: the game mode this save was played in, as SavedGame::load read it (0 for a new or served world).
+	int getCoopLoadedGamemode() const { return _coopLoadedGamemode; }
 	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
@@ -419,6 +425,9 @@ private:
 	std::vector<Base*> *getBases();
 	/// Gets the list of bases.
 	const std::vector<Base*> *getBases() const;
+	/// coop: the game's HQ, the first own base (never a partner's
+	/// base copy); else the first base; nullptr with no base.
+	Base *getCoopHqBase();
 	/// Gets the total base maintenance.
 	int getBaseMaintenance() const;
 	/// Gets the list of UFOs.
@@ -438,6 +447,9 @@ private:
 	SavedBattleGame *detachBattleGame() { SavedBattleGame *b = _battleGame; _battleGame = 0; return b; }
 	/// Reattach a battle previously detached (does not delete any current pointer).
 	void reattachBattleGame(SavedBattleGame *battleGame) { _battleGame = battleGame; }
+	/// coop: is the battle a real one - neither a preview (the Ufopaedia craft deployment, the base defence or craft
+	/// soldiers preview) nor a base equipment screen's practice battle? Co-op paths asking "is a mission running" use this.
+	bool coopHasRealBattle() const;
 	/// Sets the status of a ufopedia rule
 	void setUfopediaRuleStatus(const std::string &ufopediaRule, int newStatus);
 	/// Sets the status of a manufacture rule
@@ -488,6 +500,8 @@ private:
 	const std::map<std::string, bool> &getHiddenPurchaseItems();
 	/// Gets the list of player-defined save-specific RuleCraft '_deployment' overrides
 	std::map<std::string, RuleCraftDeployment>& getCustomRuleCraftDeployments() { return _customRuleCraftDeployments; }
+	/// Gets the RuleCraft '_deployment' overrides that apply to @a craft: its owner's in a Separate campaign.
+	const std::map<std::string, RuleCraftDeployment>& getCraftDeploymentsOf(const Craft* craft) const;
 	/// Gets the preview base.
 	Base* getPreviewBase() { return _previewBase; }
 	/// Sets the preview base.
@@ -531,6 +545,8 @@ private:
 	Soldier *getSoldier(int id) const;
 	/// Handles the higher promotions.
 	bool handlePromotions(std::vector<Soldier*> &participants, const Mod *mod);
+	/// Handles the higher promotions among the given soldiers only.
+	bool handlePromotions(std::vector<Soldier*> &soldiers, std::vector<Soldier*> &participants, const Mod *mod);
 	/// Checks how many soldiers of a rank exist and which one has the highest score.
 	Soldier *inspectSoldiers(std::vector<Soldier*> &soldiers, std::vector<Soldier*> &participants, int rank);
 	/// Gets the (approximate) number of idle days since the soldier's last mission.
@@ -601,6 +617,9 @@ private:
 	/// Return the vehicles lost counter.
 	int getVehiclesLost() const { return _vehiclesLost; }
 	void increaseVehiclesLost() { _vehiclesLost++; }
+	/// Return the crafts-lost-on-mission counter.
+	int getCraftLostMission() const { return _craftLostMission; }
+	void increaseCraftLostMission() { _craftLostMission++; }
 	/// Return the GraphRegionToggles.
 	const std::string &getGraphRegionToggles() const;
 	/// Return the GraphCountryToggles.
@@ -708,6 +727,20 @@ private:
 	std::vector<std::string>& getUserNotes() { return _userNotes; }
 	/// Gets the list of geoscape debug log entries.
 	std::vector<std::string>& getGeoscapeDebugLog() { return _geoscapeDebugLog; }
+};
+
+/// coop: while alive, the world reads as vanilla holds it once every practice screen is closed (the preview end in
+/// BattlescapeState, CraftEquipmentState / SoldiersState init): no practice battle, no base or craft marked in the battlescape.
+/// The destructor puts both back for the screen still showing them. A real battle, or none, is left untouched. Co-op writers only.
+class CoopPracticeBattleHidden
+{
+	SavedGame *_save;
+	SavedBattleGame *_battle;
+	std::vector<Base*> _bases;
+	std::vector<Craft*> _crafts;
+public:
+	explicit CoopPracticeBattleHidden(SavedGame *save);
+	~CoopPracticeBattleHidden();
 };
 
 /// Scopes the Separate research context to one player (see

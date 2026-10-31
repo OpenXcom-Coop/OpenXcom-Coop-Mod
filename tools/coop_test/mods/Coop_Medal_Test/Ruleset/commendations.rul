@@ -1,0 +1,6 @@
+commendations:
+  - type: STR_COOP_MEDAL_TEST
+    description: STR_COOP_MEDAL_TEST_DESC
+    sprite: 0
+    criteria:
+      totalMissions: [1]

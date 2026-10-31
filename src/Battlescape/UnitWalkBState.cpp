@@ -22,7 +22,6 @@
 #include "TileEngine.h"
 #include "Pathfinding.h"
 #include "BattlescapeState.h"
-#include "../CoopMod/connectionTCP.h"
 #include "Map.h"
 #include "Camera.h"
 #include "../Savegame/BattleUnit.h"
@@ -34,6 +33,12 @@
 #include "../Mod/Armor.h"
 #include "../Mod/Mod.h"
 #include "UnitFallBState.h"
+#include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDoor.h"
+#include "../CoopMod/CoopHotseat.h" // the hotseat REACT FIRE toggle
+#include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopSpeed.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -43,7 +48,7 @@ namespace OpenXcom
  * @param parent Pointer to the Battlescape.
  * @param action Pointer to an action.
  */
-UnitWalkBState::UnitWalkBState(BattlescapeGame* parent, BattleAction action) : BattleState(parent, action), _unit(0), _pf(0), _terrain(0), _beforeFirstStep(false), _numUnitsSpotted(0), _preMovementCost(0)
+UnitWalkBState::UnitWalkBState(BattlescapeGame *parent, BattleAction action) : BattleState(parent, action), _unit(0), _pf(0), _terrain(0), _beforeFirstStep(false), _numUnitsSpotted(0), _preMovementCost(0)
 {
 
 }
@@ -53,6 +58,7 @@ UnitWalkBState::UnitWalkBState(BattlescapeGame* parent, BattleAction action) : B
  */
 UnitWalkBState::~UnitWalkBState()
 {
+
 }
 
 /**
@@ -60,17 +66,6 @@ UnitWalkBState::~UnitWalkBState()
  */
 void UnitWalkBState::init()
 {
-
-	// coop: hold the receive gate for the walk. Guarded because popState()
-	// re-init()s this state after the UnitFallBState it pushes in front of itself
-	// pops, and the gate counts depth (PRD-P6 pre-task).
-	if (!_coopGateHeld)
-	{
-		_coopGateHeld = true;
-		_parent->setCoopTaskCompleted(false);
-	}
-	_parent->getCoopMod()->_coopWalkInit = true;
-
 	_unit = _action.actor;
 	_numUnitsSpotted = _unit->getUnitsSpottedThisTurn().size();
 	setNormalWalkSpeed();
@@ -84,51 +79,6 @@ void UnitWalkBState::init()
 		_beforeFirstStep = true;
 	}
 	_terrain->addMovingUnit(_unit);
-	
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-		Json::Value obj;
-		obj["state"] = "BattleScapeMove";
-
-		int index = 0;
-
-		obj["id"] = _unit->getId();
-
-		int startx = _unit->getPosition().x;
-		int starty = _unit->getPosition().y;
-		int startz = _unit->getPosition().z;
-
-		obj["coords"]["start"]["x"] = startx;
-		obj["coords"]["start"]["y"] = starty;
-		obj["coords"]["start"]["z"] = startz;
-
-		obj["coords"]["end"]["x"] = _target.x;
-		obj["coords"]["end"]["y"] = _target.y;
-		obj["coords"]["end"]["z"] = _target.z;
-
-		obj["tu"] = _unit->getTimeUnits();
-		obj["energy"] = _unit->getEnergy();
-		obj["health"] = _unit->getHealth();
-		obj["morale"] = _unit->getMorale();
-		obj["stunlevel"] = _unit->getStunlevel();
-		obj["mana"] = _unit->getMana();
-
-		obj["strafe"] = _action.strafe;
-		obj["run"] = _action.run;
-		obj["sneak"] = _action.sneak;
-
-		// new
-		obj["visible"] = _unit->getVisible();
-		obj["hiding"] = _unit->isHiding();
-
-		obj["setDirection"] = _unit->getDirection();
-		obj["setFaceDirection"] = _unit->getFaceDirection();
-
-		_parent->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-	}
-
 }
 
 /**
@@ -136,92 +86,7 @@ void UnitWalkBState::init()
  */
 void UnitWalkBState::deinit()
 {
-
-	_parent->getCoopMod()->_coopWalkInit = false;
-
-	// coop
-	if (_parent->isCoop() == true && _parent->getCoopMod()->_isActivePlayerSync == true)
-	{
-
-		Json::Value root;
-
-		root["state"] = "abortPath";
-
-		root["unit_id"] = _unit->getId();
-
-		root["x"] = _unit->getPosition().x;
-		root["y"] = _unit->getPosition().y;
-		root["z"] = _unit->getPosition().z;
-
-		root["setDirection"] = _unit->getDirection();
-		root["setFaceDirection"] = _unit->getFaceDirection();
-
-		root["setTurretDirection"] = _unit->getTurretDirection();
-		root["setTurretToDirection"] = _unit->getTurretToDirection();
-
-		// coop (PRD-P9 rider R2): the walk's END STATE. This packet already
-		// teleport-corrects the peer onto the executor's tile and facing; without
-		// the two costs the peer keeps whatever its own (possibly truncated or
-		// fast-forwarded) animation happened to spend, which is a real TU skew
-		// until some later packet or the side boundary overwrites it.
-		root["tu"] = _unit->getTimeUnits();
-		root["energy"] = _unit->getEnergy();
-
-		// coop (PRD-I3): the walk's END KNEEL STATE. UnitWalkBState::init stands a
-		// kneeled unit up on its first step (BattlescapeGame::kneel, :239) - a
-		// kneel-bit mutation that ships on NO packet, because only the explicit
-		// BA_KNEEL path sends coopSendKneelPacket. abortPath is the walk closer, so
-		// it carries the actor's absolute post-walk kneeled bit; the parallel peer
-		// applies it, re-syncing a stand-up its own gated/reserve-refused replay
-		// left kneeled. Additive + presence-gated: an older peer ignores it, and the
-		// receiver applies it on the parallel client only, so classic is byte-identical.
-		root["kneeled"] = _unit->isKneeled();
-
-		// coop (SEAM-3 door B): the hinged doors this walk opened, keyed {x,y,z,part},
-		// so the peer - whose replay walk is door-state-neutral - applies them cost-free
-		// at abortPath receipt. Additive + presence-gated: an older peer ignores the
-		// field (and falls back to fix A's cost-free replay open).
-		if (!_coopWalkDoors.empty())
-		{
-			Json::Value doorsArr(Json::arrayValue);
-			for (const auto& d : _coopWalkDoors)
-			{
-				Json::Value dj;
-				dj["x"] = d.first.x;
-				dj["y"] = d.first.y;
-				dj["z"] = d.first.z;
-				dj["part"] = d.second;
-				doorsArr.append(dj);
-			}
-			root["doors_opened"] = doorsArr;
-		}
-
-		if (_parent->getCoopGamemode() != 2 && _parent->getCoopGamemode() != 3 && _parent->getCoopMod()->_isActiveAISync == false)
-		{
-			int j = 0;
-			for (auto* bu : *_unit->getVisibleUnits())
-			{
-
-				root["visible_units"][j]["unit_id"] = _unit->getId();
-
-				j++;
-			}
-		}
-	
-		_parent->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-	}
-
-	// coop
-	if (_coopGateHeld)
-	{
-		_coopGateHeld = false;
-		_parent->setCoopTaskCompleted(true);
-	}
-
 	_terrain->removeMovingUnit(_unit);
-
-
 }
 
 /**
@@ -229,32 +94,6 @@ void UnitWalkBState::deinit()
  */
 void UnitWalkBState::think()
 {
-
-	// coop
-	if (_parent->getCoopMod()->AbortCoopWalk == true)
-	{
-
-		_parent->getCoopMod()->AbortCoopWalk = false;
-
-		// coop (PRD-P9 soak finding): never resurrect. A unit killed DURING the
-		// replayed walk - reaction fire on the executor, whose `unit_death`
-		// arrives before the `abortPath` that closes the walk - is already
-		// STATUS_DEAD by the time this runs, and the unconditional write below
-		// put it back on its feet with 0 HP: dead on the executor, standing on
-		// the peer, for the rest of the battle. Coop-only block (AbortCoopWalk is
-		// a coop flag), so single player is untouched.
-		if (!_unit->isOut())
-		{
-			_unit->setCoopStatus(STATUS_STANDING);
-		}
-		_unit->setwalkPhaseCoop(0);
-
-		_pf->abortPath();
-		_parent->popState();
-		return;
-
-	}
-
 	if (!_unit->getArmor()->allowsMoving())
 	{
 		_pf->abortPath();
@@ -264,7 +103,7 @@ void UnitWalkBState::think()
 
 	bool unitSpotted = false;
 	int size = _unit->getArmor()->getSize() - 1;
-	bool onScreen = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false));
+	bool onScreen = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)); // coop: seen by the side this machine plays
 	if (_unit->isKneeled())
 	{
 		if (_parent->kneel(_unit))
@@ -293,6 +132,13 @@ void UnitWalkBState::think()
 
 	auto cancelCurentMove = [&]
 	{
+		// coop: ONE guarded coop call, at THE
+		// cancel path every mid-walk abort funnels through. Latches the halt
+		// `reason` the completion bt_action_end will carry, mapping vanilla's own
+		// `_action.result` classification. First reason wins, so the reserve
+		// branch below (and the spot halt later) can record ahead of it.
+		// No-op outside an active co-op battle, so SP is byte-identical.
+		coopNoteWalkHalt(_unit, _action.result);
 		if (_fallingWhenStopped && !_falling)
 		{
 			_falling = true;
@@ -309,42 +155,9 @@ void UnitWalkBState::think()
 		if ((_parent->getSave()->getTile(_unit->getDestination())->getUnit() == 0) || // next tile must be not occupied
 			(_parent->getSave()->getTile(_unit->getDestination())->getUnit() == _unit))
 		{
-			bool onScreenBoundary = (_unit->getVisible() && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true));
-
-			// coop
-			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActiveAISync == false)
-			{
-				onScreenBoundary = true;
-			}
-
+			bool onScreenBoundary = (coopUnitVisibleHere(_unit) && _parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, true)); // coop
 			_unit->keepWalking(_parent->getSave(), onScreenBoundary); // advances the phase
-
-			// coop
-			bool sound = true;
-
-			// Do not play walking sounds while multiplayer is paused
-			if (connectionTCP::pauseSound == true)
-			{
-				sound = false;
-			}
-
-			// PVP
-			if (_parent->getCoopMod()->getCoopGamemode() == 2 || _parent->getCoopMod()->getCoopGamemode() == 3)
-			{
-
-				if (_action.sneak == true)
-				{
-					sound = false;
-				}
-
-			}
-
-			// coop
-			if ((sound == true && connectionTCP::_enable_other_player_footsteps == true && _parent->getCoopMod()->_isActivePlayerSync == false) || _parent->getCoopMod()->getCoopStatic() == false || _parent->getCoopMod()->_isActivePlayerSync == true || (_unit->getFaction() != FACTION_PLAYER && _parent->getCoopMod()->getCoopGamemode() != 2 && _parent->getCoopMod()->getCoopGamemode() != 3))
-			{
-				playMovementSound();
-			}
-
+			playMovementSound();
 			if (_parent->getSave()->isPreview())
 			{
 				_unit->resetTimeUnitsAndEnergy();
@@ -387,43 +200,37 @@ void UnitWalkBState::think()
 				}
 			}
 
-			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && _unit->getFaction() != FACTION_PLAYER && _unit->getVisible())
+			if (!_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false) && (!coopFactionIsMine(_unit->getFaction()) || coopCameraFollowsPartner(_unit)) && coopUnitVisibleHere(_unit)) // coop: not this machine's side, or the partner's walker with the option on
 				_parent->getMap()->getCamera()->centerOnPosition(_unit->getPosition());
 			// if the unit changed level, camera changes level with
-			// coop (PRD-P5): NOT for a teammate's replayed walk during a parallel
-			// player side. Both players are acting at once there, so this per-step
-			// level-follow would drag the local player's view up and down the map
-			// while they are trying to aim. The AI phase (_isActiveAISync) and
-			// classic co-op keep the unconditional follow - in classic the watcher
-			// has no action of their own to protect.
-			if (!(_action.coopReplay && connectionTCP::parallelTurnActive()
-					&& _parent->getCoopMod()->_isActiveAISync == false))
-			{
-				_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
-			}
+			if (coopHostPartnerCamera(_unit, "walkLevel")) {} else
+			_parent->getMap()->getCamera()->setViewLevel(_unit->getPosition().z);
 		}
 
 		// is the step finished?
 		if (_unit->getStatus() == STATUS_STANDING)
 		{
-			// update the TU display
-			// coop (PRD-P1): only for the unit this player actually has selected -
-			// a replayed teammate walk must not repaint our stat panel.
-			if (_unit == _parent->getSave()->getSelectedUnit())
+			// coop: ONE guarded coop call, at the
+			// natural per-step hook. Authors the ACTING unit's own tile FOV
+			// (the updateSoldierInfo() below does not do the tile
+			// half in a co-op battle, and it would recalculate for the SELECTED
+			// unit, which an admitted remote walk's actor is not), then emits
+			// this step's own `bt_ev walk_step` with h:{unitsStats}. Returns
+			// true ONLY for the test-only battle_halt_walk latch, which stops
+			// the walk here through vanilla's own cancel path. No-op outside an
+			// active co-op battle and off the host sim, so SP is byte-identical.
+			if (coopOnWalkStepFinished(_unit, _action.sneak)) // coop: the walk's sneak rides the step ev
 			{
-				_parent->getSave()->getBattleState()->updateSoldierInfo();
+				return cancelCurentMove();
 			}
+			// update the TU display
+			_parent->getSave()->getBattleState()->updateSoldierInfo();
 			// if the unit burns floor tiles, burn floor tiles as long as we're not falling
 			if (!_falling && (_unit->getSpecialAbility() == SPECAB_BURNFLOOR || _unit->getSpecialAbility() == SPECAB_BURN_AND_EXPLODE))
 			{
 				_unit->getTile()->ignite(1);
 				Position posHere = _unit->getPosition();
 				Position voxelHere = posHere.toVoxel() + Position(8,8,-(_unit->getTile()->getTerrainLevel()));
-				// coop (PRD-I3 SEAM-3 close): as UnitFallBState - own a seq if the in-walk
-				// burn-floor destruction runs loose. In-chain (the normal admitted walk /
-				// "ai" chain) this is a no-op and the destroy inherits the walk's seq. Walks
-				// are strictly mid-side, so no boundary exclusion applies.
-				connectionTCP::coopStampLooseOutcomeChain("burn");
 				_parent->getTileEngine()->hit(BattleActionAttack{ BA_NONE, _unit, }, voxelHere, _unit->getBaseStats()->strength, _parent->getMod()->getDamageType(DT_IN), false);
 
 				if (_unit->getStatus() != STATUS_STANDING) // ie: we burned a hole in the floor and fell through it
@@ -445,12 +252,6 @@ void UnitWalkBState::think()
 			//tile visibility for this unit is handled later.
 			unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
-			// coop
-			if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
-			{
-				unitSpotted = false;
-			}
-
 			if (change > 1)
 			{
 				_parent->popState();
@@ -458,11 +259,21 @@ void UnitWalkBState::think()
 			}
 			if (unitSpotted)
 			{
+				// coop: ONE guarded coop call, at vanilla's own MID-WALK
+				// spotting halt - the first of the two LIVE spot sites. It emits
+				// the `spot` ev in-stream at exactly this position (after the step
+				// ev this step already emitted, before the walk's completion
+				// restate) and latches the halt reason `spot` AHEAD of
+				// cancelCurentMove()'s catch-all, which maps this branch's EMPTY
+				// `_action.result` to `blocked`.
+				// No-op outside an active co-op battle, off the host sim, and
+				// for a walk this machine did not open a chain for - so single
+				// player is byte-identical.
+				coopNoteWalkSpot(_unit);
 				return cancelCurentMove();
 			}
 			// check for reaction fire
-			// coop
-			if (!_falling && !_fallingWhenStopped && ((connectionTCP::_enable_reaction_shoot == true && connectionTCP::_isHotseatActive == false) || (connectionTCP::_isHotseatActive == true && connectionTCP::_isHotseatReactionFireEnabled == true)))
+			if (!_falling && !_fallingWhenStopped && !coopHotseatWalkReactionOff() /* coop: the hotseat REACT FIRE toggle, as in older versions */ && !coopPvpWalkReactionOff()) // coop: the host's PvP option
 			{
 				if (_terrain->checkReactionFire(_unit, _action))
 				{
@@ -497,6 +308,7 @@ void UnitWalkBState::think()
 			return;
 		}
 
+		coopNoteWalkPace(_unit, onScreen || _parent->getSave()->getDebugMode()); // coop: TEST-ONLY walk-pace probe
 		if (onScreen || _parent->getSave()->getDebugMode())
 		{
 			setNormalWalkSpeed();
@@ -548,7 +360,17 @@ void UnitWalkBState::think()
 				return cancelCurentMove();
 			}
 
-			if (_parent->getPanicHandled() && !_falling && _parent->checkReservedTU(_unit, tu, energy) == false)
+			// coop: ONE guarded coop call REPLACING
+			// the `_parent->checkReservedTU(_unit, tu, energy) == false`
+			// sub-expression. It is the vanilla predicate, with the vanilla
+			// arguments and the vanilla warning surface, EXCEPT for a
+			// CLIENT-ORIGIN walk in a co-op battle - where the host must not
+			// apply ITS OWN (machine-local, saveBlob-excluded) reserve to
+			// another seat's order; the ordering client enforces its own before
+			// the intent is even built. It also records the `no_tu` halt
+			// reason, which this branch's empty `_action.result` cannot carry.
+			if (_parent->getPanicHandled() && !_falling
+				&& coopWalkReserveRefuses(_parent, _unit, tu, energy))
 			{
 				return cancelCurentMove();
 			}
@@ -564,31 +386,15 @@ void UnitWalkBState::think()
 			// now open doors (if any)
 			if (dir < Pathfinding::DIR_UP)
 			{
-				// coop (SEAM-3 door B + UFO-door authority): the peer's REPLAY walk is
-			// door-state-neutral for BOTH hinged and UFO doors - it never swaps one. The
-			// EXECUTOR records the doors it opens (hinged door==0, ufo door==1) and ships
-			// them on the abortPath closer (deinit), applied on the peer. So neither a
-			// TU/reserve/re-path shortfall (peer misses a host open) nor a divergent re-path
-			// (peer opens one the host never crossed) can drift door state. UFO doors used to
-			// be exempt (their frame animation ran on the peer's independently re-pathfound
-			// walk), which left a UFO door the host never crossed open until the side boundary
-			// (isUfoDoorOpen divergence, host closed / peer open); recording them here closes
-			// that seam. Their adjacent-tile run is re-derived on apply via checkAdjacentDoors.
-			// A preview is simulated locally on both machines. Treating the client
-			// preview as a passive network replay makes unitOpensDoor intentionally
-			// leave doors untouched while the walk continues through them.
-			bool coopReplayDoor = !_parent->getSave()->isPreview()
-				&& _parent->isCoop() && !_parent->getCoopMod()->_isActivePlayerSync;
-			Position openedPos;
-			int openedPart = -1;
-			int door = _terrain->unitOpensDoor(_unit, false, dir, false, coopReplayDoor,
-											   coopReplayDoor ? 0 : &openedPos,
-											   coopReplayDoor ? 0 : &openedPart);
-			if (!coopReplayDoor && (door == 0 || door == 1) && _parent->isCoop()
-				&& _parent->getCoopMod()->_isActivePlayerSync)
-			{
-				_coopWalkDoors.push_back(std::make_pair(openedPos, openedPart));
-			}
+				// coop: ONE guarded coop call REPLACING the
+				// `_terrain->unitOpensDoor(...)` sub-expression (like
+				// coopWalkReserveRefuses). Outside a co-op battle, and off the
+				// simulating host, it IS that call and nothing else. On the host
+				// it emits the `ev door` for whatever vanilla actually mutated -
+				// which lands in the seq stream exactly HERE, between the
+				// walk_step ev of the step before the doorway and the one after
+				// it. All logic in src/CoopMod (CoopDoor.h).
+				int door = coopUnitOpensDoor(_terrain, _unit, false, dir);
 				if (door == 3)
 				{
 					return; // don't start walking yet, wait for the ufo door to open
@@ -673,14 +479,44 @@ void UnitWalkBState::think()
 		_terrain->calculateFOV(_unit);
 		unitSpotted = (!_action.ignoreSpottedEnemies && !_falling && !_action.desperate && _parent->getPanicHandled() && _numUnitsSpotted != _unit->getUnitsSpottedThisTurn().size());
 
-		// coop
-		if (_parent->getCoopMod()->getCoopStatic() == true && _parent->getCoopMod()->_isActivePlayerSync == false)
-		{
-			unitSpotted = false;
-		}
-
 		if (unitSpotted && !_action.desperate && !_unit->getCharging() && !_falling)
 		{
+			// coop: the SECOND live spot
+			// halt - a turn (including the PRE-FIRST-STEP facing turn) that
+			// brings a hostile into view, i.e. a walk that halts having executed
+			// ZERO steps.
+			//
+			// PLACED FIRST IN THE BRANCH, AND THE POSITION IS LOAD-BEARING
+			// (traced 2026-09-04: it failed 1 run in 43). Every ev that carries `h`
+			// must either carry the absolute state `h` covers in its own payload,
+			// or be positioned so its `h` matches what the client ALREADY holds -
+			// CoopHashCheck::verify() runs immediately after that ev's own apply
+			// (BattlePump.h), so nothing later gets a chance to converge it.
+			// `ev spot` carries no TU (a published wire schema), so it
+			// takes the SECOND route: emitted here, BEFORE the _beforeFirstStep
+			// spend below, its h:{unitsStats} is the PRE-spend TU - exactly what
+			// the client holds, having applied nothing. The post-spend TU then
+			// reaches the client on bt_action_end.final, which
+			// applyActionEndFinal() writes BEFORE that envelope's own verify.
+			// Emitted after the spend it desynced `unitsStats` at its own seq on
+			// every zero-step spot, because with no executed step there is no
+			// preceding `walk_step` ev to have shipped an absolute `tuAfter`.
+			//
+			// DEPENDENCY, verified rather than assumed and written down so it
+			// cannot rot: the OTHER spend in this block - the
+			// `if (_unit->getArmor()->getTurnBeforeFirstStep()) spendTimeUnits(
+			// getTurnCost())` arm at the top - fires BEFORE `unitSpotted` is even
+			// computed, so no placement inside this branch could precede it.
+			// `Armor::_turnBeforeFirstStep` defaults to FALSE (Armor.cpp:39, set
+			// only by a ruleset's `turnBeforeFirstStep` key, Armor.cpp:130) and
+			// NO ruleset under bin/standard or bin/common sets it, so that arm is
+			// unreachable with the loaded mods and the `else` arm merely
+			// increments a counter. A MOD THAT SETS `turnBeforeFirstStep` WOULD
+			// REINTRODUCE THE MISMATCH, and at that point the fix has to become a
+			// payload change to `ev spot`, a published wire schema.
+			// repro_atom_spot.py asserts the premise
+			// so it fails loudly instead of silently desyncing.
+			coopNoteWalkSpot(_unit);
 			if (_beforeFirstStep)
 			{
 				_preMovementCost = _preMovementCost * _unit->getTurnCost();
@@ -692,7 +528,6 @@ void UnitWalkBState::think()
 			return cancelCurentMove();
 		}
 	}
-
 }
 
 /**
@@ -776,21 +611,10 @@ void UnitWalkBState::postPathProcedures()
  */
 void UnitWalkBState::setNormalWalkSpeed()
 {
-	// coop (PRD-P7): the same interval-0 seam an OFF-SCREEN walk already takes
-	// (think(), the `onScreen || debugMode` branch below its caller). While the
-	// fast-forward is armed nobody is waiting for this animation - the arbiter has
-	// another action queued behind it - so it runs at frame rate. The flag can
-	// only be armed during a parallel player side, so classic co-op and single
-	// player keep the original two lines exactly.
-	if (_parent->getCoopFastForward())
-	{
-		_parent->setStateInterval(0);
-		return;
-	}
 	if (_unit->getFaction() == FACTION_PLAYER)
-		_parent->setStateInterval(Options::battleXcomSpeed);
+		_parent->setStateInterval(CoopSpeed::xcomSpeedFor(_unit));
 	else
-		_parent->setStateInterval(Options::battleAlienSpeed);
+		_parent->setStateInterval(CoopSpeed::alienSpeedFor(_unit));
 }
 
 
@@ -800,8 +624,8 @@ void UnitWalkBState::setNormalWalkSpeed()
 void UnitWalkBState::playMovementSound()
 {
 	int size = _unit->getArmor()->getSize() - 1;
-	if ((!_unit->getVisible() && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false))
-		return;
+	if ((!coopUnitVisibleHere(_unit) && !_parent->getSave()->getDebugMode()) || !_parent->getMap()->getCamera()->isOnScreen(_unit->getPosition(), true, size, false)) return;
+	if (coopWalkSoundSilenced(_unit, _action.sneak, false)) return; // coop: the other player's footsteps option
 
 	Tile *tile = _unit->getTile();
 	int sound = -1;

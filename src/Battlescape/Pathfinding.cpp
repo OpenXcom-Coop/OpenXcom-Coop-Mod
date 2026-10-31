@@ -786,18 +786,6 @@ int Pathfinding::dequeuePath()
  */
 void Pathfinding::abortPath()
 {
-
-	// coop
-	if ((_save->getBattleGame()->getCoopMod()->getCoopStatic() == true && _save->getBattleGame()->getCoopMod()->_isActivePlayerSync == true) || (_save->getBattleGame()->getCoopMod()->getCoopStatic() == false))
-	{
-		_totalTUCost = {};
-		_path.clear();
-	}
-
-}
-
-void Pathfinding::abortPathCoop()
-{
 	_totalTUCost = {};
 	_path.clear();
 }
@@ -1570,6 +1558,20 @@ const std::vector<int> &Pathfinding::getPath() const
 std::vector<int> Pathfinding::copyPath() const
 {
 	return _path;
+}
+
+/**
+ * coop: Keeps only the first @a steps directions of the current path, so a walk
+ * along it stops after them. The path is stored in reverse order (it is dequeued
+ * from the back), so the first steps are the last elements.
+ * @param steps How many steps to keep.
+ */
+void Pathfinding::keepFirstSteps(size_t steps)
+{
+	if (steps < _path.size())
+	{
+		_path.erase(_path.begin(), _path.end() - steps);
+	}
 }
 
 }

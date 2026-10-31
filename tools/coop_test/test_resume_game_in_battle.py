@@ -4,28 +4,13 @@ Reported: in a NEW BATTLE > COOP battle the client left for the main menu, the
 host's coop menu (LobbyMenu) popped up over the tactical map offering RESUME
 GAME - and pressing it dropped the host on the GEOSCAPE with the battle gone.
 
-Two separate faults, both covered here.
-
-1. THE DIALOG. A drop mid-mission is a freeze to wait out, exactly like the
-   campaign case: the reconnect dialog (CoopState 62) over the battle, naming
-   the missing player, with SAVE & QUIT / ABANDON GAME while nobody is there and
-   "All players connected" / RESUME once they are back. The skirmish path
-   instead raised the lobby (connectionTCP teardown, lobbyMode-0 branch) plus a
-   dismissable "X has left the server" popup - a menu, over a live battle,
-   whose action button threw the battle away.
-
-2. THE BUTTON. `LobbyMenu::returnToRunningGame()` popped states until the top
-   one was a GeoscapeState. EVERY co-op battle has one underneath - a campaign's
-   own world, or (skirmish) the one LoadGameState creates before pushing the
-   streamed battle - so the first thing popped was the live BattlescapeState.
-   The coop menu is still reachable by hand mid-battle (pause -> co-op), which
-   is the campaign screenshot in the issue, so the button has to be right too.
+A client dropping mid-battle is covered by test_pause_on_leave.py and
+test_skirmish_rejoin_battle.py; this file keeps only the drop helpers that
+SAVE-AND-QUIT uses. Every scenario below runs; SAVE-AND-QUIT is the mid-battle
+save -> load-back-into-battle check. A teardown rc=3 seen on SAVE-AND-QUIT is a
+separate, known issue.
 
 SCENARIOS
-  FREEZE        skirmish battle, client leaves -> reconnect dialog over the
-                battle, no lobby anywhere, RESUME hidden, battle intact.
-  STAY-FROZEN   ...and it stays that way: the host cannot play on alone.
-  ABANDON       ABANDON GAME on that dialog -> main menu, nothing written.
   SAVE-AND-QUIT SAVE & QUIT -> save-slot list -> a .sav that loads back INTO the
                 battle -> main menu.
   MENU-HOST     campaign mission, both players in it, HOST opens the coop menu
@@ -80,28 +65,37 @@ def lobby(gc):
     return gc.cmd({"cmd": "lobby_state"})
 
 
-def settle_on_tactical(gc, tag, timeout=180):
+def settle_on_tactical(machines, timeout=180):
     """Walk briefing / pre-battle inventory / popups until the tactical map is
     the top state, exactly as a player would: press each dialog's real control
-    and wait through transient no-button coop holds instead of forcing them."""
+    and wait through transient no-button coop holds instead of forcing them.
+
+    BOTH machines in ONE loop, `machines` = ((gc, tag), ...). The
+    host's pre-battle equip screen waits for the client's ready and the
+    client's briefing is up at once, so settling one machine at a time never
+    finishes. `battle_inventory ok` is the idempotent ready command: pressing
+    it every round never flaps a seat's ready."""
     deadline = time.time() + timeout
     while time.time() < deadline:
-        t = top(gc)
-        if t == "BattlescapeState":
+        pending = [(gc, tag) for gc, tag in machines if top(gc) != "BattlescapeState"]
+        if not pending:
             return
-        if t == "BriefingState":
-            gc.cmd({"cmd": "close_briefing"})
-        elif t == "InventoryState":
-            gc.cmd({"cmd": "battle_inventory", "action": "ok"})
-        else:
-            # dismiss_popup presses the dialog's real button now (CoopState
-            # Back, GeoscapeEvent / MonthlyReport / NextTurn / etc. OK). A
-            # transient coop load/stream hold has no button to press yet and
-            # answers {"wait": True} - that is not an error; we keep polling,
-            # the way a player waits for the battle to finish landing.
-            gc.cmd({"cmd": "dismiss_popup"})
+        for gc, tag in pending:
+            t = top(gc)
+            if t == "BriefingState":
+                gc.cmd({"cmd": "close_briefing"})
+            elif t == "InventoryState":
+                gc.cmd({"cmd": "battle_inventory", "action": "ok"})
+            else:
+                # dismiss_popup presses the dialog's real button now (CoopState
+                # Back, GeoscapeEvent / MonthlyReport / NextTurn / etc. OK). A
+                # transient coop load/stream hold has no button to press yet and
+                # answers {"wait": True} - that is not an error; we keep polling,
+                # the way a player waits for the battle to finish landing.
+                gc.cmd({"cmd": "dismiss_popup"})
         time.sleep(0.5)
-    raise AssertionError(f"{tag}: never settled on the tactical map: {states(gc)}")
+    raise AssertionError("never settled on the tactical map: " + "; ".join(
+        f"{tag}={states(gc)}" for gc, tag in machines))
 
 
 def wait_peer_dropped(gc, what):
@@ -128,7 +122,7 @@ def start_skirmish_battle(host, client, port):
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} in the battle",
                     lambda gc=gc: in_battle_save(gc) or None, timeout=180, interval=1.0)
-        settle_on_tactical(gc, tag)
+    settle_on_tactical(((host, "host"), (client, "client")))  # one joint loop
 
 
 def drop_client_mid_battle(host, client):
@@ -146,91 +140,10 @@ def drop_client_mid_battle(host, client):
                   timeout=90, interval=0.5)
 
 
-def assert_frozen_over_the_battle(host, tag):
-    """The shared assertion of the drop scenarios: the reconnect dialog, over an
-    intact battle, with no lobby and no way to play on."""
-    d = dialog(host)
-    assert d["code"] == COOP_DLG_WAIT_PLAYERS, f"{tag}: wrong dialog: {d}"
-    assert "reconnect" in d["title"], f"{tag}: not the reconnect wording: {d}"
-    assert d["saveQuitVisible"] and d["abandonVisible"], \
-        f"{tag}: no way out of the freeze: {d}"
-    assert not d["backVisible"], \
-        f"{tag}: RESUME offered with nobody to resume: {d}"
-    assert not has(host, "LobbyMenu"), (
-        f"issue #93 ({tag}): the coop LOBBY was raised over the battle instead of "
-        f"the reconnect dialog: {states(host)}")
-    assert has(host, "BattlescapeState"), \
-        f"{tag}: the battle was torn down by the drop: {states(host)}"
-    assert in_battle_save(host), f"{tag}: the world lost its battle: {states(host)}"
-    assert top(host) == "CoopState", \
-        f"{tag}: the freeze dialog is not the top state: {states(host)}"
-    return d
-
-
 # ------------------------------------------------------- the drop itself ---
-
-def scenario_freeze_and_stay_frozen():
-    """FREEZE + STAY-FROZEN: the reported flow, up to the dialog."""
-    print("\n===== scenario FREEZE / STAY-FROZEN =====")
-    host = GameClient("host", 48792, make_user_dir("i93_freeze_host"))
-    client = GameClient("client", 48793, make_user_dir("i93_freeze_client"))
-    try:
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        start_skirmish_battle(host, client, "47992")
-        print(f"PASS entry: both machines on the skirmish tactical map "
-              f"(host={states(host)})")
-        assert has(host, "GeoscapeState"), (
-            "premise changed: the skirmish battle no longer runs over a "
-            f"GeoscapeState, so this suite proves nothing: {states(host)}")
-
-        drop_client_mid_battle(host, client)
-        d = assert_frozen_over_the_battle(host, "FREEZE")
-        print(f"PASS freeze: {d['title']!r} over the battle, "
-              f"{d['saveQuitText']!r} + {d['abandonText']!r}, no lobby")
-
-        # STAY-FROZEN: nothing releases the host on its own.
-        before_stack = states(host)
-        before_battle = host.cmd({"cmd": "battle_state"})
-        time.sleep(12)
-        assert states(host) == before_stack, (
-            f"issue #93 STAY-FROZEN: the host's stack moved on its own while its "
-            f"peer was missing: {before_stack} -> {states(host)}")
-        d2 = dialog(host)
-        assert d2["code"] == COOP_DLG_WAIT_PLAYERS and not d2["backVisible"], \
-            f"STAY-FROZEN: the freeze dialog let go: {d2}"
-        after_battle = host.cmd({"cmd": "battle_state"})
-        assert after_battle.get("turn") == before_battle.get("turn"), \
-            f"STAY-FROZEN: the battle advanced behind the dialog: " \
-            f"{before_battle.get('turn')} -> {after_battle.get('turn')}"
-        print("PASS stay-frozen: 12s later the host is still held, battle unchanged")
-    finally:
-        host.shutdown(); client.shutdown()
-
-
-def scenario_abandon():
-    """ABANDON GAME on the mid-battle freeze: straight out, nothing written."""
-    print("\n===== scenario ABANDON =====")
-    host_dir = make_user_dir("i93_abandon_host")
-    host = GameClient("host", 48794, host_dir)
-    client = GameClient("client", 48795, make_user_dir("i93_abandon_client"))
-    try:
-        host.spawn(); host.connect()
-        client.spawn(); client.connect()
-        start_skirmish_battle(host, client, "47993")
-        drop_client_mid_battle(host, client)
-
-        before = session.save_files(host_dir)
-        host.ok({"cmd": "coop_dialog_abandon"})
-        host.wait_for("host reached the main menu",
-                      lambda: (top(host) == "MainMenuState") or None,
-                      timeout=60, interval=0.5)
-        after = session.save_files(host_dir)
-        assert after == before, \
-            f"ABANDON GAME must write nothing; user dir changed {before} -> {after}"
-        print("PASS abandon: mid-battle freeze -> main menu, nothing written")
-    finally:
-        host.shutdown(); client.shutdown()
+# (the mid-battle drop scenarios live in test_pause_on_leave.py and
+# test_skirmish_rejoin_battle.py; drop_client_mid_battle / wait_peer_dropped
+# above stay for scenario_save_and_quit below.)
 
 
 def scenario_save_and_quit():
@@ -304,7 +217,7 @@ def _fly_shared_squad_into_a_battle(js):
     for gc, tag in ((host, "host"), (client, "client")):
         gc.wait_for(f"{tag} entered the battle",
                     lambda gc=gc: in_battle_save(gc) or None, timeout=240, interval=1.0)
-        settle_on_tactical(gc, tag)
+    settle_on_tactical(((host, "host"), (client, "client")))  # one joint loop
 
 
 def _resume_from_the_coop_menu(gc, who, peer):
@@ -415,8 +328,9 @@ def scenario_prebattle_drop_and_lobby_gating():
 
 
 def main():
-    scenario_freeze_and_stay_frozen()
-    scenario_abandon()
+    # SAVE-AND-QUIT, the coop menu over a battle and the pre-battle / pre-game
+    # scenarios; mid-battle drops are covered by test_pause_on_leave.py and
+    # test_skirmish_rejoin_battle.py.
     scenario_save_and_quit()
     scenario_coop_menu_midbattle()
     scenario_prebattle_drop_and_lobby_gating()

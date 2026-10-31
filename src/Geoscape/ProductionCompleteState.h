@@ -41,6 +41,7 @@ class ProductionCompleteState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	GeoscapeState *_state;
 
 	std::map<std::string, int> _randomProductionInfo;

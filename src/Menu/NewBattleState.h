@@ -134,6 +134,45 @@ public:
 	void startCoopMission();
 	/// Test hook: arm/disarm local hotseat exactly as the on-screen toggle would.
 	void harnessSetHotseat(bool on);
+	/// Test hook -
+	/// stamp ONE soldier assigned to the currently selected craft with a coop
+	/// seat (Soldier::setCoop()), BEFORE OK generates the battle. A plain
+	/// NEW BATTLE > COOP classic skirmish never calls Soldier::setCoop(), so
+	/// every soldier defaults to seat 0 (host); this gives a non-host seat a
+	/// real, commandable unit to drive a client-intent repro with. Returns
+	/// the stamped soldier's id, or -1 if the craft has no soldiers.
+	/// @a index (default 0) selects the Nth soldier on the craft
+	/// instead of always the first, so a second call can stamp a SECOND,
+	/// different soldier to the same seat (repro_atom_kneel.py's burst/
+	/// drain proof needs two real client-owned units).
+	int harnessSeatOneSoldier(int seat, int index = 0);
+	/// Test hook -
+	/// pick the MISSION by ruleset name, exactly as clicking the combo box
+	/// would (setSelected + cbxMissionChange, which is what rebuilds the
+	/// terrain list). The door atom's fixture has to CONTAIN a door, and the
+	/// default selection is roll-dependent terrain: measured over three boots
+	/// it produced 2, 7 and 11 doors at Chebyshev distances 5..34 from the
+	/// nearest soldier, and ZERO ufo doors - so neither "a door is reachable"
+	/// nor "a ufo door exists at all" is true by construction without this.
+	/// Returns false (and changes nothing) for a name this build's mission
+	/// list does not offer. Test-only; no game code calls it.
+	bool harnessSelectMission(const std::string& type);
+	/// The mission names this build's NEW BATTLE screen offers, in combo-box
+	/// order - so a test can pick one that exists instead of hard-coding a
+	/// ruleset string that a mod may not define.
+	const std::vector<std::string>& harnessMissionTypes() const { return _missionTypes; }
+	/// Test hook - pick the CRAFT by ruleset name, exactly as
+	/// clicking the combo would (setSelected + cbxCraftChange, which re-seats the
+	/// soldiers and, in coop, sends the existing craft_list/selected_craft_id
+	/// message). Returns false (changes nothing) for a name not offered. Test-only.
+	bool harnessSelectCraft(const std::string& type);
+	const std::vector<std::string>& harnessCrafts() const { return _crafts; }
+	/// Test hook - pick the ALIEN RACE by ruleset name from the
+	/// list cbxMissionChange built for the CURRENT mission (call after
+	/// harnessSelectMission). No change handler exists for this combo; the race is
+	/// read at generation. Returns false (changes nothing) for a name not offered.
+	bool harnessSelectAlienRace(const std::string& race);
+	const std::vector<std::string>& harnessAlienRaces() const { return _alienRaces; }
 };
 
 }

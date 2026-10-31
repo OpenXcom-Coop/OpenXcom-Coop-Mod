@@ -107,23 +107,11 @@ void WarningMessage::setPalette(const SDL_Color *colors, int firstcolor, int nco
  */
 void WarningMessage::showMessage(const std::string &msg, int time)
 {
-
 	_text->setText(msg);
 	_fade = time * 12;
-
-	//  coop
-	if (time < 0)
-	{
-		_fade = 0;
-	}
-	else
-	{
-		_timer->start();
-	}
-
 	_redraw = true;
 	setVisible(true);
-	
+	_timer->start();
 }
 
 /**
@@ -132,6 +120,18 @@ void WarningMessage::showMessage(const std::string &msg, int time)
 void WarningMessage::think()
 {
 	_timer->think(0, this);
+}
+
+/**
+ * the message text currently held (test introspection - see the header).
+ * Deliberately NOT gated on visibility: the fade completes in about a second,
+ * which is inside a single harness round trip, so a visibility-gated read would
+ * be a race. A caller compares against a value it captured before the action.
+ * @return The last message shown, or "" if none.
+ */
+std::string WarningMessage::getMessageText() const
+{
+	return _text->getText();
 }
 
 /**
@@ -151,14 +151,6 @@ void WarningMessage::fade()
 /**
  * Draws the warning message.
  */
-/**
- * coop (PRD-P5): the text currently displayed, or "" when the widget is hidden.
- */
-std::string WarningMessage::getMessage() const
-{
-	return getVisible() ? _text->getText() : std::string();
-}
-
 void WarningMessage::draw()
 {
 	Surface::draw();

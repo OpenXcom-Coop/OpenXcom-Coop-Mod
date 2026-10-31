@@ -215,7 +215,7 @@ const std::string& Unit::getType() const
  * Returns the unit's stats data object.
  * @return The unit's stats.
  */
-UnitStats *Unit::getStats()
+const UnitStats *Unit::getStats() const
 {
 	return &_stats;
 }

@@ -21,6 +21,7 @@
 #include "../CoopMod/SharedEcon.h"
 #include <vector>
 #include "SoldierSortUtil.h"
+#include "../CoopMod/SharedEcon.h" // coop: SHARED soldier lists and live refresh
 
 namespace OpenXcom
 {
@@ -48,6 +49,7 @@ private:
 	TextList *_lstSoldiers;
 
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _craft, _savedScrollPosition;
 	std::vector<Soldier *> _origSoldierOrder;
 	/// Playtest: soldiers this player may SEE (SHARED: own only), non-destructive copy.

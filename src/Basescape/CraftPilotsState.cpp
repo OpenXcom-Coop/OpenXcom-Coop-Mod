@@ -33,6 +33,7 @@
 #include "../Mod/RuleCraft.h"
 #include "../Savegame/Soldier.h"
 #include "../Mod/RuleSoldier.h"
+#include "../CoopMod/SharedEcon.h" // coop
 
 namespace OpenXcom
 {
@@ -246,6 +247,7 @@ void CraftPilotsState::btnRemoveAllClick(Action *)
 {
 	Craft *c = _base->getCrafts()->at(_craft);
 
+	if (SharedEcon::removeOwnCraftPilots(_game, c)) { updateUI(); return; } // coop: SHARED - your own pilots only; the host applies it
 	c->removeAllPilots();
 
 	updateUI();

@@ -39,6 +39,7 @@
 #include "../Basescape/SoldierSortUtil.h"
 #include <algorithm>
 #include "../Engine/Unicode.h"
+#include "../CoopMod/SharedEcon.h" // coop
 #include "../CoopMod/connectionTCP.h"
 
 namespace OpenXcom
@@ -211,17 +212,23 @@ std::vector<Soldier*>* AllocatePsiTrainingState::shown()
 
 /**
  * Keeps the shown copy in step with the roster: a soldier who left the base is
- * dropped, one who arrived is appended in roster order.
+ * dropped, one who arrived is appended in roster order. In a Shared campaign
+ * each player trains only their own soldiers, so the copy holds only this
+ * player's own: a row, assign-all and de-assign-all then act on exactly the
+ * soldiers listed. A Separate screen lists every soldier at the base; the host
+ * refuses a change to the partner's soldier.
  */
 void AllocatePsiTrainingState::syncShown()
 {
 	if (!_coopView) return;
+	const bool ownOnly = _game->getCoopMod()->isSharedCampaign();
 	const std::vector<Soldier*>& roster = *_base->getSoldiers();
 	_shown.erase(std::remove_if(_shown.begin(), _shown.end(),
-		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end(); }),
+		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end()
+			|| (ownOnly && !SharedEcon::ownsSoldier(_game, s)); }),
 		_shown.end());
 	for (Soldier* s : roster)
-		if (std::find(_shown.begin(), _shown.end(), s) == _shown.end())
+		if ((!ownOnly || SharedEcon::ownsSoldier(_game, s)) && std::find(_shown.begin(), _shown.end(), s) == _shown.end())
 			_shown.push_back(s);
 }
 
@@ -248,6 +255,12 @@ void AllocatePsiTrainingState::cbxSortByChange(Action *action)
 		return;
 	}
 
+	// coop (#65 playtest rule): SHARED must not reorder the shared roster (no sort, no restore).
+	if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false)
+	{
+		initList(_lstSoldiers->getScroll());
+		return;
+	}
 	SortFunctor *compFunc = _btnPlus->getPressed() ? _sortFunctorsPlus[selIdx] : _sortFunctors[selIdx];
 	if (compFunc)
 	{
@@ -412,6 +425,7 @@ void AllocatePsiTrainingState::initList(size_t scrl)
 	_lstSoldiers->clearList();
 	for (auto* soldier : *shown())
 	{
+		if (_game->getCoopMod()->isSharedCampaign() && !SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists only the local player's own soldiers
 		const UnitStats* stats = _btnPlus->getPressed() ? soldier->getStatsWithSoldierBonusesOnly() : soldier->getCurrentStats();
 
 		std::ostringstream ssStr;

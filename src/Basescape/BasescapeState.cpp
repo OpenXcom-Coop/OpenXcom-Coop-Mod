@@ -71,6 +71,33 @@ namespace OpenXcom
 
 bool _coop_base_init = false;
 
+// coop (SEPARATE only): the peer's _coopIcon mirror bases hidden from
+// the live base list while a basescape is open. ONE stash for the process, never a
+// Base field: a base switch, a redirect or a dismantled base cannot strand it. Only
+// mirrors are stored, with their index at hide time, so an untouched list comes
+// back in its exact order. The stash belongs to the world it was taken from.
+static std::vector<std::pair<size_t, Base*>> s_coopHiddenMirrors;
+static SavedGame *s_coopHiddenWorld = nullptr;
+static BasescapeState *s_coopMirrorOwner = nullptr;
+
+// coop: SavedGame::_selectedBase is an index into the live
+// base list, which the mirror hide / show below changes; this points it at the same base again (a base no longer listed leaves it as is).
+static void coopKeepSelected(SavedGame *save, Base *selected)
+{
+	if (!save || !selected)
+	{
+		return;
+	}
+	for (size_t i = 0; i < save->getBases()->size(); ++i)
+	{
+		if (save->getBases()->at(i) == selected)
+		{
+			save->setSelectedBase(i);
+			return;
+		}
+	}
+}
+
 /**
  * Initializes all the elements in the Basescape screen.
  * @param game Pointer to the core game.
@@ -86,22 +113,10 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 	// no entry filtering / old_bases juggling.)
 	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base && _base->_isForeignBase == false && _game->getCoopMod()->getCoopCampaign() == true)
 	{
-
-		// coop
-		std::vector<Base*> filteredBases;
-
-		base->old_bases = *_game->getSavedGame()->getBases();
-
-		for (auto* base : *_game->getSavedGame()->getBases())
+		if (coopHideMirrors())
 		{
-			if (base->_coopIcon == false)
-			{
-				filteredBases.push_back(base);
-			}
+			s_coopMirrorOwner = this;
 		}
-
-		*_game->getSavedGame()->getBases() = filteredBases;
-
 	}
 	
 	// Create objects
@@ -241,6 +256,14 @@ BasescapeState::BasescapeState(Base *base, Globe *globe) : _base(base), _globe(g
 BasescapeState::~BasescapeState()
 {
 	_sharedRefresh.unbind(this);
+
+	// coop: a basescape removed without an exit drops the mirrors it hid
+	if (s_coopMirrorOwner == this)
+	{
+		s_coopHiddenMirrors.clear();
+		s_coopHiddenWorld = nullptr;
+		s_coopMirrorOwner = nullptr;
+	}
 
 	// issue #124: delete _base ONLY if we own it (the temporary blank base created
 	// in setBase when the player has no bases). The old code deleted _base whenever
@@ -656,6 +679,7 @@ void BasescapeState::btnNewBaseClick(Action *)
 	Base *base = new Base(_game->getMod());
 	if (_game->getSavedGame()->isCoopSave())
 		base->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+	coopShowMirrors(); // coop: leaving this screen puts the peer's mirrors back
 	_game->popState();
 	_game->pushState(new BuildNewBaseState(base, _globe, false));
 }
@@ -752,15 +776,9 @@ void BasescapeState::btnGeoscapeClick(Action *)
 	_coop_base_init = false;
 	_game->getCoopMod()->playerInsideCoopBase = false;
 
-	// coop (SEPARATE: restore the base vector filtered in the ctor. PRD-J07:
-	// fenced in SHARED - the ctor filter is fenced too, old_bases stays empty.)
-	if (_game->getCoopMod()->getCoopStatic() == true && !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _base->_isForeignBase == false)
-	{
-		// coop
-		*_game->getSavedGame()->getBases() = _base->old_bases;
-
-		_base->old_bases.clear();
-	}
+	// coop: put back the peer's mirror bases the ctor hid. A no-op when
+	// nothing is hidden (SP, SHARED, a visited peer base, a redirected mirror).
+	coopShowMirrors();
 
 	_game->popState();
 
@@ -899,7 +917,7 @@ void BasescapeState::viewRightClick(Action *)
 			case 5: if (Options::anytimePsiTraining) _game->pushState(new AllocatePsiTrainingState(_base)); break;
 			case 6: _game->pushState(new SoldiersState(_base)); break;
 			case 7: _game->pushState(new SellState(_base, 0)); break;
-			default: _game->popState(); break;
+			default: coopShowMirrors(); _game->popState(); break; // coop: puts the peer's mirrors back
 		}
 	}
 	else if (f->getRules()->isMindShield())
@@ -907,6 +925,7 @@ void BasescapeState::viewRightClick(Action *)
 		if (f->getBuildTime() == 0)
 		{
 			f->setDisabled(!f->getDisabled());
+			SharedEcon::submitFacilityDisabled(_game, _base, f->getX(), f->getY(), f->getDisabled()); // coop: the host applies it to the shared world
 			_view->draw();
 			_mini->draw();
 		}
@@ -957,6 +976,7 @@ void BasescapeState::viewRightClick(Action *)
 	}
 	else if (f->getRules()->isLift() || f->getRules()->getRadarRange() > 0)
 	{
+		coopShowMirrors(); // coop: puts the peer's mirrors back
 		_game->popState();
 	}
 }
@@ -1059,6 +1079,8 @@ void BasescapeState::moveBaseLeft(size_t baseIndex)
 		// only able to move the currently selected base
 		if (bases[baseIndex] == _base)
 		{
+			// coop (issue #65): SHARED must not reorder the shared base list (shared commands address a base by its index).
+			if (_game->getCoopMod()->isSharedCampaign() && _base->_isForeignBase == false) return;
 			std::swap(bases[baseIndex], bases[baseIndex - 1]);
 			init();
 		}
@@ -1167,6 +1189,123 @@ void BasescapeState::harnessRename(const std::string &name)
 std::string BasescapeState::harnessFundsText() const
 {
 	return _txtFunds->getText();
+}
+
+/**
+ * coop (SEPARATE only): moves every _coopIcon mirror base out of the live
+ * base list into the process-wide stash, remembering its index. Own bases keep
+ * their order. A stash left from another world is dropped first.
+ * @return True if at least one mirror was hidden.
+ */
+bool BasescapeState::coopHideMirrors()
+{
+	SavedGame *save = _game->getSavedGame();
+	if (!save)
+	{
+		return false;
+	}
+	if (s_coopHiddenWorld != save)
+	{
+		s_coopHiddenMirrors.clear();
+		s_coopHiddenWorld = save;
+	}
+	Base *selected = save->getBases()->empty() ? nullptr : save->getSelectedBase(); // coop: the base the index names before the hide
+	std::vector<Base*> kept;
+	bool hid = false;
+	for (size_t i = 0; i < save->getBases()->size(); ++i)
+	{
+		Base *xbase = save->getBases()->at(i);
+		if (xbase->_coopIcon == true)
+		{
+			s_coopHiddenMirrors.push_back(std::make_pair(i, xbase));
+			hid = true;
+		}
+		else
+		{
+			kept.push_back(xbase);
+		}
+	}
+	*save->getBases() = kept;
+	coopKeepSelected(save, selected); // coop: the same base, at its index in the list without the mirrors
+	return hid;
+}
+
+/**
+ * coop: puts every stashed mirror back at its index at hide time (clamped
+ * to the end of the list; one already in the list is skipped), only into the world
+ * it was hidden from, and empties the stash. A stashed mirror whose peer base id is
+ * already live (a fresh mirror of it arrived while it was hidden) is dropped and
+ * deleted; the live list keeps the fresh one.
+ * @return True if the stash held anything.
+ */
+bool BasescapeState::coopShowMirrors()
+{
+	if (s_coopHiddenMirrors.empty())
+	{
+		return false;
+	}
+	SavedGame *save = _game->getSavedGame();
+	if (save && save == s_coopHiddenWorld)
+	{
+		std::vector<Base*> *bases = save->getBases();
+		Base *selected = bases->empty() ? nullptr : save->getSelectedBase(); // coop: the base the index names before the show
+		for (const auto& entry : s_coopHiddenMirrors)
+		{
+			bool present = false;
+			bool superseded = false;
+			for (const auto* xbase : *bases)
+			{
+				if (xbase == entry.second)
+				{
+					present = true;
+					break;
+				}
+				if (xbase->_coopIcon == true && xbase->_coop_base_id == entry.second->_coop_base_id)
+				{
+					superseded = true;
+				}
+			}
+			if (present)
+			{
+				continue;
+			}
+			if (superseded)
+			{
+				delete entry.second;
+				continue;
+			}
+			size_t at = entry.first < bases->size() ? entry.first : bases->size();
+			bases->insert(bases->begin() + at, entry.second);
+		}
+		coopKeepSelected(save, selected); // coop: the same base, at its index with the mirrors back
+	}
+	s_coopHiddenMirrors.clear();
+	s_coopHiddenWorld = nullptr;
+	return true;
+}
+
+/**
+ * coop: the partner removed its base
+ * @a coopBaseId (delete_base) while this stash held its mirror. That mirror is deleted here, so coopShowMirrors cannot put it back.
+ * @return The number of stashed mirrors deleted.
+ */
+int BasescapeState::coopDropStashedMirror(int coopBaseId)
+{
+	int dropped = 0;
+	for (auto it = s_coopHiddenMirrors.begin(); it != s_coopHiddenMirrors.end();)
+	{
+		if (it->second && it->second->_coop_base_id == coopBaseId)
+		{
+			delete it->second;
+			it = s_coopHiddenMirrors.erase(it);
+			++dropped;
+		}
+		else
+		{
+			++it;
+		}
+	}
+	return dropped;
 }
 
 int64_t BasescapeState::harnessDisplayedFunds() const

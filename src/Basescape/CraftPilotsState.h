@@ -35,6 +35,7 @@ class CraftPilotsState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _craft;
 
 	TextButton *_btnOk, *_btnAdd, *_btnRemoveAll;

@@ -26,6 +26,7 @@
 #include "../Battlescape/BriefingState.h"
 #include "../Savegame/SavedBattleGame.h"
 #include "../Savegame/SavedGame.h"
+#include "../Savegame/BattleUnit.h"
 #include "../Savegame/Craft.h"
 #include "../Savegame/Base.h"
 #include "../Savegame/Soldier.h"
@@ -35,6 +36,8 @@
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SeparateEcon.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/CoopHandshake.h"
+#include "../CoopMod/CoopBattleSetup.h"
 
 namespace OpenXcom
 {
@@ -91,54 +94,49 @@ void ConfirmCydoniaState::btnYesClick(Action *)
 {
 	if (connectionTCP::getCoopStatic())
 	{
-		_game->getCoopMod()->setSelectedCraft(_craft);
-		_game->getCoopMod()->setConfirmCydoniaState(this);
-
-		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		// A one-world campaign client (Shared or Separate) asks the host to start
+		// Cydonia: the host runs every battle.
+		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			&& !_game->getCoopMod()->getServerOwner())
 		{
-			if (!_game->getCoopMod()->getServerOwner())
-			{
-				SeparateEcon::requestCydonia(_game, _craft);
-				_game->popState();
-				return;
-			}
-			// SHARED owns one world, so generate Cydonia once on the host and stream
-			// that authoritative battle instead of running the separate-world merge.
-			_game->getCoopMod()->setHost(true);
-			for (auto* soldier : *_craft->getBase()->getSoldiers())
-			{
-				if (soldier->getCraft() != _craft)
-					continue;
-				int owner = soldier->getOwnerPlayerId();
-				soldier->setCoop((owner == 0 || owner == 999) ? 0 : 1);
-				soldier->setCoopBase(-1);
-			}
-			for (auto* vehicle : *_craft->getVehicles())
-			{
-				if (_game->getCoopMod()->isSharedCampaign())
-					vehicle->setCoop(0);
-				vehicle->setCoopBase(-1);
-			}
-			startCoopMission();
+			SeparateEcon::requestCydonia(_game, _craft);
+			_game->popState();
 			return;
 		}
-
-		if (!_game->getCoopMod()->getHost())
+		// Cydonia rides the SAME battle-start handshake as the skirmish and
+		// mission-confirm entry points (NewBattleState::btnOkClick,
+		// ConfirmLandingState::btnYesClick) - vanilla generates the battle exactly
+		// like SP below, then CoopHandshake::offerBattle() ships it. The
+		// per-soldier/vehicle seat-tag pass this branch runs (as older
+		// versions do on the SHARED path) keeps Soldier::getCoop() carrying
+		// fresh ownership before generation; startCoopMission() below reads it
+		// back off each generated BattleUnit's geoscape soldier to stamp the
+		// battle-time seat tag (BattleUnit::setCoopSeat()) offerBattle()/the
+		// admission arbiter expect. The handshake covers both campaign types
+		// under gamemode 0/1, so no changeHost hand-off or CoopState(88) wait
+		// dialog runs here.
+		for (auto* soldier : *_craft->getBase()->getSoldiers())
 		{
-			// The existing separate-campaign merge is host-authoritative, so hand
-			// authority to the player who selected Cydonia before starting it.
-			Json::Value root;
-			root["state"] = "changeHost";
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-			_game->getCoopMod()->setHost(true);
+			if (soldier->getCraft() != _craft)
+				continue;
+			int owner = soldier->getOwnerPlayerId();
+			soldier->setCoop((owner == 0 || owner == 999) ? 0 : 1);
+			soldier->setCoopBase(-1);
 		}
-
-		_game->pushState(new CoopState(88));
-		return;
+		for (auto* vehicle : *_craft->getVehicles())
+		{
+			vehicle->setCoop(0);
+			vehicle->setCoopBase(-1);
+		}
 	}
 
 	_game->popState();
 	_game->popState();
+	// coop: a gm3 PvP campaign client (the X-COM side) hands Cydonia to the alien host,
+	// which runs it in this machine's world; this machine generates nothing (false on every other machine and mode). After the two
+	// pops, so the "Waiting for <host>" hold it pushes stays on top.
+	if (CoopHandshake::requestPvpCydonia(_game, _craft))
+		return;
 	startCoopMission();
 }
 
@@ -173,17 +171,55 @@ void ConfirmCydoniaState::startCoopMission()
 		}
 	}
 	bgen.setCraft(_craft);
+	if (connectionTCP::getCoopStatic())
+	{
+		// a SEPARATE partner's guests
+		// seated on this craft - and its tanks parked on it - join Cydonia as they join every host-craft
+		// landing (ConfirmLandingState::btnYesClick): merged onto the craft BEFORE generation, so the generator deploys
+		// them. The store is the host's, so this is a no-op on any other machine and when nothing was contributed.
+		coopMergeGuestContributions(_game, _craft);
+	}
 	bgen.run();
 
 	if (connectionTCP::getCoopStatic())
 	{
-		BriefingState* briefing = new BriefingState(_craft);
-		briefing->setupCoop();
+		// Stamp each generated BattleUnit's seat tag from the
+		// Soldier::getCoop() ownership btnYesClick just refreshed - the
+		// admission arbiter's not_your_unit check (connectionTCP.cpp) reads
+		// BattleUnit::getCoopSeat(), not the geoscape Soldier.
+		// CoopHandshake::offerBattle() below also runs
+		// assignSeatsAndFactions() (CoopState.cpp) on the HOST machine, which
+		// does this exact stamp itself (plus the canonical-faction funnel and
+		// the out-of-roster validity check), so this loop is redundant on the
+		// host path. It is left in place: no Cydonia test covers its removal.
+		// Harmless: assignSeatsAndFactions() overwrites whatever this loop set,
+		// with the identical value, a few lines later.
+		for (auto* unit : *bgame->getUnits())
+		{
+			Soldier* soldier = unit->getGeoscapeSoldier();
+			if (soldier)
+			{
+				unit->setCoopSeat((CoopSeat)soldier->getCoop());
+			}
+		}
+
+		// offerBattle() is a pure network side effect - it never
+		// touches the state stack (see CoopHandshake.h's top doc comment for
+		// the crash that taught this). BriefingState is pushed exactly like
+		// vanilla SP, unconditionally; a refused/corrupt handshake unwinds it
+		// via coopUnwindToSafeState() instead (connectionTCP.cpp). offerBattle()
+		// itself no-ops (logs) on a non-host machine (only the
+		// coop-session's server owner drives Cydonia generation).
+		// Labels + deployment BEFORE the offer builds its
+		// blob snapshot (the ORDERING TRAP in CoopHandshake.h). One of FOUR identical call
+		// sites; no-op off the coop host.
+		// the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
+		coopDropMergedGuestVehicles(_game);
+		CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
+		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 	}
-	else
-	{
-		_game->pushState(new BriefingState(_craft));
-	}
+
+	_game->pushState(new BriefingState(_craft));
 }
 
 /**

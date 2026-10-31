@@ -36,6 +36,7 @@ class ManufactureStartState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	RuleManufacture *_item;
 	Window *_window;
 	TextButton *_btnCancel, *_btnStart;

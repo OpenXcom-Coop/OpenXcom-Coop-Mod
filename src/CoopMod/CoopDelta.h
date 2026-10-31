@@ -1,0 +1,730 @@
+#pragma once
+/*
+ * Copyright 2010-2016 OpenXcom Developers.
+ * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
+ *
+ * This file is part of OpenXcom.
+ *
+ * OpenXcom is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * OpenXcom is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+#include <json/json.h>
+
+namespace OpenXcom
+{
+
+class SavedBattleGame;
+class BattleUnit;
+class BattleItem;
+class Tile;
+class Position;
+class Projectile;
+struct BattleAction;
+struct BattleActionAttack;
+struct RuleDamageType;
+
+/**
+ * The DELTA CORE. Every host event carries a `delta` - the
+ * absolute value of every synced field that changed since the previous event -
+ * attached at the one host emit choke (CoopEmit::sendEv), and the client writes
+ * those values with plain setters, never by re-running the simulation.
+ *
+ * Below: the delta probes' read accessors, the `delta_drop_next` hook's
+ * one-shot request, and the snapshot, diff, attach, seed, reset, absorb and
+ * `sync` flush (the client applier is CoopApply::applyDelta, inside
+ * connectionTCP.cpp's CoopApply region). The storage lives in connectionTCP.cpp
+ * just above `namespace CoopEmit`, next to the other battle-scoped coop
+ * globals; the counters are reset by resetBattleAuthority().
+ *
+ * Every probe is TEST INTROSPECTION ONLY (TestServer `event_state`), battle-
+ * scoped, and never read by game logic. Timings are local measurements, never
+ * put on the wire.
+ */
+namespace CoopDelta
+{
+
+/// One machine's view of the delta probes (`event_state` fields in
+/// brackets). "host" / "client" name the machine that writes the field; the
+/// other machine reports its own (normally zero) value.
+struct Probes
+{
+	bool armed = false;      ///< [deltaArmed] the host snapshot is seeded and armed
+	int seeds = 0;           ///< [deltaSeeds] CoopDelta seeds this battle (fresh / rejoin / resume)
+	int evsEmitted = 0;      ///< [deltaEvsEmitted] host: envelopes that carried a non-empty delta
+	int evsApplied = 0;      ///< [deltaEvsApplied] client: envelopes whose delta was applied
+	int fieldsApplied = 0;   ///< [deltaFieldsApplied] client: individual field writes applied
+	int unresolved = 0;      ///< [deltaUnresolved] an id or tile index that did not resolve
+	int addExisting = 0;     ///< [deltaAddExisting] an itemsAdded id that already existed
+	int removeMissing = 0;   ///< [deltaRemoveMissing] an itemsRemoved id that did not exist
+	int unsupported = 0;     ///< [deltaUnsupported] a change the delta does not carry (logged)
+	int absorbed = 0;        ///< [deltaAbsorbed] host: test-hook writes absorbed into the snapshot
+	int dropped = 0;         ///< [deltaDropped] host: deltas withheld by `delta_drop_next`
+	int diffUsLast = 0;      ///< [deltaDiffUsLast] host: last diff+attach, microseconds
+	int diffUsMax = 0;       ///< [deltaDiffUsMax]
+	int bytesLast = 0;       ///< [deltaBytesLast] host: last attached delta, serialized bytes
+	int bytesMax = 0;        ///< [deltaBytesMax]
+	int hashUsLast = 0;      ///< [hashUsLast] host: last emission's `h` build, microseconds
+	int hashUsMax = 0;       ///< [hashUsMax]
+	int applyUsLast = 0;     ///< [deltaApplyUsLast] client: last applyDelta, microseconds
+	int applyUsMax = 0;      ///< [deltaApplyUsMax]
+	int syncEvsEmitted = 0;  ///< [syncEvsEmitted] host: `sync` evs emitted
+	int syncEvsApplied = 0;  ///< [syncEvsApplied] client: `sync` evs applied
+	// The client's light recomputes made by CoopApply::applyDelta.
+	int lightLocalCalls = 0; ///< [lightLocalCalls] client: region (non-whole-map) light recomputes
+	int lightWholeCalls = 0; ///< [lightWholeCalls] client: whole-map light recomputes
+	int lightUsMax = 0;      ///< [lightUsMax] client: the slowest single light recompute, microseconds
+	// The host's own combat actions (CoopArbiter::beginHostLocalCombat writes it).
+	int hostCombatContexts = 0; ///< [hostCombatContexts] host: host-local combat contexts begun
+	// The arming guard's deferrals - an
+	// onChainQuiesced() that fired INSIDE an armed push pair (the battle_fire
+	// hook's turn-then-shot pushes) and was deferred instead of closing the
+	// context before the shot state existed.
+	int armingDeferrals = 0;    ///< [armingDeferrals] host: quiescences deferred while arming
+	// The action-context counters.
+	int contextsClosedAtEndTurn = 0; ///< [contextsClosedAtEndTurn] host: contexts (origin != endturn) closed at endTurn() entry; diagnostic
+	int contextBeginRefused = 0;     ///< [contextBeginRefused] host: base context begins refused because a context was open
+	// The `saveBlob` timings, kept apart from hashUsLast/Max: the host times its
+	// saveBlob computations (side_transition, and a structured `h` built with
+	// saveBlob); the client times its verify.
+	int saveBlobUsLast = 0;       ///< [saveBlobUsLast] host: last saveBlob computation, microseconds
+	int saveBlobUsMax = 0;        ///< [saveBlobUsMax]
+	int saveBlobVerifyUsLast = 0; ///< [saveBlobVerifyUsLast] client: last saveBlob verify, microseconds
+	int saveBlobVerifyUsMax = 0;  ///< [saveBlobVerifyUsMax]
+};
+
+/// A snapshot of this machine's probes (thread-safe; reads atomics).
+Probes probes();
+
+/// [lastDelta] the class counts of the last delta this machine emitted
+/// (host: the last NON-EMPTY one) or applied (client), as
+/// {seq, kind, units, unitsAdded, tiles, nodes, items, itemsAdded,
+/// itemsRemoved, battle:[keys]} - or null when there has been none this
+/// battle.
+Json::Value lastDelta();
+
+/// [deltaRing] HOST: the last 32 deltas this
+/// machine attached, oldest first, each the lastDelta() record of that
+/// envelope plus the ids its classes added or removed - {seq, kind, units,
+/// unitsAdded, tiles, nodes, items, itemsAdded, itemsRemoved, battle:[keys],
+/// unitsAddedIds:[..], itemsAddedIds:[..], itemsRemovedIds:[..]} - so a test
+/// reads the delta of one specific ev by its seq. An empty array on a client
+/// and before the first attach. Probe only.
+Json::Value deltaRing();
+
+/// [lastLight] the last light recompute the client's delta
+/// applier made, as {seq, kind, layer, x, y, z, radius, terrain, whole, us}
+/// (x/y/z = -1 and whole = true for a whole-map pass) - or null when there
+/// has been none this battle.
+Json::Value lastLight();
+
+/// `light_probe_reset` (test hook): zero this machine's
+/// `lightUsMax` and `deltaApplyUsMax` windows. Nothing else changes.
+void resetLightWindow();
+
+/// [cueCounts] the cue evs of this battle per
+/// kind - host: emitted, client: applied - as {kind: count} (an empty object
+/// when there has been none). The cue hooks (host) and the cue-kind branch
+/// (client) write it.
+Json::Value cueCounts();
+
+/// [lastCue] the last cue ev this machine emitted
+/// (host) or applied (client), as {kind, seq, actionId, payload} - or null
+/// when there has been none this battle. Same writers as cueCounts().
+Json::Value lastCue();
+
+/// [contextsOpened] host: the action contexts pushed
+/// this battle per origin, every origin ("intent", "host",
+/// "ai", "endturn", ...), as {origin: count} (an empty object when there has
+/// been none). The context begin paths write it.
+Json::Value contextsOpened();
+
+/// [closedContexts] host: the last
+/// 32 action contexts closed this battle, oldest first, as [{actionId, origin,
+/// kind, actorId (-1 = actor-less), nestedIn (the base entry's id, 0 for a
+/// base context), endSeq (the seq of its bt_action_end, 0 when none was
+/// emitted), hasFinal (that bt_action_end carried `final`)}] (an empty array
+/// when there has been none). The context close paths write it.
+Json::Value closedContexts();
+
+/// [hashVerifyCounts] client: per bucket name,
+/// how many times CoopHashCheck::verify() compared that bucket this battle,
+/// equal or not, as {bucket: n} (an empty object when there has been none).
+/// A carried bucket verify() does not know (logged and ignored) is not
+/// compared, so it is not counted.
+Json::Value hashVerifyCounts();
+
+/// [lastHashVerify] client: the last verify() call that
+/// reached its compare loop, as {seq, kind, buckets:[the names it compared,
+/// in order]} (`kind` = the ev's kind, else the envelope's state) - or null
+/// when there has been none this battle.
+Json::Value lastHashVerify();
+
+/// CoopHashCheck::verify()'s two probe hooks (probe only, never read by
+/// game logic): noteHashVerifyBegin() once, right before the compare loop;
+/// noteHashVerifyBucket() once per bucket the loop compares.
+void noteHashVerifyBegin(const Json::Value& evOrEnd);
+void noteHashVerifyBucket(const std::string& bucket);
+
+/// HOST, test-only one-shot (the `reveal_drop` pattern): the NEXT delta attach
+/// computes and commits its delta but does not attach it (bumping `dropped`),
+/// so the client is permanently missing those values - a hash-visible
+/// divergence that proves the delta, and nothing else, closed the hole.
+/// Cleared at battle teardown. Consumed by the next attach() whose delta is
+/// non-empty (the reveal_drop pattern) or, when @a cls names a delta class
+/// (a top-level delta key, e.g. "tiles"), by the next attach()
+/// whose delta carries at least one entry of that class.
+void requestDropNext(const std::string& cls = std::string());
+
+// ----- The delta core -----
+// It syncs UNITS, TILES, NODES and BATTLE COUNTERS (itemIdCtr included);
+// items are below. Bodies: connectionTCP.cpp, just above namespace CoopEmit.
+
+/// HOST: snapshot := live state of @a battle, and arm. Called on
+/// the line after each of the three saveCoopToMemory("battlehost") snapshots
+/// (fresh offer, rejoin, disk resume) - the exact state the client's blob
+/// freezes. Unconditional: phase is still Handshake at the fresh offer.
+void seed(SavedBattleGame* battle);
+
+/// Disarm and clear the snapshot. Called from CoopPump::reset().
+/// A disarmed host attaches nothing.
+void reset();
+
+/// HOST, at the CoopEmit::sendEv choke, for the OUTERMOST call
+/// only: diff the live state against the snapshot, write env["delta"] when
+/// non-empty, and commit the new values. No-op unless armed. Returns true iff
+/// a delta was attached.
+bool attach(SavedBattleGame* battle, Json::Value& env);
+
+/// HOST: called from onChainQuiesced()'s empty-context branch.
+/// When armed and the delta is non-empty, emits one
+/// bt_ev{kind:"sync", actionId:0, payload:{}} carrying it, with h = the 7
+/// structured buckets. Self-guarded (coop battle, host sim).
+/// With @a equip the `sync` is FORCED - it goes out with an empty delta too - and carries @a equip as its
+/// payload's `equip` object (the pre-battle equip phase's open / ready / end signal). Still never inside an open
+/// action context; the caller checks CoopEmit::lastSeqEmitted() to learn whether it went out.
+void flushSync(const Json::Value* equip = nullptr);
+
+/// HOST, co-op battle only - the host's own in-battle
+/// inventory change at @a site ("move", "load", "unload", "reload", "close") latches one `sync`. A no-op
+/// in single player and on the client. Writes the invHostDirty probe's `pending` and `sets`.
+void noteHostInventoryChange(const char* site);
+
+/// HOST, once per pump pass (updateCoopTask, after the reveal flush) - the
+/// latch's consumer: kept while the battle is not quiescent (`heldByGate`), else cleared and flushSync()
+/// runs (`flushes` when it sent a `sync`, `emptyFlushes` when the delta was empty).
+void flushHostInventoryLatch();
+
+/// HOST, armed only: a TEST HOOK wrote this object directly;
+/// copy its live values into the snapshot so the write never rides a delta
+/// (a one-machine poke keeps proving detection; a both-machine write stays
+/// equal without a mint race). Bumps `absorbed`. Never called by product code.
+void absorbUnit(const BattleUnit* unit);
+void absorbTile(const Tile* tile);
+void absorbBattle(SavedBattleGame* battle);
+
+// ----- The item delta -----
+// attach() now also diffs ITEMS: `items` (field changes, incl. ammo links -
+// a slot whose ammo is the weapon itself (BattleItem.cpp's `_ammoItem[slot] =
+// this`) is encoded as the item's OWN id and restored as self),
+// `itemsAdded` (the host's BattleItem::save() YAML, materialized on the client
+// with the host's id through the load path) and `itemsRemoved`.
+
+/// HOST, armed only: a TEST HOOK created or wrote @a item;
+/// copy its live values into the snapshot (a new id is added), so the write
+/// never rides a delta. Bumps `absorbed`. Never called by product code.
+void absorbItem(const BattleItem* item);
+/// HOST, armed only: a TEST HOOK removed item @a id (and each
+/// of its ammo ids, one call each); drop it from the snapshot so the removal
+/// never rides a delta. Bumps `absorbed`. Never called by product code.
+void absorbItemRemoved(int id);
+
+// ----- The `battleEnd` record -----
+// TEST INTROSPECTION ONLY (TestServer `event_state.battleEnd`),
+// never read by game logic, never on the wire. SESSION-LIFETIME: cleared only
+// by initBattleAuthority() (battleEndRecordReset), never by
+// resetBattleAuthority() or CoopPump::reset(), so a skirmish end's disconnect
+// resets on both machines leave it readable. Mutex-guarded (those resets and
+// the record can meet on the UDP-monitor thread). Bodies: connectionTCP.cpp,
+// in the CoopDelta probe storage block. Writers: the sendEv evsAfter probe,
+// the drain-depth counter, the host hook, the client applier and the pump
+// consumer (battleEndRecordSet / battleEndNoteTeardown).
+
+/// [battleEnd] this machine's record, every key present (zeros before any
+/// write): {emitted, applied, seq, reason, aborted, inExitArea,
+/// perSeatVerdict:[{seat, verdict}], tally:{liveAliens, liveSoldiers, inExit},
+/// actionIdAtEmit, quiescentAtEmit, hBuckets:[], evsAfter, stageSkips,
+/// skirmish, latchedMs, tornDownMs, teardownInDrain, quiescentAtTeardown,
+/// desyncAtTeardown, bstatePushesAtTeardown, queueDepthAtTeardown,
+/// lastSeqApplied, hashVerify (null, or {seq, kind, buckets:[]})}.
+Json::Value battleEndRecord();
+
+/// Write key @a key of this machine's record. Probe only.
+void battleEndRecordSet(const char* key, const Json::Value& value);
+
+/// Clear this machine's record to its zeros (and the evsAfter arm). Called
+/// by initBattleAuthority() only.
+void battleEndRecordReset();
+
+/// [stage]: this machine's SESSION-LIFETIME stage record, every key present (zeros before any write);
+/// never reset, not by initBattleAuthority. Keys: connectionTCP.cpp stageZeros(). Test introspection only.
+Json::Value stageRecord();
+
+/// HOST, CoopEmit::sendEv() right after the seq stamp: the first envelope
+/// whose kind is `battle_end` records its stamped seq (`seq`); every envelope
+/// stamped after it (a trailing nested reveal included) bumps `evsAfter`.
+void battleEndNoteSend(const Json::Value& ev);
+
+/// CLIENT, the pump consumer, before its teardown: the teardown snapshots
+/// - tornDownMs (SDL_GetTicks), teardownInDrain (CoopPump::drainApplyQueue()'s
+/// depth > 0), quiescentAtTeardown (coopBattleQuiescent()), desyncAtTeardown,
+/// bstatePushesAtTeardown (coopClientBStatePushes()), queueDepthAtTeardown,
+/// lastSeqApplied and hashVerify (lastHashVerify()).
+void battleEndNoteTeardown();
+
+/// TEST INTROSPECTION and the battle-end finish: true iff @a state is the display-only DebriefingState (identity compare, never dereferenced).
+bool debriefIsDisplayOnly(const void* state);
+
+/// true while this machine's battle-end debriefing is a campaign one (set at the
+/// host's mark / the client's fill of a non-skirmish payload; cleared at the campaign OK and by
+/// battleEndRecordReset()).
+bool debriefIsCampaign();
+
+// ----- The in-battle inventory probes -----
+// TEST INTROSPECTION ONLY (TestServer event_state), never read by game logic,
+// never on the wire. Bodies: connectionTCP.cpp. The host latch, its pump
+// consumer and the client force-close write them. The record above also has
+// `inventoryOpenAtTeardown` (CLIENT: an
+// InventoryState was on this machine's state stack at battleEndNoteTeardown()).
+
+/// [invHostDirty] HOST: the host's own-inventory `sync` latch - {pending,
+/// sets {move, load, unload, reload, close}, flushes (consumer passes that
+/// emitted a `sync`), emptyFlushes (passes whose delta was empty), heldByGate
+/// (passes that kept the latch because the battle was not quiescent)}.
+Json::Value hostInventoryLatchProbe();
+
+/// [invForcedCloses] CLIENT: the inventory force-close - {count, byReason
+/// {unit_out, not_commanded, side, battle_end}, notOnTop, coveredDetach (a
+/// covered screen's unit detached)}.
+Json::Value inventoryForceCloseProbe();
+
+/// Clear the two probes above to their zeros. Called by initBattleAuthority()
+/// only, beside battleEndRecordReset(): the client's battle_end
+/// teardown runs resetBattleAuthority() before a test can read them.
+void inventoryProbesReset();
+
+/// [invWarningWrites] BOTH: the texts the co-op layer put on the inventory's
+/// own message line (every coopInvNoteWarning()).
+/// Battle-scoped with the other inventory probes (resetBattleAuthority()).
+int invWarningWrites();
+
+// ----- The host screen probes -----
+// TEST INTROSPECTION ONLY (TestServer event_state), never read by game logic,
+// never on the wire. Bodies: connectionTCP.cpp. Zeroed and reset by
+// inventoryProbesReset() above (never by resetBattleAuthority()). The
+// covered-battle driver, the host screen check, the medi-kit recheck and the
+// covered detach write them.
+
+/// [hostCovered] HOST: the covered-battle driver - {steps, byOrigin {intent,
+/// endturn}, lastTop (the covering top state's class at the last step)}.
+Json::Value hostCoveredProbe();
+
+/// [hostScreens] HOST: the host screen check - {closes {count, byReason
+/// {unit_out, not_commanded, side}, byScreen {inventory, action_menu, prime,
+/// skill, medikit}}, cursorReturned, refreshes, medikitRefused, coveredDetach}.
+Json::Value hostScreensProbe();
+
+// ----- The pre-battle equip phase's probes -----
+// TEST INTROSPECTION ONLY (TestServer event_state / inventory_view), never on
+// the wire. Bodies: connectionTCP.cpp, beside the state (g_equip) and its
+// zeros. The equip entry, ready toggle, barrier and end write the state.
+
+/// [equip] BOTH: {phase none|open|ended, hostOpen, openAnnounced, ready [4 bools
+/// by seat], counted [4 bools], pile [x,y,z] or null, entryDone, screen (a
+/// pre-battle screen is recorded), passThrough, abortPending, barrierDone,
+/// okPressed, and the counters entries, closes, heldUntilOpen, lateDenied,
+/// endTurnIgnored, readySyncs, endSyncs, waitLineShows, forceCloseSkips,
+/// heldTurnScreenPresses} (each field's meaning: connectionTCP.cpp, g_equip).
+Json::Value equipProbe();
+
+/// true iff @a state is the pre-battle InventoryState the equip phase recorded
+/// (identity compare, never dereferenced) - inventory_view `preBattle`.
+bool equipIsScreen(const void* state);
+
+/// The flag the co-op layer last applied to the pre-battle OK button's look -
+/// inventory_view `okPressed`.
+bool equipOkPressed();
+
+} // namespace CoopDelta
+
+// TEST-ONLY world-stream holds (TestServer hold_world_stream / hold_world_adopt),
+// inert unless armed; bodies: connectionTCP.cpp beside hold_battle_ready.
+void coopTestHoldWorldStreamArm(bool on);
+bool coopTestHoldWorldStreamArmed();
+void coopTestHoldWorldAdoptArm(bool on);
+bool coopTestHoldWorldAdoptArmed();
+
+// ----- Host combat cues -----
+// A cue is bt_ev{kind, actionId, payload}: its STATE effect is the envelope's
+// `delta` alone (attached at the CoopEmit::sendEv choke); the payload carries
+// only the display fields the client's animation needs - frozen, no timing.
+// Every hook below is ONE guarded call at its vanilla site and a no-op unless
+// isCoopBattle() && hostSim (so SP, a client and pre-game deaths emit
+// nothing). A cue takes CoopArbiter::currentActionId() - 0 outside a context:
+// the hooks serve every origin; AI and reaction fire get their own contexts.
+// Bodies: connectionTCP.cpp.
+
+/// True for the 16 frozen cue kinds (shot, hit, explosion, melee,
+/// psi, death, corpse, prime, sync, fall, revive, spawn, panic, prox_trigger,
+/// medikit, scanner). The client's CoopApply::applyEvPayload records the cue
+/// probe for them and nothing else.
+bool coopIsCueKind(const std::string& kind);
+
+/// Hook (ProjectileFlyBState::createNewProjectile, after the hit-log block):
+/// the `shot` cue - {actor, unit (=actor), weapon, ammo, action, shotIndex,
+/// waypointsLeft, originVoxel, impactVoxel, impact, arc?}. `arc` rides a throw
+/// or an arcing shot and comes from coopNoteThrowArc()'s note.
+void coopCueShot(const BattleAction& action, const BattleItem* ammo, const Projectile* projectile, int impact);
+
+/// [shotTrajectories] HOST: the last 16
+/// `shot` cues coopCueShot() emitted this battle, oldest first, as [{seq, trajLen, speed, impact}] - the
+/// trajectory length and speed vanilla's Projectile holds for the shot (Projectile::coopTrajectorySize /
+/// coopSpeed), the host-side twin of a combat ghost's trajLen/speed. An empty array on a client and
+/// before the first shot. Main thread only: CoopGhost::reset() only bumps the combat
+/// probe generation and this storage is cleared on its next main-thread use. Probe only.
+Json::Value coopShotTrajectories();
+
+/// TEST-ONLY probe of
+/// ProjectileFlyBState::cancel() skipping a flying projectile on the co-op HOST - coopNoteProjectileSkip() counts one
+/// (a no-op off the host and outside an active co-op battle), coopProjectileSkips() reads the count (event_state
+/// `projectileSkips`; never reset, tests read deltas). Probe only: nothing else reads it.
+void coopNoteProjectileSkip();
+unsigned int coopProjectileSkips();
+
+/// Hook (ProjectileFlyBState::think, after a shotgun pellet's TileEngine::hit):
+/// the pellet `hit` cue - {actor?, unit?, voxel, damageType, power, miss:false,
+/// pellet}.
+void coopCuePellet(const BattleActionAttack& attack, const Position& voxel, int power,
+	const RuleDamageType* damageType, int pellet);
+
+/// Hook (Projectile::calculateThrow, before calculateParabolaVoxel): record the
+/// arc of the throw / arcing shot being computed (last write wins inside the
+/// `tries` loop); read and cleared by the next coopCueShot(). Nothing is sent.
+void coopNoteThrowArc(const Position& originVoxel, const Position& targetVoxel, const Position& deltas,
+	double curvature);
+
+/// Hook (end of ExplosionBState::init, before the BA_SELF_DESTRUCT test - the
+/// damage is applied by then): `explosion` (area), `melee` (BA_HIT), `psi`
+/// (psi amp) or `hit` (a bullet impact), each with its frozen payload.
+void coopCueExplosionInit(const BattleActionAttack& attack, const Position& centre, int power, int radius,
+	const RuleDamageType* damageType, bool areaOfEffect, bool melee, bool psi, bool miss, int chain,
+	const Tile* tile, const BattleUnit* target);
+
+/// Hook (UnitDieBState constructor, after freePatrolTarget()): the `death` cue -
+/// {unit, outcome:"dead"|"unconscious", instant, damageType}.
+void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType);
+
+/// Hook (UnitDieBState::think, before clearUnitSelection()): the `corpse` cue -
+/// {unit, pos, corpses:[item ids linked to the unit]}, only when >= 1.
+void coopCueCorpse(const BattleUnit* unit);
+
+/// Hook (BattlescapeGame::handleNonTargetAction, the last statement of
+/// the BA_PRIME and BA_UNPRIME spendTU blocks): prime/unprime as an INSTANT
+/// host action - mint, push {id,"host"}, emit the `prime` cue ({actor, unit
+/// (=actor), item, fuse, unprime}; delta + h), emit bt_action_end{final, h},
+/// pop: the kneel pattern in one call. Coop + hostSim only; logged no-op while
+/// another action context is open (the fuse then rides the next delta).
+void coopHostPrime(BattleUnit* actor, BattleItem* item, bool unprime);
+
+/// The host's OWN medi-kit use as an INSTANT host
+/// action - ONE call right AFTER the vanilla effect at each of four sites
+/// (MedikitState's three buttons, after medikitUse(); ActionMenuState's
+/// one-click kit, after its switch - @a medikitAction / @a bodyPart -1 there:
+/// the kit's own type decides). Mint, push {id,"host"}, the frozen `medikit`
+/// cue {actor, unit (the patient), item, action, bodypart} whose delta carries
+/// the TU and the effect, then the close through onChainQuiesced() ->
+/// closeBaseContext() (the shared path; a use that left states queued keeps
+/// the context open until that chain quiesces). No hook in medikitUse(). Coop +
+/// hostSim only; a logged no-op while another action context is open.
+void coopHostMedikit(BattleAction* action, BattleUnit* target, int medikitAction, int bodyPart);
+
+/// The host's OWN motion-scanner use, the same shape - ONE
+/// call right after ActionMenuState's BT_SCANNER spendTU; the frozen `scanner`
+/// cue {actor, unit (= actor), item}.
+void coopHostScanner(BattleAction* action);
+
+/// the host's OWN mind
+/// probe as an INSTANT host action - coopHostScanner()'s shape. ONE call in
+/// BattlescapeGame::primaryAction()'s BT_MINDPROBE branch, the first statement of its spendTU() success block
+/// (the host only: coopInterceptPsiConfirm() answered FALSE there). Mint, push {id,"host"} (context kind
+/// `mindprobe`, the partner's `use_item` order's kind), the `mindprobe` cue {actor, unit (the probed unit),
+/// item} whose delta carries the spent TU, then the close through onChainQuiesced() -> closeBaseContext(). The
+/// probe screen stays the host's own. Coop + hostSim only; a logged no-op while another action context is open.
+void coopHostMindProbe(BattleAction* action, BattleUnit* target);
+
+// ----- The `ai` and `endturn` action contexts -----
+// Each is ONE call at its BattlescapeGame.cpp site and a no-op unless
+// isCoopBattle() && hostSim. Origins are host-side action-context values only
+// (nothing new on the wire). Bodies: connectionTCP.cpp.
+
+/// Hook (BattlescapeGame::handleAI, the line after the attack's
+/// action.updateTU()): open the `ai` context {id, "ai", actor, kind} - kind
+/// shoot|throw|launch|melee|psi from @a baType (beginHostLocalCombat()'s mapping) - and arm
+/// the arming guard (CoopArbiter.h). Every type but psi also records the pre-attack
+/// `turn` ev for this action. Logged no-op (bumping
+/// `contextBeginRefused`) while another context is open.
+void coopBeginAiAttack(BattleUnit* actor, int baType);
+
+/// Hook (handleAI, the statement after the attack's state pushes): end the
+/// arming; when @a statesEmpty (every pushed state already popped inside its
+/// own push) close the `ai` context now. No-op unless coopBeginAiAttack() armed.
+void coopAiAttackPushed(bool statesEmpty);
+
+/// Hook (the first statement of BattlescapeGame::endTurn()): when @a statesEmpty,
+/// close EVERY open context (bt_action_end each; an actor-less `endturn` one
+/// without `final`), clear the arming and the pre-attack turn flag, and bump
+/// the diagnostic `contextsClosedAtEndTurn` for each closed context whose
+/// origin is not `endturn`. Nothing when states are still queued.
+void coopOnEndTurnEntry(bool statesEmpty);
+
+/// Hooks at endTurn, before the hot-grenade push loop (@a go = `exploded`), and
+/// (before each terrain-explosion push, @a go = true): when @a go, open the
+/// actor-less {id, "endturn", -1, "endturn"} context the explosion chain runs
+/// in; the next endTurn() entry closes it. Logged no-op (bumping
+/// `contextBeginRefused`) while another context is open.
+void coopBeginEndTurnChain(bool go);
+
+// ----- Nested `reaction` / `prox` contexts and the reaction target -----
+// Each is ONE guarded
+// call at its vanilla site and a no-op unless isCoopBattle() && hostSim.
+// Bodies: connectionTCP.cpp.
+
+/// Hook (TileEngine::tryReaction, the line before the reaction hit-log entry):
+/// open the NESTED `reaction` context {id, "reaction", @a reactor, nestedIn: the
+/// base's id} - reused for every reactor of the same checkReactionFire burst, a
+/// new one per burst - recording the base action's actor as the reaction's
+/// trigger; mark "a reaction against the walker" when @a target is the
+/// active walker (its halt reason becomes `reaction`).
+void coopBeginReaction(BattleUnit* reactor, BattleUnit* target);
+
+/// Hook (BattlescapeGame::checkForProximityGrenades, the line before the
+/// grenade's ExplosionBState push): latch the walk's halt reason `prox`, open
+/// the NESTED `prox` context {id, "prox", @a unit} and emit the `prox_trigger`
+/// cue {unit, item, pos}.
+void coopCueProxTrigger(BattleUnit* unit, BattleItem* item, const Position& pos);
+
+/// Hook (ProjectileFlyBState::init / MeleeAttackBState::init, the reaction
+/// target check): the unit a reaction shot's target must be - in coop on the
+/// host the unit whose action triggered the reaction (the top-most `reaction`
+/// context's trigger); @a selected (vanilla's getSelectedUnit()) everywhere else.
+BattleUnit* coopReactionTrigger(BattleUnit* selected);
+
+// ----- Units that appear mid-battle -----
+// The unit itself rides the delta's `unitsAdded` (the
+// host's BattleUnit::save() record, materialized on the client through the
+// battle-load path) and its special built-in weapons ride `itemsAdded`; these
+// hooks only announce it. Each is ONE guarded call at its vanilla site and a
+// no-op unless isCoopBattle() && hostSim. Bodies: connectionTCP.cpp.
+
+/// Hooks (SavedBattleGame::convertUnit, the line after newUnit->dontReselect(),
+/// cause "convert", @a from = the converted unit) and
+/// (BattlescapeGame::spawnNewUnit, the line after the new unit's
+/// calculateFOV(), cause "item", @a from null): the frozen `spawn` cue
+/// {unit, cause, from?} in the running action context (0 outside one).
+void coopCueSpawn(BattleUnit* unit, const char* cause, const BattleUnit* from);
+
+/// Hook (NextTurnState's ctor, the line after determineReinforcements()): one
+/// `spawn` cue {unit, cause} per live unit the delta snapshot does not know
+/// yet - the ids are listed BEFORE the first cue is sent, whose delta then
+/// carries every one of them in `unitsAdded`.
+void coopCueSpawnAdded(SavedBattleGame* save, const char* cause);
+
+// ----- The turn machine's own chains -----
+// Each is ONE guarded call at its vanilla site and a no-op unless
+// isCoopBattle() && hostSim. `panic` is a base action context (host-side value
+// only, nothing new on the wire); `fall` and `revive` open no context and carry
+// the running one's id (0 outside a chain). Bodies: connectionTCP.cpp.
+
+/// Hook (BattlescapeGame::handlePanickingUnit, the line before the flee walk's
+/// UnitWalkBState push): open the `panic` context {id, "panic", @a unit} when
+/// no context is open, then expand the live Pathfinding exactly as
+/// CoopArbiter::beginAiWalk() does and open the walk chain under the panic id
+/// (origin "panic", kind `walk`) - the flee streams `walk_step` evs and the
+/// panic's bt_action_end carries the completion restate.
+void coopNotePanicFleeWalk(BattleUnit* unit, SavedBattleGame* save);
+
+/// Hook (handlePanickingUnit, the line before the UnitPanicBState push): ensure
+/// the `panic` context (opened by coopNotePanicFleeWalk() for a flee) and emit the frozen `panic`
+/// cue {unit, mode}: "berserk" for STATUS_BERSERK, else "flee" when @a flee,
+/// else "freeze". It is the action's first ev; its delta carries the weapons
+/// a flee dropped.
+void coopCuePanic(BattleUnit* unit, bool flee);
+
+/// Hook (UnitPanicBState::think,
+/// the line before the berserk shot's UnitTurnBState push): on the co-op HOST, inside
+/// @a unit's own `panic` context, arm the pre-action flag so that turn emits the
+/// `turn` ev (the watching machine animates it) - only when the unit must turn toward
+/// @a target. A no-op in single player and on a client.
+void coopArmBerserkTurn(BattleUnit* unit, const Position& target);
+
+/// Hook (UnitFallBState::init, its last statement): the frozen `fall` cue
+/// {units:[{unit, from}]} for SavedBattleGame::getFallingUnits() at init,
+/// `from` = each unit's position then; no cue when the list is empty.
+void coopCueFall(SavedBattleGame* save);
+
+/// Hook (SavedBattleGame::reviveUnconsciousUnits, the line after
+/// removeUnconsciousBodyItem()): the frozen `revive` cue {unit, pos}, pos after
+/// placeUnitNearPosition(). Emitted inline, also inside
+/// SavedBattleGame::endTurn() before the side_transition.
+void coopCueRevive(BattleUnit* unit);
+
+// ----- A partner's melee on the host -----
+// Body: connectionTCP.cpp, next to coopLatchActionResult().
+
+/// Hook (MeleeAttackBState::think, ONE guarded term on the "not a reaction
+/// attack" condition that sets the parent's current action to BA_NONE): TRUE on
+/// the co-op HOST while the base action context is a partner's `intent` and
+/// @a action's actor is that context's actor, so a partner's melee never resets
+/// the HOST player's own _currentAction (its aim mode) - the same REMOTE test as
+/// coopLatchActionResult(), without its latch. FALSE everywhere else (SP, a
+/// client, the host's own and the AI's actions), so vanilla is byte-identical
+/// there. No side effect.
+bool coopIsRemoteIntentAction(const BattleAction& action);
+
+/// The co-op HOST is
+/// running a partner's or opponent's order - the action-context stack's BASE entry is a client's admitted `intent`,
+/// whatever nested `reaction` / `prox` entries sit above it. False in single player, on a client and while no order
+/// runs. BattlescapeGame::popState()'s empty-selection block reads it. No side effect.
+bool coopRemoteOrderRunning();
+
+// ----- Whose force-fire key a shot reads -----
+// Body: connectionTCP.cpp, next to coopIsRemoteIntentAction().
+
+/// The force-fire key of the player whose action is running - ONE guarded call
+/// replacing vanilla's `Options::forceFire && save->isCtrlPressed(true)` at each
+/// of the four force-fire terms (ProjectileFlyBState::init, Projectile.cpp x2,
+/// TileEngine::isTileInLOS). On the co-op HOST while the base action context is
+/// a partner's `intent`, it is that order's own `forceFire` (the ordering
+/// machine's Options::forceFire && its own Ctrl, shipped on the `shoot` order;
+/// false for every other intent kind) - never the host's option or keys. Every
+/// where else (SP, a client, the host's own and the AI's actions) it is
+/// vanilla's own expression, so vanilla is byte-identical there. No side effect.
+bool coopForceFirePressed(const SavedBattleGame* save);
+
+// ----- The hit-log mirror probe -----
+// Body:
+// connectionTCP.cpp, right after coopShotTrajectories() (the probe storage, outside every REPLAY-REGION).
+
+/// [hitLogMirror] the event_state probe of THIS machine: {noted, sent, applied, localSuppressed, pending, dropped,
+/// last: [the last 32 entries {seq, t, f, k?}]}. HOST: `noted` = hit-log entries recorded after vanilla's player-side
+/// check, `sent` = entries attached to an outermost emit (counted per entry, not per envelope), `pending` = the size of
+/// the list waiting for the next emit, `last` = the entries sent with their carrying seq. CLIENT: `applied` = entries
+/// appended from an applied envelope, `localSuppressed` = its own ActionMenuState PLAYER_FIRING appends skipped, `last`
+/// = the entries applied with their carrier's seq. `dropped` = entries discarded before they were sent or applied.
+/// `t` = HitLogEntryType, `f` = UnitFaction, `k` = [the weapon type] for PLAYER_FIRING, [the message keys] for
+/// NEW_TURN_WITH_MESSAGE, absent otherwise. The four functions below write it.
+/// Main thread only; battle-scoped (cleared on the first use after CoopGhost::reset() bumps the combat generation).
+Json::Value coopHitLogMirrorProbe();
+
+// ----- The hit log on both machines -----
+// Body: connectionTCP.cpp, right
+// after coopHitLogMirrorProbe() (outside every REPLAY-REGION). The host's sendEv attaches the pending list as the
+// envelope field `hitLog`; the client applies it right after CoopReveal::applyFrom() in CoopDisplayQueue::onApplied().
+
+enum HitLogEntryType : int; // Savegame/HitLog.h
+enum UnitFaction : int;     // Mod/Unit.h
+
+/// SavedBattleGame::appendToHitLog (both overloads), right after vanilla's append (so only an entry that passed the
+/// player-side check): on the co-op HOST (`hostSim`) of a battle in phase Handshake or Active it records
+/// the entry {t, f, k?} - `k` = the pending key(s) for PLAYER_FIRING / NEW_TURN_WITH_MESSAGE - in the pending list
+/// that rides the next outermost emit, then clears the pending keys. A no-op on a client and in single player.
+void coopHitLogNote(HitLogEntryType type, UnitFaction faction);
+
+/// ActionMenuState, above vanilla's PLAYER_FIRING append as `if (coopHitLogPlayerFiring(...)) {} else`: on a co-op
+/// CLIENT TRUE - the local append is skipped, the host's entry replaces it (`localSuppressed` +1); on the co-op
+/// HOST it sets the pending weapon key and returns FALSE (vanilla appends, coopHitLogNote records the key); single
+/// player FALSE with no side effect.
+bool coopHitLogPlayerFiring(const std::string& weaponType);
+
+/// NextTurnState's environment block (it runs on the host only: the client skips the block): sets the pending message
+/// keys (the non-empty of `a`, `b`) for the NEW_TURN_WITH_MESSAGE entry the constructor appends next. A no-op off the
+/// co-op host.
+void coopHitLogMessageKeys(const std::string& a, const std::string& b);
+
+// ----- The battle messages on the HOST -----
+// Body: connectionTCP.cpp, right after the CoopBattleUi namespace (the message store).
+
+/// The co-op HOST's decision at each of vanilla's eleven unit-message pushes (UnitDieBState x3, BattlescapeGame x8),
+/// inserted above the unchanged push as `if (coopHostDivertUnitMessage(...)) {} else`. FALSE at once outside
+/// a co-op battle and on a client: vanilla pushes. On the host it records the message (event_state `messages`) and
+/// returns TRUE only when @a about - the unit the message is ABOUT - is the PARTNER's (another seat of this seat's
+/// faction): the text then shows as vanilla's fading WarningMessage notice on the live BattlescapeState (nothing for
+/// the invisible pause, @a key "") and the push is skipped, so the shared battle never pauses for the other player's
+/// soldier. This machine's own units and units no player owns keep vanilla's box. @a named is the unit
+/// whose gender and name the text carries (nullptr for the psi texts, which take none). Writes no unit field: every
+/// setNotificationShown() stays vanilla's.
+bool coopHostDivertUnitMessage(const BattleUnit* about, const char* key, const BattleUnit* named);
+
+// ----- The camera on the HOST -----
+// Body: connectionTCP.cpp, right after coopThinkCoveredBattle() (the same origin test).
+
+/// The co-op HOST's guard at vanilla's five camera writes a partner's action reaches - the projectile follow
+/// (ProjectileFlyBState::init, @a what "follow"), the explosion centre and the hit view level (ExplosionBState::init,
+/// "explosion" / "hitLevel"), the walker view level (UnitWalkBState::think, "walkLevel") and the panic centre
+/// (BattlescapeGame::handlePanickingUnit, "panic"). Each sits LAST in its vanilla condition (or as `if (...) {} else`
+/// above an unconditional write), so it is evaluated only when vanilla would move the camera. FALSE at once outside a
+/// co-op battle and on a client: vanilla moves the camera. On the host it is TRUE - the write is skipped and the
+/// probe's `camera.suppressed[what]` +1 - iff the action context stack's FRONT (base) entry has origin `intent` (the
+/// partner's order and everything nested in it, reactions and prox included; a lone nested entry counts by the base
+/// origin it carries) or @a actor is commanded by the partner's seat (another seat of this seat's faction: a panic, a
+/// berserk, a reaction shot by the partner's soldier). The `intent` term applies only in co-op (gamemode not 2/3).
+/// In PvP every intent is the opponent's order: only the partner term applies, never true with one seat per side.
+/// An `endturn` base is never suppressed. Writes no battle state.
+bool coopHostPartnerCamera(const BattleUnit* actor, const char* what);
+
+/// TRUE iff THIS machine's own
+/// Options::coopFollowPeerActions is on (a per-player option, never synced), a co-op battle is active and @a u is
+/// commanded by the partner's seat (another seat of this seat's faction: coopActorRelation() "partner"). Then the
+/// host's guard above answers FALSE for that unit (vanilla's five camera writes run, as for this machine's own units),
+/// UnitWalkBState centres on it when it walks off screen (as on an enemy walker), and the client camera policy gives
+/// it the enemy-turn term "partner" (cameraActorTerm). FALSE with the option off (the partner never moves your
+/// camera), outside a co-op battle, in PvP (one seat per side, no partner) and for every other unit - an alien
+/// reacting to the partner's order included. Reads only; writes nothing.
+bool coopCameraFollowsPartner(const BattleUnit* u);
+
+// ----- The
+// side-relative replacements for vanilla's X-COM-literal camera terms (UnitWalkBState's off-screen walker centre,
+// ExplosionBState's melee / psi target centre, the client's hit_centre). Body: connectionTCP.cpp, before
+// coopMaySelectUnit(). Vanilla's literal outside an active co-op battle and on a player-side seat (classic / SHARED
+// co-op, gm2's host, gm3's partner), so single player and co-op are byte-identical. PRESENTATION-ONLY; nothing written.
+/// @a faction is the side THIS machine's seat commands (vanilla: `faction == FACTION_PLAYER`).
+bool coopFactionIsMine(int faction);
+/// The side now playing is THIS machine's opponent (vanilla: `getSide() == FACTION_HOSTILE`; never the neutral side).
+bool coopSideIsOpponents(const SavedBattleGame* s);
+
+// ----- TEST-ONLY draw probe. Map::drawTerrain
+// counts its frames (coopDrawProbeFrame) and records the unit the selection arrow was drawn over (coopDrawProbeArrow) and
+// each unit an Alt marker was drawn over, with its kind (coopDrawProbeMark); coopDrawProbe() reads the record (event_state
+// `drawProbe`). Probe storage only: nothing but TestServer reads it; never reset (a cell reads "drawn in the latest frame").
+void coopDrawProbeFrame();
+void coopDrawProbeArrow(const BattleUnit* u);
+void coopDrawProbeMark(const BattleUnit* u, bool motionScan);
+Json::Value coopDrawProbe();
+
+// ----- TEST-ONLY walk-pace probe. UnitWalkBState counts, per
+// walking unit, each step it starts animated (setNormalWalkSpeed) or instant (state interval 0); coopWalkPace() reads it
+// (event_state `walkPace` {id: {animated, instant}}). Probe storage only; never reset (cells read deltas).
+void coopNoteWalkPace(const BattleUnit* u, bool animated);
+Json::Value coopWalkPace();
+
+} // namespace OpenXcom

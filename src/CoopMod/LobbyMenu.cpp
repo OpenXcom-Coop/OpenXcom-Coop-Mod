@@ -553,6 +553,54 @@ public:
 	}
 };
 
+/**
+ * coop: the small dialog a NEW co-op
+ * campaign lobby opens when a team pick would put both players on the Alien team - there are no PvE2 (game mode 4) campaigns; PvE2
+ * stays a Custom Battle mode. One OK button closes it; the pick itself was refused (LobbyMenu::setPlayerTeam). File-local, as
+ * ConfirmStartCampaignState.
+ * coop: RESUME of a co-op campaign save played in PvE2 opens it too (LobbyMenu::resumeCampaign); OK returns to that lobby.
+ */
+class CampaignTeamRefusedState : public State
+{
+private:
+	Window *_window;
+	Text *_txtMessage;
+	TextButton *_btnOk;
+public:
+	CampaignTeamRefusedState()
+	{
+		_screen = false;
+
+		_window = new Window(this, 256, 100, 32, 50, POPUP_BOTH);
+		_txtMessage = new Text(240, 48, 40, 60);
+		_btnOk = new TextButton(100, 16, 110, 124);
+
+		setInterface("geoscape", true, _game->getSavedGame() ? _game->getSavedGame()->getSavedBattle() : 0);
+
+		add(_window, "window", "saveMenus");
+		add(_txtMessage, "text", "saveMenus");
+		add(_btnOk, "button", "saveMenus");
+
+		centerAllSurfaces();
+
+		setWindowBackground(_window, "saveMenus");
+
+		_txtMessage->setAlign(ALIGN_CENTER);
+		_txtMessage->setWordWrap(true);
+		_txtMessage->setText(tr("STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER"));
+
+		_btnOk->setText("OK");
+		_btnOk->onMouseClick((ActionHandler)&CampaignTeamRefusedState::btnOkClick);
+		_btnOk->onKeyboardPress((ActionHandler)&CampaignTeamRefusedState::btnOkClick, Options::keyOk);
+		_btnOk->onKeyboardPress((ActionHandler)&CampaignTeamRefusedState::btnOkClick, Options::keyCancel);
+	}
+
+	void btnOkClick(Action *)
+	{
+		_game->popState(); // back to the lobby
+	}
+};
+
 bool LobbyMenu::startEligible() const
 {
 	// >= 1 non-host client attached (D3); N=1 transport today. NOT
@@ -668,7 +716,28 @@ std::vector<std::string> LobbyMenu::missingPlayers() const
 void LobbyMenu::resumeCampaign()
 {
 
+	// coop: there are no PvE2 (game mode 4) campaigns, so a co-op campaign save
+	// played in PvE2 - only older versions could write one - is not resumed: the team-refused dialog, nothing sent, the session and both
+	// lobbies as they were. The mode is the save's own (SavedGame::getCoopLoadedGamemode): the host window set the live one to 1. A
+	// Custom Battle save has no countries, so it is never a campaign context and PvE2 stays legal there.
+	if (_game->getCoopMod()->inCoopCampaignContext() && _game->getSavedGame()->getCoopLoadedGamemode() == 4)
+	{
+		Log(LOG_INFO) << "[coop] campaign RESUME refused: the save was played in PvE2 (game mode 4)";
+		_game->pushState(new CampaignTeamRefusedState());
+		return;
+	}
+
 	connectionTCP::session.campaignStarted();
+	// coop: a gm3 battle the alien host saved while it borrowed the X-COM player's world is
+	// borrowed again before the resume is armed, so it resumes as a battle; false (nothing changed) for every other save.
+	const bool coopPvpResumed = _game->getCoopMod()->coopPvpResumeBorrow();
+
+	// coop: a resumed gm3 PvP campaign's host is the alien side again, as startCampaign makes it
+	// for a new one - the session reset when hosting began (resetCoopState) cleared the flag the save carried. Not while it borrows
+	// the X-COM player's world for a resumed battle.
+	if (connectionTCP::_coopGamemode == 3 && !connectionTCP::coopPvpParkedWorld())
+		connectionTCP::no_bases = true;
+
 	// battle save: after the geoscape world ack, stream the battle (2c)
 	connectionTCP::session.armResumeHandshake(_game->getSavedGame()->getSavedBattle() != nullptr);
 
@@ -728,6 +797,8 @@ void LobbyMenu::resumeCampaign()
 	// close the lobby (popping anything stacked above it) and hold until
 	// every player reports its world loaded
 	closeLobby();
+	if (coopPvpResumed)
+		_game->getCoopMod()->coopPvpShowResumedBattle(); // coop: the resumed borrowed battle's screen, under the wait dialog
 
 	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 
@@ -1031,9 +1102,8 @@ void LobbyMenu::continueCustomBattle()
 
 	connectionTCP::session.campaignStarted();
 
-	Json::Value start;
-	start["state"] = "custom_battle_continue";
-	_game->getCoopMod()->sendTCPPacketData(start.toStyledString());
+	// coop: no `custom_battle_continue` send - the client has no receiver for it; the
+	// client leaves its lobby when the battle offer that follows loads (coopUnwindToSafeState), as at a fresh battle start.
 
 	closeLobby();
 	connectionTCP::session.finishCustomBattleResume();
@@ -1049,30 +1119,6 @@ void LobbyMenu::continueCustomBattle()
 		_game->popState();
 	}
 	_game->getCoopMod()->_battleInit = false;
-	if (_game->getCoopMod()->parallelTurnActive())
-	{
-		connectionTCP::resetActionArbiter(true);
-		_game->getCoopMod()->setPlayerTurn(2);
-		SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
-		if (battle && battle->getBattleState())
-		{
-			battle->getBattleState()->setCurrentTurn(2);
-		}
-	}
-	else if (_game->getCoopMod()->getCoopGamemode() == 2
-		|| _game->getCoopMod()->getCoopGamemode() == 3)
-	{
-		// Campaign-PvP resume derives the active player from the preserved mode:
-		// gm2 host=XCOM, gm3 host=Alien. isYourTurn itself is process-static and
-		// is not serialized, so establish that same role before snapshotting.
-		const int turn = _game->getCoopMod()->getCoopGamemode() == 2 ? 2 : 1;
-		_game->getCoopMod()->setPlayerTurn(turn);
-		SavedBattleGame* battle = _game->getSavedGame()->getSavedBattle();
-		if (battle && battle->getBattleState())
-		{
-			battle->getBattleState()->setCurrentTurn(turn);
-		}
-	}
 	_game->pushState(new CoopState(COOP_DLG_WAIT_PLAYERS));
 
 	_game->getCoopMod()->streamSkirmishBattleToClient();
@@ -1379,12 +1425,24 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 			current_gamemode = 3;
 		}
 
+		// coop: no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
+		// both players on the Alien team: the row keeps its team, nothing is sent, and a small dialog says why. A Custom Battle lobby
+		// (lobbyMode 0) keeps PvE2; a resume lobby never re-derives the mode from the teams (below).
+		if (connectionTCP::session.lobbyMode == 1 && current_gamemode == 4)
+		{
+			Log(LOG_INFO) << "[coop] campaign lobby: the second Alien pick is refused";
+			_game->pushState(new CampaignTeamRefusedState());
+			return true;
+		}
+
 		// Resume lobbies: the gamemode was read from the loaded save
 		// and must not be recalculated from team flags (which both
 		// default to false → PVE=1).  Preserve it for mode-2 lobbies.
-		if (connectionTCP::session.lobbyMode == 2
+		// coop: a CONTINUE BATTLE lobby (main #181) keeps the saved battle's mode too; seat 1's side comes from it.
+		if ((connectionTCP::session.lobbyMode == 2
 			&& _game->getSavedGame()
 			&& _game->getSavedGame()->isCoopSave())
+			|| connectionTCP::session.customBattleResumePending)
 		{
 			// _coopGamemode was already set from the save file.
 		}

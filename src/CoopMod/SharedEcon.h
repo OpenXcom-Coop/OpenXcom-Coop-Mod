@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <map>
 #include <string>
 #include <vector>
@@ -37,11 +38,17 @@ class Ufo;
 class Target;
 class Soldier;
 class AlienBase;
+class SavedBattleGame;
+class RuleEvent;
+class RuleResearch;
+class State;
+class GeoscapeState;
+class SellState; // the SelectionBinder's screen
+class TransferItemsState; class ManageAlienContainmentState; class Text;
+class PurchaseState; // the binder on the Purchase/Hire screen
 class BattleItem;
 class EquipmentLayoutItem;
 class ItemContainer;
-class SavedBattleGame;
-class RuleResearch;
 
 /**
  * PRD-J03: the generic SHARED economy command protocol.
@@ -180,6 +187,71 @@ private:
 	bool _wantProgress = false;
 };
 
+// ---- the shared selection -------------
+// In a SHARED campaign the players on the same Sell screen (and the Transfer and Alien Containment screens) edit ONE list of pending
+// amounts per screen key (sellKey / xferKey / contKey). The host holds the list - sel_open / sel_set / sel_close /
+// sel_sync on the shared_cmd lane, each broadcast carrying the list's full state - and a replica mirrors it. The host
+// re-checks every confirm: a duplicate counts as done, otherwise it applies its current, clamped list.
+// Each screen owns a binder (a friend of the screen; no public API sets an amount without side effects).
+class SelectionBinder
+{
+public:
+	SelectionBinder() = default;
+	SelectionBinder(const SelectionBinder&) = delete;
+	SelectionBinder& operator=(const SelectionBinder&) = delete;
+	/// Leaves the list (sel_close) unless carried over; never once the transport is down.
+	~SelectionBinder();
+	/// init(), every call (acts once per instance). Unbound (the harness test commands never run init()) or not
+	/// SHARED: inert for life. Else sel_open {key, seed} - seed = the non-zero local rows, i.e. page 3's autosell
+	/// pre-fill, which seeds a lone opener's list - or nothing for a carried-over key.
+	void open(Game* game, SellState* screen, bool bound);
+	/// think(), after the screen's refresh block: re-key on a base index shift; when the list changed, write
+	/// min(list amount, the row's maximum) into each row - except a row whose own last edit is unanswered
+	/// - recompute the totals (the list's rows this screen does not show count too) and redraw.
+	void think(SellState* screen);
+	/// First statement of the screen's amount redraw: a local edit -> sel_set {key, row, amount, eseq}.
+	void localEdit(SellState* screen);
+	/// Right before a refresh push: the replacement adopts the list and nobody leaves it.
+	void carryOver();
+	/// Confirm: selKey, selRev (the list's rev), selRows (the local rows), on page 3 selCaps (each row's maximum).
+	void stamp(Json::Value& payload);
+	// Transfer and Alien Containment on the same binder (containment rebuilds in place).
+	void open(Game* game, TransferItemsState* screen, bool bound);
+	void open(Game* game, ManageAlienContainmentState* screen, bool bound);
+	void think(TransferItemsState* screen);
+	void think(ManageAlienContainmentState* screen);
+	void localEdit(TransferItemsState* screen);
+	void localEdit(ManageAlienContainmentState* screen);
+	/// The shared list holds a row - a confirm that sees none of them still submits the list.
+	bool listed() const;
+	// Purchase/Hire (key buy|n| or, opened from "not enough equipment", buy|r|).
+	void open(Game* game, PurchaseState* screen, bool bound);
+	void think(PurchaseState* screen);
+	void localEdit(PurchaseState* screen);
+	/// Opened through init() on a SHARED screen (false for the harness test commands: an immediate pop).
+	bool opened() const { return _opened; }
+private:
+	static std::string keyOf(Game* game, SellState* screen);
+	static Json::Value rowsOf(SellState* screen);
+	static std::string keyOf(Game* game, TransferItemsState* screen);
+	static Json::Value rowsOf(TransferItemsState* screen);
+	static std::string keyOf(Game* game, ManageAlienContainmentState* screen);
+	static Json::Value rowsOf(ManageAlienContainmentState* screen);
+	static std::string keyOf(Game* game, PurchaseState* screen); static Json::Value rowsOf(PurchaseState* screen);
+	void sendOpen(const Json::Value& seed);
+	Game* _game = nullptr;
+	SellState* _sell = nullptr;
+	std::string _key;
+	int _baseIdx = -1, _openWant = 0;
+	uint32_t _seenRev = 0;
+	bool _opened = false, _inert = false, _acked = false, _seen = false, _carried = false, _applying = false;
+	std::map<std::string, int> _lastSent; // row -> this instance's latest own eseq
+	TransferItemsState* _xfer = nullptr; ManageAlienContainmentState* _cont = nullptr; Text* _label = nullptr;
+	std::string _labelShown; uint64_t _contSig = 0; // the names the label shows; containment's amounts as last seen
+	uint64_t _hlSig = 0; std::map<std::string, int> _hlOn; // what the highlight was drawn for; the rows lit
+	PurchaseState* _buy = nullptr;
+};
+
 /// One-time registration of the built-in commands (currently "buy"). Idempotent;
 /// safe to call from every connectionTCP ctor.
 void init();
@@ -195,14 +267,42 @@ void update(Game* game);
 
 /// UI entry point (main thread). On the HOST: queues the command for local
 /// validate+apply+broadcast. On a REPLICA: emits a shared_cmd to the host and
-/// mutates nothing locally.
-void submitLocalCmd(Game* game, const std::string& cmd, int baseId,
+/// mutates nothing locally. returns the command's seq.
+int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
                     const Json::Value& payload);
 
+// ---- confirms wait for the host's answer ----
+// Screen keys "<screen>|<variant>|<baseIdx>|<extra>": screen sell / xfer / cont; variant n normal, f forced (the
+// post-battle origin, no debriefing), d page 3; extra = the destination base index (xfer) or p<prisonType> (cont).
+std::string sellKey(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
+std::string xferKey(Game* game, Base* from, Base* to, bool debrief);
+std::string contKey(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
+std::string buyKey(Game* game, Base* base, bool reequip); // buy|n|<base>| / buy|r|<base>|
+/// The initiator's answer for an awaited confirm: awaitResult registers @a seq under @a key; awaiting() holds until
+/// the answer lands; takeResult() consumes it (1 ok, -1 failed, 0 none yet); forgetResult() drops both (Cancel).
+void awaitResult(const std::string& key, int seq);
+bool awaiting(const std::string& key);
+int takeResult(const std::string& key);
+void forgetResult(const std::string& key);
+/// After a SHARED confirm's submit: true = the screen stays. Unbound (a harness test command) -> false, an
+/// immediate pop; a forced screen -> true (it closes when solved); a submitted command -> await its answer.
+bool keepAfterSubmit(Game* game, const std::string& key, int seq, bool bound);
+/// think(), before the refresh consume(): true = close (Transfer pops itself and the TransferBaseState under it). A
+/// normal / page-3 screen closes on its OK answer; a forced one once its base is back under the limit (SHARED only).
+bool sellScreenShouldClose(Game* game, Base* base, bool debrief, bool battlescapeOrigin);
+bool xferScreenShouldClose(Game* game, Base* from, Base* to, bool debrief);
+bool contScreenShouldClose(Game* game, Base* base, int prisonType, bool battlescapeOrigin);
+bool buyScreenShouldClose(Game* game, Base* base, bool reequip); // answered
+/// A session reset drops the queued commands / applies / failures, answers and apply hold.
+void resetSessionQueues();
+Json::Value selectionSnapshot(); // the shared selection store {key: {rows, editors, eseqs, rev, viewers}} for TestServer sel_state
+void onPeerLeft(int seat); // host - the seat (< 0: every other seat) leaves every shared list
 /// Low-level validated command engine shared by the two one-world protocols.
 /// Public UI code must call SharedEcon or SeparateEcon, never this directly.
-void submitCommandEngine(Game* game, const std::string& cmd, int baseId,
-	const Json::Value& payload, bool separateProtocol);
+/// @a seat < 0 = this machine's seat; the host may name another seat for a
+/// player's own action that reached it outside the command protocol.
+int submitCommandEngine(Game* game, const std::string& cmd, int baseId,
+	const Json::Value& payload, bool separateProtocol, int seat = -1);
 
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
@@ -234,6 +334,13 @@ void broadcast(Game* game, const Json::Value& msg);
 void hostResearchDone(Game* game, int baseId, const std::string& research,
                       const std::string& bonus, const std::string& newResearch,
                       const std::string& corpse = std::string());
+/// host side of research_fx; null mark unless the SHARED host and armed. HOST, time1Day, right before a
+/// base's research completion block: every base's stores and project names, its transfer count, the custom counters.
+Json::Value researchFxMark(Game* game, bool armed);
+/// host side of research_fx; HOST, right after handlePrimaryResearchSideEffects - diffs the world against
+/// @a mark and sends the host-origin research_fx command for the base @a baseId (obsolete projects, changed stores, new
+/// item transfers, changed counters; absolute). No-op on a null mark.
+void hostResearchFx(Game* game, int baseId, const Json::Value& mark);
 
 /// Runs SavedGame::handlePrimaryResearchSideEffects for the topics one base
 /// completed (time1Day). On a SHARED or SEPARATE host it then mirrors what that
@@ -274,13 +381,20 @@ void applyEventRewards(Game* game, const Json::Value& rewards);
 void hostFacilityDone(Game* game, int baseId, int x, int y,
                       const std::string& facilityType);
 
+/// HOST, right before one production's hourly step - the base's stores, transfer count, crafts, engineers,
+/// id counters, research score and funds; Json::nullValue unless this machine is the SHARED host.
+Json::Value productionFxMark(Game* game, Base* base);
+/// HOST, right after that step - sends prod_fx with everything the step changed at the base (new transfers
+/// and crafts as their own YAML); no-op on a null mark or when nothing changed.
+void hostProductionFx(Game* game, Base* base, const std::string& manufacture, const Json::Value& mark);
 /// Manufacture units finished on the host (time1Hour): replica materializes the
 /// @a units this step made (items/crafts, stored, docked or shipped as the host
 /// did). When @a batchDone it also removes the Production (freeing engineers)
 /// and mirrors the completion popup. craftIds are the ids the host gave the
 /// crafts this step built, so the replica builds the same crafts; soldiers are
 /// the soldiers it spawned (spawnedPersonType), sent whole so the replica holds
-/// the host's soldiers.
+/// the host's soldiers. In SHARED every unit already arrived by prod_fx: the replica
+/// only removes the Production and mirrors the popup.
 void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
                         int units, int progress, bool sell,
                         const std::vector<int>& craftIds = std::vector<int>(),
@@ -291,6 +405,7 @@ void hostProductionDone(Game* game, int baseId, const std::string& manufacture,
 /// pending transfers (items/scientists/engineers/craft) and removes them.
 void hostTransferArrived(Game* game, int baseId, const Json::Value& arrived);
 
+/// End-of-day progress on the host (time1Day): production / research progress columns (soldier recovery rides soldier_fx).
 /// Host: snapshot every base soldier's step state (wounds, stats, training
 /// flags, psi improvement, daily dogfight XP) before the day or month step.
 /// @a keepArmed keeps a snapshot this world already armed (time1Day after
@@ -300,6 +415,20 @@ void hostSoldierStepBegin(Game* game, bool keepArmed);
 /// whose step state changed since hostSoldierStepBegin (the replica adopts it
 /// exactly) plus the production and research progress.
 void hostDayTick(Game* game);
+/// HOST, right before a day/month soldier loop - every soldier's training/recovery record keyed by
+/// id; Json::nullValue unless this machine is the SHARED host.
+Json::Value soldierFxMark(Game* game);
+/// HOST, right after the loop - sends soldier_fx per base with the absolute record of every soldier
+/// whose record changed since @a mark; no-op on a null mark.
+void hostSoldierFx(Game* game, const Json::Value& mark);
+/// HOST, right before vanilla evacuates a destroyed craft - the crew aboard and the base's transfer count;
+/// Json::nullValue unless this machine is the SHARED host.
+Json::Value craftLostMark(Game* game, Base* base, Craft* craft);
+/// HOST, right before the destroyed craft is removed - sends craft_lost (the evacuated crew with their transfer
+/// hours and flags, the killed crew); no-op on a null mark.
+void hostCraftLost(Game* game, Base* base, Craft* craft, const Json::Value& mark);
+/// REPLICA, from its geoscape think - applies every queued craft_lost whose craft no dogfight window holds.
+void flushLostCrafts(Game* game, GeoscapeState* gs);
 
 /// PRD-J07: a base was destroyed by retaliation on the host (it already removed
 /// the base in BaseDestroyedState). Mirror the removal to replicas (they erase the
@@ -324,6 +453,13 @@ void submitCraftTarget(Game* game, Craft* craft, Target* target); // launch/reta
 void submitCraftPoint(Game* game, Craft* craft, double lon, double lat); // waypoint
 void submitCraftReturn(Game* game, Craft* craft);
 void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol);
+/// SHARED, and SEPARATE (this player's own craft; the host refuses another player's) - no-op otherwise; called AFTER
+/// vanilla's local addPilot (CraftPilotSelectState); the host re-checks the seat and broadcasts the craft's pilot list
+/// (craft_pilots).
+void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId);
+/// SHARED, and SEPARATE as submitCraftPilotAdd - returns false otherwise (vanilla's removeAllPilots runs); removes THIS
+/// player's own pilots locally, keeps the partner's, submits craft_pilots clear; returns true.
+bool removeOwnCraftPilots(Game* game, Craft* craft);
 
 /// Seat of the last order applied for @a craft, or -1 if it was never commanded
 /// through the protocol (treat as host-owned -> vanilla local dogfight).
@@ -337,9 +473,27 @@ void submitCraftAssign(Game* game, Craft* craft, Soldier* soldier, bool onOff);
 /// PRD-J09 GAP-5: set the ABSOLUTE quantity of @a itemType loaded on @a craft in
 /// the shared world (SHARED only - caller gates). Submits craft_equip; mutates
 /// nothing locally (host validates/clamps + broadcasts, replica applies). Items
-/// only - vehicles are deferred (caller must not route a vehicle item).
+/// only here; an HWP's count goes through craftVehiclesMoved.
 void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int desiredOnCraft);
 
+/// SHARED, a live campaign and a real base only - no-op otherwise; called right AFTER vanilla's own move in
+/// CraftEquipmentState::moveLeftByValue / moveRightByValue: when @a craft's count of vehicle type @a itemType differs from @a before,
+/// that absolute count goes to the host as craft_equip (its HWP branch); a non-vehicle type is a no-op (items route before vanilla).
+void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before);
+
+/// SHARED or SEPARATE, and this machine's own base only - no-op otherwise; called AFTER vanilla's local toggle
+/// (BasescapeState, mind shield); submits the facility's flag as an absolute end-state; the host re-checks
+/// vanilla's gate and broadcasts the flag both worlds hold (fac_disable).
+void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled);
+
+/// SHARED, and SEPARATE as submitCraftPilotAdd - no-op otherwise; called AFTER vanilla's local toggle (CraftInfoState's weapon
+/// icon; the host's DogfightState with 'remember disabled craft weapons'); submits the weapon's flag as an
+/// absolute end-state; the host decides the craft re-check (craft_weapon_disable).
+void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot);
+/// The host's dogfight with 'remember disabled craft weapons' after it switched @a craft's weapon @a slot: as
+/// submitCraftWeaponDisabled; in SEPARATE a craft of another player is that player's own switch, sent from its own
+/// dogfight window, so the host submits it as that player's and every machine remembers it.
+void submitDogfightWeaponDisabled(Game* game, Craft* craft, int slot);
 /// One-world campaigns (SHARED and Separate): load a craft equipment template on
 /// @a craft. @a listed = the item types the craft equipment screen shows (the
 /// load considers only those), @a tmpl = the template's contents, @a onlyAdd =
@@ -362,6 +516,80 @@ void submitCraftRearm(Game* game, Craft* craft, int slot, const std::string& wea
 /// soldier wears), last-write-wins. Submits soldier_armor; mutates nothing locally.
 void submitSoldierArmor(Game* game, Base* base, Soldier* soldier, const std::string& armorType);
 
+/// SHARED and a real base only - no-op otherwise. A base equipment screen (soldier or craft inventory) is about to
+/// open: records every soldier of @a base (equipment layout, personal layout and its armor) BEFORE vanilla's open may clear a layout.
+void baseEquipOpen(Game* game, Base* base);
+/// the screen's OK, right after vanilla's saveEquipmentLayout: a changed record of a partner's soldier is put back
+/// and the changed records of this player's own soldiers go to the host as one soldier_equip. No-op unless @a base is marked.
+void baseEquipOk(Game* game, Base* base);
+
+/// SHARED and a real base only - no-op otherwise; called right AFTER vanilla's local save of global equipment
+/// layout template @a index on a base screen (InventoryState::saveGlobalLayout): the whole slot (layout, armor, name) goes to the host as
+/// equip_template, so both machines hold the same slot (one shared template set, the last save wins).
+void submitLayoutTemplate(Game* game, Base* base, int index);
+/// the same for craft loadout template @a index, right after CraftEquipmentState::saveGlobalLoadout.
+void submitLoadoutTemplate(Game* game, Base* base, int index);
+/// SHARED or Separate and a live campaign only - no-op otherwise; called right AFTER vanilla's local save or delete of craft type
+/// @a craftType's generic deployment (AbortMissionState::btnOkClick -> SavedBattleGame::saveDummyCraftDeployment, the Ufopaedia's craft
+/// preview): the type's end-state (its positions, or none) goes to the host as craft_deployment, so both machines hold the same entry and
+/// reset the same crafts' own deployments (vanilla's invalidation). SHARED: either player, last save wins (shared templates). Separate:
+/// the entry is the saving player's own; the host keeps a client's in that player's profile and resets only that player's crafts.
+void craftDeploymentSaved(Game* game, const std::string& craftType);
+/// SHARED and SEPARATE only, a real base (SEPARATE: also another player's base) - no-op otherwise; called right AFTER
+/// vanilla's template armor change (InventoryState::tryArmorChange) set @a soldier's armor (it wore armor type @a prevArmorType):
+/// an own soldier's change goes to the host as soldier_armor (both machines then wear and stock the same); a partner's
+/// soldier's change is put back at once (stores and armor).
+void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType);
+
+/// SHARED and SEPARATE, a real base of a live campaign only - null otherwise: the {type: count} of @a craft's items,
+/// taken right BEFORE a vanilla local batch that moves items between @a craft and @a base's stores (a template load, move-ground-to-base).
+Json::Value craftItemsMark(Game* game, Base* base, Craft* craft);
+/// right AFTER that batch: each item type whose count on @a craft differs from @a mark (@a every: each type of
+/// either) goes to the host as craft_equip with its absolute count, decreases first; the host clamps, both machines apply, the stores
+/// follow. No-op for a null mark, or while @a base's staging window is open (its close commits).
+void craftItemsCommit(Game* game, Base* base, Craft* craft, const Json::Value& mark, bool every = false);
+/// SHARED, a live campaign, alternate craft equipment ON and a real base only - no-op otherwise or while
+/// @a base's window is open: opens the staging window before vanilla's option-ON inventory staging (the soldier screen's de-assign, the
+/// craft screen's load-all), recording each craft's items and each soldier's craft; this machine's checksum check pauses while it is open.
+void craftStageOpen(Game* game, Base* base);
+/// no-op unless @a base's window is open: closes it after vanilla's re-assign (soldier screen OK) or
+/// excess removal (craft screen return); a soldier vanilla could not seat again leaves its craft on both machines (craft_assign off, the
+/// partner's soldier too), then each recorded craft's item end-state goes to the host (craftItemsCommit; every type for a craft that lost a seat).
+void craftStageClose(Game* game, Base* base);
+
+/// SHARED (a real base only) and Separate: sends the transformation @a rule of @a soldier (alive, or dead in the
+/// memorial) with the name box's @a name to the host (soldier_transform) and returns true; nothing changes locally
+/// until the host's result lands. False otherwise, where the screen runs vanilla's transformation.
+bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier, const std::string& name);
+
+/// SHARED and a real base only - returns false otherwise (vanilla's local sale runs). Called by the random-production
+/// window's right-click with the count vanilla would sell; submits it to the host's "sell" (capped there at the stores the host still
+/// holds) and writes nothing locally; a count <= 0 submits nothing.
+bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemType, int qty);
+
+/// SHARED, and SEPARATE (this player's own soldier, also at another player's base; the host refuses another player's)
+/// - no-op otherwise; called AFTER vanilla's local write (SoldierRankState); submits the soldier's current rank as an
+/// absolute end-state. The host re-checks the promotion openings against its own world and broadcasts
+/// the rank both worlds hold (soldier_rank).
+void submitSoldierRank(Game* game, Base* base, Soldier* soldier);
+/// The soldiers whose ranks set @a soldier's manual promotion openings (PromotionOpenings): every active soldier; in
+/// SEPARATE only those of @a soldier's player (each player's army is its own).
+std::vector<Soldier*> promotionSoldiers(Game* game, const Soldier* soldier);
+
+/// SHARED, and SEPARATE as submitSoldierRank - no-op otherwise; called AFTER vanilla's local write
+/// (SoldierInfoState's flag); submits the soldier's current nationality as an
+/// absolute end-state, last-write-wins (soldier_nationality).
+void submitSoldierNationality(Game* game, Base* base, Soldier* soldier);
+
+/// SHARED and a real base only - no-op otherwise; called AFTER vanilla's local write
+/// (AllocatePsiTrainingState); submits the soldier's psi training as an absolute end-state. The host
+/// re-checks the psi-lab rules and broadcasts the flag both worlds hold (soldier_psi_training).
+void submitSoldierPsiTraining(Game* game, Base* base, Soldier* soldier);
+
+/// SHARED and a real base only - returns false otherwise; submits craft_assign off
+/// for every soldier of @a base that this machine's player owns (ownsSoldier) on a craft that is not
+/// OUT (only @a onlyCraft when non-null); returns true.
+bool submitCraftDeassign(Game* game, Base* base, Craft* onlyCraft);
 /// A training screen's change to one soldier: whether it is in training, and
 /// (martial training only) whether it returns to training once healed.
 struct TrainingChange
@@ -414,6 +642,9 @@ std::vector<Soldier*> visibleSoldiers(Game* game, Base* base);
 /// True if this machine's player owns @a soldier (co-op campaign owner==localSeat;
 /// solo always true).
 bool ownsSoldier(Game* game, const Soldier* soldier);
+/// coop: the base-roster index of display row @a row of visibleSoldiers(@a game, @a base);
+/// @a row unchanged outside SHARED or when it is out of range.
+size_t visibleRowToRosterIndex(Game* game, Base* base, size_t row);
 /// Moves the soldier at @a row of @a visible (the owner-filtered list a roster
 /// screen shows) one place up or down, or to the top / bottom with @a max, by
 /// sending this player's new soldier order at @a base to the host (soldier_order).
@@ -423,12 +654,6 @@ bool submitSoldierMove(Game* game, Base* base, const std::vector<Soldier*>& visi
 /// Sends this player's soldier order at @a base (their own soldiers, in the new
 /// order) to the host (soldier_order); the roster changes when it lands.
 void submitSoldierOrder(Game* game, Base* base, const std::vector<Soldier*>& order);
-/// SHARED and Separate: sends the transformation @a rule of @a soldier (alive, or
-/// dead in the memorial) with the name box's @a name to the host (soldier_transform)
-/// and returns true; nothing changes locally until the host's result lands. False
-/// outside a one-world campaign, where the screen runs vanilla's transformation.
-bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Soldier* soldier,
-	const std::string& name);
 /// Host: send @a msg as a CraftErrorState "alert" that only @a playerName's
 /// machine shows (a replica of another player ignores it).
 void hostPlayerNotice(Game* game, const std::string& playerName, const std::string& msg);
@@ -458,9 +683,44 @@ void hostAlienBaseFound(Game* game, AlienBase* alienBase);
 
 void hostAlert(Game* game, const std::string& cls, const std::string& msg = "",
                Base* base = nullptr, int craftId = -1,
-		const std::vector<std::string>& names = {},
-		const std::vector<int>& ids = {}, bool flag = false,
-		const Json::Value& rows = Json::Value());
+               const std::vector<std::string>& names = {},
+               const std::vector<int>& ids = {}, bool flag = false,
+               const Json::Value& rows = Json::Value(), const Json::Value& text = Json::Value());
+/// Co-op text a peer renders in ITS OWN language - a node {t: literal} (a
+/// player-typed or language-neutral string) or {k: key, a: [args]} = tr(k) with each arg (a node, or an integer)
+/// applied in order (vanilla's tr(...).arg(...) chain). hostAlert's @a text, when given, replaces @a msg on the replica.
+void hostAlertText(Game* game, const std::string& cls, const Json::Value& text, Base* base = nullptr, int craftId = -1);
+Json::Value textKey(const std::string& key, std::initializer_list<Json::Value> args = {});
+Json::Value textLiteral(const std::string& text);
+/// A target's name: a base or a custom name as a literal, else its default name's parts (a craft: STR_CRAFTNAME with its
+/// type's key and its id; any other target: its marker key with its marker id).
+Json::Value textName(Game* game, const Target* target);
+/// The parts of Craft::getGeoscapeStatusString (the owner's airborne status) as a node.
+Json::Value craftStatusText(Game* game, const Craft* craft);
+/// Renders @a node in this machine's language ("" for anything that is not a node).
+std::string textRender(Game* game, const Json::Value& node);
+/// HOST, before a GeoscapeEventState is built - a snapshot of every world part its eventLogic
+/// may touch (hq transfers / crafts, stores, craft items, research, diary, score, region activity, id counters).
+/// Json::nullValue unless this machine is the SHARED host and has a base.
+Json::Value eventMark(Game* game);
+/// HOST, right after @a eventState (the window of @a rule) was built from @a mark - diffs the
+/// world against the mark and sends the host-origin `geo_event` command: the exact result (absolute) plus the
+/// window's picks as ids, never rendered text. No-op on a null mark or a state that is not a GeoscapeEventState.
+void hostGeoEvent(Game* game, const RuleEvent& rule, const Json::Value& mark, State* eventState);
+/// HOST, in the arc loop right after vanilla grants an arc topic - remembers the Ufopaedia article vanilla opens
+/// for it (the lookup, else the topic) for the next research_grant. No-op unless this machine is the SHARED host.
+void noteGrantArticle(Game* game, const RuleResearch* research);
+/// HOST, after a research grant outside the lab (mission-site despawn, arc scripts) that started at @a mark (eventMark):
+/// sends research_grant (research, diary, statuses, popped, lab lists, id counters, noted articles; score if @a withScore). No-op on a null mark or no change.
+void hostResearchGrant(Game* game, const Json::Value& mark, const char* source, bool withScore);
+/// REPLICA - shows the event windows that arrived while this machine was off the geoscape (or on its
+/// debriefing); called from GeoscapeState::init. No-op on the host and when nothing is queued.
+void flushEventWindows(Game* game, GeoscapeState* gs);
+/// REPLICA, read-only - how many geo_event windows wait in the queue (geo_event_probe pendingWindows).
+int pendingEventWindows();
+/// drops every queued event window; called from the session teardown (CoopSession::resetSession), so
+/// a window queued in one session can never show in a later game.
+void clearEventWindows();
 /// Playtest: host broadcasts that a craft's landing decision is resolved, so every
 /// other seat's broker ConfirmLandingState closes itself.
 void broadcastLandClose(Game* game, Craft* craft);
@@ -488,311 +748,6 @@ void submitLandReply(Game* game, Craft* craft, bool yes, bool patrol);
 void attachWorldChecksum(Game* game, Json::Value& msg);
 void verifyWorldChecksum(Game* game, const Json::Value& msg);
 
-// ---- PRD-P2: battlescape drift tripwire --------------------------------------
-// INV: after every replicated action the two machines hold identical
-// (id -> BattleItem) maps AND equal SavedBattleGame::_itemId counters. It holds at
-// generation (both machines generate the same map deterministically) and is the
-// first thing to drift once they simulate independently - a peer-side
-// `new BattleItem`, an un-scoped transient mint or a lost item moves one of the two
-// terms below.
-//
-// Three terms, all cheap:
-//   chkBattleItemId = SavedBattleGame::_itemId, the next id this machine will mint.
-//   chkBattleCensus = SUM over getItems() of FNV-1a(type) mixed with the item id and
-//                     its owner unit id. A sum, not a rolling hash, so the vector
-//                     ORDER - which is not replicated - cannot matter.
-//   chkBattleUnits  = the same shape over getUnits(): id, faction, WHERE the unit is
-//                     and WHETHER IT IS DOWN. See battleChecksumTerms() for the field
-//                     selection and, more importantly, for what is deliberately left
-//                     out - a term that hashes something the protocol does not
-//                     replicate is a permanent red, not a detector.
-// Negative = "not stamped" = agree, the same convention the world checksum uses for
-// its GAP-4 fields, so a peer that predates this can never raise a false positive.
-// The three are independent: the item terms cannot see a unit that died on one
-// machine only until it drops a corpse, and the unit term cannot see an item at all.
-//
-// DETECTION ONLY. A mid-battle sharedResyncStream is impossible (the world restream
-// replaces the whole state stack, live battle included), so a mismatch logs,
-// notifies at most once per RESYNC_DEBOUNCE_MS through the in-battle warning banner
-// and raises battleDesyncSeen() for the harness. Prevention is PRD-P3/P4's job.
-
-/// Computes this machine's three battle terms. Returns false (and sets all three to
-/// -1) when no battle is live - which is what makes every caller geoscape-safe.
-bool battleChecksumTerms(Game* game, int64_t& itemIdCounter, int64_t& census,
-						 int64_t& units);
-/// Stamps chkBattleItemId / chkBattleCensus / chkBattleUnits onto @a msg. No-op
-/// without a battle.
-void attachBattleChecksum(Game* game, Json::Value& msg);
-/// Compares a peer's stamped terms against this machine's battle and reports a
-/// mismatch. @a context names the packet that carried them (for the log line).
-/// Never triggers a resync - see the note above.
-void verifyBattleChecksum(Game* game, const Json::Value& msg, const std::string& context);
-/// Harness: has the battle tripwire fired on this machine? A LATCH - once a battle
-/// has been seen to drift, the report stands for the rest of the session; nothing
-/// in a battle clears it (co-op re-arms _battleInit every turn, so that is NOT a
-/// battle-start hook). resetBattleDesyncSeen(), and therefore resetResyncStats() /
-/// the harness' shared_reset_resync_stats, is the only way to clear it.
-bool battleDesyncSeen();
-void resetBattleDesyncSeen();
-
-/// coop (Class-A soak wedge fix, A3): the peer-liveness tripwire. Called every tick
-/// from the host's updateCoopTask; latches the shared desync path when the peer stops
-/// answering boundary markers for a sustained window (a wedged-mid-replay peer goes
-/// silent, so no per-term detector fires). Host-only / PVE-only / self-guarded.
-void checkPeerLiveness(Game* game);
-/// Test lever: override the peer-liveness firing bar (boundaryGap 0 / stallMs < 0
-/// restore the shipped defaults). Set from the TestServer so the red-capability test
-/// fires in seconds rather than the shipped tens of seconds.
-void setPeerLivenessThresholds(std::uint32_t boundaryGap, std::int64_t stallMs);
-
-// ---- PRD-I0: per-action sequenced sync-check ---------------------------------
-//
-// The tripwire above is a TURN-grained detector: three terms, stamped once per
-// `next_turn`, compared before the bulk apply. It answers "did the two battles
-// drift?" and nothing more - by the time it speaks, a whole side of actions is
-// the suspect list.
-//
-// I0 makes the same question per-ACTION. Every admitted chain already carries a
-// host-owned `action_seq` (PRD-P6/P7) and already has ONE well-defined drain
-// point per machine: the executor's `coopCloseActionChain()` and the client's
-// `coopEmitActionDone()`. "The state after action N" is therefore well-defined
-// on both machines - at different wall-clock times, which is exactly why the
-// comparison is DEFERRED rather than a barrier:
-//
-//   host   : at its drain, computeBattleHashes() -> push {seq, kind, hashes}
-//            into a 64-deep ring.
-//   client : at its drain, computeBattleHashes() -> attach the set to the
-//            `action_done {seq, seat}` it was going to send anyway (field "h").
-//   host   : on receipt, look the seq up in the ring and compare PER BUCKET.
-//
-// No new packets, no admission coupling, no barrier. A missing "h" is an older
-// peer and the host simply skips the compare.
-//
-// BUCKETS, not one number: a single hash says only THAT something moved. Seven
-// independent sums say which FAMILY moved, which is the difference between a
-// bug report and a bisect. Each bucket is either ALARM (a mismatch fires the
-// existing battleDesyncSeen() path) or REPORT-ONLY (logged and counted). The
-// promotion table is a compile-time constant - see BATTLE_HASH_ALARM.
-//
-// SEMANTICS OF THE TWO HASH FAMILIES, which are deliberately different:
-//   * per-action seqs are hash-AFTER-drain on both machines. Both are "the state
-//     once this chain finished", which is the only moment they can agree.
-//   * boundary pseudo-seqs (the side-close phase group and the side-start /
-//     prepareNewTurn group) are hash-AFTER-APPLY on the client - it hashes once
-//     it has consumed the marker that follows `fuse_events` / `next_turn`, i.e.
-//     with the host's boundary state already in place. That is the OPPOSITE of
-//     the legacy tripwire above, which compares BEFORE `next_turn`'s bulk apply
-//     precisely so the apply cannot silence it. Both are correct for what they
-//     watch: the tripwire wants the pre-repair divergence, the sync-check wants
-//     a post-boundary state both machines can agree on so the NEXT action's
-//     comparison starts from a common baseline. The tripwire is untouched.
-
-/// The bucket registry. One sweep of the battle fills all seven; every term is an
-/// order-independent SUM of FNV-1a mixes, for the same reason the tripwire's terms
-/// are (neither `_items` nor `_units` nor the tile array order is replicated).
-struct BattleHashSet
-{
-	std::uint64_t terrain;     ///< per tile: the four TilePart map-data ids + explosive
-	std::uint64_t fire;        ///< per tile: turns of fire remaining
-	std::uint64_t smoke;       ///< per tile: turns of smoke remaining (+ overlaps)
-	std::uint64_t items;       ///< id, type, owner, slot, tile pos, fuse - the strict census
-	std::uint64_t unitsCore;   ///< id, faction, liveness, position (the chkBattleUnits set)
-	std::uint64_t unitsStats;  ///< legacy COMBINED unit stats (old-peer wire compat)
-	std::uint64_t unitsCombat; ///< PRD-I3 SEAM-7: chain-authored: health,stun,w0-5,morale,fire,kneel,mc
-	std::uint64_t unitsRegen;  ///< PRD-I3 SEAM-7: turn-machine-authored: tu,energy,mana
-	std::uint64_t itemIdCtr;   ///< SavedBattleGame::getCurrentItemIdValue()
-};
-
-/// How many buckets a BattleHashSet holds.
-const int BATTLE_HASH_BUCKETS = 9;
-/// Wire/introspection name of bucket @a i (0..BATTLE_HASH_BUCKETS-1).
-const char* battleHashBucketName(int i);
-/// Value of bucket @a i.
-std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i);
-/// PROMOTION TABLE. true = a mismatch in this bucket fires battleDesyncSeen()
-/// (banner + the I4 bundle); false = REPORT-ONLY, logged and counted.
-bool battleHashBucketAlarms(int i);
-/// PRD-I3 Session F: the effective saveBlob alarm (SAVEBLOB_ALARM minus the override).
-bool saveBlobAlarms();
-/// PRD-I3 Session F (test-only): force a named bucket ("terrain".."unitsRegen" or
-/// "saveBlob") back to REPORT-ONLY (true) or restore it (false), so the all-promoted
-/// build still has a discriminating negative control. Returns true if the name matched.
-bool setBattleHashReportOnlyOverride(const std::string& name, bool on);
-
-/// ONE sweep of the live battle filling every bucket. Returns false (and zeroes
-/// @a out) when no battle is live, which is what makes every caller geoscape-safe.
-bool computeBattleHashes(Game* game, BattleHashSet& out);
-/// Microseconds the last computeBattleHashes() sweep took (harness cost report).
-std::uint32_t battleHashLastSweepUs();
-/// PRD-I2: FNV-1a hash of the canonical battle-document serialization, minus a
-/// SHORT machine-local exclusion list. Boundary-only (est. 5-20 ms) - the coverage
-/// backstop for state the per-action sweep does not enumerate. Returns false and
-/// zeroes @a out when no battle is live.
-bool computeSaveBlobHash(Game* game, std::uint64_t& out);
-/// PRD-I4 (test-only lever): the canonical, exclusion-stripped battle-document text
-/// that computeSaveBlobHash() hashes - so a saveBlob mismatch diagnosis is a diff of
-/// the two machines' dumps. Returns false when no battle is live.
-bool computeSaveBlobText(Game* game, std::string& out);
-/// Microseconds the last computeSaveBlobHash() serialization took (harness cost).
-std::uint32_t battleHashLastSaveBlobUs();
-
-/// HOST: remember "the state after this chain" so a peer report can be compared
-/// against it later. @a boundary selects the boundary pseudo-seq namespace (which
-/// is monotonic per battle) instead of the per-side `action_seq` one.
-void syncCheckRecord(Game* game, std::uint32_t seq, std::uint32_t sideSeq,
-					 bool boundary, const std::string& kind);
-/// CLIENT: compute this machine's buckets and attach them to @a msg as "h".
-/// No-op without a live battle (the caller then ships the bare `action_done`).
-void syncCheckAttach(Game* game, Json::Value& msg);
-/// CLIENT (PRD-I2): syncCheckAttach plus the boundary-only `saveBlob` bucket in
-/// the "h" map. Called only from the boundary `action_done` emit; a per-action
-/// report never carries `saveBlob`, which is what presence-gates the host compare.
-void syncCheckAttachBoundary(Game* game, Json::Value& msg);
-/// HOST: compare a peer's attached buckets against the ring entry for its seq.
-/// Silently ignores a message with no "h" (older peer) and one whose seq is not
-/// in the ring (a report that crossed a side boundary, or a 64-deep overflow).
-void syncCheckCompare(Game* game, const Json::Value& msg);
-/// Harness: the `syncCheck` introspection block (see PRD-I0 §4).
-void syncCheckReport(Json::Value& out);
-/// coop (option 3): boundary-persistence-alarm introspection (2d). Pending-store size,
-/// heals, persistent alarms, and unresolved-at-end - exposed in `parallel_state`.
-size_t syncBoundaryPendingSize();
-std::uint64_t syncBoundaryHealed();
-std::uint64_t syncBoundaryPersistAlarms();
-std::uint64_t syncBoundaryUnresolved();
-/// Clears the ring, the latches and the mismatch log. Called from
-/// resetResyncStats() (harness `shared_reset_resync_stats`) and at battle teardown.
-void resetSyncCheck();
-/// PRD-I3 SEAM-7 (test/burn-in probe): arm/disarm the opt-in per-mismatch field
-/// capture. When on, the client attaches its full per-unit unitsStats field vector
-/// to every action_done ("uv") and the host stashes its own into the sync ring, so a
-/// unitsStats mismatch is diffed field-by-field into syncCheck.fieldDiffs. Off by
-/// default = zero wire delta.
-void setSyncFieldCapture(bool on);
-bool syncFieldCapture();
-// coop (PHASE D.1 chain-atomicity, test-only): strict-compare BURN-IN lever. When ON,
-// syncCheckCompare disables the terrain/unitsCore/items/itemIdCtr alien+endturn side-gates
-// and the items/saveBlob corpsePending skips, so those buckets compare at EVERY seq. Set
-// via TestServer `sync_capture {strict:bool}`. Not cleared by resetSyncCheck (a manual lever).
-void setStrictBurnIn(bool on);
-bool strictBurnIn();
-/// PRD-I3 SEAM-7: the FULL unitsStats bucket field vector per battle unit - EXACTLY
-/// the fields computeBattleHashes() mixes into the unitsStats sum (tu, energy, health,
-/// stun, morale, mana, fire, kneeled, mind-controller id, the six per-part fatal-wound
-/// counters w0..w5). @a onlyId >= 0 narrows to one unit. Empty array with no battle.
-void unitStatsFullJson(Game* game, Json::Value& out, int onlyId);
-
-// ---- PRD-I3 SEAM-3 (terrain/door): per-seq terrain vector capture ------------
-/// The `terrain` bucket is a SUM of per-tile FNV mixes: a mismatch names the bucket
-/// but never WHICH tile/part/field drifted. This is the terrain analogue of the
-/// SEAM-7 unit field-diff tooling, but the full tile vector (up to 60x60x4 = 14400
-/// tiles) is far too large to ship on every action_done, so it is INTROSPECTION
-/// ONLY (no wire change): when armed, BOTH machines stash their full non-void tile
-/// vector at each hash point into a bounded local ring, and the harness reads both
-/// rings for the mismatching seq and diffs them OFFLINE via the two TestServers.
-void setSyncTerrainCapture(bool on);
-bool syncTerrainCapture();
-/// LIVE probe: the full non-void tile vector right now - per tile: index, the four
-/// TilePart map-data id + set-id pairs and getExplosive()/getExplosiveType() (EXACTLY
-/// the `terrain` bucket field set), plus a diagnostic per-part `door` bitmask
-/// (isUfoDoorOpen, which the bucket is BLIND to - see VERIFY-1). @a onlyIndex >= 0
-/// narrows to one tile. Empty array with no battle.
-void tileTerrainFullJson(Game* game, Json::Value& out, int onlyIndex);
-/// Dump the CAPTURED tile vector for a recorded seq from the local ring (armed
-/// capture only). @a sideSeq < 0 = match on (seq, boundary) taking the newest;
-/// otherwise also filter on side_seq. Returns false if no such entry is held.
-bool terrainCaptureDumpJson(std::uint32_t seq, bool boundary, int sideSeq, Json::Value& out);
-/// Enumerate the seqs currently held in the terrain capture ring, oldest first
-/// ({seq, side_seq, boundary, kind, tileCount}), so a test can pick one to diff.
-void terrainCaptureSeqsJson(Json::Value& out);
-
-// ---- Desync auto-report bundle -----------------------------------------------
-// A logic desync leaves no stack to trace: by the time the two machines disagree
-// the cause is minutes of divergent simulation behind them. So the tripwire
-// captures the two artefacts that DO reproduce it - this machine's `openxcom.log`
-// (which already carries the BATTLE DESYNC line and everything that led up to it)
-// and a forced mid-battle SAVE, i.e. the sim-state dump. Deliberately NOT a
-// process minidump: huge, and it says nothing about a rules-level divergence.
-//
-// BOTH machines write one. The detector also ships `desync_report` so its peer
-// captures the OTHER half of the pair at (nearly) the same instant - one side of
-// a disagreement on its own proves nothing.
-//
-// ONE BUNDLE PER BATTLE PER MACHINE. The latch lives next to g_battleDesyncSeen
-// and clears in resetBattleDesyncSeen() - the same reset the harness drives
-// through shared_reset_resync_stats. The RESYNC_DEBOUNCE_MS notify throttle is a
-// separate thing and still governs the in-battle banner.
-
-/// The checksum terms and packet context one bundle records. The detector fills
-/// all four; a machine told by `desync_report` fills the peer pair from the wire
-/// and its own pair from battleChecksumTerms().
-struct DesyncTerms
-{
-	int64_t peerItemId = -1;
-	int64_t localItemId = -1;
-	int64_t peerCensus = -1;
-	int64_t localCensus = -1;
-	int64_t peerUnits = -1;   // PRD-I4: the P2 unit-census term (added after the bundle branch)
-	int64_t localUnits = -1;
-	std::string context;         // the packet that carried the peer's stamp
-	bool viaPeerReport = false;  // told by the peer rather than by a local compare
-	// PRD-I4: compact seq/kind/bucket/headline attribution. The detector fills it
-	// from its own sync-check (or the diverged terms); a peer told by desync_report
-	// carries the detector's copy so both bundles are equally attributed. Null when
-	// none was received (an older peer, or a local detector before it computes one).
-	Json::Value attribution;
-};
-
-/// Writes the bundle (log + forced save + desync-info.json) to
-/// <user folder>/desync-reports/desync-YYYYMMDD-HHMMSS.zip, raises the notice
-/// dialog, and - unless this machine was ITSELF told by a peer - sends
-/// `desync_report` so the other machine captures its half too.
-///
-/// Best-effort by contract: latched before any work so a failed write can never
-/// re-fire, every step guarded, and any failure logs and returns. Capturing a
-/// diagnostic must never be able to crash or stall the game it is diagnosing.
-void captureDesyncReport(Game* game, const DesyncTerms& terms);
-/// Harness/diagnostics: has this machine written its one bundle, and where to.
-bool desyncReportWritten();
-std::string desyncReportPath();
-/// PRD-I4: the compact primary attribution {source, seq, boundary, kind, bucket,
-/// headline} - from a peer's copy (terms.attribution) if present, else the local
-/// sync-check's last mismatch, else the diverged P2 checksum terms. The headline
-/// is localized via @a game's language.
-Json::Value desyncComputeAttribution(Game* game, const DesyncTerms& terms);
-/// PRD-I4: embeds THIS machine's sync-check state - the per-bucket mismatch table
-/// (out["sync_check"]) and a snapshot of the last ~16 ring seqs (out["sync_ring"]).
-void desyncEmbedSyncState(Json::Value& out);
-
-/// PRD-I5: next-launch crash reporter (Pattern A). The dying process only writes a
-/// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
-/// these run at the NEXT launch, from the main-menu altitude, to offer a one-click
-/// bundle of the previous crash. All best-effort: a broken reporter must never
-/// block startup, so every failure logs and continues. Reuses the I4 bundle
-/// plumbing (miniz heap zip writer, log tail reader, CoopDesyncNoticeState).
-///
-/// Reads <user folder>/crash-pending.json and, if it names a dump + log that both
-/// still exist, pushes the consent dialog over the main menu. A missing, corrupt,
-/// or stale marker (its files gone) is deleted and ignored. Never throws.
-void maybeReportPreviousCrash(Game* game);
-/// BUNDLE handler: re-reads + validates the marker at @a markerPath, zips the dump,
-/// the openxcom.log tail and a system-info json into <user folder>/crash-reports/
-/// crash-<ts>.zip, deletes the marker, and raises the result notice (path + OPEN
-/// FOLDER + REPORT ON GITHUB). Returns false and KEEPS the marker on any failure.
-bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath);
-/// NEVER (this crash) handler: delete the marker so this crash is never raised again.
-void deleteCrashMarkerFile(const std::string& markerPath);
-/// Option (b) dual-source discovery: the crashed process already writes
-/// crash_<ts>_<seq>.{dmp,log} to <exe>/crashlogs (issue #124 VEH, the robust
-/// catch-all crashDump misses). maybeReportPreviousCrash also scans that dir for
-/// an unseen entry (per-user crash-seen.json ledger dedups). These are the
-/// crashlog-source handlers the consent dialog dispatches to.
-bool bundleCrashReportFromCrashlog(Game* game, const std::string& dmpPath, const std::string& logPath);
-/// NEVER on the classic marker: delete it + mark its paired VEH crashlog seen.
-void declineCrashMarker(const std::string& markerPath);
-/// NEVER on a crashlog: record its .dmp basename in the seen ledger (no zip).
-void markCrashlogSeenPath(const std::string& dmpPath);
-
 /// Game-minute cooldown between automatic resyncs (see verifyWorldChecksum).
 extern const int RESYNC_COOLDOWN_MINUTES;
 /// Wall-clock ms a checksum mismatch must SURVIVE before it counts as a desync.
@@ -809,6 +764,11 @@ bool requestResync(Game* game, const std::string& why, bool force = false);
 /// guard so a later drift can be repaired again. For a restream's world, drop the
 /// results queued before its mark and release the ones held after it.
 void notifyWorldAdopted();
+/// CLIENT - hold update()'s shared_apply drain (step 2) from a streamed
+/// world's arrival (MAP_RESULT_LOAD_PROGRESS) until notifyWorldAdopted() clears it, so no apply lands on the world
+/// about to be discarded.
+void setApplyHold(bool on);
+bool applyHoldOn(); // read-only, TestServer shared_stats.applyHold
 
 /// REPLICA: a chunk of a world stream arrived (connectionTCP map_result_data). The
 /// in-flight resync guard and the result hold are real time since the request, the
@@ -858,166 +818,127 @@ struct Stats
 Stats stats();
 std::string lastFailReason();
 void resetStats();
+/// the replica's queued shared_apply count (update() step 2's queue). Read-only.
+int applyQueueDepth();
 
-// ---- PRD-P4: Tier-A spawn id-manifest ----------------------------------------
-// Every BattleItem id comes from the LOCAL counter SavedBattleGame::_itemId, and
-// battle resolution keys on it (moveCoopInventory, coopResolveWeapon, the ammo
-// matches in the Melee/ProjectileFly states). A "Tier-A" spawn is a DETERMINISTIC
-// set that both machines create for themselves - corpses (armor corpse list, one
-// per size^2 tile), death-trap grenades (STR_DEATH_TRAP_<floorSpecialType>, pure
-// map data), convertUnit built-ins (fixed getSpawnUnit() type). No RNG picks the
-// set, so both machines create the SAME items; only the ids can drift, and when
-// they do the drift is a TRANSPOSITION - id N denotes a different instance on the
-// two machines and every later id-keyed packet lands on the wrong item.
-//
-// The fix is the host naming the ids it minted and the peer adopting them. A
-// manifest is a `minted_ids` array on the action's own carrier packet, keyed by
-// {action, subject} - transient, per action, NEVER persisted and never spanning a
-// save. Old-peer compatible by construction: absent `minted_ids` = no manifest =
-// the peer keeps its local ids, exactly today's behaviour.
-//
-// Tier-B (RNG-DIVERGENT) spawns are a different mechanism entirely and are already
-// handled by PRD-P3's seed-replay manifest (`spawn_units`): there the host has to
-// ship the DECISION, not just the ids. Do not merge the two.
-//
-// Deviation from the PRD sketch: the guards take no `coopMod` argument.
-// connectionTCP::getCoopStatic() / ::getHost() are static, so a pointer would
-// carry no information - and SavedBattleGame::convertUnit, one of the three
-// sites, has no coopMod handy.
-
-/// HOST-side RAII recorder. While one is open, every BattleItem the SavedBattleGame
-/// factories mint appends its id to the {action, subject} list, in creation order.
-/// Opening CLEARS whatever was under that key, so a repeatable action (the same
-/// unit stepping onto a second death trap) can never ship a previous run's tail.
-/// Inert unless this machine is a co-op HOST. Closing ends the recording window
-/// only - the recorded ids live on until flushSpawnRecord() ships them.
-class CoopSpawnRecord
+/**
+ * The battle hash buckets (BattleHashSet / battleHashBucketValue /
+ * computeBattleHashes + the sweep / saveBlob-hash-tree bodies in the .cpp) -
+ * DEFINITIONS ONLY: no ring / compare / side-gate / promotion-table /
+ * boundary-persistence machinery (the host never compares; the CLIENT hashes
+ * post-apply and compares - there is no host-side ring to compare against).
+ *
+ * unitsStats is ONE bucket (combat and regen stats together), which also
+ * gains motionPoints (OFF the saveBlob exclusion list), and `synced` covers
+ * the remaining delta fields. saveBlob is its OWN function
+ * (computeSaveBlobHash) - a whole-battle-document hash, not a BattleHashSet
+ * member.
+ */
+struct BattleHashSet
 {
-public:
-	CoopSpawnRecord(const char* action, int subject);
-	~CoopSpawnRecord();
-	CoopSpawnRecord(const CoopSpawnRecord&) = delete;
-	CoopSpawnRecord& operator=(const CoopSpawnRecord&) = delete;
-private:
-	bool _open;
+	std::uint64_t terrain;    ///< per tile: the four TilePart map-data ids + explosive
+	std::uint64_t fire;       ///< per tile: turns of fire remaining
+	std::uint64_t smoke;      ///< per tile: turns of smoke remaining
+	std::uint64_t items;      ///< id, type, owner, slot, tile pos, fuse, ammoQty
+	std::uint64_t unitsCore;  ///< id, faction, liveness, position
+	std::uint64_t unitsStats; ///< tu, energy, health, stun, morale, mana, fire,
+	                          ///< kneeling, mcId, wounds, motionPoints
+	std::uint64_t itemIdCtr;  ///< SavedBattleGame::getCurrentItemId()
+	/// Every delta field no
+	/// other bucket covers - unit onTile, dir, turretDir, raw status, floating,
+	/// armor, surrender flags, moraleRestored, spawn fields, reaction hands,
+	/// tags; tile doorBits; node type; item previousOwner, unit link, ammo
+	/// links, fuseEnabled, medikit, droppedOnAlienTurn, xcomProperty, tags;
+	/// battle objectivesDestroyed, moduleMap, bughuntMode, turn, side, tags.
+	std::uint64_t synced;
 };
 
-/// PEER-side RAII consumer, bound to THIS call's subject. While one is open the
-/// factories dequeue the host's ids (creation order) and setIdCoop() them onto the
-/// items being created. Deliberately PER CALL and stacked, never a global "active
-/// subject": two deaths in flight at once would clobber a single global (hole H2).
-/// Closing DROPS whatever the manifest still held for that key - a replay that
-/// created fewer items than the host did must not leave ids parked for the next one.
-/// Inert unless this machine is a co-op peer (non-host).
-class CoopSubjectGuard
-{
-public:
-	CoopSubjectGuard(SavedBattleGame* battle, const char* action, int subject);
-	~CoopSubjectGuard();
-	CoopSubjectGuard(const CoopSubjectGuard&) = delete;
-	CoopSubjectGuard& operator=(const CoopSubjectGuard&) = delete;
-private:
-	bool _open;
-	SavedBattleGame* _battle; // for the counter re-slave when the guard closes
-	std::string _action;
-	int _subject;
-};
+/// How many buckets a BattleHashSet holds.
+const int BATTLE_HASH_BUCKETS = 8;
+/// Wire/introspection name of bucket @a i (0..BATTLE_HASH_BUCKETS-1) - the
+/// same strings as the field names (terrain/fire/smoke/items/unitsCore/unitsStats/
+/// itemIdCtr/synced), used verbatim as the `h` JSON
+/// object's keys.
+const char* battleHashBucketName(int i);
+/// Value of bucket @a i.
+std::uint64_t battleHashBucketValue(const BattleHashSet& h, int i);
 
-/// HOST: move the ids recorded for {action, subject} onto @a root as "minted_ids"
-/// and drop the record. Writes NO field when nothing was recorded, which is what
-/// keeps an older peer (and every non-spawning pass through the same send site)
-/// on exactly today's behaviour.
-void flushSpawnRecord(Json::Value& root, const char* action, int subject);
+/// ONE sweep of @a battle filling every bucket. Returns false (and zeroes
+/// @a out) when @a battle is null.
+bool computeBattleHashes(SavedBattleGame* battle, BattleHashSet& out);
 
-/// PEER: park the host's `minted_ids` (if @a root carries any) for {action,
-/// subject}. Returns true if a manifest was stored. Call it BEFORE the replay path
-/// that creates the items.
+/// The canonical, exclusion-stripped
+/// whole-battle-document hash (the saveBlob bucket/field). Serializes
+/// @a battle exactly as a save would (SavedBattleGame::save, in memory,
+/// never disk), re-parses the emitted YAML and FNV-1a hashes the node tree
+/// with a short exclusion list applied by node path (legacy kills/exp*/
+/// tempUnitStatistics, the per-unit FOV fields visible/turnsSinceSpotted*,
+/// and 23 more excluded fields). The per-tile FOW "discovered" bits inside the
+/// packed binTiles blob are NOT excluded: revealed tiles are host-authored,
+/// wire-synced game state (CoopReveal.h), so this hash VERIFIES them. Returns false
+/// (and zeroes @a out) when @a battle is null. When
+/// @a yamlOut is given it receives the emitted battle document the hash was
+/// taken over (the desync diagnostics' text; unchanged hash).
+bool computeSaveBlobHash(SavedBattleGame* battle, std::uint64_t& out, std::string* yamlOut = nullptr);
+
+/// coop: the SHARED pre-battle equip end's soldier gear
+/// records. HOST: one {id, layout, personal, personalArmor} per battle soldier (the vanilla-YAML soldier record without its name).
+/// CLIENT: adopts each into the soldier of its battle unit with that id and returns the count. Both called from connectionTCP.cpp.
+Json::Value equipEndGearRecords(SavedBattleGame* save);
+int equipEndGearAdopt(Game* game, SavedBattleGame* save, const Json::Value& records);
+
+/// Minimal desync diagnostic bundle - a zip with
+/// desync-info.json (bucket/expect/got/seq/kind + timestamp) and a best-
+/// effort tail of openxcom.log, written to
+/// <user folder>/desync-reports/desync-<timestamp>.zip. Small by design: this
+/// writer holds no GitHub-issue-prefill UI, crash-marker handling or forced-save
+/// capture. Best-effort:
+/// never throws, returns an empty string on any failure (a full disk, a
+/// read-only user folder) rather than compounding the desync with a second
+/// failure. A non-empty @a saveBlobYaml (the reporting
+/// machine's own battle document, on a `saveBlob` mismatch) is added to the
+/// zip as saveBlob-client.yaml.
+/// coop: @a role ("client" | "host") names the machine in desync-info.json and the document member
+/// (`saveBlob-<role>.yaml`); a non-empty @a peerBundlePath (the host's copy of the second player's report path) rides
+/// desync-info.json as `peerBundlePath`. The defaults keep the second player's existing call unchanged.
+std::string writeDesyncBundle(const std::string& bucket, const std::string& expect,
+	const std::string& got, std::uint32_t seq, const std::string& kind,
+	const std::string* saveBlobYaml = nullptr, const char* role = "client", const std::string& peerBundlePath = std::string());
+
+/// writes @a text as <user folder>/desync-reports/
+/// desync-<timestamp>-<suffix> (the host's own `saveBlob` document for a
+/// peer's `saveBlob` desync report). Best-effort like writeDesyncBundle():
+/// never throws, returns the path or an empty string.
+std::string writeDesyncText(const std::string& suffix, const std::string& text);
+
+/// coop: next-launch crash reporter. The dying process only writes a
+/// marker (CrossPlatform::crashDump drops crash-pending.json next to the dump);
+/// these run at the NEXT launch, from the main-menu altitude, to offer a one-click
+/// bundle of the previous crash. All best-effort: a broken reporter must never
+/// block startup, so every failure logs and continues. Reuses the desync report's
+/// bundle plumbing (miniz heap zip writer, log tail reader, CoopDesyncNoticeState).
 ///
-/// The counter re-slave (`_itemId = max(_itemId, maxHostId + 1)`, the same rule
-/// SavedBattleGame's loader applies to a save's item ids, so an adopted id can
-/// never be minted twice) happens once the manifest has been APPLIED - in the
-/// guard's destructor or at the end of remapCorpseIds. Doing it HERE is off by
-/// one: the factories still mint a local id and only then adopt the host's, so an
-/// up-front bump pushes that local mint one past the host's and the two counters
-/// end up permanently one apart.
-bool storeSpawnManifest(SavedBattleGame* battle, const char* action, int subject,
-						const Json::Value& root);
-
-/// PEER, path (b) "remap on load": re-stamp corpses that ALREADY exist. The corpse
-/// manifest rides `after_unit_death`, which post-dates the peer's own corpse
-/// creation (that was triggered by the earlier `unit_death`), so consume-on-create
-/// alone would never fire for it (hole H3). Matches BT_CORPSE items whose getUnit()
-/// is @a unitId, in _items order = creation order = the order the host recorded -
-/// all size^2 of them for a big unit. No-op (and the manifest is LEFT parked for
-/// the guard) when the corpses do not exist yet. Returns how many were re-stamped.
-///
-/// PRD-P10: also a no-op while noteCorpseReplayPending() says this unit's replay
-/// has not run yet - see there for the double-death shape that made "a BT_CORPSE
-/// item of this unit already exists" the wrong test.
-int remapCorpseIds(SavedBattleGame* battle, int unitId);
-
-/// PEER (PRD-P10): the corpse replay for @a unitId has been PUSHED (coopDeath)
-/// but has not converted yet.
-///
-/// remapCorpseIds' "do the corpses exist here already?" test is a BT_CORPSE scan
-/// keyed on getUnit(), and an UNCONSCIOUS unit is ALREADY represented by such an
-/// item - the body item convertUnitToCorpse removes on its way to minting the
-/// real corpse. So a unit that is knocked out and later bleeds out ships TWO
-/// deaths, and the second one's manifest, arriving before the peer's die state
-/// had a frame to run (both death packets are exempt from the receive gate while
-/// `_coopInitDeath` is up), re-stamped the OLD body item with the NEW corpse's
-/// id. The peer then removed that body and minted its corpse one id further on -
-/// the two machines' corpses one apart, for the rest of the battle.
-void noteCorpseReplayPending(int unitId);
-/// PEER: the corpse replay for @a unitId has run (or can no longer run).
-void clearCorpseReplayPending(int unitId);
-/// PEER: is a pushed death replay for @a unitId still waiting to convert?
-///
-/// Also the guard on `after_unit_death`'s tile unlink. That packet is sent AFTER
-/// the executor's convertUnitToCorpse, so it always says "no tile" - and it is
-/// exempt from the receive gate (`_coopInitDeath`), so it routinely lands while
-/// the peer's own UnitDieBState is still queued behind an animation. Unlinking
-/// there costs the replay everything that reads getTile():
-/// convertUnitToCorpse's `dropItems && getTile()` skips itemDropInventory (the
-/// dead unit's whole kit stays on the body here and lies on the floor there),
-/// and UnitDieBState::init()'s `!getTile()` pops the state outright for any
-/// non-PLAYER unit - no corpse and no drop at all. The replay unlinks the tile
-/// itself one line after the drop, so the repair is redundant until then.
-bool corpseReplayPending(int unitId);
-/// PEER: is ANY death replay still waiting to convert? The drift tripwire's two
-/// terms (item-id counter, item census) are both one corpse short while one is,
-/// so a stamp that lands in that window is not comparable.
-bool corpseReplayPendingAny();
-
-/// PRD-I3 Session F: the COMPLEMENTARY window - a corpse this peer already minted with
-/// LOCAL ids (no host manifest in hand) whose host ids have not yet arrived on
-/// `after_unit_death`. corpseReplayPending covers push->mint; this covers
-/// mint->reconcile. Cleared by the after_unit_death handler and at the turn boundary.
-void clearCorpseRemapPending(int unitId);
-bool corpseRemapPendingAny();
-
-/// coop (item 3, mint-at-apply introspection): cumulative count of how many times
-/// each corpse drift window has ARMED this battle. Window 1 (corpseReplayPending)
-/// arms once per death push (noteCorpseReplayPending) and is expected to keep arming
-/// on any path - it just marks "a death replay is queued". Window 2
-/// (corpseRemapPending) is the one mint-at-apply STRUCTURALLY EMPTIES: it arms only
-/// when this peer minted a corpse with LOCAL ids because no host manifest was in hand
-/// at create (CoopSubjectGuard adopted==0). On the parallel replay client the mint
-/// now runs at the after_unit_death apply with the manifest already parked, so the
-/// guard always adopts at create and this counter must stay 0 through every death.
-/// Additive, read-only; introspection for the harness, no effect on any compare.
-std::uint32_t corpseReplayArmedCount();
-std::uint32_t corpseRemapArmedCount();
-
-/// Factory hook: a BattleItem was just minted. Appends to an open host record or
-/// consumes an id from an open peer guard; does nothing at all when neither is
-/// open, which is every mint outside a Tier-A spawn (and every non-co-op game).
-void noteMintedItem(BattleItem* item);
-
-/// Hygiene: drop every parked manifest. Called at each turn boundary - a manifest
-/// whose replay never happened (the peer created no corpse for that death) must not
-/// outlive the turn it belonged to.
-void clearSpawnManifests();
+/// Reads <user folder>/crash-pending.json and, if it names a dump + log that both
+/// still exist, pushes the consent dialog over the main menu. A missing, corrupt,
+/// or stale marker (its files gone) is deleted and ignored. Never throws.
+void maybeReportPreviousCrash(Game* game);
+/// BUNDLE handler: re-reads + validates the marker at @a markerPath, zips the dump,
+/// the openxcom.log tail and a system-info json into <user folder>/crash-reports/
+/// crash-<ts>.zip, deletes the marker, and raises the result notice (path + OPEN
+/// FOLDER + REPORT ON GITHUB). Returns false and KEEPS the marker on any failure.
+bool bundleCrashReportFromMarker(Game* game, const std::string& markerPath);
+/// NEVER (this crash) handler: delete the marker so this crash is never raised again.
+void deleteCrashMarkerFile(const std::string& markerPath);
+/// Dual-source discovery: the crashed process already writes
+/// crash_<ts>_<seq>.{dmp,log} to <exe>/crashlogs (issue #124 VEH, the robust
+/// catch-all crashDump misses). maybeReportPreviousCrash also scans that dir for
+/// an unseen entry (per-user crash-seen.json ledger dedups). These are the
+/// crashlog-source handlers the consent dialog dispatches to.
+bool bundleCrashReportFromCrashlog(Game* game, const std::string& dmpPath, const std::string& logPath);
+/// NEVER on the classic marker: delete it + mark its paired VEH crashlog seen.
+void declineCrashMarker(const std::string& markerPath);
+/// NEVER on a crashlog: record its .dmp basename in the seen ledger (no zip).
+void markCrashlogSeenPath(const std::string& dmpPath);
 
 } // namespace SharedEcon
 

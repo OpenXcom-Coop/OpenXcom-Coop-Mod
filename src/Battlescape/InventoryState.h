@@ -45,11 +45,10 @@ class InventoryState : public State
 {
 private:
 	Surface *_bg, *_soldier;
-	Text *_txtItem, *_txtCoopItem, *_txtAmmo, *_txtWeight, *_txtTus, *_txtStatLine1, *_txtStatLine2, *_txtStatLine3, *_txtStatLine4, *_txtPosition;
+	Text *_txtItem, *_txtAmmo, *_txtWeight, *_txtTus, *_txtStatLine1, *_txtStatLine2, *_txtStatLine3, *_txtStatLine4, *_txtPosition;
 	Text *_txtNameStatic;
 	TextEdit *_txtName;
-	// coo
-	Text *_coopOwner;
+	Text *_txtCoopOwner; // coop: "Owner: <name>" over a partner's soldier on the pre-battle screen
 	TextEdit *_btnQuickSearch;
 	BattlescapeButton *_btnOk, *_btnPrev, *_btnNext, *_btnUnload, *_btnGround, *_btnRank, *_btnArmor;
 	BattlescapeButton *_btnCreateTemplate, *_btnApplyTemplate;
@@ -169,11 +168,7 @@ public:
 	/// Handler for hiding armor tooltip.
 	void txtArmorTooltipOut(Action *action);
 
-	// coop
-	void moveCoopItemsToGround(Craft* craft, BattleUnit *unit);
-
-	// test-harness only: expose the inventory view so the TestServer can drive
-	// unload() the same way btnUnloadClick does (see issue #29 unload crash repro).
+	// test harness only: the inventory view, so the TestServer can select a unit in it
 	Inventory *getInventoryForTest() const { return _inv; }
 
 private:

@@ -38,6 +38,7 @@ private:
 	Window *_window;
 	Text *_txtTitle, *_txtCost, *_txtTotal;
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	TransferItemsState *_state;
 public:
 	/// Creates the Transfer Confirm state.

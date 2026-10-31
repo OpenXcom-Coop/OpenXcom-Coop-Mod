@@ -27,7 +27,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+from harness import GameClient, make_user_dir, shutdown_clients, LAND_LON, LAND_LAT
 import session
 
 HOST_LON, HOST_LAT = 0.35, 0.85
@@ -228,7 +228,7 @@ def test_rejoin_hold_and_freeze():
         session.new_campaign(host, client, port="47912")
 
         # hard-kill the client mid-session
-        client.proc.kill(); client.proc.wait(timeout=10)
+        client.kill()
 
         # bug 5: host freezes in a compact "waiting to reconnect" dialog
         host.wait_for("host player-wait dialog",
@@ -255,9 +255,7 @@ def test_rejoin_hold_and_freeze():
         assert cd["title"] == RESUME_HOLD_MSG, f"BUG4: wrong rejoin hold message: {cd!r}"
         print("PASS bug4: rejoin hold reads 'Waiting for host to resume the game.'")
     finally:
-        host.shutdown(); client.shutdown()
-        if client2:
-            client2.shutdown()
+        shutdown_clients(host, client, client2)
 
 
 def main():

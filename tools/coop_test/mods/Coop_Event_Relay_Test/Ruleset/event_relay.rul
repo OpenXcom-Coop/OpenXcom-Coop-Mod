@@ -1,0 +1,45 @@
+# Test fixture for test_event_relay_once.py. No language file (raw keys).
+# Each cutscene has no videos and no slideshow: a play logs "cutscene definition empty: <id>"; STR_RELAY_WIN ends the game.
+cutscenes:
+  - type: STR_RELAY_A
+  - type: STR_RELAY_C
+  - type: STR_RELAY_M
+  - type: STR_RELAY_WIN
+    winGame: true
+events:
+  - name: STR_RELAY_EV_A
+    description: STR_RELAY_EV_A
+    cutscene: STR_RELAY_A
+  - name: STR_RELAY_EV_C
+    description: STR_RELAY_EV_C
+    cutscene: STR_RELAY_C
+    timer: 20160
+  - name: STR_RELAY_EV_M
+    description: STR_RELAY_EV_M
+    cutscene: STR_RELAY_M
+  - name: STR_RELAY_EV_WIN
+    description: STR_RELAY_EV_WIN
+    cutscene: STR_RELAY_WIN
+research:
+  - name: STR_RELAY_T_A
+    cost: 1
+    points: 5
+    spawnedEvent: STR_RELAY_EV_A
+  - name: STR_RELAY_T_M
+    cost: 10
+    points: 1
+    spawnedEvent: STR_RELAY_EV_M
+  - name: STR_RELAY_T_WIN
+    cost: 1
+    points: 5
+    spawnedEvent: STR_RELAY_EV_WIN
+eventScripts:
+  - type: STR_RELAY_SCRIPT_C
+    oneTimeSequentialEvents:
+      - STR_RELAY_EV_C
+    firstMonth: 0
+    lastMonth: 0
+    executionOdds: 100
+alienDeployments:
+  - type: STR_TERROR_MISSION
+    unlockedResearchOnDespawn: STR_RELAY_T_M

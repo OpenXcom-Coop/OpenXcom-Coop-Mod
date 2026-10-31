@@ -32,6 +32,7 @@
 #include "../Savegame/Region.h"
 #include "../Mod/RuleRegion.h"
 #include "TransferItemsState.h"
+#include "BasescapeState.h"
 #include "../Battlescape/DebriefingState.h"
 #include "../CoopMod/connectionTCP.h"
 
@@ -46,16 +47,15 @@ namespace OpenXcom
 TransferBaseState::TransferBaseState(Base *base, DebriefingState *debriefingState) : _base(base), _debriefingState(debriefingState)
 {
 
-	// coop (SEPARATE only): swap in the peer's mirror bases so the destination
-	// list can include them. In SHARED every base is already a real shared base in
-	// getBases(), so the list below (all bases minus source) is already correct -
-	// this swap must NOT run (PRD-J05).
+	// coop (SEPARATE only): a basescape underneath hides the peer's mirror bases;
+	// put them back so the destination list can include them (hidden again by
+	// Cancel below). the one process-wide stash, never _base's, so a
+	// debriefing or a geoscape popup - nothing hidden - leaves the list untouched.
+	// In SHARED every base is already a real shared base in getBases().
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == false && _game->getCoopMod()->getCoopCampaign() == true
-		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+		&& !_game->getCoopMod()->isSharedCampaign())
 	{
-
-		*_game->getSavedGame()->getBases() = _base->old_bases;
-
+		_coopShown = BasescapeState::coopShowMirrors();
 	}
 
 	// Create objects
@@ -143,26 +143,26 @@ TransferBaseState::~TransferBaseState()
 void TransferBaseState::btnCancelClick(Action *)
 {
 
-	// coop (SEPARATE only): restore the real base list after the mirror swap above.
-	// Not done in SHARED (no swap happened there).
-	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == false && _game->getCoopMod()->getCoopCampaign() == true
-		&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+	// coop: hide the peer's mirrors again when the ctor put them back for a
+	// basescape underneath (never in SP, SHARED, a debriefing or a geoscape popup).
+	if (_coopShown)
 	{
-
-		// coop
-		std::vector<Base*> filteredBases;
-
-		for (auto* base : *_game->getSavedGame()->getBases())
-		{
-			if (base->_coopIcon == false)
-			{
-				filteredBases.push_back(base);
-			}
-		}
-
-		*_game->getSavedGame()->getBases() = filteredBases;
+		BasescapeState::coopHideMirrors();
 	}
 
+	_game->popState();
+}
+
+/**
+ * coop: a listed base is gone. As CANCEL: the partner's mirror bases this screen showed (SEPARATE own base view) are hidden
+ * again, then the screen closes. The gone base is never read.
+ */
+void TransferBaseState::coopCloseGoneBase()
+{
+	if (_coopShown)
+	{
+		BasescapeState::coopHideMirrors();
+	}
 	_game->popState();
 }
 

@@ -1,0 +1,20 @@
+# Test fixture for test_research_side_effects.py. No language file (raw keys).
+# STR_RESFX_A completing while STR_RESFX_B runs: getOneFree B (FREE_FROM diary entry), B's running project is removed and
+# its item refunded, 2 x STR_PISTOL delivered, STR_RESFX_COUNTER raised.
+items:
+  - type: STR_RESFX_B
+    size: 0.1
+    costSell: 1000
+research:
+  - name: STR_RESFX_A
+    cost: 1
+    points: 5
+    getOneFree: [STR_RESFX_B]
+    spawnedItem: STR_PISTOL
+    spawnedItemCount: 2
+    increaseCounter: [STR_RESFX_COUNTER]
+  - name: STR_RESFX_B
+    cost: 50
+    points: 5
+    needItem: true
+    destroyItem: true

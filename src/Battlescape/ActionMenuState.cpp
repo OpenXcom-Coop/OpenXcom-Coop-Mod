@@ -37,9 +37,10 @@
 #include "../Savegame/HitLog.h"
 #include "Pathfinding.h"
 #include "TileEngine.h"
-#include "BattlescapeGame.h"
-#include "../CoopMod/connectionTCP.h"
 #include "../Interface/Text.h"
+#include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDelta.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -90,7 +91,7 @@ ActionMenuState::ActionMenuState(BattleAction *action, int x, int y) : _action(a
 
 	if (weapon->isManaRequired() && _action->actor->getOriginalFaction() == FACTION_PLAYER)
 	{
-		if (!_game->getMod()->isManaFeatureEnabled() || !_game->getSavedGame()->isManaUnlocked(_game->getMod()))
+		if (!_game->getMod()->isManaFeatureEnabled() || !coopIsManaUnlockedFor(_game, _action->actor, _game->getMod()))
 		{
 			return;
 		}
@@ -189,25 +190,6 @@ ActionMenuState::ActionMenuState(BattleAction *action, int x, int y) : _action(a
 	else if (weapon->getBattleType() == BT_MINDPROBE)
 	{
 		addItem(BA_USE, weapon->getPsiAttackName().empty() ? "STR_USE_MIND_PROBE" : weapon->getPsiAttackName(), &id, Options::keyBattleActionItem1);
-	}
-
-	// COOP. Not in parallel mode: `unit_action` exists only to drag the PEER's
-	// selected unit around, and in parallel both players are selecting their own
-	// soldiers at the same time (PRD-P5 already dropped the `selected_unit`
-	// follow for the same reason).
-	if (_game->getSavedGame()->getSavedBattle()->getBattleGame() && _game->getSavedGame()->getSavedBattle()->getSelectedUnit()
-		&& !connectionTCP::parallelTurnActive())
-	{
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getSavedGame()->getSavedBattle()->getBattleGame()->isYourTurn == 2)
-		{
-
-			Json::Value root;
-
-			root["state"] = "unit_action";
-			root["actor_id"] = _game->getSavedGame()->getSavedBattle()->getSelectedUnit()->getId();
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-		}
 	}
 
 }
@@ -330,17 +312,15 @@ void ActionMenuState::handleAction()
 		bool newHitLog = false;
 		std::string actionResult = "STR_UNKNOWN"; // needs a non-empty default/fall-back !
 
-		// coop
 		if (_action->type != BA_THROW &&
 			_action->actor->getOriginalFaction() == FACTION_PLAYER &&
-			!_game->getSavedGame()->isResearched(weapon->getRequirements()) && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4 && _game->getCoopMod()->_isHotseatActive == false)
+			!coopIsResearchedFor(_game, _action->actor, weapon->getRequirements()))
 		{
 			_action->result = "STR_UNABLE_TO_USE_ALIEN_ARTIFACT_UNTIL_RESEARCHED";
 			_game->popState();
 		}
-		// coop
 		else if (_action->type != BA_THROW &&
-				 !_game->getSavedGame()->getSavedBattle()->canUseWeapon(_action->weapon, _action->actor, false, _action->type, &actionResult) && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4 && _game->getCoopMod()->_isHotseatActive == false)
+			!_game->getSavedGame()->getSavedBattle()->canUseWeapon(_action->weapon, _action->actor, false, _action->type, &actionResult))
 		{
 			_action->result = actionResult;
 			_game->popState();
@@ -423,33 +403,7 @@ void ActionMenuState::handleAction()
 						(type == BMT_STIMULANT && _action->weapon->getStimulantQuantity() > 0) ||
 						(type == BMT_PAINKILLER && _action->weapon->getPainKillerQuantity() > 0))
 					{
-						// coop (PRD-P6): a single-purpose medikit is used right here,
-						// with no MedikitState in between - so this is the confirm
-						// site the parallel client turns into an intent. The body
-						// part is picked from state both machines share.
-						int coopPart = BODYPART_TORSO;
-						if (type == BMT_HEAL && targetUnit->getFatalWounds())
-						{
-							for (int i = 0; i < BODYPART_MAX; ++i)
-							{
-								if (targetUnit->getFatalWound((UnitBodyPart)i))
-								{
-									coopPart = i;
-									break;
-								}
-							}
-						}
-						const int coopMode = type == BMT_STIMULANT ? BMA_STIMULANT
-										   : type == BMT_PAINKILLER ? BMA_PAINKILLER
-																	: BMA_HEAL;
-						BattlescapeGame* coopBg = _game->getSavedGame()->getSavedBattle()->getBattleGame();
-						if (coopBg && coopBg->coopRouteMedikit(_action, targetUnit, coopMode, coopPart))
-						{
-							// the host will heal and broadcast; nothing local runs
-							_action->type = BA_NONE;
-							return;
-						}
-
+						if (coopInterceptMedikitPress(_action, targetUnit, -1, -1)) return;
 						if (_action->spendTU(&_action->result))
 						{
 							switch (type)
@@ -484,6 +438,7 @@ void ActionMenuState::handleAction()
 							case BMT_NORMAL:
 								break;
 							}
+							coopHostMedikit(_action, targetUnit, -1, -1);
 						}
 					}
 					else
@@ -505,8 +460,10 @@ void ActionMenuState::handleAction()
 		else if (_action->type == BA_USE && weapon->getBattleType() == BT_SCANNER)
 		{
 			// spend TUs first, then show the scanner
+			if (coopInterceptScannerUse(_action)) { _game->popState(); return; }
 			if (_action->spendTU(&_action->result))
 			{
+				coopHostScanner(_action);
 				_game->popState();
 				_game->pushState (new ScannerState(_action));
 			}
@@ -572,65 +529,10 @@ void ActionMenuState::handleAction()
 
 		if (newHitLog)
 		{
+			if (coopHitLogPlayerFiring(weapon->getType())) {} else // coop
 			_game->getSavedGame()->getSavedBattle()->appendToHitLog(HITLOG_PLAYER_FIRING, FACTION_PLAYER, tr(weapon->getType()));
 		}
 	}
-
-	// COOP. A parallel CLIENT never sends it: `action_click` is a command to the
-	// peer ("run this action"), which is exactly what `action_intent` replaced -
-	// the client's melee/prime confirm ships an intent from
-	// BattlescapeGame::handleNonTargetAction() instead.
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 2
-		&& !connectionTCP::parallelInputBlocked())
-	{
-		Json::Value obj;
-		obj["state"] = "action_click";
-		obj["type"] = (int)_action->type;
-		obj["target_x"] = -1;
-		obj["target_y"] = -1;
-		obj["target_z"] = -1;
-
-		if (&_action->target)
-		{
-
-			obj["target_x"] = _action->target.x;
-			obj["target_y"] = _action->target.y;
-			obj["target_z"] = _action->target.z;
-
-		}
-
-		obj["time"] = _action->Time;
-
-		if (&_action->weapon)
-		{
-			obj["weapon_type"] = _action->weapon->getRules()->getType();
-			obj["weapon_id"] = _action->weapon->getId();
-		}
-		
-		obj["actor_id"] = _action->actor->getId();
-	
-		// coop (issue #74): report the hand the weapon is really in.
-		obj["hand"] = BattlescapeGame::coopHandOf(_action->actor, _action->weapon,
-			_game->getSavedGame()->getSavedBattle()->getBattleGame()->getCoopWeaponHand());
-
-		if (_action->weapon)
-		{
-			obj["fusetimer"] = _action->weapon->getFuseTimer();
-			obj["fuse"] = _action->weapon->isFuseEnabled();
-		}
-		else
-		{
-			obj["fusetimer"] = 0;
-			obj["fuse"] = false;
-		}
-
-		_game->getCoopMod()->sendTCPPacketData(obj.toStyledString());
-
-	}
-	
-	
-
-
 }
 
 /**

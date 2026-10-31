@@ -430,8 +430,7 @@ void OptionsMultiplayerState::lstOptionsClick(Action* action)
 			|| b == &Options::UnbalancedCraftSoldiersLimit
 			|| b == &Options::EnableReactionFirePvp
 			|| b == &Options::EnableOtherPlayerFootsteps
-			|| b == &Options::EnableXcomEquipmentAliensPVP
-			|| b == &Options::EnableCoopParallelTurns;
+			|| b == &Options::EnableXcomEquipmentAliensPVP;
 		// These values are negotiated once by the host. Changing only the local
 		// Options value during a live session used to make the menu lie about the
 		// active rules. Shared Research is the sole live-changeable exception.
@@ -646,8 +645,6 @@ void OptionsMultiplayerState::lstOptionsMouseOver(Action*)
 				desc = "Play movement sounds made by the other player's soldiers in Battlescape.";
 			else if (setting->id() == "EnableXcomEquipmentAliensPVP")
 				desc = "Allow the alien-side player to use XCOM equipment in PvP battles. Campaign equipment is unaffected.";
-			else if (setting->id() == "EnableCoopParallelTurns")
-				desc = "Let both players control their own soldiers during the same player turn in cooperative Battlescape.";
 			else if (setting->id() == "keyChat")
 				desc = "Open or close the multiplayer chat window.";
 			else if (setting->id() == "giveUnit")

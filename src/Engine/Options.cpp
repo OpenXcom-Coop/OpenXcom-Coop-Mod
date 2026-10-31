@@ -35,6 +35,7 @@
 #include "FileMap.h"
 #include "Screen.h"
 #include "../CoopMod/CrashHandler.h"
+#include "../CoopMod/CoopSyncedOptions.h"
 
 namespace OpenXcom
 {
@@ -149,6 +150,7 @@ void createOptionsOXC()
 	_info.push_back(OptionInfo(OPTION_OXC, "battleFireSpeed", &battleFireSpeed, 6));
 	_info.push_back(OptionInfo(OPTION_OXC, "battleXcomSpeed", &battleXcomSpeed, 30));
 	battleXcomSpeedOrig = -1;
+	battleAlienSpeedOrig = -1;
 	_info.push_back(OptionInfo(OPTION_OXC, "battleAlienSpeed", &battleAlienSpeed, 30));
 #ifdef __MOBILE__
 	_info.push_back(OptionInfo(OPTION_OXC, "battleNewPreviewPath", (int*)&battleNewPreviewPath, PATH_FULL)); // for android, set full preview by default
@@ -421,9 +423,11 @@ void createOptionsOXCE()
 #ifdef __MOBILE__
 	_info.push_back(OptionInfo(OPTION_OXCE, "oxceInventorySplitScrollButton", &oxceInventorySplitScrollButton, true, "", "HIDDEN"));
 	_info.push_back(OptionInfo(OPTION_OXCE, "oxceInventoryDropItemOverPaperdoll", &oxceInventoryDropItemOverPaperdoll, true, "", "HIDDEN"));
+	_info.push_back(OptionInfo(OPTION_OXCE, "oxceInventoryUnloadFixedWeapons", &oxceInventoryUnloadFixedWeapons, true, "", "HIDDEN"));
 #else
 	_info.push_back(OptionInfo(OPTION_OXCE, "oxceInventorySplitScrollButton", &oxceInventorySplitScrollButton, false, "", "HIDDEN"));
 	_info.push_back(OptionInfo(OPTION_OXCE, "oxceInventoryDropItemOverPaperdoll", &oxceInventoryDropItemOverPaperdoll, false, "", "HIDDEN"));
+	_info.push_back(OptionInfo(OPTION_OXCE, "oxceInventoryUnloadFixedWeapons", &oxceInventoryUnloadFixedWeapons, false, "", "HIDDEN"));
 #endif
 
 	// TODO: needs restart (or code change) to work properly
@@ -577,21 +581,41 @@ void createAdvancedOptionsOTHER()
 	_info.push_back(OptionInfo(OPTION_OTHER, "UnbalancedCraftSoldiersLimit", &UnbalancedCraftSoldiersLimit, false, "Unbalanced Craft Soldiers Limit", "STR_BASESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableReactionFirePvp", &EnableReactionFirePvp, true, "Enable Reaction Fire in PvP", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableOtherPlayerFootsteps", &EnableOtherPlayerFootsteps, true,"Enable Other Player Footstep Sounds", "STR_BATTLESCAPE"));
-	_info.push_back(OptionInfo(OPTION_OTHER, "coopFollowPeerActions", &coopFollowPeerActions, true, "Follow Teammate Actions with Camera", "STR_BATTLESCAPE"));
+	// The option, row text and position of older versions; default OFF here.
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopFollowPeerActions", &coopFollowPeerActions, false, "Follow Teammate Actions with Camera", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableXcomEquipmentAliensPVP", &EnableXcomEquipmentAliensPVP, true, "Enable XCOM Equipment for Aliens in PVP", "STR_BATTLESCAPE"));
-	// coop (PRD-P5): both players act during the same player side. Read by the HOST
-	// only - it ships the value on COOP_READY_HOST and the client mirrors it into
-	// connectionTCP::_enable_parallel_turns, so the session mode is decided once.
-	_info.push_back(OptionInfo(OPTION_OTHER, "EnableCoopParallelTurns", &EnableCoopParallelTurns, false, "Parallel Battlescape Turns", "STR_BATTLESCAPE"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "debugMode", &debugMode, true, "Enable Debug Mode (requires restart)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logInfoToFile", &logInfoToFile, false, "Write INFO messages to log file", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "logPacketMessages", &logPacketMessages, false, "Write packet messages to log files (heavy logging)", "STR_AI"));
 	_info.push_back(OptionInfo(OPTION_OTHER, "EnableHotseatDebugMode", &EnableHotseatDebugMode, false, "Enable Hotseat Debug Mode", "STR_AI"));
-	// coop (PRD-P5 §4): TEMPORARY dev plumbing, deleted by PRD-P6. With it on the
-	// co-op client's input executes LOCALLY and replicates NOTHING (every executor
-	// send site is _isActivePlayerSync-gated and the client permanently holds
-	// false), so the two machines intentionally diverge. Smoke-testing the input
-	// path only - never a play mode.
+
+	// Auto-cancel
+	// policy for a busy-held pending co-op intent. Defaults = the narrowed scope
+	// (first three ON, the broad any-partner-action toggle OFF).
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnEnemySpotted", &coopCancelOnEnemySpotted, true, "Co-op: Cancel Held Order When an Enemy is Spotted", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnOwnUnitHit", &coopCancelOnOwnUnitHit, true, "Co-op: Cancel Held Order When One of My Soldiers is Hit", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnVisibilityGain", &coopCancelOnVisibilityGain, true, "Co-op: Cancel Held Order on New Contact", "STR_BATTLESCAPE"));
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopCancelOnAnyPartnerAction", &coopCancelOnAnyPartnerAction, false, "Co-op: Cancel Held Order on Any Partner Action", "STR_BATTLESCAPE"));
+
+	// The client-side intent round-trip timeout, in SECONDS. The DEFAULT is
+	// at 10 s; the option exists so real-network play can tune it (and so the
+	// harness can shorten it) without a rebuild. <= 0 disables the timeout.
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopIntentTimeoutSeconds", &coopIntentTimeoutSeconds, 10, "Co-op: Seconds Before an Unanswered Order Times Out", "STR_BATTLESCAPE"));
+
+	// The HOST's remembered turn mode, default PARALLEL. A real OptionInfo, so
+	// it is persisted in options.cfg and survives a restart (never a
+	// connectionTCP static here). Deliberately NO description and NO category: the
+	// advanced-options list only renders OPTION_BOOL and OPTION_INT
+	// (OptionsAdvancedState.cpp:254-262) and only picks up the five named
+	// categories (:123-141), so a described STRING option would show as a dead row
+	// with an empty value. Its control is the HOST/lobby toggle.
+	_info.push_back(OptionInfo(OPTION_OTHER, "CoopTurnMode", &CoopTurnMode, "parallel"));
+
+	// The ghost stepper - display-only
+	// replay of a partner's turn/kneel/walk. Default ON. Literal English
+	// description (the coopCancelOnAnyPartnerAction precedent, :596 above),
+	// never a STR_ key (lint_coop_strings' orphan count stays put).
+	_info.push_back(OptionInfo(OPTION_OTHER, "coopGhostStepper", &coopGhostStepper, true, "Co-op: Animate Partner Actions (Ghost Stepper)", "STR_BATTLESCAPE"));
 
 }
 
@@ -652,6 +676,7 @@ static void _setDefaultMods()
  */
 void resetDefault(bool includeMods)
 {
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::RESET); // coop
 	for (auto& optionInfo : _info)
 	{
 		optionInfo.reset();
@@ -1302,6 +1327,7 @@ void updateOptions()
  */
 bool load(const std::string &filename)
 {
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::LOAD); // coop
 	std::string s = _configFolder + filename + ".cfg";
 	try
 	{
@@ -1385,6 +1411,7 @@ struct SessionOverrideSwap
  */
 bool save(bool reset, const std::string& filename)
 {
+	CoopSyncedOptions::FileGuard coopSyncedGuard(CoopSyncedOptions::FileGuard::SAVE); // coop
 	std::string yaml;
 	std::string filepath = _configFolder + filename + ".cfg";
 	SessionOverrideSwap ownValues;

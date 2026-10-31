@@ -26,6 +26,7 @@ Run:  python tools/coop_test/test_coop_peer_equip_screens.py
 import os
 import sys
 
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import test_coop_transferred_equipment as T
 

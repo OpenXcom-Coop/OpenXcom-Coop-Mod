@@ -1,0 +1,1077 @@
+"""test_ghost_projectile.py: the watching machine shows the
+projectile of a shot it did not execute - display only.
+
+Without the projectile ghost the second player's machine shows no shot: every
+applied `shot` cue only counts in cueCounts and the state snaps (the "snap
+display"). With it every applied `shot` starts one display-only combat ghost on
+the client: a vanilla Projectile on the client's Map flying the path
+re-derived with vanilla's own path function (the client's probe-only
+re-derivation), paced by the shooter's seat fire dial, with the fire / throw /
+drop sounds. A record with no display object counts as completed at enqueue.
+Nine scenarios, ONE boot (terror seed 1, host fire dial 12, client fire dial 4,
+coopGhostStepper pinned true in both boot options), in this order (launch_legs
+last: its blast changes the terrain):
+
+  host_snap  host snap. H (rifle + clip, firing 120, TU max) on LANE_TILE facing
+      east, the lane to LANE_TARGET empty but for H; host set_seed
+      HOST_SNAP_SEED and a real-UI snap (TAB, the right-hand box, key 50, HOME,
+      one click on LANE_TARGET). When broken: client cueCounts.shot +1,
+      combatGhost.enqueued.shot +0. With the fix: one ring record for the
+      shot's seq: speed 12 == the host's shotTrajectories speed, seat 0,
+      trajLen == the host's trajLen, pathMatches, ticks == ceil(trajLen / 12),
+      ms == ticks x 16, sound == the clip's fire sound, else the rifle's
+      (display_rules).
+  host_turn_snap  the host's snap after a pre-action turn (the watching machine
+      animates the turn as vanilla does, one octant per tick). host_snap's
+      staging and real-UI snap, but H is staged through H_ASIDE and then onto
+      LANE_TILE facing north (a unit already on its tile keeps its facing), so
+      it turns 0 -> 2 (two octants) before it fires; host set_seed
+      TURN_SNAP_SEED. host_snap's assertions plus the TURN assertions below
+      (TURN_SNAP_CHAIN exactly).
+  client_snap  client snap. H to H_ASIDE, C (rifle + clip, firing 120, TU max)
+      on LANE_TILE facing east; the client's real-UI snap at LANE_TARGET, host
+      set_seed CLIENT_SNAP_SEED before the click. When broken: as host_snap.
+      With the fix: speed 4 on both (the host's shotTrajectories speed for that
+      seq too: the host flies each shot at its shooter's seat dial), seat 1, the
+      formula.
+  unowned_shot  unowned shooter. A (alien, seat -1) on UNOWNED_A_TILE facing H
+      on H_ASIDE, A's TU (base and current) set to UNOWNED_A_TU
+      (pin_ai_neutral zeroed the base, and battle_fire's <tu> clamps to it) and
+      H's health raised to UNOWNED_H_HEALTH (both); the host's selected unit is
+      H (real TAB); host set_seed UNOWNED_SEED and battle_fire {A, snap, target
+      H, keepSelection} (on the player side an alien's shot is reaction fire,
+      kept only when its target is the selected unit). When broken: as
+      host_snap. With the fix: speed == min(12, 4) == 4 (an unowned shooter
+      flies at the slower seat's dial), seat -1, the formula.
+  autoshot  autoshot. C (fresh rifle + clip) on LANE_TILE; the client's real-UI
+      autoshot at LANE_TARGET, host set_seed AUTOSHOT_SEED. When broken: 3
+      shots, +0 ghosts. With the fix: 3 records in seq order (payload
+      shotIndex 1, 2, 3), each speed 4, trajLen == the host's, the formula.
+  throw_arc  throw arc. An UNPRIMED grenade on C, C on THROW_C_TILE facing
+      east, the client's real-UI throw (key 53) at THROW_TARGET due north, host
+      set_seed THROW_SEED. When broken: +0 ghosts. With the fix: arc true,
+      pathMatches, trajLen == the host's, speed 4, the formula, sound ==
+      ITEM_THROW, soundEnd == ITEM_DROP.
+  option_off  negative control (passes with or without the fix). Client
+      set_option coopGhostStepper false; H on LANE_TILE; host set_seed
+      OPTION_OFF_SEED and battle_fire {H, snap, LANE_TARGET}; then true again.
+      Client cueCounts.shot +1 and combatGhost.enqueued.shot +0 while off.
+  input_during_flight  input during a flight. Host fire dial 1 (seat 0 on
+      both); C gets a rifle + clip, the client selects C2 (so reaching C needs a
+      TAB); host set_seed INPUT_FLIGHT_SEED and battle_fire {H, snap,
+      LANE_TARGET}; once the client applied the shot and its combatGhost.live
+      is 1, the client presses TAB (onto C) and the right-hand box. When broken
+      (no ghost exists): combatGhost.live stays 0 and no record. With the fix:
+      ActionMenuState opens on the client while the ghost is live (input is not
+      blocked by a flight) and the record's steps >= 2. The host dial goes back
+      to 12 after the row.
+  launch_legs  launch legs. A blaster launcher + bomb on C, C on LAUNCH_C_TILE
+      facing west, the client's real-UI launch with two waypoints on
+      LAUNCH_WAYPOINT, host set_seed LAUNCH_SEED before the launch button. When
+      broken: 2 shots, +0 ghosts. With the fix: 2 straight records (payload
+      action launch), each pathMatches, trajLen == the host's, speed 4, the
+      formula; the `explosion` cue is test_ghost_impact.py's.
+
+TURN assertions (host_turn_snap, throw_arc and launch_legs - the three rows
+whose shooter turns before it fires): the host event_log of the row's action
+(the actionId of its first `shot`) starts ["turn", "shot"] (host_turn_snap:
+exactly TURN_SNAP_CHAIN); the host's `[coop-turn]` payload is {unit, fromDir =
+the staged facing, toDir = the target's facing, turretOnly false, tuAfter = the
+staged tu - octants}; the client event_log holds the same seqs and kinds; both
+machines' per-seat speed table holds the shooter's seat xcom dial ==
+TURN_PACE_MS; the client's turnGhost ring holds exactly one record with the
+turn's seq {actionId, unit, fromDir, toDir, octants, durationMs == octants x
+TURN_PACE_MS, seat, endedBy "natural", dirsShown == vanilla's octant path minus
+the final facing (host_turn_snap [0, 1], throw_arc [2, 1], launch_legs [6, 7,
+0, 1]), poseShown == STATUS_TURNING (3)}; the action's first shot record has
+afterTurnSeq == the turn's seq and startStamp > the turn record's endStamp > 0
+(the projectile starts only after the turn ended; launch_legs' second leg:
+afterTurnSeq 0). Every projectile assertion of the row is unchanged.
+
+Common to every row (after session.wait_host_idle: the host has no context
+and no BState, the client applied up to the host's lastSeqEmitted):
+hash_now {full:true} every bucket EQUAL; desyncSeen false on both; client
+coopClientBStatePushes unchanged and host 0; the client's rngSeed unchanged
+from the row's start; the host's combatGhost all zero (the host never
+ghosts); the client's combatGhost.live == 0 and completed + cut == enqueued
+per kind. Option-ON rows (all but option_off) add the DELIVERY PROOF: every
+host `shot` cue of the row (host event_log, payloads from the host's
+openxcom.log `[coop-cue]` lines) has exactly one client ring record with that
+seq and unresolved / noMap false, and combatGhost.enqueued.shot moved by the
+client's cueCounts.shot delta. Every row also requires its own shots
+(a row without them fails): the number of `shot` cues, their shooter and
+payload action. No wall-clock duration is asserted: every timing check is an
+equality with the flight formula computed here from the record's own trajLen
+and the expected dial.
+
+Probes (event_state): combatGhost {enqueued, completed,
+cut: {shot, hit, explosion}, joined, live, unresolved, noMap, ring} (both;
+written on the client), derivedPaths (client: {seq, arc,
+derivedLen, derivedEnd} per applied shot), rngSeed (both, read only),
+shotTrajectories (host: the last 16 shots' {seq, trajLen, speed, impact});
+the read-only test command display_rules {types} (items' display rules and the
+Mod constants from the loaded rules); battle_fire's keepSelection.
+turnGhost {counts {enqueued, natural, replaced, cut}, ring
+[{seq, actionId, unit, fromDir, toDir, octants, durationMs, seat, shownMs,
+endedBy, dirsShown, poseShown, maxGapMs, endStamp}]} (both; written on the
+client) and the combat ring record's afterTurnSeq, waitMs, maxGapMs and
+startStamp; the host's `[coop-turn]` log line carries the turn payload.
+
+FIXTURE (the roster-pinned terror boot of test_client_shoot.py): set_seed
+SEED_ROSTER on the HOST right before its open_new_battle, mission
+STR_TERROR_MISSION, set_seed SEED_MAP right before newbattle_ok, seat_count 2,
+MAP_FP asserted on both, the seated ids asserted, pin_ai_neutral. Every test
+command sent to both machines goes to the CLIENT first. Item ids are read at
+run time from its replies. place() teleports only a unit that is not already
+on its tile.
+
+Without the projectile ghost every row but option_off FAILS (input_during_flight
+because no ghost exists to be live). With the projectile ghost but without the
+pre-action turn ev, host_turn_snap, throw_arc and launch_legs FAIL on "no `turn`
+ev in the action / no turnGhost record" and every other row PASSES; with the
+turn ev but without its display they pass every wire assertion and FAIL only on
+the display ones (endedBy, dirsShown, afterTurnSeq, poseShown); with the turn
+held before the same action's projectile, all nine PASS. Each row
+prints ONE "EVIDENCE <id>:" line (JSON) with both machines' fields BEFORE its
+pass conditions are checked; main() runs every row even after an earlier one
+failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
+bounded; a wait that times out is recorded in the EVIDENCE line and fails the
+row.
+
+one run is the result. No skip path, no second boot, no
+alternative map or actor. Exit 0 only when all nine rows pass, 2 otherwise (a
+bring-up failure is also 2). run in the foreground to completion.
+
+Run:  python tools/coop_test/test_ghost_projectile.py
+"""
+
+import json
+import math
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness import GameClient, make_user_dir
+import session
+from session import battle_state, event_state, pin_ai_neutral, assert_hash_clean
+from test_turn_baton import RHAND_NTH, click_nth
+from test_seat_pacing import tab_select, SDLK_HOME
+from test_delta_core import diff_buckets, desync_record, short, both
+from test_delta_items import items_by_id, tile_of
+from test_host_combat import bring_up_lobby_roster_pinned, evs_since, open_hand_menu_host
+from test_host_combat import sampled_list_fails
+from test_ai_origins import host_payloads
+from test_client_shoot import (top, units, ubrief, press, give_both, place, set_tu_both, set_firing_both,
+                                  wait_seat_dial, aim_click, await_press, RHAND_CENTRE, TU_MAX, KEY_SNAP, KEY_AUTO,
+                                  CURSOR_AIM)
+from test_client_grenade import (give_grenade, give_launcher, target_order, launch_order, KEY_THROW, CURSOR_THROW,
+                                    LAUNCH_W)
+
+# ----- bring-up (the roster-pinned terror boot of test_client_shoot.py) -----
+MISSION = "STR_TERROR_MISSION"
+SEED_MAP = 1
+MAP_FP = -3.451266327757785e+18   # host battle_state.mapFingerprint on SEED_MAP 1
+SEATED = [8, 9]                   # the client's seated units: C and C2
+C_ID, C2_ID = 8, 9
+H_ID = 10                         # first host-seat soldier
+A_ID = 1000000                    # Sectoid Soldier (plasma pistol in the right hand)
+PORT = "48718"
+COOP_SEAT_0, COOP_SEAT_1, SEAT_NONE = 0, 1, -1
+FACTION_PLAYER = 0
+HOST_FIRE_DIAL = 12               # host battleFireSpeed (seat 0)
+CLIENT_FIRE_DIAL = 4              # client battleFireSpeed (seat 1)
+FLOOR_FIRE = min(HOST_FIRE_DIAL, CLIENT_FIRE_DIAL)   # an unowned shooter flies at the slowest seat's dial
+TICK_MS = 16                      # vanilla ProjectileFlyBState setStateInterval(1000/60)
+
+# ----- the lane -----
+# Measured over 3 boots and a K=2 run, identical: every lane shot starts at origin voxel (207,424,18).
+LANE_TILE, LANE_DIR = (12, 26, 0), 2      # open road; faces east
+LANE_TARGET = (32, 26, 0)                 # empty road floor tile, 20 tiles east
+H_ASIDE, H_ASIDE_DIR = (14, 24, 0), 2     # off the lane and off throw_arc's throw column
+HOST_SNAP_SEED = 1                        # impact floor (527,425,1), host trajLen 322, speed 12
+CLIENT_SNAP_SEED = 1                      # impact floor (527,425,1), host trajLen 322, speed 4
+
+# ----- unowned_shot -----
+UNOWNED_A_TILE, UNOWNED_A_DIR = (18, 24, 0), 6  # 4 tiles east of H_ASIDE, facing it
+UNOWNED_A_TU = 60                         # A's TU (base and current) for the stand-in shot (snap cost 18)
+UNOWNED_H_HEALTH = 500                    # H survives the plasma shot
+UNOWNED_SEED = 1                          # a miss off the map: impact 5 at (-1,420,12), host trajLen 292, speed 4
+
+# ----- autoshot (test_client_shoot auto_three_shots) -----
+AUTOSHOT_SEED = 1                         # floors at (778,409,1) / (512,396,1) / (518,415,1), trajLen 573/307/313
+AUTOSHOT_SHOTS = 3
+
+# ----- throw_arc (test_client_grenade throw_end_turn staging, unprimed grenade) -----
+THROW_C_TILE, THROW_C_DIR = (12, 27, 0), 2  # faces east; the throw tile is due north
+THROW_TARGET = (12, 20, 0)
+THROW_MENU_ROWS = 2                       # an unprimed stock grenade: THROW + PRIME
+THROW_SEED = 2                            # lands on THROW_TARGET (fuse -1, owner -1), host trajLen 105
+
+# ----- option_off / input_during_flight -----
+OPTION_OFF_SEED = 1                       # impact floor (530,425,1), host trajLen 325
+INPUT_FLIGHT_SEED = 1                     # impact floor (530,425,1), host trajLen 325 at dial 1 (5200 ms)
+INPUT_FLIGHT_FIRE_DIAL = 1
+INPUT_FLIGHT_LIVE_WAIT_S = 1.0            # how long the client gets to show the ghost live after the apply
+INPUT_FLIGHT_MIN_STEPS = 2                # measured: TAB + right-hand box -> ActionMenuState 0.74 s, solo and K=2
+
+# ----- launch_legs (test_client_grenade launcher_dive staging) -----
+LAUNCH_C_TILE, LAUNCH_C_DIR = (28, 25, 0), 6  # faces west, away from the waypoints
+LAUNCH_WAYPOINT = LAUNCH_W                # (46, 25, 0): both waypoints (vanilla's dive; launch_order clicks it)
+LAUNCH_SEED = 1                           # legs trajLen 287 / 12; the blast changes 285 census tiles (unmodded)
+LAUNCH_LEGS = 2
+
+# ----- the pre-action turn (the watching machine animates it, one octant per tick, before the projectile) -----
+TURN_SNAP_H_DIR = 0                       # H via H_ASIDE, then LANE_TILE facing north
+TURN_SNAP_TO_DIR = 2                      # LANE_TARGET lies due east
+TURN_SNAP_DIRS = [0, 1]                   # vanilla's octant path 0, 1, 2 minus the final facing
+# Measured over 3 boots and a K=2 run, identical: TURN_SNAP_SEED 1 - impact floor (527,425,1), host trajLen 322,
+# speed 12; H tu 58 -> 42 (the turn's 2 + the snap's 14); without the turn ev the host chain is
+# [shot, hit, bt_action_end].
+TURN_SNAP_SEED = 1
+TURN_SNAP_CHAIN = ["turn", "shot", "hit", "bt_action_end"]   # that chain with the leading turn
+THROW_TURN = (THROW_C_DIR, 0, [2, 1])     # (fromDir, toDir, dirsShown): C 2 -> 0, two octants
+LAUNCH_TURN = (LAUNCH_C_DIR, 2, [6, 7, 0, 1])  # C 6 -> 2, four octants (the tie turns clockwise)
+# Measured: the client's advance() gap (combat record maxGapMs) during the host_turn_snap / throw_arc / launch_legs
+# shots was 2-4 ms solo and 3 ms at K=2; 30 >= 3 x 3, so both seats keep the default xcom dial (battleXcomSpeed 30,
+# no test hook).
+TURN_PACE_MS = 30
+STATUS_TURNING = 3                        # UnitStatus (Unit.h): the turn ghost is drawn turning
+
+# ----- UI -----
+SDLK_ESCAPE = 27
+POLL_S = 0.05
+
+DISPLAY_TYPES = ("STR_RIFLE", "STR_RIFLE_CLIP", "STR_PLASMA_PISTOL", "STR_PLASMA_PISTOL_CLIP", "STR_GRENADE",
+                 "STR_BLASTER_LAUNCHER", "STR_BLASTER_BOMB")
+CUE_KINDS = ("shot", "hit", "explosion")
+PROBE_KEYS = ("combatGhost", "derivedPaths", "rngSeed", "shotTrajectories", "cueCounts", "lastSeqEmitted",
+              "lastSeqApplied", "queueDepth", "desyncSeen", "coopClientBStatePushes", "coopLocalExecBlocked",
+              "coopIntentsSent", "inFlight", "busyOwnerSeat", "turnGhost", "speed")
+
+
+# ===================== small probes =====================
+
+
+def probe(gc):
+    es = event_state(gc)
+    assert es.get("ok"), f"event_state failed on {gc.name}: {es}"
+    return {k: es.get(k) for k in PROBE_KEYS}
+
+
+def snap2(host, client):
+    return {"host": probe(host), "client": probe(client)}
+
+
+def rng_of(gc):
+    return event_state(gc).get("rngSeed")
+
+
+def cg_counts(cg):
+    """combatGhost without its ring."""
+    cg = cg or {}
+    return {k: cg.get(k) for k in ("enqueued", "completed", "cut", "joined", "live", "unresolved", "noMap")}
+
+
+def kind_of(d, kind):
+    return (d or {}).get(kind) or 0
+
+
+def cue_delta(before, after, kind):
+    return kind_of(after, kind) - kind_of(before, kind)
+
+
+def lane_units(gc, shooter):
+    """Live units other than `shooter` standing on the lane (LANE_TILE..LANE_TARGET)."""
+    y, z = LANE_TILE[1], LANE_TILE[2]
+    return [u["id"] for u in battle_state(gc)["units"] if not u.get("isOut") and u["id"] != shooter
+            and u.get("y") == y and u.get("z") == z and LANE_TILE[0] <= (u.get("x") or -1) <= LANE_TARGET[0]]
+
+
+def host_cancel_aim(host):
+    """while the host aims, a hand click only cancels the aim. One such
+    click when an earlier row left the host aiming. Returns [cursor before(, after)]."""
+    c0 = battle_state(host).get("cursorType")
+    if c0 != CURSOR_AIM:
+        return [c0]
+    click_nth(host, RHAND_NTH)
+    return [c0, battle_state(host).get("cursorType")]
+
+
+def wait_action_end(host, seq0, notes, timeout=60):
+    """The host emitted a bt_action_end after seq0 (the row's action ended)."""
+    try:
+        host.wait_for("the host's action ended (a bt_action_end after the row's first seq)",
+                      lambda: any(e["kind"] == "bt_action_end" for e in evs_since(host, seq0)) or None,
+                      timeout=timeout, interval=0.1)
+    except Exception as e:
+        notes.append(f"no bt_action_end: {short(e)}")
+
+
+def settle(host, client, notes):
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle: {short(e)}")
+
+
+def fire_sound(rules, weapon, ammo):
+    """The ammo's fire sound when it has one, else the weapon's."""
+    a = (rules.get(ammo) or {}).get("fireSound", -1)
+    return a if a != -1 else (rules.get(weapon) or {}).get("fireSound", -1)
+
+
+# ===================== record + checks =====================
+
+
+def collect(host, client, before, seq0, rng0):
+    """The row's end state: both machines' probes, the row's evs, the host's
+    shot payloads, the per-seq host trajectories, client ring records and
+    client re-derivations."""
+    after = snap2(host, client)
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    seqs = [e["seq"] for e in hev if e["kind"] == "shot"]
+    pl = host_payloads(host, seqs) if seqs else {}
+    shots = [(s, (pl.get(s) or {}).get("payload") or {}) for s in seqs]
+    traj = {r.get("seq"): r for r in (after["host"]["shotTrajectories"] or [])}
+    ring = {}
+    for r in ((after["client"]["combatGhost"] or {}).get("ring") or []):
+        ring.setdefault(r.get("seq"), []).append(r)
+    derived = {r.get("seq"): r for r in (after["client"]["derivedPaths"] or [])}
+    rec = {"before": before, "after": after, "seq0": seq0, "hev": hev, "cev": cev, "shots": shots, "traj": traj,
+           "ring": ring, "derived": derived, "rng": {"start": rng0, "staged": before["client"]["rngSeed"],
+                                                     "end": after["client"]["rngSeed"]},
+           "hostRng": (before["host"]["rngSeed"], after["host"]["rngSeed"]), "diff": diff_buckets(host, client)}
+    rec["dsc"] = desync_record(client, after["client"]["desyncSeen"])
+    return rec
+
+
+def shot_view(rec):
+    """Per host shot: payload brief, the host's trajectory probe, the client's
+    re-derivation and the client's ring record(s)."""
+    out = []
+    for s, p in rec["shots"]:
+        out.append({"seq": s, "payload": {k: p.get(k) for k in ("actor", "action", "shotIndex", "waypointsLeft",
+                                                                  "originVoxel", "impactVoxel", "impact", "arc")},
+                    "hostTraj": rec["traj"].get(s), "derived": rec["derived"].get(s), "ring": rec["ring"].get(s)})
+    return out
+
+
+def evidence(row, rec, extra):
+    b, a = rec["before"], rec["after"]
+    ev = {"extra": extra,
+          "cueDelta": {n: {k: cue_delta(b[n]["cueCounts"], a[n]["cueCounts"], k) for k in CUE_KINDS}
+                       for n in ("host", "client")},
+          "clientCombatGhost": {"before": cg_counts(b["client"]["combatGhost"]),
+                                "after": cg_counts(a["client"]["combatGhost"])},
+          "hostCombatGhost": a["host"]["combatGhost"],
+          "shots": shot_view(rec), "rngClient": rec["rng"], "rngHost": rec["hostRng"],
+          "hostEvs": [(e["seq"], e["kind"], e["actionId"]) for e in rec["hev"]],
+          "clientEvs": [(e["seq"], e["kind"], e["actionId"]) for e in rec["cev"]],
+          "pushes": {"clientBefore": b["client"]["coopClientBStatePushes"],
+                     "clientAfter": a["client"]["coopClientBStatePushes"], "host": a["host"]["coopClientBStatePushes"]},
+          "desyncSeen": {"host": a["host"]["desyncSeen"], "client": a["client"]["desyncSeen"]}, "desync": rec["dsc"],
+          "diff": rec["diff"]}
+    print(f"EVIDENCE {row}: {json.dumps(ev, sort_keys=True, default=str)}", flush=True)
+
+
+def common_fails(host, client, rec, option_on, what):
+    """The checks common to every row (the delivery proof on option-ON rows only)."""
+    fails = []
+    try:
+        assert_hash_clean(host, client, full=True, what=what)
+    except AssertionError as e:
+        fails.append(f"hash_now full not clean: {short(e, 600)}")
+    b, a = rec["before"], rec["after"]
+    if a["host"]["desyncSeen"] or a["client"]["desyncSeen"]:
+        fails.append(f"desyncSeen host={a['host']['desyncSeen']} client={a['client']['desyncSeen']} "
+                     f"(want false on both; {rec['dsc']})")
+    if a["client"]["coopClientBStatePushes"] != b["client"]["coopClientBStatePushes"]:
+        fails.append(f"client coopClientBStatePushes {b['client']['coopClientBStatePushes']}->"
+                     f"{a['client']['coopClientBStatePushes']} (want unchanged)")
+    if a["host"]["coopClientBStatePushes"] != 0:
+        fails.append(f"host coopClientBStatePushes={a['host']['coopClientBStatePushes']} (want 0)")
+    if rec["rng"]["start"] is None or rec["rng"]["end"] != rec["rng"]["start"]:
+        fails.append(f"client rngSeed {rec['rng']} (want the row's start value at its end)")
+    hc = a["host"]["combatGhost"] or {}
+    hz = all(kind_of(hc.get(g), k) == 0 for g in ("enqueued", "completed", "cut") for k in CUE_KINDS) \
+        and all((hc.get(k) or 0) == 0 for k in ("joined", "live", "unresolved", "noMap")) and not hc.get("ring")
+    if not hc or not hz:
+        fails.append(f"host combatGhost {hc} (want all zero and no record: the host never ghosts)")
+    cc = a["client"]["combatGhost"] or {}
+    if not cc:
+        fails.append("client event_state has no combatGhost probe")
+    else:
+        if cc.get("live") != 0:
+            fails.append(f"client combatGhost.live={cc.get('live')} at the row's end (want 0)")
+        for k in CUE_KINDS:
+            e, c, u = kind_of(cc.get("enqueued"), k), kind_of(cc.get("completed"), k), kind_of(cc.get("cut"), k)
+            if c + u != e:
+                fails.append(f"client combatGhost {k}: completed {c} + cut {u} != enqueued {e}")
+    if option_on:
+        for s, _ in rec["shots"]:
+            rs = rec["ring"].get(s) or []
+            if len(rs) != 1 or rs[0].get("unresolved") or rs[0].get("noMap"):
+                fails.append(f"delivery: host shot seq {s} has {len(rs)} client ring record(s) {rs} (want exactly "
+                             f"one with unresolved/noMap false)")
+        de = cue_delta(b["client"]["combatGhost"].get("enqueued") if b["client"]["combatGhost"] else {},
+                       cc.get("enqueued"), "shot")
+        dc = cue_delta(b["client"]["cueCounts"], a["client"]["cueCounts"], "shot")
+        if de != dc:
+            fails.append(f"delivery: client combatGhost.enqueued.shot +{de} but cueCounts.shot +{dc} (want equal)")
+    return fails
+
+
+def shots_fails(rec, n, actor, action, what):
+    """The row's own shots (a row without them fails): exactly `n` host `shot` cues by
+    `actor` with payload action `action`."""
+    got = [(s, p.get("actor"), p.get("action")) for s, p in rec["shots"]]
+    if len(got) != n or any(g[1] != actor or g[2] != action for g in got):
+        return [f"precondition: the row's host `shot` cues {got} (want exactly {n} by unit {actor} with action "
+                f"{action}; {what})"]
+    return []
+
+
+def record_fails(rec, seq, payload, speed, seat, arc=False):
+    """One shot's projectile ghost record: speed, seat, trajLen ==
+    the host's, pathMatches, arc, ticks and ms per the formula."""
+    rs = rec["ring"].get(seq) or []
+    if len(rs) != 1:
+        return [f"shot seq {seq}: {len(rs)} client ring record(s) (want exactly 1)"]
+    r, ht = rs[0], rec["traj"].get(seq)
+    fails = []
+    if ht is None:
+        fails.append(f"shot seq {seq}: no host shotTrajectories entry (host ring {list(rec['traj'])})")
+    elif ht.get("speed") != speed:
+        fails.append(f"shot seq {seq}: host shotTrajectories speed {ht.get('speed')} (want {speed})")
+    want = {"kind": "shot", "unit": payload.get("actor"), "speed": speed, "seat": seat, "pathMatches": True,
+            "arc": arc}
+    got = {k: r.get(k) for k in want}
+    if got != want:
+        fails.append(f"shot seq {seq}: record {got} (want {want})")
+    n = r.get("trajLen")
+    if ht is not None and n != ht.get("trajLen"):
+        fails.append(f"shot seq {seq}: record trajLen {n} (want the host's {ht.get('trajLen')})")
+    if isinstance(n, int) and n > 0:
+        ticks = int(math.ceil(n / float(speed)))
+        if r.get("ticks") != ticks or r.get("ms") != ticks * TICK_MS:
+            fails.append(f"shot seq {seq}: record ticks {r.get('ticks')} ms {r.get('ms')} (want ceil({n}/{speed}) = "
+                         f"{ticks} ticks, {ticks * TICK_MS} ms)")
+    else:
+        fails.append(f"shot seq {seq}: record trajLen {n} (want a positive length)")
+    return fails
+
+
+def staged_tu(host, client, uid):
+    """The shooter's tu on both machines after its staging (the `tuAfter` baseline)."""
+    return {"host": (units(host).get(uid) or {}).get("tu"), "client": (units(client).get(uid) or {}).get("tu")}
+
+
+def turn_view(host, rec, seat):
+    """The pre-action turn: the row's action (the actionId of its first host `shot`), its host and client evs, the
+    host's `[coop-turn]` payload of a leading `turn`, the client's turnGhost records for the action, the combat ring
+    records of the action's shots and both machines' xcom dial for `seat`."""
+    firsts = [e for e in rec["hev"] if e["kind"] == "shot"]
+    aid = firsts[0]["actionId"] if firsts else None
+    hc = [e for e in rec["hev"] if e["actionId"] == aid] if aid is not None else []
+    turn_seq = hc[0]["seq"] if hc and hc[0]["kind"] == "turn" else None
+    tp = ((host_payloads(host, [turn_seq]).get(turn_seq) or {}).get("payload") or {}) if turn_seq else None
+    tg = rec["after"]["client"]["turnGhost"] or {}
+    trec = [r for r in (tg.get("ring") or []) if aid is not None and (r.get("seq") == turn_seq
+                                                                        or r.get("actionId") == aid)]
+    shot_recs = [((rec["ring"].get(e["seq"]) or [None])[0]) for e in hc if e["kind"] == "shot"]
+    pace = {}
+    for n in ("host", "client"):
+        ent = [s for s in ((rec["after"][n]["speed"] or {}).get("seats") or []) if s.get("seat") == seat]
+        pace[n] = ent[0].get("xcom") if ent else None
+    return {"actionId": aid, "hostChain": [(e["seq"], e["kind"]) for e in hc],
+            "clientChain": [(e["seq"], e["kind"], e["actionId"]) for e in rec["cev"] if e["actionId"] == aid],
+            "turnSeq": turn_seq, "turnPayload": tp, "turnRecords": trec,
+            "turnCounts": {n: (rec["after"][n]["turnGhost"] or {}).get("counts") for n in ("host", "client")},
+            "shotRecords": [{k: (r or {}).get(k) for k in ("seq", "afterTurnSeq", "waitMs", "maxGapMs", "startStamp",
+                                                           "ms", "steps", "cut")} for r in shot_recs],
+            "pace": pace}
+
+
+def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
+    """The pre-action turn: the row's action opens with
+    the pre-action `turn` ev and the watching machine animates it before the projectile."""
+    fails = []
+    aid, kinds = tv["actionId"], [k for _, k in tv["hostChain"]]
+    octants = len(dirs)
+    if aid is None:
+        return [f"turn: the row has no host `shot` ev since seq {rec['seq0']} (want the row's action)"]
+    want = chain if chain is not None else ["turn", "shot"]
+    got = kinds if chain is not None else kinds[:2]
+    if tv["turnSeq"] is None:
+        fails.append(f"no `turn` ev in the action: host evs of actionId {aid} = {kinds} (want a leading `turn`: "
+                     f"{'exactly ' if chain is not None else 'starting '}{want})")
+        if not tv["turnRecords"]:
+            fails.append(f"no `turnGhost` record for actionId {aid} on the client (turnGhost counts "
+                         f"{tv['turnCounts']['client']})")
+        return fails
+    if got != want:
+        fails.append(f"host evs of actionId {aid} = {kinds} (want {'exactly ' if chain is not None else 'starting '}"
+                     f"{want})")
+    tp = tv["turnPayload"] or {}
+    tu_host = tu0.get("host")
+    want_p = {"unit": actor, "fromDir": from_dir, "toDir": to_dir, "turretOnly": False,
+              "tuAfter": (tu_host - octants) if isinstance(tu_host, int) else None}
+    got_p = {k: tp.get(k) for k in want_p}
+    if got_p != want_p or tu0.get("client") != tu_host:
+        fails.append(f"turn seq {tv['turnSeq']}: host [coop-turn] payload {got_p} (want {want_p}; staged tu {tu0})")
+    hmap = [(s, k, aid) for s, k in tv["hostChain"]]
+    if tv["clientChain"] != hmap:
+        fails.append(f"client event_log for actionId {aid} = {tv['clientChain']} (want the host's {hmap})")
+    if tv["pace"] != {"host": TURN_PACE_MS, "client": TURN_PACE_MS}:
+        fails.append(f"seat {seat} xcom dial {tv['pace']} (want {TURN_PACE_MS} on both: the turn ghost's pace)")
+    trs = [r for r in tv["turnRecords"] if r.get("seq") == tv["turnSeq"]]
+    if len(trs) != 1:
+        fails.append(f"turn seq {tv['turnSeq']}: {len(trs)} client turnGhost record(s) {tv['turnRecords']} (want "
+                     f"exactly 1)")
+        return fails
+    tr = trs[0]
+    want_r = {"actionId": aid, "unit": actor, "fromDir": from_dir, "toDir": to_dir, "octants": octants,
+              "durationMs": octants * TURN_PACE_MS, "seat": seat, "endedBy": "natural", "dirsShown": dirs,
+              "poseShown": STATUS_TURNING}
+    got_r = {k: tr.get(k) for k in want_r}
+    # dirsShown is a per-advance sample of the turn (each octant TURN_PACE_MS from its apply):
+    # the full path, or whole octants left out across a client frame stall (sampled_list_fails)
+    fails += [f"turn seq {tv['turnSeq']}: {m}" for m in sampled_list_fails(
+        "client turnGhost record dirsShown", got_r.pop("dirsShown"), want_r.pop("dirsShown"),
+        [TURN_PACE_MS] * len(dirs), tr.get("maxGapMs"))]
+    if got_r != want_r:
+        fails.append(f"turn seq {tv['turnSeq']}: client turnGhost record {got_r} (want {want_r})")
+    srs = tv["shotRecords"]
+    if not srs or srs[0].get("seq") is None:
+        fails.append(f"actionId {aid}: no client ring record for its first shot {srs}")
+    else:
+        if srs[0].get("afterTurnSeq") != tv["turnSeq"]:
+            fails.append(f"shot seq {srs[0].get('seq')}: record afterTurnSeq {srs[0].get('afterTurnSeq')} (want the "
+                         f"turn's seq {tv['turnSeq']})")
+        es, ss = tr.get("endStamp") or 0, srs[0].get("startStamp") or 0
+        if not (ss > es > 0):
+            fails.append(f"shot seq {srs[0].get('seq')}: record startStamp {ss} vs the turn record's endStamp {es} "
+                         f"(want startStamp > endStamp > 0: the projectile starts after the turn ended)")
+        for r in srs[1:]:
+            if r.get("afterTurnSeq") != 0:
+                fails.append(f"shot seq {r.get('seq')}: record afterTurnSeq {r.get('afterTurnSeq')} (want 0: only "
+                             f"the action's first shot waits on its turn)")
+    return fails
+
+
+def finish(fails):
+    if fails:
+        raise AssertionError("; ".join(fails))
+
+
+# ===================== rows =====================
+
+
+def host_ui_snap(host, pv, target, seed):
+    """The host's real-UI snap: TAB-select H and open its right-hand menu, key 50, HOME, one verified
+    click on `target` with the host's set_seed `seed` right before it. Fills `pv` as it goes; raises on a failed
+    step."""
+    pv["cursor"] = open_hand_menu_host(host)
+    press(host, KEY_SNAP)
+    host.wait_for("host BattlescapeState on top after SNAP", lambda: top(host) == "BattlescapeState" or None,
+                  timeout=5)
+    press(host, SDLK_HOME)
+    time.sleep(0.15)
+    pr = host.cmd({"cmd": "map_tile_click_pos", "x": target[0], "y": target[1], "z": target[2]})
+    pv["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY")}
+    assert pr.get("verified"), f"map_tile_click_pos did not verify {target} on the host: {pr}"
+    host.ok({"cmd": "set_seed", "seed": seed})
+    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+
+
+def row_host_snap(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    rifle, clip = give_both(host, client, H_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
+    ph = place(host, client, H_ID, LANE_TILE, LANE_DIR)
+    set_tu_both(host, client, H_ID, TU_MAX)
+    set_firing_both(host, client, H_ID)
+    lane = {"host": lane_units(host, H_ID), "client": lane_units(client, H_ID)}
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv = {}
+    try:
+        host_ui_snap(host, pv, LANE_TARGET, HOST_SNAP_SEED)
+    except Exception as e:
+        notes.append(f"host real-UI snap: {short(e)}")
+    wait_action_end(host, seq0, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    evidence("host_snap", rec, {"rifle": rifle, "clip": clip, "H": ph, "laneOthers": lane, "stagedDiff": staged,
+                                "press": pv, "H_after": {"host": ubrief(units(host).get(H_ID)),
+                                                         "client": ubrief(units(client).get(H_ID))}, "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if lane["host"] or lane["client"]:
+        fails.append(f"precondition: units on the lane besides H: {lane} (want none)")
+    fails += shots_fails(rec, 1, H_ID, "snap", "H's real-UI snap")
+    fails += common_fails(host, client, rec, True, "host_snap")
+    for s, p in rec["shots"][:1]:
+        fails += record_fails(rec, s, p, HOST_FIRE_DIAL, COOP_SEAT_0)
+        r = (rec["ring"].get(s) or [{}])[0]
+        want = fire_sound(ctx["rules"], "STR_RIFLE", "STR_RIFLE_CLIP")
+        if r.get("sound") != want:
+            fails.append(f"shot seq {s}: record sound {r.get('sound')} (want {want}: the clip's fire sound, else the "
+                         f"rifle's)")
+    finish(fails)
+
+
+def row_host_turn_snap(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    rifle, clip = give_both(host, client, H_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
+    pa = place(host, client, H_ID, H_ASIDE, H_ASIDE_DIR)   # off LANE_TILE first (a unit on its tile keeps its facing)
+    ph = place(host, client, H_ID, LANE_TILE, TURN_SNAP_H_DIR)
+    set_tu_both(host, client, H_ID, TU_MAX)
+    set_firing_both(host, client, H_ID)
+    tu0 = staged_tu(host, client, H_ID)
+    lane = {"host": lane_units(host, H_ID), "client": lane_units(client, H_ID)}
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv = {}
+    try:
+        host_ui_snap(host, pv, LANE_TARGET, TURN_SNAP_SEED)
+    except Exception as e:
+        notes.append(f"host real-UI snap: {short(e)}")
+    wait_action_end(host, seq0, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    tv = turn_view(host, rec, COOP_SEAT_0)
+    evidence("host_turn_snap", rec, {"rifle": rifle, "clip": clip, "H_aside": pa, "H": ph, "tuStaged": tu0,
+                                     "laneOthers": lane, "stagedDiff": staged, "press": pv, "turn": tv,
+                                     "H_after": {"host": ubrief(units(host).get(H_ID)),
+                                                 "client": ubrief(units(client).get(H_ID))},
+                                     "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if lane["host"] or lane["client"]:
+        fails.append(f"precondition: units on the lane besides H: {lane} (want none)")
+    if (ph.get("teleported"), ph.get("dir")) != (LANE_TILE, TURN_SNAP_H_DIR):
+        fails.append(f"precondition: H's staging onto the lane {ph} (want teleported to {LANE_TILE} facing "
+                     f"{TURN_SNAP_H_DIR})")
+    fails += shots_fails(rec, 1, H_ID, "snap", "H's real-UI snap after its turn")
+    fails += common_fails(host, client, rec, True, "host_turn_snap")
+    for s, p in rec["shots"][:1]:
+        fails += record_fails(rec, s, p, HOST_FIRE_DIAL, COOP_SEAT_0)
+        r = (rec["ring"].get(s) or [{}])[0]
+        want = fire_sound(ctx["rules"], "STR_RIFLE", "STR_RIFLE_CLIP")
+        if r.get("sound") != want:
+            fails.append(f"shot seq {s}: record sound {r.get('sound')} (want {want}: the clip's fire sound, else the "
+                         f"rifle's)")
+    fails += turn_fails(rec, tv, H_ID, COOP_SEAT_0, TURN_SNAP_H_DIR, TURN_SNAP_TO_DIR, TURN_SNAP_DIRS, tu0,
+                        chain=TURN_SNAP_CHAIN)
+    finish(fails)
+
+
+def row_client_snap(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    ph = place(host, client, H_ID, H_ASIDE, H_ASIDE_DIR)
+    rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
+    pc = place(host, client, C_ID, LANE_TILE, LANE_DIR)
+    set_tu_both(host, client, C_ID, TU_MAX)
+    set_firing_both(host, client, C_ID)
+    lane = {"host": lane_units(host, C_ID), "client": lane_units(client, C_ID)}
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv, out = {}, {}
+    try:
+        pv = aim_click(client, KEY_SNAP, LANE_TARGET, lambda: host.ok({"cmd": "set_seed", "seed": CLIENT_SNAP_SEED}))
+    except Exception as e:
+        notes.append(f"client real-UI snap: {short(e)}")
+    out = await_press(host, client, before, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    evidence("client_snap", rec, {"rifle": rifle, "clip": clip, "H": ph, "C": pc, "laneOthers": lane,
+                                  "stagedDiff": staged, "press": pv, "outcome": out, "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if lane["host"] or lane["client"]:
+        fails.append(f"precondition: units on the lane besides C: {lane} (want none)")
+    fails += shots_fails(rec, 1, C_ID, "snap", "C's real-UI snap")
+    fails += common_fails(host, client, rec, True, "client_snap")
+    for s, p in rec["shots"][:1]:
+        fails += record_fails(rec, s, p, CLIENT_FIRE_DIAL, COOP_SEAT_1)
+    finish(fails)
+
+
+def row_unowned_shot(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    pa = place(host, client, A_ID, UNOWNED_A_TILE, UNOWNED_A_DIR)
+    # pin_ai_neutral zeroed A's BASE TU, and battle_fire's <tu> clamps to it: A gets UNOWNED_A_TU back (base and
+    # current, both machines) so vanilla's haveTU admits the shot.
+    atu = both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu",
+                              "value": UNOWNED_A_TU, "refill": True}, ("tu",)).get("tu")
+    hh = both(host, client, {"cmd": "battle_set_unit_state", "unit": H_ID, "health": UNOWNED_H_HEALTH}, ("health",))
+    sel = {"tab": tab_select(host, H_ID), "aimCancel": host_cancel_aim(host)}
+    sel["selectedId"] = battle_state(host).get("selectedId")
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    rf = {}
+    try:
+        host.ok({"cmd": "set_seed", "seed": UNOWNED_SEED})
+        rf = host.cmd({"cmd": "battle_fire", "unit": A_ID, "mode": "snap", "target": H_ID, "tu": TU_MAX,
+                       "keepSelection": True})
+        assert rf.get("ok"), f"battle_fire A answered {rf}"
+    except Exception as e:
+        notes.append(f"battle_fire A: {short(e)}")
+    wait_action_end(host, seq0, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    uh, uc = units(host), units(client)
+    evidence("unowned_shot", rec, {"A": pa, "A_tu": atu, "H_health": hh.get("health"), "selection": sel, "fire": rf,
+                                   "selectedAfter": battle_state(host).get("selectedId"),
+                                   "H_after": {"host": ubrief(uh.get(H_ID)), "client": ubrief(uc.get(H_ID))},
+                                   "A_after": {"host": ubrief(uh.get(A_ID)), "client": ubrief(uc.get(A_ID))},
+                                   "stagedDiff": staged, "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if sel["selectedId"] != H_ID:
+        fails.append(f"precondition: the host's selected unit {sel['selectedId']} (want H {H_ID})")
+    fails += shots_fails(rec, 1, A_ID, "snap", "A's stand-in shot at the selected H")
+    fails += common_fails(host, client, rec, True, "unowned_shot")
+    for s, p in rec["shots"][:1]:
+        fails += record_fails(rec, s, p, FLOOR_FIRE, SEAT_NONE)
+    finish(fails)
+
+
+def row_autoshot(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
+    pc = place(host, client, C_ID, LANE_TILE, LANE_DIR)
+    set_tu_both(host, client, C_ID, TU_MAX)
+    set_firing_both(host, client, C_ID)
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv, out = {}, {}
+    try:
+        pv = aim_click(client, KEY_AUTO, LANE_TARGET, lambda: host.ok({"cmd": "set_seed", "seed": AUTOSHOT_SEED}))
+    except Exception as e:
+        notes.append(f"client real-UI autoshot: {short(e)}")
+    out = await_press(host, client, before, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    evidence("autoshot", rec, {"rifle": rifle, "clip": clip, "C": pc, "stagedDiff": staged, "press": pv, "outcome": out,
+                               "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    fails += shots_fails(rec, AUTOSHOT_SHOTS, C_ID, "auto", "C's real-UI autoshot")
+    idx = [p.get("shotIndex") for _, p in rec["shots"]]
+    if idx != list(range(1, AUTOSHOT_SHOTS + 1)):
+        fails.append(f"precondition: shotIndex in seq order {idx} (want {list(range(1, AUTOSHOT_SHOTS + 1))})")
+    fails += common_fails(host, client, rec, True, "autoshot")
+    for s, p in rec["shots"]:
+        fails += record_fails(rec, s, p, CLIENT_FIRE_DIAL, COOP_SEAT_1)
+    finish(fails)
+
+
+def row_throw_arc(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    gid = give_grenade(host, client, primed=False)
+    pc = place(host, client, C_ID, THROW_C_TILE, THROW_C_DIR)
+    set_tu_both(host, client, C_ID, TU_MAX)
+    tu0 = staged_tu(host, client, C_ID)
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv, out = {}, {}
+    try:
+        target_order(client, pv, KEY_THROW, CURSOR_THROW, THROW_TARGET,
+                     lambda: host.ok({"cmd": "set_seed", "seed": THROW_SEED}))
+    except Exception as e:
+        notes.append(f"client real-UI throw: {short(e)}")
+    out = await_press(host, client, before, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    items = {n: {"owner": (it or {}).get("owner"), "tile": tile_of(it), "fuse": (it or {}).get("fuse")}
+             for n, it in (("host", items_by_id(host).get(gid)), ("client", items_by_id(client).get(gid)))}
+    tv = turn_view(host, rec, COOP_SEAT_1)
+    evidence("throw_arc", rec, {"grenade": gid, "C": pc, "tuStaged": tu0, "stagedDiff": staged, "press": pv,
+                                "outcome": out, "grenadeAfter": items, "turn": tv, "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if pv.get("rows") != THROW_MENU_ROWS:
+        fails.append(f"precondition: client menu rows {pv.get('rows')} (want {THROW_MENU_ROWS})")
+    fails += shots_fails(rec, 1, C_ID, "throw", "C's real-UI throw")
+    if rec["shots"] and not isinstance(rec["shots"][0][1].get("arc"), dict):
+        fails.append(f"precondition: the throw's payload carries no arc {rec['shots'][0][1]}")
+    fails += common_fails(host, client, rec, True, "throw_arc")
+    k = ctx["constants"]
+    for s, p in rec["shots"][:1]:
+        fails += record_fails(rec, s, p, CLIENT_FIRE_DIAL, COOP_SEAT_1, arc=True)
+        r = (rec["ring"].get(s) or [{}])[0]
+        if r.get("sound") != k.get("ITEM_THROW") or r.get("soundEnd") != k.get("ITEM_DROP"):
+            fails.append(f"shot seq {s}: record sound {r.get('sound')} soundEnd {r.get('soundEnd')} (want ITEM_THROW "
+                         f"{k.get('ITEM_THROW')}, ITEM_DROP {k.get('ITEM_DROP')})")
+    fails += turn_fails(rec, tv, C_ID, COOP_SEAT_1, THROW_TURN[0], THROW_TURN[1], THROW_TURN[2], tu0)
+    finish(fails)
+
+
+def row_option_off(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    off = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": False}).get("value")
+    ph = place(host, client, H_ID, LANE_TILE, LANE_DIR)
+    set_tu_both(host, client, H_ID, TU_MAX)
+    lane = {"host": lane_units(host, H_ID), "client": lane_units(client, H_ID)}
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    rf = {}
+    try:
+        host.ok({"cmd": "set_seed", "seed": OPTION_OFF_SEED})
+        rf = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "snap", "x": LANE_TARGET[0], "y": LANE_TARGET[1],
+                       "z": LANE_TARGET[2], "tu": TU_MAX})
+        assert rf.get("ok"), f"battle_fire H answered {rf}"
+    except Exception as e:
+        notes.append(f"battle_fire H: {short(e)}")
+    wait_action_end(host, seq0, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    on = client.ok({"cmd": "set_option", "name": "coopGhostStepper", "value": True}).get("value")
+    evidence("option_off", rec, {"optionOff": off, "optionBackOn": on, "H": ph, "laneOthers": lane, "fire": rf,
+                                 "stagedDiff": staged, "notes": notes})
+    fails = list(notes)
+    if off is not False or on is not True:
+        fails.append(f"client coopGhostStepper set_option answered off={off} on={on} (want False then True)")
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if lane["host"] or lane["client"]:
+        fails.append(f"precondition: units on the lane besides H: {lane} (want none)")
+    fails += shots_fails(rec, 1, H_ID, "snap", "H's stand-in snap")
+    b, a = rec["before"]["client"], rec["after"]["client"]
+    dc = cue_delta(b["cueCounts"], a["cueCounts"], "shot")
+    de = cue_delta((b["combatGhost"] or {}).get("enqueued"), (a["combatGhost"] or {}).get("enqueued"), "shot")
+    if dc != 1 or de != 0:
+        fails.append(f"client cueCounts.shot +{dc} combatGhost.enqueued.shot +{de} while the option is off (want +1 "
+                     f"and +0)")
+    fails += common_fails(host, client, rec, False, "option_off")
+    finish(fails)
+
+
+def row_input_during_flight(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": INPUT_FLIGHT_FIRE_DIAL})
+    dial = wait_seat_dial(host, client, COOP_SEAT_0, "fire", INPUT_FLIGHT_FIRE_DIAL)
+    ph = place(host, client, H_ID, LANE_TILE, LANE_DIR)
+    set_tu_both(host, client, H_ID, TU_MAX)
+    rifle, clip = give_both(host, client, C_ID, "STR_RIFLE", "STR_RIFLE_CLIP")
+    sel0 = {"tabC2": tab_select(client, C2_ID), "selectedId": battle_state(client).get("selectedId"),
+            "cursor": battle_state(client).get("cursorType")}
+    lane = {"host": lane_units(host, H_ID), "client": lane_units(client, H_ID)}
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    shot0 = kind_of(before["client"]["cueCounts"], "shot")
+    tl, mid, rf = {}, {"liveSeen": None, "liveAtMenu": None, "menu": None, "selectedAtMenu": None}, {}
+    try:
+        host.ok({"cmd": "set_seed", "seed": INPUT_FLIGHT_SEED})
+        t0 = time.time()
+        rf = host.cmd({"cmd": "battle_fire", "unit": H_ID, "mode": "snap", "x": LANE_TARGET[0], "y": LANE_TARGET[1],
+                       "z": LANE_TARGET[2], "tu": TU_MAX})
+        assert rf.get("ok"), f"battle_fire H answered {rf}"
+        client.wait_for("client applied the host's shot",
+                        lambda: kind_of(event_state(client).get("cueCounts"), "shot") > shot0 or None,
+                        timeout=20, interval=POLL_S)
+        t_shot = time.time()
+        tl["shotApplied"] = round(t_shot - t0, 3)
+        t1 = time.time()
+        while time.time() - t1 < INPUT_FLIGHT_LIVE_WAIT_S:
+            live = (event_state(client).get("combatGhost") or {}).get("live")
+            if live == 1:
+                mid["liveSeen"] = round(time.time() - t_shot, 3)
+                break
+            time.sleep(POLL_S)
+        tl["liveWaitEnd"] = round(time.time() - t0, 3)
+        mid["tab"] = tab_select(client, C_ID)
+        r = click_nth(client, RHAND_NTH)
+        mid["rhandClick"] = (r.get("baseX"), r.get("baseY"))
+        assert mid["rhandClick"] == RHAND_CENTRE, f"right-hand click landed off the box: {r}"
+        client.wait_for("client ActionMenuState on top", lambda: top(client) == "ActionMenuState" or None,
+                        timeout=5, interval=POLL_S)
+        t_menu = time.time()
+        mid["menu"] = True
+        mid["latencyS"] = round(t_menu - t_shot, 3)
+        mid["liveAtMenu"] = (event_state(client).get("combatGhost") or {}).get("live")
+        mid["selectedAtMenu"] = battle_state(client).get("selectedId")
+        tl["menu"] = round(t_menu - t0, 3)
+    except Exception as e:
+        notes.append(f"input_during_flight drive: {short(e)}")
+    try:
+        if top(client) == "ActionMenuState":
+            press(client, SDLK_ESCAPE)
+            client.wait_for("client back on BattlescapeState", lambda: top(client) == "BattlescapeState" or None,
+                            timeout=5)
+    except Exception as e:
+        notes.append(f"closing the action menu: {short(e)}")
+    wait_action_end(host, seq0, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": HOST_FIRE_DIAL})
+    dial_back = wait_seat_dial(host, client, COOP_SEAT_0, "fire", HOST_FIRE_DIAL)
+    evidence("input_during_flight", rec, {"dial": dial, "dialBack": dial_back, "H": ph, "rifle": rifle,
+                                          "clip": clip, "selection0": sel0, "laneOthers": lane, "fire": rf,
+                                          "timeline": tl, "mid": mid, "stagedDiff": staged, "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    if sel0["selectedId"] != C2_ID:
+        fails.append(f"precondition: the client's selected unit before the shot {sel0['selectedId']} (want C2 "
+                     f"{C2_ID}: the press needs a TAB)")
+    fails += shots_fails(rec, 1, H_ID, "snap", "H's stand-in snap at dial 1")
+    fails += common_fails(host, client, rec, True, "input_during_flight")
+    if mid["liveSeen"] is None:
+        fails.append(f"client combatGhost.live never 1 within {INPUT_FLIGHT_LIVE_WAIT_S} s of the shot's apply "
+                     f"(want the ghost live)")
+    if not mid["menu"] or mid["liveAtMenu"] != 1 or mid["selectedAtMenu"] != C_ID:
+        fails.append(f"client ActionMenuState {mid['menu']} with combatGhost.live {mid['liveAtMenu']} and the "
+                     f"selection {mid['selectedAtMenu']} (want the menu open for C while the ghost is live)")
+    for s, p in rec["shots"][:1]:
+        fails += record_fails(rec, s, p, INPUT_FLIGHT_FIRE_DIAL, COOP_SEAT_0)
+        r = (rec["ring"].get(s) or [{}])[0]
+        if (r.get("steps") or 0) < INPUT_FLIGHT_MIN_STEPS:
+            fails.append(f"shot seq {s}: record steps {r.get('steps')} (want >= {INPUT_FLIGHT_MIN_STEPS}: the flight "
+                         f"animated)")
+    finish(fails)
+
+
+def row_launch_legs(host, client, ctx):
+    notes = []
+    rng0 = rng_of(client)
+    launcher, bomb = give_launcher(host, client)
+    pc = place(host, client, C_ID, LAUNCH_C_TILE, LAUNCH_C_DIR)
+    set_tu_both(host, client, C_ID, TU_MAX)
+    tu0 = staged_tu(host, client, C_ID)
+    staged = diff_buckets(host, client)
+    before = snap2(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    pv, out = {}, {}
+    try:
+        launch_order(client, pv, lambda: host.ok({"cmd": "set_seed", "seed": LAUNCH_SEED}))
+    except Exception as e:
+        notes.append(f"client real-UI launch: {short(e)}")
+    out = await_press(host, client, before, notes)
+    settle(host, client, notes)
+    rec = collect(host, client, before, seq0, rng0)
+    tv = turn_view(host, rec, COOP_SEAT_1)
+    evidence("launch_legs", rec, {"launcher": launcher, "bomb": bomb, "C": pc, "tuStaged": tu0, "stagedDiff": staged,
+                                  "press": pv, "outcome": out, "turn": tv, "notes": notes})
+    fails = list(notes)
+    if staged:
+        fails.append(f"buckets differ after the staging: {staged} (want none)")
+    fails += shots_fails(rec, LAUNCH_LEGS, C_ID, "launch", "C's real-UI launch, two legs")
+    fails += common_fails(host, client, rec, True, "launch_legs")
+    for s, p in rec["shots"]:
+        fails += record_fails(rec, s, p, CLIENT_FIRE_DIAL, COOP_SEAT_1)
+    fails += turn_fails(rec, tv, C_ID, COOP_SEAT_1, LAUNCH_TURN[0], LAUNCH_TURN[1], LAUNCH_TURN[2], tu0)
+    finish(fails)
+
+
+SCENARIOS = (("host_snap", row_host_snap), ("host_turn_snap", row_host_turn_snap), ("client_snap", row_client_snap),
+             ("unowned_shot", row_unowned_shot), ("autoshot", row_autoshot), ("throw_arc", row_throw_arc),
+             ("option_off", row_option_off), ("input_during_flight", row_input_during_flight),
+             ("launch_legs", row_launch_legs))
+
+
+# ===================== bring-up =====================
+
+
+def boot(host, client):
+    bring_up_lobby_roster_pinned(host, client, PORT)
+    seated = {}
+    session.drive_to_battlescape(host, client, seated, mission=MISSION, seat_count=2,
+                                 pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": SEED_MAP}))
+    hs, cs = battle_state(host), battle_state(client)
+    assert hs.get("mapFingerprint") == MAP_FP and cs.get("mapFingerprint") == MAP_FP, (
+        f"mapFingerprint host={hs.get('mapFingerprint')!r} client={cs.get('mapFingerprint')!r}, "
+        f"baked MAP_FP={MAP_FP!r} ({MISSION}, SEED_MAP {SEED_MAP})")
+    pinned = pin_ai_neutral(host, client, tag="ghost_projectile")
+    assert pinned, "pin_ai_neutral pinned no NONE-seat non-player unit"
+    sid_to_uid = {u.get("soldierId"): u["id"] for u in hs["units"] if u.get("soldierId") is not None}
+    seated_uids = [sid_to_uid.get(s) for s in seated.get("soldierIds", [])]
+    assert seated_uids == SEATED, f"seated client units {seated_uids} (baked {SEATED})"
+    h_ids = sorted(u["id"] for u in hs["units"] if u.get("coop") == COOP_SEAT_0
+                   and u.get("faction") == FACTION_PLAYER and not u.get("isOut"))
+    assert h_ids and h_ids[0] == H_ID, f"first host-seat soldier {h_ids[:1]} (baked H={H_ID})"
+    opts = {gc.name: gc.ok({"cmd": "set_option", "name": "coopGhostStepper"}).get("value") for gc in (host, client)}
+    assert opts == {"host": True, "client": True}, f"coopGhostStepper at boot {opts} (want True on both: pinned)"
+    client.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": CLIENT_FIRE_DIAL})
+    host.ok({"cmd": "set_option", "name": "battleFireSpeed", "value": HOST_FIRE_DIAL})
+    d1 = wait_seat_dial(host, client, COOP_SEAT_1, "fire", CLIENT_FIRE_DIAL)
+    d0 = wait_seat_dial(host, client, COOP_SEAT_0, "fire", HOST_FIRE_DIAL)
+    for gc in (host, client):
+        es = event_state(gc)
+        assert all(k in es for k in ("combatGhost", "derivedPaths", "rngSeed", "shotTrajectories")), (
+            f"{gc.name} event_state lacks the projectile ghost probes: "
+            f"{[k for k in ('combatGhost', 'derivedPaths', 'rngSeed', 'shotTrajectories') if k not in es]}")
+        assert "turnGhost" in es, f"{gc.name} event_state lacks the turn ghost probe turnGhost"
+    dr = client.ok({"cmd": "display_rules", "types": list(DISPLAY_TYPES)})
+    missing = [t for t in DISPLAY_TYPES if not (dr.get("items") or {}).get(t)]
+    assert not missing, f"display_rules knows no {missing}: {dr}"
+    session.wait_host_idle(host, client, timeout=30)
+    assert_hash_clean(host, client, full=True, what="bring-up")
+    ub = session.units_by_id(hs)
+    print(f"[ghost_projectile] boot ok: {MISSION} MAP_FP={MAP_FP!r} turn={hs['turn']} seated={seated_uids} H={H_ID} "
+          f"pinned={len(pinned)} dials={d0} coopGhostStepper={opts} C={ubrief(ub.get(C_ID))} "
+          f"H={ubrief(ub.get(H_ID))} A={ubrief(ub.get(A_ID))} display_rules={json.dumps(dr, sort_keys=True)}",
+          flush=True)
+    return {"rules": dr["items"], "constants": dr["constants"], "dials": d1}
+
+
+def main():
+    t0 = time.time()
+    host = GameClient("host", 49888, make_user_dir("ghost_projectile_host", options={"coopGhostStepper": True}))
+    client = GameClient("client", 49889, make_user_dir("ghost_projectile_client",
+                                                       options={"coopGhostStepper": True}))
+    results = {}
+    try:
+        try:
+            ctx = boot(host, client)
+        except Exception as e:  # a bring-up failure fails the whole run
+            print(f"FAIL boot: {type(e).__name__}: {e}", flush=True)
+            return 2
+        for name, fn in SCENARIOS:
+            try:
+                fn(host, client, ctx)
+                results[name] = True
+                print(f"PASS {name}", flush=True)
+            except Exception as e:
+                results[name] = False
+                kind = "" if isinstance(e, AssertionError) else f"{type(e).__name__}: "
+                print(f"FAIL {name}: {kind}{e}", flush=True)
+    finally:
+        for gc in (host, client):
+            try:
+                gc.shutdown()
+            except Exception as e:
+                print(f"[ghost_projectile] shutdown {gc.name}: {short(e)}", flush=True)
+    passed = [n for n, _ in SCENARIOS if results.get(n)]
+    failed = [n for n, _ in SCENARIOS if not results.get(n)]
+    print(f"\ntest_ghost_projectile: {len(passed)}/{len(SCENARIOS)} passed "
+          f"(pass={passed} fail={failed}) in {time.time() - t0:.1f}s", flush=True)
+    return 0 if not failed else 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

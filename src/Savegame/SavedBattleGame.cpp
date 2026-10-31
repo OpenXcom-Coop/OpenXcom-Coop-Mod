@@ -55,16 +55,13 @@
 #include "../fallthrough.h"
 #include "../fmath.h"
 #include "../Engine/Language.h"
-#include "../CoopMod/connectionTCP.h"
-#include "../CoopMod/SharedEcon.h" // coop (PRD-P4): Tier-A spawn id-manifest
+#include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopHotseat.h" // the hotseat battle-save hook pair
+#include "../CoopMod/CoopDelta.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
-// coop (explosion ordered-replay E0, LEAK-OBJ): file-scope in connectionTCP.cpp;
-// extern-declared here so addDestroyedObjective() can gate on them without a
-// connectionTCP.h class-layout change.
-extern std::atomic<uint32_t> g_objectiveLeakBlocked;
-extern std::atomic<bool> g_objectiveGateDisable;
 
 /**
  * Initializes a brand new battlescape saved game.
@@ -151,6 +148,21 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	reader.tryRead("missionType", _missionType);
 	reader.tryRead("strTarget", _strTarget);
 	reader.tryRead("strCraftOrBase", _strCraftOrBase);
+	// coop: the BATTLE save block carries the turn
+	// mode this battle was PLAYED in, so a mid-battle resume comes back in that
+	// mode even after a full host restart. ONE thin guarded coop call; all logic
+	// lives in src/CoopMod (BattleAuthority.h). Presence-gated, so an SP load and
+	// any save written before the key existed read nothing and change nothing
+	// (no key = parallel).
+	coopLoadTurnMode(reader);
+	// the mission deployment
+	// label and the traditional-mode baton holder, same thin guarded shape
+	// and presence-gating as coopLoadTurnMode above; all logic lives in
+	// src/CoopMod (BattleAuthority.h). An SP load and any save written
+	// before this reads nothing and changes nothing.
+	coopLoadDeployment(reader);
+	coopLoadActiveSeat(reader);
+	coopLoadHotseat(reader); // coop: a hotseat battle resumes as hotseat; absent in every other save
 	reader.tryRead("battleOwnerPlayerName", _battleOwnerPlayerName);
 	reader.tryRead("factionScoreOwnerPlayerName", _factionScoreOwnerPlayerName);
 	if (reader["startingConditionType"])
@@ -296,6 +308,8 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 			if (unit->getId() == undoUnitId)
 				_undoUnit = unit;
 		}
+		// Dead units never get an AIModule on load; the generator releases theirs too
+		// (releaseAIModulesOfUnitsKilledDuringGeneration), so host and loaded copies agree.
 		else if (unit->getStatus() != STATUS_DEAD && !unit->isIgnored())
 		{
 			if (const auto& ai = unitReader["AI"])
@@ -355,6 +369,11 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 		}
 	}
 	_itemId++;
+	// coop: ADOPT the host's carried
+	// coopItemIdCtr, verbatim, now that vanilla's own max(id)+1 derivation
+	// above has completed - so the adopt cannot be overwritten. Presence-
+	// gated; all logic lives in src/CoopMod (BattleAuthority.h).
+	coopLoadItemIdCtr(reader, this);
 
 	// units 2nd pass
 	for (const auto& unitReader : reader["units"].children())
@@ -482,7 +501,6 @@ void SavedBattleGame::loadMapResources(Mod *mod)
 	}
 
 	initUtilities(mod);
-
 	// matches up tiles and units
 	resetUnitTiles();
 	getTileEngine()->calculateLighting(LL_AMBIENT, TileEngine::invalid, 0, true);
@@ -519,6 +537,26 @@ void SavedBattleGame::save(YAML::YamlNodeWriter writer) const
 	writer.write("missionType", _missionType);
 	writer.write("strTarget", _strTarget);
 	writer.write("strCraftOrBase", _strCraftOrBase).setAsQuotedAndEscaped();
+	// coop: see the matching call in
+	// load() above. Self-guarded - it writes NOTHING outside an active co-op
+	// battle, so an SP save is byte-identical and the key is simply ABSENT there.
+	// The CAMPAIGN save block is deliberately untouched (the
+	// SavedGame.cpp shape of older versions is NOT used), and the key is on
+	// SharedEcon's saveBlobExcludedTopKey list so it never rides the hash.
+	coopSaveTurnMode(writer);
+	// the mission deployment
+	// label and the traditional-mode baton holder, same guarded shape as
+	// coopSaveTurnMode above (see load()'s matching calls and
+	// BattleAuthority.h); both keys are on SharedEcon's saveBlobExcludedTopKey
+	// list so neither rides the hash.
+	coopSaveDeployment(writer);
+	coopSaveActiveSeat(writer);
+	coopSaveHotseat(writer); // coop: nothing outside a hotseat battle (an SP save stays byte-identical)
+	// coop: the host's true _itemId,
+	// so the loading machine ADOPTS it instead of re-deriving max(id)+1 - see
+	// the matching ADOPT call in load() below and BattleAuthority.h. Self-
+	// guarded the same way coopSaveTurnMode() is: an SP save is byte-identical.
+	coopSaveItemIdCtr(writer, this);
 	if (!_battleOwnerPlayerName.empty())
 		writer.write("battleOwnerPlayerName", _battleOwnerPlayerName).setAsQuotedAndEscaped();
 	if (!_factionScoreOwnerPlayerName.empty())
@@ -868,7 +906,16 @@ Position SavedBattleGame::getTileCoords(int index) const
  * Gets the currently selected unit
  * @return Pointer to BattleUnit.
  */
-BattleUnit *SavedBattleGame::getSelectedUnit() const
+BattleUnit *SavedBattleGame::getSelectedUnit()
+{
+	return _selectedUnit;
+}
+
+/**
+ * Gets the currently selected unit
+ * @return Pointer to BattleUnit.
+ */
+const BattleUnit *SavedBattleGame::getSelectedUnit() const
 {
 	return _selectedUnit;
 }
@@ -880,21 +927,6 @@ BattleUnit *SavedBattleGame::getSelectedUnit() const
 void SavedBattleGame::setSelectedUnit(BattleUnit *unit)
 {
 	_selectedUnit = unit;
-
-	// The first local gift target may be initialized before Battlescape finishes
-	// choosing the unit shown in the HUD. Keep the gift target synchronized when
-	// the normal selection later changes to another locally owned soldier, so the
-	// GiftSoldierMenu cannot display or transfer an older fallback unit.
-	//
-	// setGiftSelectedBattleUnit() validates local ownership. On a waiting peer,
-	// selectedUnit may describe the remote active player's soldier; that invalid
-	// unit is ignored and the waiting player's separate local gift selection is
-	// preserved.
-	if (unit && _battleState && _battleState->getGame()
-		&& _battleState->getGame()->getCoopMod())
-	{
-		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(unit);
-	}
 }
 
 /**
@@ -1003,18 +1035,14 @@ BattleUnit *SavedBattleGame::selectPlayerUnit(int dir, bool checkReselect, bool 
 			return _selectedUnit;
 		}
 	}
-	while (!(*i)->isSelectable(_side, checkReselect, checkInventory));
+	// ONE guarded filter
+	// call so the selection cycle SKIPS units this machine's seat does not
+	// command (coopMaySelectUnit() is permissive outside an active coop
+	// battle - BattleAuthority.h). All coop logic lives in CoopMod; this is
+	// the only line SavedBattleGame gains for it.
+	while (!(*i)->isSelectable(_side, checkReselect, checkInventory) || !coopMaySelectUnit(*i));
 
 	_selectedUnit = (*i);
-
-	// Keep the local gift selection synchronized with normal next/previous
-	// soldier selection. connectionTCP revalidates ownership, so selecting a
-	// unit controlled by another seat cannot make it giftable.
-	if (_battleState && _battleState->getGame() && _battleState->getGame()->getCoopMod())
-	{
-		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(_selectedUnit);
-	}
-
 	return _selectedUnit;
 }
 
@@ -1037,7 +1065,17 @@ BattleUnit* SavedBattleGame::selectNextPlayerUnitByDistance(bool checkReselect, 
 	std::vector< std::pair<int, BattleUnit*> > candidates;
 	for (auto* unit : _units)
 	{
-		if (unit != _selectedUnit && unit->isSelectable(_side, checkReselect, checkInventory))
+		// The SECOND of the three selection paths that get the seat filter
+		// (selectPlayerUnit() above has it too). This OXCE by-distance variant -
+		// reached by the middle-click NEXT-STOP button
+		// (BattlescapeState::btnNextStopMClick) - builds its candidate list from
+		// isSelectable(), so without the filter a seat could land on a unit it
+		// does not command. Same predicate, same one guarded call: coopMaySelectUnit()
+		// is permissive outside an active coop battle (BattleAuthority.h), and
+		// `_selectedUnit` is saveBlob-hash-excluded (SharedEcon.cpp:3958), so
+		// this is hash-free.
+		if (unit != _selectedUnit && unit->isSelectable(_side, checkReselect, checkInventory)
+			&& coopMaySelectUnit(unit))
 		{
 			int distance = backup ? backup->distance3dToUnitSq(unit) : 0;
 			candidates.push_back(std::make_pair(distance, unit));
@@ -1052,17 +1090,6 @@ BattleUnit* SavedBattleGame::selectNextPlayerUnitByDistance(bool checkReselect, 
 
 		_selectedUnit = candidates.front().second;
 	}
-
-	// This path changes the HUD selection without calling setSelectedUnit().
-	// Keep the same active-player gift target synchronization as the regular
-	// next/previous-unit path. Local ownership validation prevents a remote
-	// active unit from replacing an off-turn player's private gift selection.
-	if (_selectedUnit && _battleState && _battleState->getGame()
-		&& _battleState->getGame()->getCoopMod())
-	{
-		_battleState->getGame()->getCoopMod()->setGiftSelectedBattleUnit(_selectedUnit);
-	}
-
 	return _selectedUnit;
 }
 
@@ -1148,19 +1175,6 @@ UnitFaction SavedBattleGame::getSide() const
 	return _side;
 }
 
-void SavedBattleGame::setSideCoop(int side)
-{
-	_side = (UnitFaction)side;
-}
-
-void SavedBattleGame::itemDropInventoryCoop(Tile* t, BattleUnit* unit, bool unprimeItems, bool deleteFixedItems)
-{
-	if (_tileEngine)
-	{
-		_tileEngine->itemDropInventory(t, unit, unprimeItems, deleteFixedItems);
-	}
-}
-
 /**
  * Test if weapon is usable by unit.
  * @param weapon
@@ -1190,11 +1204,12 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 		ammoItem = nullptr;
 	}
 
-	if (unit->getFaction() == FACTION_HOSTILE && getTurn() < rule->getAIUseDelay(getMod()))
+	if (unit->getFaction() == FACTION_HOSTILE && getTurn() < rule->getAIUseDelay(getMod())
+		&& !coopFactionHumanCommanded(unit->getFaction())) // coop: a human seat's units skip only the AI's delay
 	{
 		return false;
 	}
-	if (unit->getOriginalFaction() == FACTION_PLAYER && !_battleState->getGame()->getSavedGame()->isResearched(rule->getRequirements()))
+	if (unit->getOriginalFaction() == FACTION_PLAYER && !coopIsResearchedFor(_battleState->getGame(), unit, rule->getRequirements()))
 	{
 		return false;
 	}
@@ -1204,7 +1219,7 @@ bool SavedBattleGame::canUseWeapon(const BattleItem* weapon, const BattleUnit* u
 	}
 	if (rule->isManaRequired() && unit->getOriginalFaction() == FACTION_PLAYER)
 	{
-		if (!_rule->isManaFeatureEnabled() || !_battleState->getGame()->getSavedGame()->isManaUnlocked(_rule))
+		if (!_rule->isManaFeatureEnabled() || !coopIsManaUnlockedFor(_battleState->getGame(), unit, _rule))
 		{
 			return false;
 		}
@@ -1242,9 +1257,71 @@ int SavedBattleGame::getTurn() const
 	return _turn;
 }
 
-void SavedBattleGame::setTurnCoop(int turn)
+/**
+ * Sets the turn
+ * counter directly - the coop thin client's mirror of startFirstTurn()'s
+ * `_turn = 1` write, without any of that function's other work. See the
+ * declaration in SavedBattleGame.h for the full contract; the only caller is
+ * CoopHandshake::onBlobChunkAppended() in src/CoopMod/connectionTCP.cpp.
+ * @param turn The turn number.
+ */
+void SavedBattleGame::setTurn(int turn)
 {
 	_turn = turn;
+}
+
+/**
+ * Absolute active-side
+ * set - the coop client-apply counterpart of the `newSide` field on the
+ * `side_transition` restate. See the declaration in SavedBattleGame.h for
+ * the full contract; the only caller is CoopApply::applyEvPayload() in
+ * src/CoopMod/connectionTCP.cpp.
+ * @param side The new active side.
+ */
+void SavedBattleGame::coopSetSide(UnitFaction side)
+{
+	_side = side;
+}
+
+/**
+ * the destroyed-objective counter.
+ * @return objectives destroyed
+ */
+int SavedBattleGame::coopGetObjectivesDestroyed() const
+{
+	return _objectivesDestroyed;
+}
+
+/**
+ * absolute destroyed-objective set for the delta applier. Plain
+ * assignment - no autoEndBattle() cascade (that is addDestroyedObjective()'s).
+ * @param objectivesDestroyed new counter
+ */
+void SavedBattleGame::coopSetObjectivesDestroyed(int objectivesDestroyed)
+{
+	_objectivesDestroyed = objectivesDestroyed;
+}
+
+/**
+ * the raw battle script-value vector.
+ * @return values (element i = tag index i + 1)
+ */
+const std::vector<int>& SavedBattleGame::coopScriptValuesRaw() const
+{
+	return _scriptValues.getValuesRaw();
+}
+
+/**
+ * absolute raw battle script-value set; every index past
+ * @a values is zeroed. Runs no script and draws no RNG.
+ * @param values new values (element i = tag index i + 1)
+ */
+void SavedBattleGame::coopSetScriptValuesRaw(const std::vector<int>& values)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+		_scriptValues.set(CoopTag::make(i + 1), i < values.size() ? values[i] : 0);
 }
 
 /**
@@ -1297,15 +1374,12 @@ void SavedBattleGame::startFirstTurn()
 	resetUnitTiles();
 
 	// check what unit is still on this tile after reset.
-	// coop fix
-	if (inventoryTile)
+	if (inventoryTile->getUnit())
 	{
-		if (inventoryTile->getUnit())
-		{
-			// make sure we select the unit closest to the ramp.
-			setSelectedUnit(inventoryTile->getUnit());
-		}
+		// make sure we select the unit closest to the ramp.
+		setSelectedUnit(inventoryTile->getUnit());
 	}
+
 
 	// initialize xcom units for battle
 	for (auto* bu : *getUnits())
@@ -1335,28 +1409,6 @@ void SavedBattleGame::newTurnUpdateScripts()
 		return;
 	}
 
-	// coop (PRD-P3 GAP-10, mods first-class): the mod newTurnUnit/newTurnItem script
-	// hooks below can draw randomChance/randomRange from the GLOBAL RNG stream, and
-	// BOTH machines run this loop - the parallel client reaches it via
-	// BattlescapeGame::endTurn -> _save->endTurn on every side close (empirically
-	// proven: with a per-turn newTurnUnit script every unit's rolled tag diverged
-	// host vs client). The two machines' streams diverge, so without help every
-	// per-turn script roll differs. Seed-replay fix (the spawn_units B2 pattern
-	// applied to the whole loop): reseed the global RNG to the side-boundary seed the
-	// host stamps on `endTurn` and the client adopts, so both draw the SAME sequence
-	// over the SAME units/items in the SAME order - a balanced-by-construction relay
-	// (no FIFO to unbalance, unlike GAP-7). Save+restore leaves every other RNG
-	// consumer byte-identical, and is a strict no-op when no script draws (vanilla and
-	// non-scripted mods, so the existing parallel battles are unchanged). Parallel
-	// only; classic ships its seed on a different packet and is out of the parallel
-	// merge scope (recorded finding).
-	const bool coopScriptRng = connectionTCP::parallelTurnActive();
-	const uint64_t savedRngSeed = RNG::getSeed();
-	if (coopScriptRng)
-	{
-		RNG::setSeed(connectionTCP::_scriptRngSeed);
-	}
-
 	for (auto* bu : _units)
 	{
 		if (bu->isIgnored())
@@ -1364,7 +1416,7 @@ void SavedBattleGame::newTurnUpdateScripts()
 			continue;
 		}
 
-		ModScript::scriptCallback<ModScript::NewTurnUnit>(bu->getArmor(), bu, this, this->getTurn(), _side);
+		{ CoopScriptOwner coopOwner(bu); ModScript::scriptCallback<ModScript::NewTurnUnit>(bu->getArmor(), bu, this, this->getTurn(), _side); } // coop
 	}
 
 	for (auto* item : _items)
@@ -1378,12 +1430,7 @@ void SavedBattleGame::newTurnUpdateScripts()
 			continue;
 		}
 
-		ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side);
-	}
-
-	if (coopScriptRng)
-	{
-		RNG::setSeed(savedRngSeed);
+		{ CoopScriptOwner coopOwner(item->getOwner()); ModScript::scriptCallback<ModScript::NewTurnItem>(item->getRules(), item, this, this->getTurn(), _side); } // coop
 	}
 
 	reviveUnconsciousUnits(false);
@@ -1500,10 +1547,16 @@ void SavedBattleGame::saveCustomCraftDeployment()
 void SavedBattleGame::saveDummyCraftDeployment()
 {
 	auto* save = getGeoscapeSave();
+	// coop Separate: the deployment is this player's own, so only this player's crafts lose theirs
+	const bool ownCraftsOnly = save->isSeparateCoopCampaign();
 
 	// don't forget to invalidate custom deployments of all real craft of this type
 	for (auto* xbase : *save->getBases())
 	{
+		if (ownCraftsOnly && xbase->_isForeignBase)
+		{
+			continue;
+		}
 		for (auto* xcraft : *xbase->getCrafts())
 		{
 			if (xcraft->getRules() == _craftForPreview->getRules())
@@ -1547,7 +1600,7 @@ void SavedBattleGame::saveDummyCraftDeployment()
 /**
  * Does the given craft type have a custom deployment?
  */
-bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule) const
+bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule, const Craft* craft) const
 {
 	// first check the fallback
 	if (!rule->getDeployment().empty())
@@ -1556,7 +1609,7 @@ bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule) const
 	}
 	// then the override
 	auto* save = getGeoscapeSave();
-	auto& data = save->getCustomRuleCraftDeployments();
+	auto& data = save->getCraftDeploymentsOf(craft);
 	if (!data.empty())
 	{
 		auto find = data.find(rule->getType());
@@ -1571,11 +1624,11 @@ bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule) const
 /**
  * Gets a custom deployment for the given craft type.
  */
-const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft* rule) const
+const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft* rule, const Craft* craft) const
 {
 	// first try the override
 	auto* save = getGeoscapeSave();
-	auto& data = save->getCustomRuleCraftDeployments();
+	auto& data = save->getCraftDeploymentsOf(craft);
 	if (!data.empty())
 	{
 		auto find = data.find(rule->getType());
@@ -1593,7 +1646,6 @@ const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft*
  */
 void SavedBattleGame::endTurn()
 {
-
 	// reset turret direction for all hostile and neutral units (as it may have been changed during reaction fire)
 	for (auto* bu : _units)
 	{
@@ -1634,21 +1686,22 @@ void SavedBattleGame::endTurn()
 	}
 	else if (_side == FACTION_NEUTRAL)
 	{
-		// coop (PRD-I3 SEAM-2 HALF 2): this is the ONE hazard-decay boundary of the
-		// turn cycle (the sole SavedBattleGame::prepareNewTurn caller). Mark it so the
-		// host's set_smoke_tile/set_fire_tile decay sends carry `bnd:true`; the client
-		// then applies them through the ORDERED gate (in FIFO after the ai-chain
-		// replay, before next_turn) instead of the always-consume whitelist, so its
-		// ai-seq hazard hashes sample PRE-decay state matching the host's pre-decay
-		// ring entries. Set/clear tightly around the call (prepareNewTurn does not
-		// throw); harmless on the non-host machine, where the call early-returns and
-		// the tile setters are host-gated no-ops.
-		connectionTCP::coopSetBoundaryDecay(true);
 		prepareNewTurn();
-		connectionTCP::coopSetBoundaryDecay(false);
 		_turn++;
 		_side = FACTION_PLAYER;
-		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false))
+		// The THIRD of the three selection paths that get the seat filter. This
+		// restore writes _selectedUnit DIRECTLY, bypassing
+		// selectPlayerUnit()'s seat filter entirely, so a seat whose last
+		// selection was somehow a unit it does not command would get it handed
+		// back at the top of every player turn. selectNextPlayerUnit() below is
+		// already filtered (:991) and is the correct fallback.
+		//
+		// NOT DEAD CODE: it runs whenever the endTurn() side machine runs. Every
+		// one of the three selection paths gets the seat filter; _selectedUnit is
+		// saveBlob-hash-excluded and _lastSelectedUnit is not serialized at all,
+		// so both are machine-local and hash-free.
+		if (_lastSelectedUnit && _lastSelectedUnit->isSelectable(FACTION_PLAYER, false, false)
+			&& coopMaySelectUnit(_lastSelectedUnit))
 			_selectedUnit = _lastSelectedUnit;
 		else
 			selectNextPlayerUnit();
@@ -1831,12 +1884,7 @@ const BattlescapeState *SavedBattleGame::getBattleState() const
  */
 BattlescapeGame *SavedBattleGame::getBattleGame()
 {
-	// coop fix
-	if (_battleState)
-	{
-		return _battleState->getBattleGame();
-	}
-	return nullptr;
+	return _battleState->getBattleGame();
 }
 
 /**
@@ -1845,12 +1893,7 @@ BattlescapeGame *SavedBattleGame::getBattleGame()
  */
 const BattlescapeGame *SavedBattleGame::getBattleGame() const
 {
-	// coop fix
-	if (_battleState)
-	{
-		return _battleState->getBattleGame();
-	}
-	return nullptr;
+	return _battleState->getBattleGame();
 }
 
 /**
@@ -1928,35 +1971,6 @@ void SavedBattleGame::resetUnitTiles()
 		}
 	}
 	_beforeGame = false;
-}
-
-void SavedBattleGame::resetCoopTiles()
-{
-
-	resetTiles();
-
-	if (getTileEngine())
-	{
-
-		for (auto& unit : *getUnits())
-		{
-
-			if (unit->getFaction() == FACTION_PLAYER)
-			{
-
-				getTileEngine()->calculateLighting(LL_UNITS, unit->getPosition(), 2);
-				getTileEngine()->calculateFOV(unit->getPosition(), 1, true);
-			}
-			else if (unit->getFaction() == FACTION_HOSTILE)
-			{
-				unit->setVisible(false);
-			}
-
-			unit->clearVisibleUnits();
-
-		}
-	}
-
 }
 
 /**
@@ -2043,9 +2057,6 @@ void SavedBattleGame::removeItem(BattleItem *item)
 	{
 		return;
 	}
-	// coop (three-class RCA DIAGNOSTIC, items): tag the actual removal, capture-gated.
-	coopDiagS("item.remove cid=" + std::to_string(item->getCoopID())
-		+ " t=" + (item->getRules() ? item->getRules()->getType() : std::string("?")));
 
 	// due to strange design, the item has to be removed from the tile it is on too (if it is on a tile)
 	item->moveToOwner(nullptr);
@@ -2106,7 +2117,7 @@ void SavedBattleGame::initUnit(BattleUnit *unit, size_t itemLevel)
 	}
 
 	unit->setSpecialWeapon(this, false);
-	Unit* rule = unit->getUnitRules();
+	const Unit* rule = unit->getUnitRules();
 	const Armor* armor = unit->getArmor();
 	// Built in weapons: the unit has this weapon regardless of loadout or what have you.
 	addFixedItems(unit, armor->getBuiltInWeapons());
@@ -2148,13 +2159,13 @@ void SavedBattleGame::initUnit(BattleUnit *unit, size_t itemLevel)
 		}
 	}
 
-	ModScript::scriptCallback<ModScript::CreateUnit>(armor, unit, this, this->getTurn());
+	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateUnit>(armor, unit, this, this->getTurn()); } // coop
 
 	if (auto* solder = unit->getGeoscapeSoldier())
 	{
 		for (const auto* bonus : *solder->getBonuses(nullptr))
 		{
-			ModScript::scriptCallback<ModScript::ApplySoldierBonuses>(bonus, unit, this, bonus);
+			{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::ApplySoldierBonuses>(bonus, unit, this, bonus); } // coop
 		}
 	}
 }
@@ -2170,7 +2181,7 @@ void SavedBattleGame::initItem(BattleItem *item, BattleUnit *unit)
 		return;
 	}
 
-	ModScript::scriptCallback<ModScript::CreateItem>(item->getRules(), item, unit, this, this->getTurn());
+	{ CoopScriptOwner coopOwner(unit); ModScript::scriptCallback<ModScript::CreateItem>(item->getRules(), item, unit, this, this->getTurn()); } // coop
 }
 
 /**
@@ -2192,9 +2203,6 @@ BattleItem *SavedBattleGame::createItemForUnit(const RuleItem *rule, BattleUnit 
 	else
 	{
 		_items.push_back(item);
-		// coop (PRD-P4): only after the item is actually KEPT - an item the unit
-		// refused never existed, so it must not consume a host id either.
-		SharedEcon::noteMintedItem(item);
 		initItem(item, unit);
 	}
 	return item;
@@ -2214,7 +2222,6 @@ BattleItem *SavedBattleGame::createItemForUnitSpecialBuiltin(const RuleItem *rul
 	item->setOwner(unit);
 	item->setSlot(nullptr);
 	_items.push_back(item);
-	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
 	initItem(item, unit);
 	return item;
 }
@@ -2229,13 +2236,11 @@ BattleItem *SavedBattleGame::createItemForTile(const std::string& type, Tile *ti
 /**
  * Create new item for tile;
  */
-BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor, int coopID)
+BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile, BattleUnit *corpseFor)
 {
 	// Note: this is allowed also in preview mode; for items spawned from map blocks (and friendly units spawned from such items)
 
 	BattleItem *item = new BattleItem(rule, getCurrentItemId());
-	// coop
-	item->setCoopID(coopID);
 	if (tile)
 	{
 		RuleInventory *ground = _rule->getInventoryGround();
@@ -2243,11 +2248,6 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
 	}
 	item->setUnit(corpseFor);
 	_items.push_back(item);
-	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
-	// coop (three-class RCA DIAGNOSTIC, items): tag the mint, capture-gated.
-	coopDiagS("item.mint cid=" + std::to_string(item->getCoopID())
-		+ " t=" + (rule ? rule->getType() : std::string("?"))
-		+ (corpseFor ? " corpse" : ""));
 	initItem(item);
 	return item;
 }
@@ -2259,9 +2259,7 @@ BattleItem *SavedBattleGame::createItemForTile(const RuleItem *rule, Tile *tile,
  */
 BattleItem *SavedBattleGame::createTempItem(const RuleItem *rule)
 {
-	BattleItem *item = new BattleItem(rule, getCurrentItemId());
-	SharedEcon::noteMintedItem(item); // coop (PRD-P4)
-	return item;
+	return new BattleItem(rule, getCurrentItemId());
 }
 
 /**
@@ -2307,15 +2305,7 @@ BattleUnit *SavedBattleGame::createTempUnit(const Unit *rules, UnitFaction facti
  */
 BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 {
-	// only ever respawn once. The guard normally lives at the callers, but in
-	// coop the convertUnit network packet handler and the local (coop_death)
-	// UnitDieBState both call this for the same zombie and can race, spawning
-	// two chrysalids on the observing player. Enforce it here too so the loser
-	// of that race is a no-op instead of an orphan unit that stands frozen.
-	if (unit->getAlreadyRespawned())
-	{
-		return nullptr;
-	}
+	// only ever respawn once
 	unit->setAlreadyRespawned(true);
 
 	bool visible = unit->getVisible();
@@ -2359,123 +2349,12 @@ BattleUnit *SavedBattleGame::convertUnit(BattleUnit *unit)
 	newUnit->setPosition(unit->getPosition());
 	newUnit->setDirection(unit->getDirection());
 	getUnits()->push_back(newUnit);
-	{
-		// coop (PRD-P4): Tier-A spawn. initUnit() mints the respawn's fixed built-in
-		// weapons - a set fixed by getSpawnUnit()'s rules, so both machines create
-		// the same items and only the ids can drift. Keyed on the DYING unit's id,
-		// which is what the `convertUnit` packet carries.
-		SharedEcon::CoopSpawnRecord coopRec("convert", unit->getId());
-		SharedEcon::CoopSubjectGuard coopGuard(this, "convert", unit->getId());
-		initUnit(newUnit);
-	}
+	initUnit(newUnit);
 
 	getTileEngine()->calculateFOV(newUnit->getPosition());  //happens fairly rarely, so do a full recalc for units in range to handle the potential unit visible cache issues.
 	getTileEngine()->applyGravity(newUnit->getTile());
 	newUnit->dontReselect();
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-
-		// PVP
-		if (connectionTCP::getCoopGamemode() == 2)
-		{
-			unit->setCoop(1);
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->setCoop(1);
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-
-		}
-		// PVP2
-		else if (connectionTCP::getCoopGamemode() == 3)
-		{
-
-			unit->setCoop(0);
-			newUnit->setCoop(0);
-		}
-		// PVE2
-		else if (connectionTCP::getCoopGamemode() == 4)
-		{
-
-			// coop (PRD-P3, AUDIT-guards top break): this used to read
-			// _isActivePlayerSync and the host branch below assigned the OPPOSITE
-			// value, so the pair only agreed while exactly one machine held the flag.
-			// The respawn now inherits the DYING unit's owner - a value both machines
-			// already hold and compute identically, with no dependence on whose turn
-			// it is.
-			newUnit->setCoop(unit->getCoop());
-
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-
-		}
-
-	}
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "convertUnit";
-		// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-		// client's action_end apply-barrier waits for this respawn/convert before
-		// sampling the chain's post-N sync-check hash (no-op off the parallel host).
-		connectionTCP::coopStampChainSeq(root);
-
-		root["unit_id"] = unit->getId();
-		root["respawn"] = unit->getRespawn();
-		root["spawn_unit_faction"] = (int)unit->getSpawnUnitFaction();
-		root["spawn_unit_type"] = unit->getSpawnUnit()->getType();
-		// coop (PRD-P4): the ids initUnit() just minted for the respawn's built-ins.
-		SharedEcon::flushSpawnRecord(root, "convert", unit->getId());
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-		// PVP
-		if (connectionTCP::getCoopGamemode() == 2)
-		{
-			unit->setCoop(1);
-			newUnit->setCoop(1);
-
-		}
-		// PVP2
-		else if (connectionTCP::getCoopGamemode() == 3)
-		{
-
-			unit->setCoop(0);
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->setCoop(0);
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-
-		}
-		// PVE2
-		else if (connectionTCP::getCoopGamemode() == 4)
-		{
-
-			// coop (PRD-P3): same seat-deterministic rule as the client branch above
-			// - the respawn inherits the dying unit's owner, so both machines reach
-			// the same answer without consulting _isActivePlayerSync.
-			newUnit->setCoop(unit->getCoop());
-
-			unit->convertToFaction(FACTION_PLAYER);
-			unit->setOriginalFaction(FACTION_PLAYER);
-
-			newUnit->convertToFaction(FACTION_PLAYER);
-			newUnit->setOriginalFaction(FACTION_PLAYER);
-		}
-
-	}
-
+	coopCueSpawn(newUnit, "convert", unit);
 	return newUnit;
 }
 
@@ -2531,19 +2410,6 @@ void SavedBattleGame::setObjectiveCount(int counter)
  */
 void SavedBattleGame::addDestroyedObjective()
 {
-	// coop (explosion ordered-replay E0, LEAK-OBJ): the client (parallel AND classic)
-	// inflates _objectivesDestroyed via the neutered explode()/Tile::destroy `return true`
-	// stubs -> it must NOT count objective destruction or drive autoEndBattle/missionComplete.
-	// Host is authoritative; it ships the count on next_turn. Classic idiom on purpose
-	// (owner Q4 = fix classic too). TEST lever objective_gate_disable reverts it (same-build red).
-	if (getBattleGame()
-		&& getBattleGame()->getCoopMod()->getCoopStatic() == true
-		&& getBattleGame()->getCoopMod()->getHost() == false
-		&& !OpenXcom::g_objectiveGateDisable.load(std::memory_order_relaxed))
-	{
-		++OpenXcom::g_objectiveLeakBlocked;
-		return;
-	}
 	if (!allObjectivesDestroyed())
 	{
 		_objectivesDestroyed++;
@@ -2577,18 +2443,6 @@ bool SavedBattleGame::allObjectivesDestroyed() const
 int *SavedBattleGame::getCurrentItemId()
 {
 	return &_itemId;
-}
-
-/**
- * Gets the current item ID without handing out the counter itself.
- * PRD-P2: the co-op drift tripwire stamps this on the wire. EVERY `new BattleItem`
- * advances it (BattleItem's ctor post-increments), even a transient one that is
- * never added to _items, so an uneven mint on one machine shows up here at once.
- * @return Current item ID value.
- */
-int SavedBattleGame::getCurrentItemIdValue() const
-{
-	return _itemId;
 }
 
 /**
@@ -2720,22 +2574,6 @@ Node *SavedBattleGame::getPatrolNode(bool scout, BattleUnit *unit, Node *fromNod
  */
 void SavedBattleGame::prepareNewTurn()
 {
-	// coop (PRD-I3 SEAM-2 + straddle): in a PARALLEL player side the boundary-phase
-	// tile decay is host-authoritative and re-shipped wholesale on `next_turn`
-	// (connectionTCP.cpp resets every tile's fire/smoke/dangerous then re-applies the
-	// host's snapshot), so the non-host machine must NOT run its own decay. Left
-	// ungated, the client's smoke SPREADS (Tile::addSmoke) and AVERAGES
-	// (Tile::prepareNewTurn) while its DECREMENT (Tile::setSmoke/setFire) is a
-	// host-gated no-op - "spread-without-decrement" that mangles the client's smoke
-	// (SEAM-2), and calculateEnviDamage below rolls fire/smoke RNG the host owns
-	// (the straddle). Gating the whole call-site is cleaner than per-setter gates and
-	// covers calculateEnviDamage in one place. Classic and option-off paths are
-	// untouched (parallelTurnActive() is false), so classic stays byte-identical.
-	if (connectionTCP::parallelTurnActive() && !connectionTCP::getHost())
-	{
-		return;
-	}
-
 	std::vector<Tile*> tilesOnFire;
 	std::vector<Tile*> tilesOnSmoke;
 
@@ -2938,6 +2776,10 @@ void SavedBattleGame::reviveUnconsciousUnits(bool noTU)
 						}
 					}
 					removeUnconsciousBodyItem(bu);
+					// ONE guarded coop call - on the
+					// co-op HOST the `revive` cue {unit, pos}. No-op in single
+					// player and on a client.
+					coopCueRevive(bu);
 				}
 			}
 		}
@@ -3746,6 +3588,7 @@ void SavedBattleGame::appendToHitLog(HitLogEntryType type, UnitFaction faction)
 {
 	if (_side != FACTION_PLAYER) return;
 	_hitLog->appendToHitLog(type, faction);
+	coopHitLogNote(type, faction); // coop: the host mirrors the entry; a no-op elsewhere
 }
 
 /**
@@ -3755,6 +3598,7 @@ void SavedBattleGame::appendToHitLog(HitLogEntryType type, UnitFaction faction, 
 {
 	if (_side != FACTION_PLAYER) return;
 	_hitLog->appendToHitLog(type, faction, text);
+	coopHitLogNote(type, faction); // coop: the host mirrors the entry; a no-op elsewhere
 }
 
 /**
@@ -3775,469 +3619,6 @@ void SavedBattleGame::resetUnitHitStates()
 	{
 		bu->resetHitState();
 	}
-}
-
-void SavedBattleGame::abortPathCoop()
-{
-	getPathfinding()->abortPathCoop();
-
-}
-
-void SavedBattleGame::coopExplosionCalc(Position centetTile, int maxRadius, bool coop_is_second_fov)
-{
-
-	getTileEngine()->calculateLighting(LL_AMBIENT, centetTile, maxRadius + 1, true); // roofs could have been destroyed and fires could have been started
-	getTileEngine()->calculateFOV(centetTile, maxRadius + 1, true, true);
-
-	if (coop_is_second_fov == true)
-	{
-
-		// unit is away from blast but its visibility can be affected by scripts.
-		getTileEngine()->calculateFOV(centetTile, 1, false);
-
-	}
-
-}
-
-bool SavedBattleGame::moveBaseCoopInventory(std::string item_type, int coop_item_id, int coopbase_id, int craft_id, std::string craft_type, int slot_type_int, int item_slot_type_int, std::string str_coop_items)
-{
-
-	if (connectionTCP::_coopCampaign == false)
-	{
-		return true;
-	}
-
-	auto* save = getGeoscapeSave();
-
-	if (!save)
-		return false;
-
-
-	Craft* current_craft = 0;
-	Base* current_base = 0;
-
-	// BASE
-	for (auto& base : *save->getBases())
-	{
-
-		if (base->_coop_base_id == coopbase_id)
-		{
-
-			current_base = base;
-
-			for (auto& craft : *base->getCrafts())
-			{
-
-				if (craft->getId() == craft_id && craft->getRules()->getType() == craft_type)
-				{
-					current_craft = craft;
-					break;
-				}
-			}
-
-			break;
-
-		}
-	}
-
-	if (current_craft && current_base)
-	{
-
-		if (current_base->_isForeignBase == true)
-		{
-
-			auto& coopItems = current_craft->getCoopItems();
-
-			if (str_coop_items != "")
-			{
-
-				Json::Reader reader;
-				Json::Value arr;
-
-				reader.parse(str_coop_items, arr);
-
-				std::vector<CoopItem> newItems;
-
-				newItems.reserve(arr.size());
-
-				for (Json::ArrayIndex i = 0; i < arr.size(); ++i)
-				{
-					const auto& it = arr[i];
-
-					int item_id = it["id"].asInt();
-					std::string item_type = it["type"].asString();
-					bool item_owner = it["owner"].asBool();
-
-					newItems.push_back({item_id, item_type, item_owner});
-				}
-
-				// overwrite
-				coopItems.swap(newItems);
-
-			}
-			else
-			{
-
-				coopItems.clear();
-
-			}
-
-			connectionTCP::moveCoopItems = true;
-
-			return true;
-
-
-		}
-		else
-		{
-
-			InventoryType slot_type = INV_GROUND;
-
-			if (slot_type_int == 0)
-			{
-				slot_type = INV_SLOT;
-			}
-			else if (slot_type_int == 1)
-			{
-				slot_type = INV_HAND;
-			}
-			else if (slot_type_int == 2)
-			{
-				slot_type = INV_GROUND;
-			}
-			else
-			{
-				slot_type = INV_GROUND;
-			}
-
-			
-			InventoryType item_slot_type = INV_GROUND;
-
-			if (item_slot_type_int == 0)
-			{
-				item_slot_type = INV_SLOT;
-			}
-			else if (item_slot_type_int == 1)
-			{
-				item_slot_type = INV_HAND;
-			}
-			else if (item_slot_type_int == 2)
-			{
-				item_slot_type = INV_GROUND;
-			}
-			else
-			{
-				item_slot_type_int = INV_GROUND;
-			}
-
-			if (slot_type == INV_GROUND && item_slot_type == INV_GROUND)
-			{
-				return true;
-			}
-
-			BattleItem *current_item = 0;
-
-			for (auto& item : *getItems())
-			{
-
-				if (item->getCoopID() == coop_item_id && item->getRules()->getType() == item_type)
-				{
-
-					current_item = item;
-					break;
-				}
-
-			}
-
-			if (!current_item)
-				return true;
-
-			auto& coopItems = current_craft->getCoopItems();
-
-			// show item
-			if (slot_type == INV_GROUND)
-			{
-
-				auto it = std::find_if(coopItems.begin(), coopItems.end(),
-									   [&](const CoopItem& x)
-									   { return x.id == current_item->getCoopID() && x.type == current_item->getRules()->getType() && x.owner == false; });
-
-				if (it != coopItems.end())
-					coopItems.erase(it);
-			}
-			// hide item
-			else
-			{
-
-				// delete ONE matching item where owner == true
-				for (auto it = coopItems.begin(); it != coopItems.end(); ++it)
-				{
-					if (it->id == current_item->getCoopID() &&
-						it->type == current_item->getRules()->getType() &&
-						it->owner == true)
-					{
-						coopItems.erase(it);
-						break;
-					}
-				}
-
-				// exists?
-				bool item_exists = false;
-				for (const auto& ci : coopItems)
-				{
-					if (ci.id == current_item->getCoopID() &&
-						ci.type == current_item->getRules()->getType() &&
-						ci.owner == true)
-					{
-						item_exists = true;
-						break;
-					}
-				}
-
-				if (!item_exists)
-				{
-					coopItems.push_back({current_item->getCoopID(), current_item->getRules()->getType(), false});
-				}
-			}
-
-			auto* items = getItems();
-
-			// Count how many items of this type actually exist in 'items'
-			int allowed = 0;
-			for (auto* it : *items)
-			{
-				if (it && it->getRules()->getType() == current_item->getRules()->getType())
-					++allowed;
-			}
-
-			// Count how many coopItems of this type we currently have
-			int have = 0;
-			for (const auto& x : coopItems)
-			{
-				if (x.type == current_item->getRules()->getType())
-					++have;
-			}
-
-			int extra = have - allowed;
-			if (extra > 0)
-			{
-
-					// Remove extras by prioritizing owner == true
-					coopItems.erase(
-						std::remove_if(coopItems.begin(), coopItems.end(),
-									   [&](const CoopItem& x)
-									   {
-										   if (extra <= 0)
-											   return false;
-
-										   if (x.type == current_item->getRules()->getType() && x.owner == true)
-										   {
-											   --extra;
-											   return true; // remove
-										   }
-										   return false; // keep
-									   }),
-						coopItems.end());
-
-					// If still extra left, remove remaining extras regardless of owner
-					if (extra > 0)
-					{
-						coopItems.erase(
-							std::remove_if(coopItems.begin(), coopItems.end(),
-										   [&](const CoopItem& x)
-										   {
-											   if (extra <= 0)
-												   return false;
-
-											   if (x.type == current_item->getRules()->getType())
-											   {
-												   --extra;
-												   return true; // remove
-											   }
-											   return false; // keep
-										   }),
-							coopItems.end());
-					}
-
-				}
-
-				// save
-				Json::Value obj;
-				obj["state"] = "save_coop_items";
-
-				obj["coopbase_id"] = coopbase_id;
-				obj["craft_id"] = craft_id;
-				obj["craft_type"] = craft_type;
-
-				int item_index = 0;
-				for (auto& coopItem : coopItems)
-				{
-
-					obj["coopItems"][item_index]["id"] = coopItem.id;
-					obj["coopItems"][item_index]["type"] = coopItem.type;
-					obj["coopItems"][item_index]["owner"] = coopItem.owner;
-
-					item_index++;
-				}
-
-				connectionTCP::sendTCPPacketStaticData2(obj.toStyledString());
-
-				return true;
-
-		}
-
-	}
-
-	return false;
-	
-}
-
-void SavedBattleGame::moveBaseCoopInventorySave(Base* base, Craft* craft, BattleItem *item, int slot_type_int)
-{
-
-	if (base && craft && item)
-	{
-
-		if (connectionTCP::_coopCampaign == false)
-		{
-			return;
-		}
-
-		if (base->_isForeignBase == true)
-		{
-			return;
-		}
-
-		InventoryType slot_type = INV_GROUND;
-
-		if (slot_type_int == 0)
-		{
-			slot_type = INV_SLOT;
-		}
-		else if (slot_type_int == 1)
-		{
-			slot_type = INV_HAND;
-		}
-		else if (slot_type_int == 2)
-		{
-			slot_type = INV_GROUND;
-		}
-		else
-		{
-			slot_type = INV_GROUND;
-		}
-
-		auto& coopItems = craft->getCoopItems();
-
-		// show item
-		if (slot_type == INV_GROUND)
-		{
-
-			auto it = std::find_if(coopItems.begin(), coopItems.end(),
-									[&](const CoopItem& x)
-								   { return x.id == item->getCoopID() && x.type == item->getRules()->getType() && x.owner == true; });
-
-			if (it != coopItems.end())
-				coopItems.erase(it);
-		}
-		// hide item
-		else
-		{
-
-			// delete ONE matching item where owner == false
-			for (auto it = coopItems.begin(); it != coopItems.end(); ++it)
-			{
-				if (it->id == item->getCoopID() &&
-					it->type == item->getRules()->getType() &&
-					it->owner == false)
-				{
-					coopItems.erase(it);
-					break;
-				}
-			}
-
-			// exists?
-			bool item_exists = false;
-			for (const auto& ci : coopItems)
-			{
-				if (ci.id == item->getCoopID() &&
-					ci.type == item->getRules()->getType() &&
-					ci.owner == true)
-				{
-					item_exists = true;
-					break;
-				}
-			}
-
-			if (!item_exists)
-			{
-				coopItems.push_back({item->getCoopID(), item->getRules()->getType(), true});
-			}
-
-	
-		}
-
-		auto* items = getItems();
-
-		// Count how many items of this type actually exist in 'items'
-		int allowed = 0;
-		for (auto* it : *items)
-		{
-			if (it && it->getRules()->getType() == item->getRules()->getType())
-				++allowed;
-		}
-
-		// Count how many coopItems of this type we currently have
-		int have = 0;
-		for (const auto& x : coopItems)
-		{
-			if (x.type == item->getRules()->getType())
-				++have;
-		}
-
-		int extra = have - allowed;
-		if (extra <= 0)
-			return;
-
-		// Remove extras by prioritizing owner == true
-		coopItems.erase(
-			std::remove_if(coopItems.begin(), coopItems.end(),
-							[&](const CoopItem& x)
-							{
-								if (extra <= 0)
-									return false;
-
-								if (x.type == item->getRules()->getType() && x.owner == true)
-								{
-									--extra;
-									return true; // remove
-								}
-								return false; // keep
-							}),
-			coopItems.end());
-
-		// If still extra left, remove remaining extras regardless of owner
-		if (extra > 0)
-		{
-			coopItems.erase(
-				std::remove_if(coopItems.begin(), coopItems.end(),
-								[&](const CoopItem& x)
-								{
-									if (extra <= 0)
-										return false;
-
-									if (x.type == item->getRules()->getType())
-									{
-										--extra;
-										return true; // remove
-									}
-									return false; // keep
-								}),
-				coopItems.end());
-		}
-		
-	}
-
 }
 
 ////////////////////////////////////////////////////////////
@@ -4275,33 +3656,10 @@ void flashLongMessageVariadicScriptImpl(SavedBattleGame* sbg, ScriptText message
 
 
 
-/**
- * coop (PRD-P3 GAP-10): the two mod-script RNG bindings below draw from the GLOBAL
- * stream on whichever machine happens to run the script, and nothing captures or
- * ships the result - so any modded battle behaviour built on them diverges silently
- * between host and peer. Fixing that properly needs a host-decides channel for
- * arbitrary script calls, which is out of scope here; V1 is to say so, once, so a
- * modder who hits it can see it in the log instead of chasing a phantom desync.
- */
-static void coopWarnScriptRng(const SavedBattleGame* sbg, const char* which)
-{
-	static bool warned = false;
-	if (warned || !connectionTCP::getCoopStatic())
-	{
-		return;
-	}
-	warned = true;
-	Log(LOG_WARNING) << "coop: mod script called " << which << " during a co-op battle. "
-					 << "Script RNG is UNSUPPORTED in co-op: each machine draws from its own "
-					 << "stream and the result is not replicated, so anything it decides can "
-					 << "differ between the two players (turn " << (sbg ? sbg->getTurn() : -1) << ").";
-}
-
 void randomChanceScript(SavedBattleGame* sbg, int& val)
 {
 	if (sbg)
 	{
-		coopWarnScriptRng(sbg, "randomChance");
 		val = RNG::percent(val);
 	}
 	else
@@ -4314,7 +3672,6 @@ void randomRangeScript(SavedBattleGame* sbg, int& val, int min, int max)
 {
 	if (sbg && max >= min)
 	{
-		coopWarnScriptRng(sbg, "randomRange");
 		val = RNG::generate(min, max);
 	}
 	else
@@ -4477,6 +3834,18 @@ void isShiftPressedScript(const SavedBattleGame* sbg, int& val)
 	}
 }
 
+void getSelectedUnitScript(const SavedBattleGame* sbg, const BattleUnit*& val)
+{
+	if (sbg)
+	{
+		val = sbg->getSelectedUnit();
+	}
+	else
+	{
+		val = nullptr;
+	}
+}
+
 
 
 std::string debugDisplayScript(const SavedBattleGame* p)
@@ -4545,7 +3914,11 @@ void SavedBattleGame::ScriptRegister(ScriptParserBase* parser)
 
 	sbg.add<&randomChanceScript>("randomChance", "first argument is percent in range 0 - 100, then return in that argument random 1 or 0 based on percent");
 	sbg.add<&randomRangeScript>("randomRange", "set in first argument random value from range given in two last arguments");
+
 	sbg.add<&turnSideScript>("getTurnSide", "Return the faction whose turn it is.");
+	sbg.add<&SavedBattleGame::getDepth>("getDepth", "Return the depth of the battlescape.");
+	sbg.add<&SavedBattleGame::getGlobalShade>("getGlobalShade", "Return the global shade of the battlescape.");
+
 	sbg.addCustomConst("FACTION_PLAYER", FACTION_PLAYER);
 	sbg.addCustomConst("FACTION_HOSTILE", FACTION_HOSTILE);
 	sbg.addCustomConst("FACTION_NEUTRAL", FACTION_NEUTRAL);
@@ -4579,6 +3952,7 @@ void SavedBattleGame::ScriptRegisterUnitAnimations(ScriptParserBase* parser)
 	sbg.addField<&SavedBattleGame::_toggleNightVisionTemp>("isNightVisionEnabled");
 	sbg.addField<&SavedBattleGame::_togglePersonalLightTemp>("isPersonalLightEnabled");
 	sbg.addField<&SavedBattleGame::_toggleNightVisionColorTemp>("getNightVisionColor");
+	sbg.add<&getSelectedUnitScript>("getSelectedUnit");
 }
 
 }

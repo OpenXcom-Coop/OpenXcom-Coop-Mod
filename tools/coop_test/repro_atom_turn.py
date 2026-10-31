@@ -1,0 +1,766 @@
+"""ATOM turn end to end - the pipeline proof: client intent -> ack -> host
+executes vanilla -> bt_ev turn (+h) -> client applies -> hash-clean ->
+bt_action_end -> client unlock, plus the deny path and a faithful-UI variant.
+
+FIXTURE: this file drives a real 2-player skirmish through the harness lobby
+flow (the SAME UI path test_handshake.py/test_faction_setup.py/
+test_input_gating.py use - skirmish_host()/skirmish_client_at_browser()/
+bring_up_lobby() are inline copies, per test_faction_setup.py's own stated
+precedent). No TestServer setter exists for the New Battle screen's
+mission/craft/terrain/race/difficulty comboboxes, so the battle uses whatever
+NEW BATTLE > COOP's persisted defaults produce, and the actor's safety comes
+from staging plus the SELECTION RULE below instead of a terrain choice.
+
+A plain classic skirmish never calls Soldier::setCoop(), so every soldier
+defaults to seat 0 (host) and the CLIENT would have no real unit to drive a
+client intent with. TestServer "newbattle_seat_soldier"
+(NewBattleState::harnessSeatOneSoldier()) stamps ONE soldier to seat 1 before
+OK generates the battle, and session.stage_open_ground_actor then stages that
+soldier on open ground.
+
+SELECTION RULE: the staged seat-1 soldier must have no door tile within 2
+tiles of it (the door rule, a tile_info sweep) and NO LIVING NON-PLAYER UNIT
+WITHIN MAX VIEW DISTANCE of it (the contact rule, see qualifying_actor). A
+staged actor that fails the rule is a FIXTURE failure.
+
+Run this file in its OWN shell invocation (the standing harness rule - one
+harness run at a time, machine-wide): launched in the same invocation as a
+preceding harness run it can time out "waiting for action settled", an
+environment effect, not a defect in this test.
+
+Run:  python tools/coop_test/repro_atom_turn.py
+"""
+
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness import GameClient, make_user_dir
+import session
+from session import (assert_hash_clean, assert_events, assert_turret_parity,
+                     assert_reveal_parity, host_reveal_emits)
+
+FACTION_PLAYER = 0
+COOP_SEAT_NONE = -1
+COOP_SEAT_0 = 0
+COOP_SEAT_1 = 1
+
+SDLK_TAB = 9  # Options::keyBattleNextUnit default (test_input_gating.py precedent)
+SDLK_HOME = 278  # Options::keyBattleCenterUnit default
+
+# The contact rule's constants and predicate live in session.py
+# (session.actor_is_contact_free / session.MAX_VIEW_DISTANCE), one copy shared
+# by every file that uses the rule.
+
+# run_ui_variant's bounded retry: "the battlescape camera can shift between the
+# probe's round-trip check and the injected click arriving, so a click
+# occasionally lands one tile off".
+# Each attempt costs the actor one turn's TU (4), which is why this is small.
+UI_CLICK_TRIES = 4
+
+# Direction -> (dx, dy) step table, 0=North clockwise (the same table
+# TestServer.cpp's own "battle_action act==\"turn\"/\"door\"" debug helpers use).
+DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
+DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
+
+
+def states(gc):
+    return [s.replace("class OpenXcom::", "") for s in session.states(gc)]
+
+
+def top_state(gc):
+    st = states(gc)
+    return st[-1] if st else None
+
+
+def lobby(gc):
+    return gc.cmd({"cmd": "lobby_state"})
+
+
+def units_by_id(battle_state_resp):
+    return {u["id"]: u for u in battle_state_resp.get("units", [])}
+
+
+def skirmish_host(host, port, player="HostPlayer"):
+    host.ok({"cmd": "open_new_battle"})
+    host.wait_for("host new battle", lambda: session.has_state(host, "NewBattleState"))
+    host.ok({"cmd": "newbattle_coop"})
+    host.wait_for("host browser", lambda: session.has_state(host, "ServerList"))
+    host.ok({"cmd": "server_list_host"})
+    host.wait_for("host window", lambda: session.has_state(host, "HostMenu"))
+    host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv",
+             "port": port, "player": player})
+    host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"))
+
+
+def skirmish_client_at_browser(client):
+    client.ok({"cmd": "open_new_battle"})
+    client.wait_for("client new battle", lambda: session.has_state(client, "NewBattleState"))
+    client.ok({"cmd": "newbattle_coop"})
+    client.wait_for("client browser", lambda: session.has_state(client, "ServerList"))
+
+
+def bring_up_lobby(host, client, port):
+    host.spawn(); host.connect()
+    client.spawn(); client.connect()
+
+    skirmish_host(host, port)
+    skirmish_client_at_browser(client)
+    client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port, "player": "ClientPlayer"})
+
+    host.wait_for("host popup", lambda: session.has_state(host, "Profile"))
+    client.wait_for("client popup", lambda: session.has_state(client, "Profile"))
+    host.ok({"cmd": "profile_ok"})
+    client.ok({"cmd": "profile_ok"})
+    host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
+
+
+def drive_to_battlescape(host, client, seated_holder):
+    """Steps 5-7 of the skirmish lobby flow (test_handshake.py/
+    test_faction_setup.py precedent), extended with this file's seat stamp
+    between reaching NewBattleState and clicking OK."""
+    host.ok({"cmd": "lobby_action"})
+    host.wait_for("host at battle settings",
+                  lambda: (not session.has_state(host, "LobbyMenu")) or None)
+    assert top_state(host) == "NewBattleState", \
+        f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
+
+    seat_resp = host.ok({"cmd": "newbattle_seat_soldier", "seat": COOP_SEAT_1})
+    seated_holder["soldierId"] = seat_resp["soldierId"]
+
+    host.ok({"cmd": "newbattle_ok"})
+
+    # the shared battle-entry spine - both briefings (the offer goes
+    # out at PREPARE), both pre-battle equip screens,
+    # both Turn-1 screens.
+    session.briefings_to_battlescape(host, client)
+    assert session.has_state(host, "BattlescapeState"), \
+        f"host should reach BattlescapeState after OK, stack={states(host)}"
+
+    time.sleep(3)  # let both logs flush the handshake lines before reading them
+
+
+# dismiss_battle_start_overlays() lives in session.py, shared by every file that
+# needs it. The pre-battle InventoryState is FROZEN in a coop battle, so only
+# NextTurnState is left on that stack; the shared helper's docstring describes
+# the stack shape.
+
+
+def has_door_within(gc, x, y, z, radius=2):
+    for dx in range(-radius, radius + 1):
+        for dy in range(-radius, radius + 1):
+            ti = gc.cmd({"cmd": "tile_info", "x": x + dx, "y": y + dy, "z": z})
+            if not ti.get("ok"):
+                continue
+            for part in ti.get("parts", {}).values():
+                if part.get("isDoor") or part.get("isUfoDoor"):
+                    return True
+    return False
+
+
+def qualifying_actor(host, soldier_id):
+    """SELECTION RULE - see this file's own module docstring. Returns the
+    seat-1 soldier's unit dict if it qualifies, else None.
+
+    THE CONTACT RULE. The actor must be "open-ground, no-door, NO-ENEMY-LOS":
+    a hostile ALREADY spotted at t=0 says nothing about whether this actor's
+    ROTATION will bring one into view. Vanilla aborts a BA_NONE turn mid-chain
+    the moment `getUnitsSpottedThisTurn()` grows (UnitTurnBState.cpp:117), and
+    that abort leaves the unit on an intermediate facing - which is exactly the
+    failure this rule exists to stop ("the admitted turn itself never completed
+    on the host"), and which the engine itself flags as a FIXTURE failure:
+    "[coop-turn] ... ABORTED mid-chain - the turn fixture guards
+    ... should have prevented this".
+
+    The predicate is deliberately a conservative SUPERSET of vanilla's: no
+    LIVING NON-PLAYER unit (hostile or neutral - the harness cannot cheaply
+    tell which factions a given observer adds to its spotted set, so it excludes
+    both) anywhere within MAX_VIEW_DISTANCE. A unit further away than the mod's
+    view-distance cap can never be spotted by any rotation, so a fixture that
+    passes this rule cannot take the abort branch. It is a PIN on the selection
+    rule, never a relaxation of anything the test asserts.
+
+    There is no "hostile already visible at t=0" rule: the staging helper
+    leaves nothing within view distance, and the staging hook does not
+    recompute sight, so the visible list may be stale.
+    """
+    st = host.cmd({"cmd": "battle_state"})
+    if not st.get("ok") or not st.get("inBattle"):
+        return None
+    units = units_by_id(st)
+    for u in units.values():
+        if u.get("soldierId") == soldier_id:
+            if has_door_within(host, u["x"], u["y"], u["z"], radius=2):
+                return None  # the door rule
+            if not session.actor_is_contact_free(st, u, "repro_atom_turn"):
+                return None  # the contact rule
+            return u
+    return None
+
+
+def bring_up_qualifying_battle():
+    """Boot a live skirmish, seat one soldier to seat 1, stage it on open
+    ground, and check the SELECTION RULE against it. Returns
+    (host, client, actor_unit_dict, soldier_id)."""
+    port = str(47996 + 1)
+    host_dir = make_user_dir(f"repro_atom_turn_host_1")
+    client_dir = make_user_dir(f"repro_atom_turn_client_1")
+    host = GameClient("host", 48830 + 1 * 2, host_dir)
+    client = GameClient("client", 48831 + 1 * 2, client_dir)
+    seated = {}
+    try:
+        bring_up_lobby(host, client, port)
+        drive_to_battlescape(host, client, seated)
+
+        soldier_id = seated["soldierId"]
+        session.stage_open_ground_actor(host, client, [soldier_id], "turn")
+
+        actor = qualifying_actor(host, soldier_id)
+        if actor is not None:
+            print(f"[repro_atom_turn] fixture qualifies "
+                  f"(actor unit id={actor['id']}, soldierId={soldier_id}, "
+                  f"pos=({actor['x']},{actor['y']},{actor['z']}))")
+            return host, client, actor, soldier_id
+
+        raise AssertionError(f"FIXTURE: [turn] staged actor failed the qualifying rule "
+                              f"(door within radius, or a non-player unit inside view distance) "
+                              f"after staging")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
+
+
+def neighbourhood(unit, radius=1):
+    """The (x, y, z) tiles around `unit` - handed to assert_reveal_parity as
+    extra probe positions so the per-tile fog check covers exactly the tiles a
+    turn is most likely to have just revealed, not only the even spread."""
+    return [(unit["x"] + dx, unit["y"] + dy, unit["z"])
+            for dx in range(-radius, radius + 1)
+            for dy in range(-radius, radius + 1)]
+
+
+def assert_turn_parity(host, client, what):
+    """`battle_state.turn` must read 1 on BOTH machines once the
+    host has left its briefing.
+
+    HOW THE CLIENT REACHES 1. The host takes the snapshot (and sends the
+    battle_offer that advertises it) AFTER startFirstTurn() - CoopHandshake::
+    emitPreparedOffer(), called from BriefingState::btnOkClick's freeze branch
+    - so the blob the client loads already carries `_turn == 1`. The CoopMod
+    counter mirror (coopClientMirrorFirstTurnCounter(), connectionTCP.cpp),
+    which forces `_turn` 0 -> 1 at the end of the client handshake, is a loud
+    TRIPWIRE: reaching it means the snapshot was taken too early, and its
+    counter is exposed as `event_state.turnMirrorFired` on the client -
+    asserted at exactly 0 below, which is what actually proves the tripwire
+    never fired rather than just inferring it from `turn == 1` (the tripwire's
+    own compensating write would ALSO produce `turn == 1`, silently).
+
+    HOW THE HOST REACHES 1. The pre-battle EQUIP screen is FROZEN in a coop
+    battle, so BriefingState::btnOkClick skips the InventoryState push and
+    calls SavedBattleGame::startFirstTurn() itself, exactly the way the
+    preview branch beside it does - at close_briefing, which is also why the
+    overlay dismissal has no InventoryState to clear.
+    """
+    ht = host.cmd({"cmd": "battle_state"}).get("turn")
+    ct = client.cmd({"cmd": "battle_state"}).get("turn")
+    assert ht == 1, (f"host battle_state.turn == {ht}, expected 1 {what} - the host's own "
+                     "startFirstTurn() never ran (battle-start overlays still up?)")
+    assert ct == 1, (f"client battle_state.turn == {ct}, expected 1 {what} (host={ht}) - the "
+                     "loaded blob should already carry turn 1 (or the turn-counter mirror's "
+                     "tripwire compensated but the item positions are not - see the "
+                     "turnMirrorFired assert below)")
+    tmf = client.cmd({"cmd": "event_state"}).get("turnMirrorFired")
+    assert tmf == 0, (f"client event_state.turnMirrorFired == {tmf}, expected 0 {what} - the "
+                      "turn-counter tripwire fired, meaning the host's snapshot was taken "
+                      "BEFORE startFirstTurn()")
+    return ht, ct
+
+
+def event_seq_baseline(client):
+    return client.cmd({"cmd": "event_state"}).get("lastSeqApplied", 0)
+
+
+def wait_settled(host, client, baseline, timeout=15):
+    """Waits for queueDepth to return to 0 on BOTH machines AND for the
+    client's lastSeqApplied to have advanced past `baseline` (captured via
+    event_seq_baseline() BEFORE triggering the action) - queueDepth==0 alone
+    is also true trivially at REST (nothing ever enqueued), which would
+    otherwise let this return immediately without the action having done
+    anything at all."""
+    def settled():
+        hs = host.cmd({"cmd": "event_state"})
+        cs = client.cmd({"cmd": "event_state"})
+        return bool(hs.get("ok") and cs.get("ok")
+                    and hs.get("queueDepth") == 0 and cs.get("queueDepth") == 0
+                    and cs.get("lastSeqApplied", 0) > baseline)
+    client.wait_for("action settled (new seq applied, queueDepth 0 on both machines)",
+                     settled, timeout=timeout)
+
+
+def center_on_selection(gc):
+    gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
+    time.sleep(0.15)
+
+
+def tile_click(gc, tx, ty, tz, button="right"):
+    """The `map_tile_click_pos` recipe, the same shape as test_input_gating.py
+    (and test_feedback.py).
+
+    A plain `map_tile_screen_pos` + raw click is NOT A WORKING RECIPE: three
+    real offsets sit between the projected point and the point that actually
+    selects a tile
+    - `mapClick` reads Map::getSelectorPosition() rather than projecting the
+    click itself; `inject_input` pushes WINDOW pixels while the camera works in
+    base coordinates (Screen::getXScale() is 2 in the harness's 640x400
+    window); and a point over the icons panel is swallowed by mapClick's
+    `_mouseOverIcons` early return. The probe resolves all three AND
+    re-verifies the round trip, so a click that would have missed is reported
+    as `verified: false` HERE instead of surfacing minutes later as "the host
+    received no bt_intent at all".
+
+    Returns the probe response, or None when the tile is not clickable right
+    now (a FIXTURE condition - the caller re-rolls the target, it is never a
+    result about the feature under test)."""
+    center_on_selection(gc)
+    pr = gc.ok({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
+    if not pr.get("verified"):
+        return None
+    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
+           "button": button})
+    return pr
+
+
+def run_ui_variant(host, client, actor_id, current_dir):
+    """ONE faithful-UI variant step: a real right-click via
+    inject_input, proving the secondaryAction intercept end-to-end -
+    the client SENDS an intent (instead of running vanilla locally) exactly
+    as the battle_intent-driven path above did, but reached through the
+    real map-click code path this time.
+
+    The right-click itself goes through the self-verifying
+    `map_tile_click_pos` probe (see tile_click above), inside a bounded
+    RETRY loop that stops the moment the INTENDED EFFECT is observed. Two
+    distinct camera/viewport facts
+    make that necessary, and neither says anything about the intercept:
+      * a particular neighbour tile may not be clickable from where the camera
+        sits at all (the probe reports `verified: false`); and
+      * "the battlescape camera can shift between the probe's round-trip check
+        and the injected click arriving, so a click occasionally lands one tile
+        off" - which is a turn to a NEIGHBOURING facing, not
+        a failure to turn.
+    Each attempt therefore re-reads the unit's CURRENT facing, picks a fresh
+    90-degree target from it, and re-probes. (`current_dir` is consequently only
+    the caller's view of the starting facing and is no longer read here - the
+    loop must use the live one, because a mis-landed attempt has already moved
+    it.) Every assertion below applies to the attempt that landed: the unit
+    must end on exactly
+    the intended facing on BOTH machines, and its TU must have dropped."""
+    selected = None
+    for _ in range(12):
+        st = client.cmd({"cmd": "battle_state"})
+        selected = st.get("selectedId")
+        if selected == actor_id:
+            break
+        client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_TAB})
+        time.sleep(0.1)
+    assert selected == actor_id, (
+        f"could not Tab-cycle the client's selection onto unit {actor_id} "
+        f"(last selectedId={selected}) - see test_input_gating.py's own "
+        "'initial-selection' note on why a fresh load may start elsewhere")
+
+    before_tu = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["tu"]
+
+    ui_to_dir = None
+    landed = False
+    for attempt in range(1, UI_CLICK_TRIES + 1):
+        unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+        here = unit["direction"]
+        # Prefer 90 degrees on (the original recipe); fall back through the
+        # other non-current facings when a neighbour tile is not clickable.
+        placed = False
+        for cand in [(here + off) % 8 for off in (2, 6, 3, 5, 1, 7, 4)]:
+            baseline = event_seq_baseline(client)
+            if tile_click(client, unit["x"] + DIR_DX[cand], unit["y"] + DIR_DY[cand],
+                          unit["z"], button="right") is not None:
+                ui_to_dir = cand
+                placed = True
+                break
+        assert placed, (
+            "no neighbour tile of the actor was clickable in any direction - FIXTURE "
+            "failure (camera/viewport), not a result about the secondaryAction intercept")
+
+        wait_settled(host, client, baseline)
+        if units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"] == ui_to_dir:
+            landed = True
+            break
+        got = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"]
+        print(f"[repro_atom_turn] run_ui_variant attempt {attempt}/{UI_CLICK_TRIES}: the "
+              f"click turned unit {actor_id} to dir {got}, intended {ui_to_dir} - the "
+              "camera shifted between the probe and the injected click (the known "
+              "one-tile-off effect); re-aiming from the new facing")
+
+    host_unit = units_by_id(host.cmd({"cmd": "battle_state"}))[actor_id]
+    client_unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+
+    assert landed and client_unit["direction"] == ui_to_dir, (
+        f"faithful-UI right-click did not turn unit {actor_id} to dir {ui_to_dir} "
+        f"(client direction={client_unit['direction']}) in {UI_CLICK_TRIES} attempts - "
+        "the secondaryAction intercept did not fire end-to-end")
+    assert host_unit["direction"] == ui_to_dir, (
+        f"host unit {actor_id} direction={host_unit['direction']}, expected {ui_to_dir}")
+    assert client_unit["tu"] < before_tu, \
+        "client TU did not decrease after the faithful-UI turn"
+
+    assert_hash_clean(host, client, buckets=["unitsStats"], what="post-UI-variant")
+    # A turn re-aims the FOV cone, so the host discovers tiles -
+    # they must have ridden this very action's ev/action_end (the reveal attaches at
+    # the CoopEmit::sendEv choke) and left the two machines identical.
+    assert_reveal_parity(host, client, "post-UI-variant",
+                         extra_positions=neighbourhood(client_unit))
+    print(f"PASS run_ui_variant: real right-click turned unit {actor_id} to dir {ui_to_dir} "
+          f"via the secondaryAction intercept (client sent the intent, host executed "
+          "+ emitted, client applied), hash-clean, fog of war in parity")
+
+
+def settle_reveal(host, client, timeout=30):
+    """Wait until the HOST has NOTHING unpublished and the client has caught up.
+
+    Essential for the no-reveal measurement below, and the reason is exactly
+    the one test_retry_cancel.py's own settle_emits() gives: the reveal's
+    quiescent flush (CoopReveal::flushQuiescent, at the pump point) can
+    publish a standalone `ev reveal` a tick or two AFTER an action settles. A
+    measurement started before that flush would see the PREVIOUS action's
+    leftover bits ride the next envelope and report a false non-empty diff."""
+    def quiet():
+        cs = client.cmd({"cmd": "event_state"})  # client, then the host's reveal_state, then its event_state
+        rs = host.cmd({"cmd": "reveal_state"})
+        hs = host.cmd({"cmd": "event_state"})
+        return bool(hs.get("ok") and cs.get("ok") and rs.get("ok")
+                    and rs.get("unpublished") is False
+                    and cs.get("lastSeqApplied", 0) == hs.get("lastSeqEmitted", 0)
+                    and cs.get("queueDepth") == 0)
+    client.wait_for("host has nothing unpublished and the client is caught up",
+                    quiet, timeout=timeout)
+
+
+def turn_to(host, client, actor_id, to_dir, what):
+    """One admitted client turn, settled and fully flushed. Returns how many
+    reveal deltas the HOST attached while it ran."""
+    emits_before = host_reveal_emits(host)
+    baseline = event_seq_baseline(client)
+    client.ok({"cmd": "battle_intent", "kind": "turn", "actor": actor_id, "toDir": to_dir})
+    wait_settled(host, client, baseline)
+    settle_reveal(host, client)
+    unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+    assert unit["direction"] == to_dir, (
+        f"{what}: unit {actor_id} direction={unit['direction']}, expected {to_dir} - "
+        "the turn did not land")
+    return host_reveal_emits(host) - emits_before
+
+
+def run_no_reveal_case(host, client, actor_id, reveal_emits_t0):
+    """Reveal presence-gating (`reveal` is "omitted when nothing
+    was revealed"): an action that discovers NOTHING must attach no reveal field
+    at all.
+
+    HOW THE EMPTY DIFF IS CONSTRUCTED. Turning the actor back to its t=0
+    facing would NOT give an empty diff: the actor is the CLIENT's seat-1
+    soldier, each machine auto-selects its OWN unit at entry
+    (CoopHandshake::selectOwnUnitAtEntry), so the HOST's own selected unit is a
+    different one, and only the selected unit's FOV is recalculated by
+    BattlescapeState::init() - the actor's t=0 cone was never computed OR
+    published, and turning back to it discovers tiles for the first time.
+
+    So the premise is MADE TRUE instead of assumed, in three steps:
+      1. turn the actor TO `probe_dir` and let the host publish everything
+         (settle_reveal waits for `reveal_state.unpublished == False`), so that
+         cone is now, by construction, fully discovered AND published;
+      2. turn AWAY to `away_dir`, again fully flushed;
+      3. turn BACK to `probe_dir` and MEASURE.
+    Reveal is monotone within a stage (bits are only ever ADDED), so step
+    3's cone is a subset of what step 1 already published and its diff at the
+    CoopEmit::sendEv choke is necessarily empty.
+
+    WHY THE ASSERTION CAN STILL FAIL (this is a gate, not a formality):
+      * The construction guarantees the DIFF is empty. It does NOT suppress an
+        ATTACHMENT. If the presence gating regressed - if sendEv attached a
+        `reveal` field unconditionally, or attached an empty delta - the host
+        would log one more "attached reveal delta" line for step 3 and this
+        assertion fails. The count must be UNCHANGED, not "small".
+      * IN-RUN POSITIVE CONTROL: the counter must be NON-ZERO at the moment of
+        the measurement. That is ASSERTED, and it is guaranteed rather than
+        map-dependent - the host publishes the initial fog during bring-up, so
+        `[coop-reveal] attached reveal delta` lines exist in every run before a
+        single action is driven. It proves, in this very run, that this build
+        really does emit the line host_reveal_emits() greps for, that the log
+        is readable, and that the counter is not silently stuck at zero. Those
+        bring-up deltas go through the SAME CoopEmit::sendEv choke and the SAME
+        CoopReveal::attachDelta the measured turn would use, so a gating
+        regression that attached unconditionally would move this same counter.
+      * How many deltas the run's own TURNS attached is REPORTED but
+        deliberately NOT asserted, because it is genuinely map-dependent: on a
+        roll where the actor starts in an already fully-discovered pocket the
+        e2e turn, the UI turn and both preps can all legitimately attach
+        nothing (observed). Requiring it would fail runs for having a MORE
+        certainly-empty diff than usual - the opposite of what this case wants.
+        Likewise the preparation turns are not required to reveal anything: a
+        prep that reveals nothing means the cone was ALREADY published, which
+        satisfies the premise even more directly than one that publishes it.
+      * The OTHER direction - "the host stopped attaching deltas when it should
+        have" - is not this case's job and is covered elsewhere in the same
+        run: the e2e turn asserts host/client `mapDiscoveredFloor` equality,
+        assert_reveal_parity does a per-tile fog compare after every action,
+        and repro_reveal_sync.py covers the delta/base machinery wholesale.
+
+    WHY NOT A TURRET-ONLY TURN: one would guard TileEngine.cpp:1547's
+    `Options::strafe && getTurretType() > -1` turret-cone branch. On this
+    fixture that case is vacuous AND risky: every unit is a
+    plain soldier with getTurretType() == -1 (the same fact the turret
+    applier rule rests on), so :1547 never takes the turret branch, and a
+    turret-only UnitTurnBState on a turret-less unit has no vanilla guarantee of
+    ever reaching its target facing - i.e. a possible non-terminating chain in a
+    test. This variant proves the same property (no reveal traffic when nothing
+    was revealed) on a case the fixture can actually execute.
+
+    Observed through the HOST's own log rather than the event ring: CoopEventLog
+    is a fixed POD struct and deliberately carries no payload (BattlePump.h)."""
+    start_dir = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"]
+    probe_dir = (start_dir + 4) % 8   # 180 degrees off - a fresh cone
+    away_dir = (probe_dir + 2) % 8    # 90 degrees off that - another fresh cone
+
+    # Start from a fully published baseline, so nothing left over from the
+    # previous case can ride step 1 or 3.
+    settle_reveal(host, client)
+
+    prep1 = turn_to(host, client, actor_id, probe_dir, "no-reveal prep 1 (publish the cone)")
+    prep2 = turn_to(host, client, actor_id, away_dir, "no-reveal prep 2 (turn away)")
+
+    emits_before = host_reveal_emits(host)
+
+    # POSITIVE CONTROL (see the docstring): the counter must be live. Guaranteed
+    # by the host's bring-up fog publication, which goes through the same
+    # CoopEmit::sendEv choke the measurement watches - so this is not a
+    # map-dependent hope, and a silently-broken counter cannot make the
+    # measurement below vacuous.
+    assert emits_before > 0, (
+        "host_reveal_emits() reads 0 - this build never logged '[coop-reveal] "
+        "attached reveal delta' at all, not even for the host's bring-up fog "
+        "publication, so a zero at the measurement would be meaningless. The "
+        "counter, not the presence gating, is what failed here.")
+    measured = turn_to(host, client, actor_id, probe_dir,
+                       "no-reveal measurement (back to the published cone)")
+    emits_after = host_reveal_emits(host)
+
+    assert measured == 0, (
+        f"a turn back to a cone this test had ALREADY published attached {measured} "
+        "reveal delta(s) - the reveal presence gating is broken (an empty diff must "
+        "attach nothing at all). Reveal is monotone within a stage, so this cone "
+        "cannot legitimately discover anything new.")
+    assert emits_after == emits_before, "host reveal-delta count moved outside the turn"
+
+    unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+    assert_reveal_parity(host, client, "after the no-reveal turn",
+                         extra_positions=neighbourhood(unit))
+    by_turns = emits_before - reveal_emits_t0
+    print(f"PASS run_no_reveal_case: positive control ok - the counter is live at "
+          f"{emits_before} (bring-up fog publication guarantees it); this run's own "
+          f"turns attached {by_turns} delta(s) since t=0, of which the prep turns "
+          f"contributed {prep1 + prep2}"
+          f"{' (the actor started in an already fully-discovered pocket, which makes the empty diff below even more certain)' if by_turns == 0 else ''}"
+          f"; turning unit {actor_id} back to the already-published dir {probe_dir} "
+          f"attached NONE (count stayed at {emits_after}) - reveal presence gating holds")
+
+
+def run_deny_path(client, host_state, seated_soldier_id):
+    """client intents a HOST-owned unit -> deny(not_your_unit) + banner
+    state via event_state.lastDeny."""
+    host_units = units_by_id(host_state)
+    host_owned = next(
+        u for u in host_units.values()
+        if u.get("isPlayerSoldier") and u.get("coop") == COOP_SEAT_0
+        and u.get("soldierId") != seated_soldier_id)
+
+    intent_resp = client.ok({"cmd": "battle_intent", "kind": "turn",
+                              "actor": host_owned["id"],
+                              "toDir": (host_owned["direction"] + 1) % 8})
+    iseq = intent_resp["iseq"]
+
+    def denied():
+        ld = client.cmd({"cmd": "event_state"}).get("lastDeny")
+        return ld if ld and ld.get("iseq") == iseq else None
+
+    ld = client.wait_for("deny(not_your_unit) via event_state.lastDeny", denied, timeout=10)
+    assert ld.get("reason") == "not_your_unit", f"expected deny reason 'not_your_unit', got {ld}"
+    print(f"PASS run_deny_path: client intent on host-owned unit {host_owned['id']} "
+          f"denied({ld['reason']}) via event_state.lastDeny")
+
+
+def test_atom_turn_e2e():
+    host, client, actor, soldier_id = bring_up_qualifying_battle()
+    try:
+        # Fog of war is GAME STATE - the host's
+        # bring-up reveals (several hundred tiles past the handshake snapshot,
+        # plus the void-tile baseline the blob cannot carry at all) must already
+        # be on the client before the first action runs.
+        #
+        # Probed BEFORE battle_t0 on purpose: assert_reveal_parity makes dozens
+        # of tile_info round trips (~2-3s in this harness) and is TEST
+        # INSTRUMENTATION, not pipeline latency - counting it against the 5s
+        # battle-phase budget below would measure the probe, not the atom.
+        assert_reveal_parity(host, client, "at t=0 (pre-action)",
+                             extra_positions=neighbourhood(actor))
+
+        battle_t0 = time.time()  # battle-phase wall-clock starts once the battle is live
+
+        actor_id = actor["id"]
+        from_dir = actor["direction"]
+        to_dir = (from_dir + 4) % 8  # face 180 degrees
+        before_tu = actor["tu"]
+
+        # --- t=0 hash-clean sanity ---
+        assert_hash_clean(host, client, buckets=["unitsStats"], what="at t=0 (pre-action)")
+
+        # --- Turn-counter parity + FULL 8-bucket equality ---
+        # bring_up_qualifying_battle() -> drive_to_battlescape() already closed
+        # the host's briefing, so the host has been through
+        # BriefingState::btnOkClick -> SavedBattleGame::startFirstTurn() ->
+        # `_turn = 1` by this point (the coop equip freeze puts that call on the
+        # briefing's OK - see assert_turn_parity()'s docstring). A client whose
+        # snapshot blob was streamed while the host was still at turn 0 would
+        # sit at turn 0 FOREVER without the turn-counter mirror - a
+        # saveBlob-ONLY `hash_now full` mismatch. These two asserts guard
+        # against it.
+        assert_turn_parity(host, client, "at t=0, post-overlay-dismissal")
+        t0_h, _ = assert_hash_clean(host, client, full=True,
+                                    what="at t=0, post-overlay-dismissal (turn-counter mirror)")
+        print(f"PASS turn-counter mirror: battle_state.turn == 1 on BOTH machines and hash_now "
+              f"full={len(t0_h)}/10 buckets EQUAL post-overlay-dismissal")
+
+        # --- drive the client action via battle_intent ---
+        # Captured HERE so run_no_reveal_case() can use "the host attached at
+        # least one reveal delta while this run drove real turns" as its
+        # positive control (see its docstring).
+        reveal_emits_t0 = host_reveal_emits(host)
+        baseline = event_seq_baseline(client)
+        intent_resp = client.ok({"cmd": "battle_intent", "kind": "turn",
+                                  "actor": actor_id, "toDir": to_dir})
+        assert intent_resp.get("iseq"), f"battle_intent did not mint an iseq: {intent_resp}"
+
+        wait_settled(host, client, baseline)
+
+        host_state = host.cmd({"cmd": "battle_state"})
+        client_state = client.cmd({"cmd": "battle_state"})
+        host_unit = units_by_id(host_state)[actor_id]
+        client_unit = units_by_id(client_state)[actor_id]
+
+        assert host_unit["direction"] == to_dir, (
+            f"host unit {actor_id} direction={host_unit['direction']}, expected {to_dir} - "
+            "the admitted turn itself never completed on the host")
+        assert client_unit["direction"] == to_dir, (
+            f"client unit {actor_id} direction={client_unit['direction']}, expected {to_dir} "
+            f"(host direction={host_unit['direction']}) - bt_ev/bt_action_end apply failed")
+        assert client_unit["tu"] == host_unit["tu"], (
+            f"client/host TU differ after the turn: client={client_unit['tu']} "
+            f"host={host_unit['tu']}")
+        assert client_unit["tu"] < before_tu, (
+            f"TU did not decrease from the pre-turn value ({before_tu}) - got "
+            f"{client_unit['tu']}")
+
+        assert_hash_clean(host, client, buckets=["unitsStats"], what="post-turn")
+        assert_turret_parity(host, client, "after the e2e turn")
+        assert host_state.get("mapDiscoveredFloor") == client_state.get("mapDiscoveredFloor"), (
+            f"mapDiscoveredFloor differs after the e2e turn: "
+            f"host={host_state.get('mapDiscoveredFloor')} "
+            f"client={client_state.get('mapDiscoveredFloor')} - the reveal delta this turn's ev "
+            "should have carried did not land")
+
+        assert_events(client, ["turn", "bt_action_end"])
+
+        elapsed = time.time() - battle_t0
+        print(f"PASS test_atom_turn_e2e: unit {actor_id} turned {from_dir} -> {to_dir}, "
+              f"TU {before_tu} -> {client_unit['tu']} on both machines, hash-clean, "
+              f"battle-phase wall-clock={elapsed:.2f}s")
+        assert elapsed < 5.0, f"battle-phase wall-clock {elapsed:.2f}s exceeds the 5s target"
+
+        # Per-tile fog check for the turn just measured - deliberately
+        # AFTER the latency gate above, for the same instrumentation-vs-latency
+        # reason as the pre-action probe (the cheap mapDiscoveredFloor equality
+        # inside the window already caught a missing delta).
+        assert_reveal_parity(host, client, "after the e2e turn",
+                             extra_positions=neighbourhood(client_unit))
+
+        # --- ONE faithful-UI variant: proves the secondaryAction
+        # intercept end-to-end via a real right-click ---
+        run_ui_variant(host, client, actor_id, client_unit["direction"])
+
+        # --- Reveal presence gating: an action that reveals nothing
+        # must attach no `reveal` field. The case PUBLISHES the cone it later
+        # returns to rather than assuming any facing is already discovered -
+        # the entry auto-select makes that assumption false (see the case's
+        # docstring). ---
+        run_no_reveal_case(host, client, actor_id, reveal_emits_t0)
+
+        # --- deny path: client intents a HOST-owned unit ---
+        run_deny_path(client, host_state, soldier_id)
+
+        # --- acceptance: queueDepth back to 0 on both machines ---
+        host_es = host.cmd({"cmd": "event_state"})
+        client_es = client.cmd({"cmd": "event_state"})
+        assert host_es.get("queueDepth") == 0, f"host queueDepth != 0: {host_es}"
+        assert client_es.get("queueDepth") == 0, f"client queueDepth != 0: {client_es}"
+
+        print("PASS test_atom_turn_e2e: queueDepth 0 on both machines after all actions")
+
+        # --- Turn-counter parity, turret parity,
+        # and FULL 8-bucket equality AFTER every action above (`hash_now full`
+        # equal once real actions have run, not only at t=0) ---
+        # saveBlob is IN scope here because the turret rule closes the one
+        # post-action difference a save_game diff of both machines showed:
+        # `directionTurret` (host=0, client=2 after two rotations). The emit
+        # carries turretFrom/turretTo on every turn ev, and the applier writes
+        # the body facing without dragging the turret and takes the turret only
+        # from the ev. The per-tile `discovered` bits are inside this 8/8 too,
+        # not masked out of it. (The one thing the hash still cannot see is a VOID
+        # tile's bits - SavedBattleGame::save skips void tiles entirely - which is
+        # why assert_reveal_parity's aggregate counts run alongside it.)
+        assert_turn_parity(host, client, "after all actions")
+        n_units = assert_turret_parity(host, client, "after all actions")
+        assert_reveal_parity(host, client, "after all actions")
+        post_h, _ = assert_hash_clean(host, client, full=True,
+                                      what="after all actions (turret rule, full 10/10)")
+        print(f"PASS test_atom_turn_e2e: turn 1/1, directionTurret equal on all {n_units} "
+              f"units, fog of war in parity, and {len(post_h)}/10 buckets (saveBlob included, "
+              "binTiles now UNMASKED) EQUAL on both machines after all actions")
+        # The full sweep is ten buckets: the 8 BattleHashSet members (synced included), saveBlob and the dual-set
+        # reveal's `revealHostile`.
+        assert len(post_h) == 10, (
+            f"hash_now full returned {len(post_h)} buckets, expected 10 "
+            f"({sorted(post_h)}) - the hash bucket set changed under this test")
+    finally:
+        host.shutdown()
+        client.shutdown()
+
+
+def main():
+    test_atom_turn_e2e()
+    print("ALL ATOM TURN E2E TESTS PASSED")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_atom_turn", e.tracking, str(e))
+        print(f"\nrepro_atom_turn: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(2)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\nrepro_atom_turn: FAIL (fixture not constructed) - {e}")
+            sys.exit(2)
+        print(f"\nrepro_atom_turn: FAIL\nAssertionError: {e}")
+        sys.exit(2)
+    except TimeoutError as e:
+        print(f"\nrepro_atom_turn: FAIL\nTimeoutError: {e}")
+        sys.exit(2)

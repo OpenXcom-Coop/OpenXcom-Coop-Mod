@@ -60,6 +60,8 @@
 
 #include "../Savegame/Waypoint.h"
 #include "../CoopMod/CoopState.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
@@ -693,64 +695,13 @@ void NewBattleState::btnOkClick(Action *)
 
 	}
 
-	// coop
-	// if not pvp
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCoopGamemode() != 2 && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 4)
-	{
-
-		// Skirmish co-op: OK here is the real START. The client is still sitting
-		// in the lobby (the host stepped out to these settings via the lobby's
-		// BATTLE SETTINGS button), so release it to follow us into the battle and
-		// lock the roster/teams now that the session is actually starting.
-		if (_game->getCoopMod()->getServerOwner() == true && connectionTCP::session.lobbyMode == 0)
-		{
-			connectionTCP::session.campaignStarted();
-
-			Json::Value lobbyDone;
-			lobbyDone["state"] = "lobby_ready";
-			_game->getCoopMod()->sendTCPPacketData(lobbyDone.toStyledString());
-		}
-
-		if (_game->getCoopMod()->getHost() == true)
-		{
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setNewBattleState(this);
-			CoopState* coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-		}
-		// The client wants to start a COOP mission!!! Transferring them to HOST!!!
-		else
-		{
-
-			_game->getCoopMod()->setHost(true);
-
-			_game->getCoopMod()->setSelectedCraft(_craft);
-
-			_game->getCoopMod()->setNewBattleState(this);
-
-			CoopState* coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-
-		}
-
-		save();
-
-		return;
-
-	}
-	// coop
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		// cahnge host
-		_game->getCoopMod()->setHost(true);
-
-		Json::Value root;
-
-		root["state"] = "changeHost4";
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-	}
+	// Classic/SHARED skirmish co-op runs the SAME vanilla generation as SP
+	// below and hands the result to CoopHandshake::offerBattle() (the
+	// battle-start handshake). The legacy PvP/PvE2 changeHost4 handoff and
+	// BriefingState::setupCoop() dispatch stay quarantined. This guard is
+	// false on every SP click, so the SP battle-generation path below is
+	// byte-for-byte untouched.
+	const bool coopSkirmish = _game->getCoopMod()->getCoopStatic() == true;
 
 	if (_craft)
 	{
@@ -758,15 +709,6 @@ void NewBattleState::btnOkClick(Action *)
 		_craft->resetCustomDeployment();
 	}
 	save();
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		_game->getCoopMod()->setSelectedCraft(_craft);
-		_game->getCoopMod()->setNewBattleState(this);
-
-	}
 
 	SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
 	_game->getSavedGame()->setBattleGame(bgame);
@@ -849,25 +791,25 @@ void NewBattleState::btnOkClick(Action *)
 
 	bgen.run();
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == false)
+	_game->popState();
+	_game->popState();
+
+	// offerBattle() is a pure network side effect - it never
+	// touches the state stack (see CoopHandshake.h's top doc comment for why
+	// a first attempt that deferred this push crashed Game::run() with an
+	// empty state stack). BriefingState is pushed exactly like vanilla SP,
+	// unconditionally; a refused/corrupt handshake unwinds it via
+	// coopUnwindToSafeState() instead (connectionTCP.cpp).
+	if (coopSkirmish)
 	{
-		_game->popState();
-		_game->popState();
-		_game->pushState(new BriefingState(_craft, base));
+		// Mint the two BriefingState display labels and
+		// resolve this battle's deployment BEFORE offerBattle() snapshots the blob
+		// and builds the offer - the ORDERING TRAP in CoopHandshake.h. One of FOUR identical
+		// call sites; no-op off the coop host.
+		CoopHandshake::mintMissionLabels(_game, _craft, base);
+		CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
 	}
-	else
-	{
-
-		// please wait message
-		CoopState* coopWindow = new CoopState(4);
-		_game->pushState(coopWindow);
-
-		// start  coop mission
-		BriefingState* b = new BriefingState(_craft, base);
-		b->setupCoop();
-
-	}
+	_game->pushState(new BriefingState(_craft, base));
 
 	_craft = 0;
 
@@ -910,6 +852,108 @@ void NewBattleState::harnessSetHotseat(bool on)
 {
 	_btnHotseat->setPressed(on);
 	btnHotseatClick(nullptr);
+}
+
+/**
+ * Stamp the first
+ * soldier assigned to the currently selected craft with a coop seat, before
+ * OK generates the battle. See this method's own header doc comment for why
+ * a plain classic skirmish otherwise leaves the harness with no non-host-
+ * owned unit to drive a client-intent repro against.
+ *
+ * @a index (default 0: the first soldier)
+ * selects the Nth soldier assigned to the craft instead of always the first,
+ * so a second call with a different index can stamp a SECOND, DIFFERENT
+ * soldier to the same seat - needed by repro_atom_kneel.py's burst/drain
+ * proof, which drives two real client-owned units through a mixed turn+
+ * kneel burst (a live host-side "busy" admission race was ATTEMPTED with
+ * this same two-unit setup but could not be made to land - see that repro's
+ * own run_burst_drain_proof() doc comment for the diagnostic finding).
+ */
+int NewBattleState::harnessSeatOneSoldier(int seat, int index)
+{
+	if (!_craft)
+	{
+		return -1;
+	}
+	int seen = 0;
+	for (auto* soldier : *_craft->getBase()->getSoldiers())
+	{
+		if (soldier->getCraft() == _craft)
+		{
+			if (seen++ < index)
+			{
+				continue;
+			}
+			soldier->setCoop(seat);
+			return soldier->getId();
+		}
+	}
+	return -1;
+}
+
+/**
+ * See this method's
+ * declaration for why the door atom's fixture needs it. Drives the SAME two
+ * calls the combo box's own change handler does - setSelected() then
+ * cbxMissionChange(), which is what rebuilds _terrainTypes and re-selects a
+ * terrain (this file, :1089-1105) - so the state left behind is exactly the
+ * state a player clicking that row would have produced. Test-only.
+ */
+bool NewBattleState::harnessSelectMission(const std::string& type)
+{
+	for (size_t i = 0; i < _missionTypes.size(); ++i)
+	{
+		if (_missionTypes[i] == type)
+		{
+			_cbxMission->setSelected(i);
+			cbxMissionChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * See this method's declaration for why the Lightning-
+ * contact fixtures need it. Drives the SAME two calls the combo box's own
+ * change handler does - setSelected() then cbxCraftChange(), which re-seats
+ * the soldiers and, in coop, sends the existing craft_list/selected_craft_id
+ * message (this file, :1146-1154) - so the state left behind is exactly the
+ * state a player clicking that row would have produced. Test-only.
+ */
+bool NewBattleState::harnessSelectCraft(const std::string& type)
+{
+	for (size_t i = 0; i < _crafts.size(); ++i)
+	{
+		if (_crafts[i] == type)
+		{
+			_cbxCraft->setSelected(i);
+			cbxCraftChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * See this method's declaration for why the Lightning-
+ * contact fixtures need it. No change handler exists for this combo - the
+ * race is read at generation - so this only moves the selection. Call after
+ * harnessSelectMission(), which is what rebuilds _alienRaces for the current
+ * mission. Test-only.
+ */
+bool NewBattleState::harnessSelectAlienRace(const std::string& race)
+{
+	for (size_t i = 0; i < _alienRaces.size(); ++i)
+	{
+		if (_alienRaces[i] == race)
+		{
+			_cbxAlienRace->setSelected(i);
+			return true;
+		}
+	}
+	return false;
 }
 
 /**
@@ -1490,116 +1534,13 @@ void NewBattleState::btnQuickSearchApply(Action *)
 // coop pve
 void NewBattleState::startCoopMission()
 {
-
-	// coop
-	Base* base = 0;
-
-	// fix
-	if (_game->getSavedGame()->getSelectedBase())
-	{
-
-		base = _game->getSavedGame()->getSelectedBase();
-	}
-	else
-	{
-
-		base = _game->getCoopMod()->getSelectedCraft()->getBase();
-	}
-
-	if (_game->getCoopMod()->getSelectedCraft())
-	{
-		_craft = _game->getCoopMod()->getSelectedCraft();
-	}
-
-	// orig
-	if (_missionTypes[_cbxMission->getSelected()] != "STR_BASE_DEFENSE" && _craft->getNumTotalUnits() == 0)
-	{
-		return;
-	}
-
-	SavedBattleGame* bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
-	_game->getSavedGame()->setBattleGame(bgame);
-	bgame->setMissionType(_missionTypes[_cbxMission->getSelected()]);
-	BattlescapeGenerator bgen = BattlescapeGenerator(_game);
-
-	bgen.setTerrain(_game->getMod()->getTerrain(_terrainTypes[_cbxTerrain->getSelected()]));
-
-	if (_globeTextureVisible)
-	{
-		int textureId = _globeTextureIDs[_selectedGlobeTexture];
-		auto* globeTexture = _game->getMod()->getGlobe()->getTexture(textureId);
-		bgen.setWorldTexture(nullptr, globeTexture);
-	}
-
-	// base defense
-	if (_missionTypes[_cbxMission->getSelected()] == "STR_BASE_DEFENSE")
-	{
-		base = _craft->getBase();
-		bgen.setBase(base);
-		_craft = 0;
-	}
-	// alien base
-	else if (_game->getMod()->getDeployment(bgame->getMissionType())->isAlienBase())
-	{
-		AlienBase* b = new AlienBase(_game->getMod()->getDeployment(bgame->getMissionType()), -1);
-		b->setId(1);
-		b->setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
-		_craft->setDestination(b);
-		bgen.setAlienBase(b);
-		_game->getSavedGame()->getAlienBases()->push_back(b);
-	}
-	// ufo assault
-	else if (_craft && _game->getMod()->getUfo(_missionTypes[_cbxMission->getSelected()]))
-	{
-		Ufo* u = new Ufo(_game->getMod()->getUfo(_missionTypes[_cbxMission->getSelected()]), 1);
-		u->setId(1);
-		_craft->setDestination(u);
-		bgen.setUfo(u);
-		// either ground assault or ufo crash
-		bool ufoLanded = _btnUfoLanded->getVisible() ? _btnUfoLanded->getPressed() : RNG::generate(0, 1) == 1;
-		if (ufoLanded)
-		{
-			u->setStatus(Ufo::LANDED);
-			bgame->setMissionType("STR_UFO_GROUND_ASSAULT");
-		}
-		else
-		{
-			u->setStatus(Ufo::CRASHED);
-			bgame->setMissionType("STR_UFO_CRASH_RECOVERY");
-		}
-		_game->getSavedGame()->getUfos()->push_back(u);
-	}
-	// mission site
-	else
-	{
-		const AlienDeployment* deployment = _game->getMod()->getDeployment(bgame->getMissionType());
-		const RuleAlienMission* mission = _game->getMod()->getAlienMission(_game->getMod()->getAlienMissionList().front()); // doesn't matter
-		MissionSite* m = new MissionSite(mission, deployment, nullptr);
-		m->setId(1);
-		m->setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
-		_craft->setDestination(m);
-		bgen.setMissionSite(m);
-		_game->getSavedGame()->getMissionSites()->push_back(m);
-	}
-
-	if (_craft)
-	{
-		_craft->setSpeed(0);
-		bgen.setCraft(_craft);
-	}
-
-	_game->getSavedGame()->setDifficulty((GameDifficulty)_cbxDifficulty->getSelected());
-
-	bgen.setWorldShade(_slrDarkness->getValue());
-	bgen.setAlienRace(_alienRaces[_cbxAlienRace->getSelected()]);
-	bgen.setAlienItemlevel(_slrAlienTech->getValue());
-	bgame->setDepth(_slrDepth->getValue());
-
-	bgen.run();
-
-	BriefingState* b = new BriefingState(_craft, base);
-
-	b->setupCoop();
+	// Legacy skirmish coop battle-start choreography, reached
+	// asynchronously from connectionTCP::setClientSoldiers() ("coop battle (pve)"
+	// branch) once the host-transfer handshake finishes. Quarantined: there is no
+	// BriefingState::setupCoop() to drive. btnOkClick's coop branch already popups and
+	// returns before setting up the callback target this drives from, so this body
+	// is defense in depth for any caller that still reaches it.
+	_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 
 	_craft = 0;
 

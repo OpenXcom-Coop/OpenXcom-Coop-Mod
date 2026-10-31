@@ -34,6 +34,7 @@ import os
 import sys
 import time
 
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 import session
@@ -152,6 +153,20 @@ def main():
                         timeout=30, interval=0.3)
         print("PASS gift: soldier bounced host -> client -> host in-battle on both machines")
 
+        # One ONE-WAY gift as well - the client gives its own soldier to the host; after the mission it is the host's
+        # on both machines (a SHARED in-battle gift is a live ownership flip the post-battle world carries, and a gift
+        # moves the soldier to the other roster).
+        client_sid = squad[1]
+        cu2 = _unit_for(client, client_sid)
+        assert cu2 is not None, f"client soldier {client_sid} not deployed as a battle unit"
+        client.ok({"cmd": "battle_gift_select", "unit_id": cu2["id"]})
+        client.ok({"cmd": "battle_gift", "owner": 0})
+        for gc, tag in ((host, "host"), (client, "client")):
+            gc.wait_for(f"{tag} sees the client's soldier given to the host",
+                        lambda gc=gc: ((_unit_for(gc, client_sid) or {}).get("coop") == 0) or None,
+                        timeout=30, interval=0.3)
+        print("PASS one-way gift: the client's soldier is the host's in-battle on both machines")
+
         # ---- end the mission the only supported way (abort -> vote) -------
         session.coop_abort_battle(host, client)
 
@@ -176,6 +191,16 @@ def main():
         assert sorted(cl) == pre, \
             f"CLIENT roster changed after the mission: pre={pre} post={sorted(cl)}"
         print(f"PASS no-dup: rosters unchanged ({len(pre)} soldiers), no duplicate ids on either machine")
+
+        # the owners after the mission, on both machines - the bounced soldier is the host's again and the
+        # one-way gift is the host's now.
+        for gc, tag in ((host, "host"), (client, "client")):
+            owners_after = {s["id"]: s["owner"] for s in B._roster(gc)}
+            assert owners_after.get(host_sid) == 0, \
+                f"{tag}: bounced soldier {host_sid} owner {owners_after.get(host_sid)} (want 0)"
+            assert owners_after.get(client_sid) == 0, \
+                f"{tag}: one-way gift {client_sid} owner {owners_after.get(client_sid)} (want 0)"
+        print("PASS owners: the bounced soldier and the one-way gift are the host's on both machines after the mission")
 
         # Belt and suspenders: the two machines still hold ONE identical world.
         js.finish()

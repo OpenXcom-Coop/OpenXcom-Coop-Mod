@@ -17,7 +17,6 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "BriefingState.h"
-#include "../Savegame/ItemContainer.h"
 #include "BattlescapeState.h"
 #include "BattlescapeGame.h"
 #include "AliensCrashState.h"
@@ -42,15 +41,11 @@
 #include "../Menu/CutsceneState.h"
 #include "../Savegame/AlienMission.h"
 #include "../Mod/RuleAlienMission.h"
-#include "../Menu/SaveGameState.h"
-
-// TEST
-#include "../CoopMod/Profile.h"
-#include "../Savegame/Waypoint.h"
-#include "../Mod/RuleInventory.h"
+#include "../CoopMod/CoopHandshake.h"
 
 namespace OpenXcom
 {
+
 /**
  * Initializes all the elements in the Briefing screen.
  * @param game Pointer to the core game.
@@ -61,7 +56,6 @@ namespace OpenXcom
  */
 BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingData *customBriefing) : _infoOnly(infoOnly), _disableCutsceneAndMusic(false)
 {
-
 	Options::baseXResolution = Options::baseXGeoscape;
 	Options::baseYResolution = Options::baseYGeoscape;
 	_game->getScreen()->resetDisplay(false);
@@ -105,6 +99,17 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 			}
 		}
 	}
+
+	// coop: a coop machine that did not
+	// GENERATE this mission may have no Craft and no Ufo, so the
+	// craft->getDestination() fallback above cannot run and `deployment` stays
+	// null for every mission whose type is not itself a deployment name (the
+	// normal case for STR_UFO_CRASH_RECOVERY) - which would drop this briefing
+	// into the "should never happen" generic branch below. battle_offer carries
+	// the HOST's already-resolved AlienDeployment type precisely for this. ONE
+	// guarded coop call: a pure pass-through (and silent) in SP and outside a
+	// coop battle, so vanilla is byte-identical.
+	deployment = CoopHandshake::resolveBriefingDeployment(_game, deployment);
 
 	std::string title = mission;
 	std::string desc = title + "_BRIEFING";
@@ -155,7 +160,21 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 	_txtTarget->setBig();
 	_txtCraft->setBig();
 
-	if (!_infoOnly)
+	// coop (re-mint suppression): on a coop host this
+	// whole body already ran BEFORE the battle_offer was built -
+	// CoopHandshake::mintMissionLabels() is a line-for-line replica of it - and
+	// the offer told the client exactly what it produced. Re-running it here
+	// would give the host DIFFERENT labels seconds later, so the two players
+	// would read different mission names; the divergence is invisible to the
+	// hash because strTarget/strCraftOrBase are saveBlob-hash-excluded
+	// (SharedEcon.cpp:3974). The guard covers the FULL body, not just the
+	// operation-name block, because the craft branch below writes strTarget
+	// FIRST (the destination name) and the operation-name block then overwrites
+	// it - guarding only the second half lets the first half clobber the name
+	// the offer already shipped (traced by test_mission_labels.py).
+	// ONE guarded coop call; false in SP and for any battle with no coop
+	// mission identity, so vanilla is byte-identical.
+	if (!_infoOnly && !CoopHandshake::missionLabelsAlreadyMinted(battleSave))
 	{
 		std::string s;
 		if (craft)
@@ -242,15 +261,6 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 			am->setMultiUfoRetaliationInProgress(true);
 		}
 	}
-
-	// coop
-	_game->getCoopMod()->show_briefing_state = true;
-
-	if (_game->getSavedGame()->getSavedBattle()->isPreview() == false)
-	{
-		_game->getCoopMod()->coopInventory = true;
-	}
-
 }
 
 /**
@@ -258,8 +268,7 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
  */
 BriefingState::~BriefingState()
 {
-	// coop
-	_game->getCoopMod()->show_briefing_state = false;
+
 }
 
 void BriefingState::init()
@@ -280,457 +289,6 @@ void BriefingState::init()
 	}
 }
 
-void BriefingState::loadCoop()
-{
-
-	// coop
-	// if pvp gamemode
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && connectionTCP::getCoopGamemode() == 2)
-	{
-
-			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getCoop() == 1)
-				{
-					unit->convertToFaction(FACTION_PLAYER);
-					unit->setOriginalFaction(FACTION_PLAYER);
-				}
-				else if (unit->getFaction() != FACTION_NEUTRAL)
-				{
-					unit->convertToFaction(FACTION_HOSTILE);
-					unit->setOriginalFaction(FACTION_HOSTILE);
-
-					std::string alienName = "MALE_CIVILIAN";
-
-					if (unit->getGeoscapeSoldier())
-					{
-
-						if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-						{
-							alienName = "FEMALE_CIVILIAN";
-						}
-					}
-
-					Unit* rule = _game->getMod()->getUnit(alienName, true);
-					unit->setUnitRulesCoop(rule);
-				}
-			}
-
-	}
-	// HOST PVP2
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && connectionTCP::getCoopGamemode() == 3)
-	{
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getCoop() == 1)
-			{
-				unit->convertToFaction(FACTION_HOSTILE);
-				unit->setOriginalFaction(FACTION_HOSTILE);
-
-				std::string alienName = "MALE_CIVILIAN";
-
-				if (unit->getGeoscapeSoldier())
-				{
-
-					if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-					{
-						alienName = "FEMALE_CIVILIAN";
-					}
-				}
-
-				Unit* rule = _game->getMod()->getUnit(alienName, true);
-				unit->setUnitRulesCoop(rule);
-			}
-			else if (unit->getCoop() == 0)
-			{
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-			}
-		
-		}
-	}
-	// CLIENT PVP2
-	else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && connectionTCP::getCoopGamemode() == 3)
-	{
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			if (unit->getCoop() == 1)
-			{
-
-				unit->convertToFaction(FACTION_PLAYER);
-				unit->setOriginalFaction(FACTION_PLAYER);
-
-			}
-			else if (unit->getCoop() == 0)
-			{
-
-				unit->convertToFaction(FACTION_HOSTILE);
-				unit->setOriginalFaction(FACTION_HOSTILE);
-
-				std::string alienName = "MALE_CIVILIAN";
-
-				if (unit->getGeoscapeSoldier())
-				{
-
-					if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-					{
-						alienName = "FEMALE_CIVILIAN";
-					}
-				}
-
-				Unit* rule = _game->getMod()->getUnit(alienName, true);
-				unit->setUnitRulesCoop(rule);
-
-			}
-		}
-	}
-
-	bool is_xcom_equipment_aliens_pvp = true; 
-
-	//enable_xcom_equipment_aliens_pvp
-	if (connectionTCP::_enable_xcom_equipment_aliens_pvp == false)
-	{
-
-		if (_game->getCoopMod()->getCoopGamemode() == 2)
-		{
-
-			if (_game->getCoopMod()->getHost() == false)
-			{
-				is_xcom_equipment_aliens_pvp = false;
-			}
-
-		}
-		else if (_game->getCoopMod()->getCoopGamemode() == 3)
-		{
-
-			if (_game->getCoopMod()->getHost() == true)
-			{
-				is_xcom_equipment_aliens_pvp = false;
-			}
-
-		}
-
-	}
-
-	// coop client inventoy fix
-	if (_game->getCoopMod()->getCoopStatic() == true && is_xcom_equipment_aliens_pvp == true)
-	{
-
-		BattleUnit* selected_unit = 0;
-
-		for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-		{
-
-			// fix
-			if (unit->getTile())
-			{
-
-				if (!unit->getTile()->getInventory()->empty() && unit->getFaction() == FACTION_PLAYER)
-				{
-
-					selected_unit = unit;
-
-					break;
-				}
-
-			}
-
-	
-		}
-
-		if (!selected_unit)
-		{
-
-			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				if (unit->getFaction() == FACTION_PLAYER)
-				{
-
-					selected_unit = unit;
-
-					break;
-				}
-			}
-
-			if (selected_unit)
-			{
-
-				Base *selected_base = _game->getSavedGame()->getSelectedBase();
-
-				if (!selected_base)
-				{
-					selected_base = _game->getSavedGame()->getBases()->front();
-				}
-
-				Craft* temp_craft = 0;
-
-				if (selected_base && selected_base->getCrafts() && !selected_base->getCrafts()->empty())
-				{
-					temp_craft = selected_base->getCrafts()->front(); 
-				}
-
-				if (!temp_craft)
-				{
-					temp_craft = _game->getCoopMod()->getSelectedCraft();
-				}
-
-				if (temp_craft)
-				{
-
-					auto contents = temp_craft->getExtraItems()->getContents();
-					if (contents->empty())
-						contents = temp_craft->getItems()->getContents();
-
-					if (!contents->empty())
-					{
-
-						for (auto& pair : *contents)
-						{
-							const OpenXcom::RuleItem* ruleItem = pair.first;
-
-							for (auto* item : *_game->getSavedGame()->getSavedBattle()->getItems())
-							{
-								if (item->getRules() == ruleItem && item->getSlot() && item->getSlot()->getType() == INV_GROUND)
-								{
-
-									// Check if the item already exists in the tile (to avoid duplicates)
-									bool itemExists = false;
-									for (auto* existingItem : *selected_unit->getTile()->getInventory())
-									{
-										if (existingItem->getRules() == item->getRules() && existingItem->getId() == item->getId())
-										{
-											itemExists = true;
-											break;
-										}
-									}
-
-									// Add the item only if it doesn't already exist in the tile
-									if (!itemExists)
-									{
-
-										selected_unit->getTile()->addItem(item, item->getSlot());
-									}
-								}
-							}
-						}
-					}
-				}
-
-			}
-		}
-
-		if (selected_unit)
-		{
-
-			for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-			{
-
-				// Check if the unit has a tile before adding the item
-				if (unit->getTile())
-				{
-
-					if (unit->getFaction() == FACTION_PLAYER && unit != selected_unit && unit->getTile()->getInventory()->empty())
-					{
-
-						unit->setInventoryTile(selected_unit->getTile());
-					}
-				}
-			}
-		}
-	}
-
-	// coop
-	// reset tiles (PVP)
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		if ((_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true) || (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false))
-		{
-
-			_game->getSavedGame()->getSavedBattle()->resetCoopTiles();
-
-		}
-	}
-
-
-}
-
-void BriefingState::setupCoop()
-{
-
-	// COOP
-	if (_game->getCoopMod()->getHost() == true && _game->getSavedGame()->getSavedBattle()->isPreview() == false)
-	{
-
-		// check if campaign mission
-		if (!_game->getSavedGame()->getCountries()->empty())
-		{
-
-			_game->getCoopMod()->setCoopCampaign(true);
-		}
-		else
-		{
-
-			_game->getCoopMod()->setCoopCampaign(false);
-		}
-
-		// if pve2 gamemode
-		if (connectionTCP::getCoopGamemode() == 4)
-		{
-
-				_game->getSavedGame()->getSelectedBase()->getSoldiers()->clear();
-
-				Waypoint* wp = new Waypoint();
-				wp->setLongitude(0);
-				wp->setLatitude(0);
-				wp->setId(0);
-
-				_game->getSavedGame()->getSavedBattle()->setMissionCraftOrBase("BASE> ");
-
-				for (auto& ufo : *_game->getSavedGame()->getUfos())
-				{
-
-					ufo->setDestination(wp);
-				}
-
-				// swapper
-				for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-				{
-
-					if (unit->getFaction() == FACTION_HOSTILE)
-					{
-
-						unit->convertToFaction(FACTION_PLAYER);
-						unit->setOriginalFaction(FACTION_PLAYER);
-						_game->getSavedGame()->getSavedBattle()->setSelectedUnit(unit);
-						unit->setAIModule(0);
-					}
-					else if (unit->getFaction() == FACTION_PLAYER)
-					{
-
-						unit->convertToFaction(FACTION_HOSTILE);
-						unit->setOriginalFaction(FACTION_HOSTILE);
-					}
-				}
-
-				// Split the soldiers in half
-				if (_game->getSavedGame()->getSavedBattle())
-				{
-
-					int soldier_total_count = 0;
-
-					// check soldiers count
-					for (auto& entity : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-
-						if (entity->getFaction() == FACTION_PLAYER)
-						{
-							soldier_total_count++;
-						}
-					}
-
-					int soldier_used = (soldier_total_count / 2);
-
-					// make coop soldiers
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-
-						if (unit->getFaction() == FACTION_PLAYER)
-						{
-
-							unit->setCoop(1);
-
-							if (soldier_used <= 0)
-							{
-								break;
-							}
-
-							soldier_used--;
-						}
-					}
-				}
-		}
-		// if pvp gamemode
-		else if (connectionTCP::getCoopGamemode() == 2)
-		{
-
-				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-				{
-
-					if (_game->getCoopMod()->getServerOwner() == true)
-					{
-						if (unit->getFaction() == FACTION_HOSTILE)
-						{
-							unit->setCoop(1);
-						}
-						else if (unit->getFaction() == FACTION_PLAYER)
-						{
-
-							unit->setCoop(0);
-						}
-					}
-					else
-					{
-
-						if (unit->getFaction() == FACTION_HOSTILE)
-						{
-							unit->setCoop(0);
-						}
-						else if (unit->getFaction() == FACTION_PLAYER)
-						{
-
-							unit->setCoop(1);
-						}
-
-					}
-
-				}
-		}
-		// pvp2
-		else if (connectionTCP::getCoopGamemode() == 3)
-		{
-
-				for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-				{
-
-					if (_game->getCoopMod()->getServerOwner() == true)
-					{
-						if (unit->getFaction() == FACTION_HOSTILE)
-						{
-							unit->setCoop(0);
-						}
-						else if (unit->getFaction() == FACTION_PLAYER)
-						{
-							unit->setCoop(1);
-						}
-					}
-					else
-					{
-
-						if (unit->getFaction() == FACTION_HOSTILE)
-						{
-							unit->setCoop(1);
-						}
-						else if (unit->getFaction() == FACTION_PLAYER)
-						{
-							unit->setCoop(0);
-						}
-
-					}
-			
-				}
-		}
-		
-		_game->getCoopMod()->sendMissionFile();
-	}
-}
-
 /**
  * Closes the window.
  * @param action Pointer to an action.
@@ -747,8 +305,7 @@ void BriefingState::btnOkClick(Action *)
 	bs->getBattleGame()->spawnFromPrimedItems();
 	BattlescapeTally tally = bs->getBattleGame()->tallyUnits();
 	bool isPreview = _game->getSavedGame()->getSavedBattle()->isPreview();
-	// coop
-	if ((tally.liveAliens > 0 || isPreview) || connectionTCP::_coopGamemode == 2 || connectionTCP::_coopGamemode == 3 || connectionTCP::_coopGamemode == 4)
+	if (tally.liveAliens > 0 || isPreview)
 	{
 		_game->pushState(bs);
 		_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
@@ -759,6 +316,21 @@ void BriefingState::btnOkClick(Action *)
 			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
 			return;
 		}
+		// every co-op battle, a next stage included (it is re-offered as a fresh battle), equips
+		// through the shared pre-battle equip phase (both players, OK is a ready toggle, turn 1 starts at the barrier); the freeze below has no known
+		// caller. False in single player: the vanilla push below is unchanged.
+		if (CoopHandshake::freezePreBattleEquip(_game))
+		{
+			_game->getSavedGame()->getSavedBattle()->startFirstTurn();
+			// the blob the client loads is snapshotted HERE, after
+			// startFirstTurn() has run randomizeItemLocations()/resetUnitTiles()/
+			// per-unit prepareNewTurn()/newTurnUpdateScripts() and set _turn = 1 -
+			// not inside offerBattle()/prepareBattleOffer() at battle-generation
+			// time. Self-guarded (a no-op unless this machine is the coop host with
+			// a matching PREPARE already in flight), so SP is unaffected.
+			CoopHandshake::emitPreparedOffer(_game);
+			return;
+		}
 		_game->pushState(new InventoryState(false, bs, 0));
 	}
 	else
@@ -767,6 +339,7 @@ void BriefingState::btnOkClick(Action *)
 		Options::baseYResolution = Options::baseYGeoscape;
 		_game->getScreen()->resetDisplay(false);
 		delete bs;
+		CoopHandshake::abandonPreparedOffer(_game); // self-guarded, no-op in SP
 		_game->pushState(new AliensCrashState);
 	}
 }

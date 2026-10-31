@@ -37,6 +37,7 @@ class DismantleFacilityState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	BaseView *_view;
 	BaseFacility *_fac;
 

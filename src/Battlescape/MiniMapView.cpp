@@ -34,6 +34,8 @@
 #include "../Mod/RuleInterface.h"
 #include "../Engine/Options.h"
 #include "../Engine/Screen.h"
+#include "../CoopMod/CoopFog.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -107,7 +109,8 @@ void MiniMapView::draw()
 						if (s)
 						{
 							int shade = 16;
-							if (t->isDiscovered(O_FLOOR))
+							// coop: the per-seat discovered read-switch
+							if (coopTileDiscoveredHere(t, O_FLOOR))
 							{
 								shade = t->getShade();
 								if (shade > 7) shade = 7; //vanilla
@@ -117,38 +120,26 @@ void MiniMapView::draw()
 					}
 				}
 				// alive units
-				if (t->getUnit() && (t->getUnit()->getVisible() || _battleGame->getBughuntMode() || _battleGame->getDebugMode()))
+				if (t->getUnit() && (coopUnitVisibleHere(t->getUnit()) || _battleGame->getBughuntMode() || _battleGame->getDebugMode()))
 				{
-					
-					// coop
-					if ((t->getUnit()->getCoop() == 0 && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->getHost() == false) || (t->getUnit()->getCoop() == 1 && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _game->getCoopMod()->getHost() == true))
+					int frame = t->getUnit()->getMiniMapSpriteIndex();
+					int size = t->getUnit()->getArmor()->getSize();
+					frame += (t->getPosition().y - t->getUnit()->getPosition().y) * size;
+					frame += t->getPosition().x - t->getUnit()->getPosition().x;
+					frame += _frame * size * size;
+					Surface * s = _set->getFrame(frame);
+					if (size > 1 && t->getUnit()->getFaction() == FACTION_NEUTRAL)
 					{
-						// do nothing
+						s->blitNShade(this, x, y, 0, false, Pathfinding::red);
 					}
 					else
 					{
-					
-						int frame = t->getUnit()->getMiniMapSpriteIndex();
-						int size = t->getUnit()->getArmor()->getSize();
-						frame += (t->getPosition().y - t->getUnit()->getPosition().y) * size;
-						frame += t->getPosition().x - t->getUnit()->getPosition().x;
-						frame += _frame * size * size;
-						Surface * s = _set->getFrame(frame);
-						if (size > 1 && t->getUnit()->getFaction() == FACTION_NEUTRAL)
-						{
-							s->blitNShade(this, x, y, 0, false, Pathfinding::red);
-						}
-						else
-						{
-							s->blitNShade(this, x, y, 0);
-						}
-						
+						s->blitNShade(this, x, y, 0);
 					}
-					
-
 				}
 				// perhaps (at least one) item on this tile?
-				if (t->isDiscovered(O_FLOOR) && !t->getInventory()->empty())
+				// coop: the per-seat discovered read-switch
+				if (coopTileDiscoveredHere(t, O_FLOOR) && !t->getInventory()->empty())
 				{
 					int frame = 9 + _frame;
 					Surface * s = _set->getFrame(frame);

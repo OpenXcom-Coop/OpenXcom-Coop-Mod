@@ -101,12 +101,16 @@ private:
 	void pushState(State *state);
 	/// Pops the last state from the state stack.
 	void popState();
+	/// coop: closes, top down, every screen on top whose base is gone (State::coopHoldsGoneBase).
+	void coopCloseGoneBaseHolders();
 	/// Gets the currently loaded language.
 	Language *getLanguage() const { return _lang; }
 	/// Gets the currently loaded saved game.
 	SavedGame *getSavedGame() const { return _save; }
 	/// Sets a new saved game for the game.
 	void setSavedGame(SavedGame *save);
+	/// coop: sets a new saved game WITHOUT deleting the current one and returns it (the caller owns it).
+	SavedGame *swapSavedGame(SavedGame *save);
 	/// Gets the currently loaded mod.
 	Mod *getMod() const { return _mod; }
 	/// Loads the mods specified in the game options.

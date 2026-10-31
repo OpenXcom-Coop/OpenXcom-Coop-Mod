@@ -41,6 +41,7 @@ private:
 public:
 	/// Creates the CraftNotEnoughPilotsState state.
 	CraftNotEnoughPilotsState(Craft *craft);
+	Craft* coopHeldCraft() const { return _craft; } // coop: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the CraftNotEnoughPilotsState state.
 	~CraftNotEnoughPilotsState();
 	/// Handler for clicking the OK button.

@@ -1,0 +1,8 @@
+name: "Coop armor-multiplier probe"
+version: 1.0
+description: "Test-only fixture (armor multipliers). Data only. armorMultipliersAbs adds 20 to every generated alien's maximum
+  armor at every difficulty (BattleUnit::adjustStats), the shape of TFTD's Veteran / Genius armor multipliers above 1. Both machines
+  in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

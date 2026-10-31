@@ -1,0 +1,7 @@
+name: "Coop fuse-flare probe"
+version: 1.0
+description: "Test-only fixture (flare fuse glow). Data only. One flare STR_COOP_FUSE_FLARE that glows only while primed
+  (fuseType -1, a set fuse; every stock flare glows always) with a glow range of 22 tiles. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

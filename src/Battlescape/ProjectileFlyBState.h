@@ -67,8 +67,6 @@ public:
 	/// Set the boolean flag to angle a blaster bomb towards the floor.
 	void targetFloor();
 	void projectileHitUnit(Position pos);
-	// coop
-	bool is_minimap_shoot = false;
 
 };
 

@@ -18,6 +18,7 @@ import os
 import sys
 import time
 
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
 import session
@@ -59,6 +60,8 @@ def main():
             gc.wait_for("popup", lambda g=gc: _has(g, "Profile"))
             gc.ok({"cmd":"profile_ok"})
         host.wait_for("eligible", lambda: host.cmd({"cmd":"lobby_state"}).get("startEligible") or None)
+        host.wait_for("START CAMPAIGN shown",
+                      lambda: host.cmd({"cmd": "lobby_state"}).get("buttonVisible") or None, timeout=10)
 
         # Put host on Alien -> gamemode 3
         ls = host.cmd({"cmd": "lobby_state"})
@@ -84,8 +87,7 @@ def main():
         client.wait_for("client base", lambda: _has(client, "BuildNewBaseState"))
         client.ok({"cmd":"place_first_base","lon":LAND_LON,"lat":LAND_LAT,"name":"XcomBase"})
         time.sleep(3)
-        if _has(host, "CoopState"):
-            host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host BEGIN", codes=(60, 62))  # once the wait dialog shows its button
 
         # Both reach geoscape
         for gc, label in ((host,"host"),(client,"client")):
@@ -144,8 +146,7 @@ def main():
             host.ok({"cmd": "profile_ok"})
             time.sleep(1)
         # Click RESUME on the WAIT_PLAYERS dialog
-        if _has(host, "CoopState"):
-            host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))  # once the wait dialog shows its button
         time.sleep(5)
 
         try:

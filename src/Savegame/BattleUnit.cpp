@@ -20,7 +20,6 @@
 #include "BattleItem.h"
 #include <sstream>
 #include <algorithm>
-#include <array>
 #include "../Engine/Collections.h"
 #include "../Engine/Surface.h"
 #include "../Engine/Script.h"
@@ -49,10 +48,12 @@
 #include "Tile.h"
 #include "SavedGame.h"
 #include "SavedBattleGame.h"
+#include "../CoopMod/BattleAuthority.h" // coop: coopSaveSpawnUnitFaction / coopLoadSpawnUnitFaction
 #include "../Engine/ShaderDraw.h"
 #include "BattleUnitStatistics.h"
 #include "../fmath.h"
 #include "../fallthrough.h"
+#include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 
 namespace OpenXcom
 {
@@ -75,20 +76,10 @@ BattleUnit::BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleSt
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_capturable(true), _vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
-
-	// coop
-	_coop = soldier->getCoop();
 	_name = soldier->getName(true);
 	_id = soldier->getId();
 
 	_type = "SOLDIER";
-
-	// coop
-	if (soldier->_cooptype != "none")
-	{
-		_type = soldier->_cooptype;
-	}
-
 	_rank = soldier->getRankString();
 	_gender = soldier->getGender();
 	_intelligence = 2;
@@ -149,7 +140,7 @@ BattleUnit::BattleUnit(const Mod *mod, Soldier *soldier, int depth, const RuleSt
  * @param ruleArmor Pointer to the new Armor ruleset.
  * @param depth The depth of the battlefield.
  */
-void BattleUnit::updateArmorFromSoldier(const Mod *mod, Soldier *soldier, Armor *ruleArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
+void BattleUnit::updateArmorFromSoldier(const Mod *mod, Soldier *soldier, const Armor *ruleArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
 {
 	_armor = ruleArmor;
 
@@ -422,7 +413,7 @@ void BattleUnit::prepareBannedFlag(const RuleStartingCondition* sc)
  * @param diff difficulty level (for stat adjustment).
  * @param depth the depth of the battlefield (used to determine movement type in case of MT_FLOAT).
  */
-BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, const RuleEnviroEffects* enviro, Armor *armor, StatAdjustment *adjustment, int depth, const RuleStartingCondition* sc) :
+BattleUnit::BattleUnit(const Mod *mod, const Unit *unit, UnitFaction faction, int id, const RuleEnviroEffects* enviro, const Armor *armor, StatAdjustment *adjustment, int depth, const RuleStartingCondition* sc) :
 	_faction(faction), _originalFaction(faction), _killedBy(faction), _id(id),
 	_tile(0), _lastPos(Position()), _direction(0), _toDirection(0), _directionTurret(0),
 	_toDirectionTurret(0), _verticalDirection(0), _status(STATUS_STANDING), _wantsToSurrender(false), _isSurrendering(false), _walkPhase(0),
@@ -436,7 +427,6 @@ BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, 
 	_isLeeroyJenkins(false), _summonedPlayerUnit(false), _resummonedFakeCivilian(false), _pickUpWeaponsMoreActively(false), _disableIndicators(false),
 	_vip(false), _bannedInNextStage(false), _skillMenuCheck(false)
 {
-
 	if (enviro)
 	{
 		auto newArmor = enviro->getArmorTransformation(_armor);
@@ -514,7 +504,7 @@ BattleUnit::BattleUnit(const Mod *mod, Unit *unit, UnitFaction faction, int id, 
 /**
  * Updates BattleUnit's armor and related attributes (after a change/transformation of armor).
  */
-void BattleUnit::updateArmorFromNonSoldier(const Mod* mod, Armor* newArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
+void BattleUnit::updateArmorFromNonSoldier(const Mod* mod, const Armor* newArmor, int depth, bool nextStage, const RuleStartingCondition* sc)
 {
 	_armor = newArmor;
 
@@ -610,7 +600,6 @@ BattleUnit::~BattleUnit()
 void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const ScriptGlobal *shared)
 {
 	const auto& reader = node.useIndex();
-	reader.tryRead("coop", _coop);
 	reader.tryRead("id", _id);
 	reader.tryRead("faction", _faction);
 	reader.tryRead("status", _status);
@@ -668,6 +657,9 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 		reader.tryRead("respawn", _respawn);
 		reader.tryRead("spawnUnitFaction", _spawnUnitFaction);
 	}
+	coopLoadSpawnUnitFaction(reader, this); // coop: presence-gated counterpart of coopSaveSpawnUnitFaction (BattleAuthority.h)
+	coopLoadSoldierUnitRecord(reader, this); // coop: a soldier-linked unit's original faction and type from its record (BattleAuthority.h)
+	coopLoadBuiltValues(reader, this); // coop: presence-gated counterpart of coopSaveBuiltValues (BattleAuthority.h)
 	reader.tryRead("motionPoints", _motionPoints);
 	reader.tryRead("customMarker", _customMarker);
 	reader.tryRead("alreadyRespawned", _alreadyRespawned);
@@ -690,6 +682,8 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 			_recolor.push_back(std::make_pair(recolor[i][0].readVal<Uint8>(), recolor[i][1].readVal<Uint8>()));
 	}
 	reader.tryRead("mindControllerID", _mindControllerID);
+	reader.tryRead("coop", _coopSeat);
+	reader.tryRead("coopGuestTank", _coopGuestTank); // coop
 	reader.tryRead("summonedPlayerUnit", _summonedPlayerUnit);
 	reader.tryRead("resummonedFakeCivilian", _resummonedFakeCivilian);
 	reader.tryRead("pickUpWeaponsMoreActively", _pickUpWeaponsMoreActively);
@@ -715,7 +709,6 @@ void BattleUnit::load(const YAML::YamlNodeReader& node, const Mod *mod, const Sc
 void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) const
 {
 	writer.setAsMap();
-	writer.write("coop", _coop);
 	writer.write("id", _id);
 	writer.write("genUnitType", _type);
 	writer.write("genUnitArmor", _armor->getType());
@@ -795,6 +788,8 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 		writer.write("respawn", _respawn);
 		writer.write("spawnUnitFaction", _spawnUnitFaction);
 	}
+	coopSaveSpawnUnitFaction(writer, this); // coop: spawnUnitFaction without a spawn unit, co-op only (BattleAuthority.h)
+	coopSaveBuiltValues(writer, this); // coop: the built dark vision and maximum armor, co-op only (BattleAuthority.h)
 	writer.write("motionPoints", _motionPoints);
 	if (_customMarker > 0)
 		writer.write("customMarker", _customMarker);
@@ -829,6 +824,10 @@ void BattleUnit::save(YAML::YamlNodeWriter writer, const ScriptGlobal *shared) c
 		});
 	if (_mindControllerID)
 		writer.write("mindControllerID", _mindControllerID);
+	if (_coopSeat != COOP_SEAT_NONE)
+		writer.write("coop", (int)_coopSeat);
+	if (!_coopGuestTank.empty())
+		writer.write("coopGuestTank", _coopGuestTank); // coop
 	if (_summonedPlayerUnit)
 		writer.write("summonedPlayerUnit", _summonedPlayerUnit);
 	if (_resummonedFakeCivilian)
@@ -1005,6 +1004,19 @@ void BattleUnit::setDirection(int direction)
 }
 
 /**
+ * Instant turret-only
+ * direction set. Mirrors setDirection() above but never touches the body's
+ * own _direction/_toDirection - used by the coop client applier for a
+ * turretOnly bt_ev turn, where the body facing did not change.
+ * @param direction new turret direction
+ */
+void BattleUnit::setTurretDirection(int direction)
+{
+	_directionTurret = direction;
+	_toDirectionTurret = direction;
+}
+
+/**
  * Changes the BattleUnit's (horizontal) face direction.
  * Only used for strafing moves.
  * @param direction new face direction
@@ -1012,16 +1024,6 @@ void BattleUnit::setDirection(int direction)
 void BattleUnit::setFaceDirection(int direction)
 {
 	_faceDirection = direction;
-}
-
-void BattleUnit::setDirectionTurretCoop(int direction)
-{
-	_directionTurret = direction;
-}
-
-void BattleUnit::setTurretToDirectionCoop(int direction)
-{
-	_toDirectionTurret = direction;
 }
 
 /**
@@ -1068,11 +1070,6 @@ int BattleUnit::getTurretToDirection() const
 int BattleUnit::getVerticalDirection() const
 {
 	return _verticalDirection;
-}
-
-void BattleUnit::setVerticalDirectionCoop(int dir)
-{
-	_verticalDirection = dir;
 }
 
 /**
@@ -1233,11 +1230,6 @@ void BattleUnit::keepWalking(SavedBattleGame *savedBattleGame, bool fullWalkCycl
 				_motionPoints += 3;
 		}
 	}
-}
-
-void BattleUnit::setwalkPhaseCoop(int phase)
-{
-	_walkPhase = phase;
 }
 
 /**
@@ -1544,11 +1536,6 @@ int BattleUnit::getHealth() const
 	return _health;
 }
 
-void BattleUnit::setHealth(int health)
-{
-	_health = health;
-}
-
 /**
  * Returns the soldier's amount of mana.
  * @return Mana.
@@ -1557,17 +1544,6 @@ int BattleUnit::getMana() const
 {
 	return _mana;
 }
-
-void BattleUnit::setCoopMana(int mana)
-{
-	_mana = mana;
-}
-
-void BattleUnit::setCoopMorale(int morale)
-{
-	_morale = morale;
-}
-
 
 /**
  * Returns the soldier's amount of morale.
@@ -1587,16 +1563,6 @@ int BattleUnit::getOverKillDamage() const
 	return std::max(-_health - (int)(_stats.health * _armor->getOverKill()), 0);
 }
 
-void BattleUnit::damageCoop(SavedBattleGame* save)
-{
-
-	auto* selfDestructItem = getSpecialWeapon(getArmor()->getSelfDestructItem());
-	setAlreadyExploded(true);
-	Position p = getPosition().toVoxel();
-	save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem}, 0));
-
-}
-
 /**
  * Helper function for setting value with max bound.
  */
@@ -1614,13 +1580,6 @@ static inline void setValueMax(int& value, int diff, int min, int max)
  */
 int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type, SavedBattleGame *save, BattleActionAttack attack, UnitSide sideOverride, UnitBodyPart bodypartOverride)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return 1;
-	}
-
 	if (save->isPreview())
 	{
 		return 0;
@@ -1717,10 +1676,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args);
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::HitUnitAmmo>(), args); } // coop
 		}
 
-		work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args);
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::HitUnit>(), args); } // coop
 
 		damage = args.getFirst();
 		bodypart = (UnitBodyPart)args.getSecond();
@@ -1829,10 +1788,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args);
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageUnitAmmo>(), args); } // coop
 		}
 
-		work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args);
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageUnit>(), args); } // coop
 
 		if (!_armor->getPainImmune() || type->IgnorePainImmunity)
 		{
@@ -1971,10 +1930,10 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 
 		if (attack.damage_item)
 		{
-			work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args);
+			{ CoopScriptOwner coopOwner(attack.attacker); work.execute(attack.damage_item->getRules()->getScript<ModScript::DamageSpecialUnitAmmo>(), args); } // coop
 		}
 
-		work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args);
+		{ CoopScriptOwner coopOwner(this); work.execute(this->getArmor()->getScript<ModScript::DamageSpecialUnit>(), args); } // coop
 
 
 		// update state
@@ -2018,39 +1977,8 @@ int BattleUnit::damage(Position relative, int damage, const RuleDamageType *type
 			&& !hasAlreadyExploded() && selfDestructItem)
 		{
 			setAlreadyExploded(true);
-			// coop (PRD-P3 GAP-4b): ExplosionBState::init rolls
-			// RNG::percent(getSpecialChance()) for a BA_SELF_DESTRUCT, and it does so
-			// AFTER this packet has already gone out - so the two machines could
-			// disagree about whether the corpse actually detonates. Roll it here
-			// instead (this whole function is host-only) and park it for the local
-			// ExplosionBState while the peer gets it on the packet.
-			bool triggered = true;
-			const bool coopHostSD = connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true;
-			if (coopHostSD)
-			{
-				triggered = RNG::percent(selfDestructItem->getRules()->getSpecialChance());
-				save->getBattleGame()->getCoopMod()->_selfDestructResults.push_back(triggered ? 1 : 0);
-			}
 			Position p = getPosition().toVoxel();
 			save->getBattleGame()->statePushNext(new ExplosionBState(save->getBattleGame(), p, BattleActionAttack{ BA_SELF_DESTRUCT, this, selfDestructItem, selfDestructItem }, 0));
-
-			// coop
-			if (coopHostSD)
-			{
-
-				Json::Value root;
-				root["state"] = "selfDestruct";
-				// coop (PHASE D.1 chain-atomicity): stamp the open chain's seq+side so the
-				// client's action_end apply-barrier accounts for this parked self-destruct
-				// pre-roll (no-op off the parallel host, _openChainSeq==0).
-				connectionTCP::coopStampChainSeq(root);
-				root["unit_id"] = _id;
-				root["triggered"] = triggered;
-
-				connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-			}
-
 		}
 
 		if (attack.attacker)
@@ -2076,11 +2004,6 @@ void BattleUnit::healStun(int power)
 int BattleUnit::getStunlevel() const
 {
 	return _stunlevel;
-}
-
-void BattleUnit::setStunlevelCoop(int stunlevel)
-{
-	_stunlevel = stunlevel;
 }
 
 bool BattleUnit::hasNegativeHealthRegen() const
@@ -2346,107 +2269,6 @@ void BattleUnit::applyPercentages(RuleItemUseCost &cost, const RuleItemUseFlat &
 	}
 }
 
-void BattleUnit::setDestinationCoop(Position pos)
-{
-	_destination = pos;
-}
-
-void BattleUnit::setLastPosCoop(Position pos)
-{
-	_lastPos = pos;
-}
-
-Position BattleUnit::getLastPosCoop()
-{
-	return _lastPos;
-}
-
-void BattleUnit::setCoopStatus(UnitStatus status)
-{
-	_status = status;
-}
-
-void BattleUnit::stopCoopWalk()
-{
-	_status = STATUS_STANDING;
-	_walkPhase = 0;
-}
-
-const int* BattleUnit::getFatalWoundsCoop() const
-{
-	return _fatalWounds;
-}
-
-void BattleUnit::setFatalWoundCoop(int bodyPart, int value)
-{
-	_fatalWounds[bodyPart] = value;
-}
-
-/**
- * coop: adopt the executor's script tag values (raw, index = tag - 1). A tag past
- * the end of `values` is reset to 0, the value an unset tag reads as.
- */
-void BattleUnit::setScriptValuesCoop(const std::vector<int>& values)
-{
-	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
-	for (size_t i = 0; i < n; ++i)
-	{
-		_scriptValues.set(ScriptValues<BattleUnit>::Tag::make(i + 1), i < values.size() ? values[i] : 0);
-	}
-}
-
-void BattleUnit::setOriginalFaction(UnitFaction faction)
-{
-	_originalFaction = faction;
-}
-
-void BattleUnit::setCoop(int coop)
-{
-	_coop = coop;
-}
-
-int BattleUnit::getCoop() const
-{
-	return _coop;
-}
-
-/**
- * Accepts a stamped coop per-unit state write only if its stamp is >= the
- * unit's recorded watermark (lexicographic compare on side_seq, action_seq,
- * rank). On accept, records the new stamp. Equal stamps accept (idempotent
- * re-delivery of the same chain link).
- */
-// coop DIAGNOSTIC (reject-set audit, 2026-08-26): capture-gated, counters-only, NO state
-// effect - inert unless armed by the SEAM-7 field capture (arm/clear driven from
-// coopApplyNextTurnUnitStates). Records rank-0 (next_turn snapshot) watermark REJECTIONS:
-// the rejected unit id + incoming next_turn stamp (side_seq, action_seq) vs the beating
-// recorded watermark (side_seq, action_seq, rank).
-namespace {
-	bool g_coopWmDbgArmed = false;
-	std::vector<std::array<std::uint32_t, 6> > g_coopWmDbgRejects; // {unitId, inSide, inSeq, recSide, recSeq, recRank}
-}
-void coopWmDbgArm(bool on) { g_coopWmDbgArmed = on; }
-void coopWmDbgClear() { g_coopWmDbgRejects.clear(); }
-const std::vector<std::array<std::uint32_t, 6> >& coopWmDbgRejects() { return g_coopWmDbgRejects; }
-
-bool BattleUnit::coopStateAccept(uint32_t side, uint32_t seq, uint8_t rank)
-{
-	if (std::tie(side, seq, rank) >= std::tie(_coopStateSideSeq, _coopStateActionSeq, _coopStateRank))
-	{
-		_coopStateSideSeq = side;
-		_coopStateActionSeq = seq;
-		_coopStateRank = rank;
-		return true;
-	}
-	if (g_coopWmDbgArmed && rank == 0 && g_coopWmDbgRejects.size() < 128)
-	{
-		std::array<std::uint32_t, 6> rec = { static_cast<std::uint32_t>(getId()), side, seq,
-			_coopStateSideSeq, _coopStateActionSeq, static_cast<std::uint32_t>(_coopStateRank) };
-		g_coopWmDbgRejects.push_back(rec);
-	}
-	return false;
-}
-
 /**
  * Spend time units if it can. Return false if it can't.
  * @param tu
@@ -2521,11 +2343,6 @@ void BattleUnit::resetTimeUnitsAndEnergy()
  */
 bool BattleUnit::addToVisibleUnits(BattleUnit *unit)
 {
-
-	// coop fix
-	if (!unit)
-		return false;
-
 	bool add = true;
 	for (auto* bu : _unitsSpottedThisTurn)
 	{
@@ -2610,11 +2427,6 @@ void BattleUnit::clearVisibleUnits()
  */
 bool BattleUnit::addToVisibleTiles(Tile *tile)
 {
-
-	// coop fix
-	if (!tile)
-		return false;
-
 	//Only add once, otherwise we're going to mess up the visibility value and make trouble for the AI (if sneaky).
 	if (_visibleTilesLookup.insert(tile).second)
 	{
@@ -2802,6 +2614,18 @@ int BattleUnit::getArmor(UnitSide side) const
 }
 
 /**
+ * Set the max armor value of a certain armor side.
+ * @param armor Amount of armor.
+ * @param side The side of the armor.
+ */
+void BattleUnit::setMaxArmor(int armor, UnitSide side)
+{
+	_maxArmor[side] = Clamp(armor, 0, UnitStats::BaseStatLimit);
+	_currentArmor[side] = Clamp(_currentArmor[side], 0, _maxArmor[side]);
+}
+
+
+/**
  * Get the max armor value of a certain armor side.
  * @param side The side of the armor.
  * @return Amount of armor.
@@ -2884,13 +2708,7 @@ void BattleUnit::prepareHealth(int health)
 	health -= getFatalWounds();
 
 	// suffer from fire
-	// coop (PRD-I3 straddle): fire regen damage is an RNG draw the host owns; its
-	// result (health + the unit `fire` counter) is re-shipped on `next_turn`. On a
-	// PARALLEL client the local draw would diverge from the host's, so defer it -
-	// the deterministic fatal-wound subtraction above still runs on both machines.
-	// Classic/option-off: parallelTurnActive() false, byte-identical.
-	const bool coopClientDefer = connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
-	if (!coopClientDefer && !_hitByFire && _fire > 0)
+	if (!_hitByFire && _fire > 0)
 	{
 		health -= reduceByResistance(RNG::generate(Mod::FIRE_DAMAGE_RANGE[0], Mod::FIRE_DAMAGE_RANGE[1]), DT_IN);
 		_fire--;
@@ -2899,6 +2717,8 @@ void BattleUnit::prepareHealth(int health)
 	setValueMax(_health, health, -UnitStats::OverkillMultipler * _stats.health, _stats.health);
 
 	// if unit is dead, AI state should be gone
+	// See BattlescapeGenerator::releaseAIModulesOfUnitsKilledDuringGeneration() for the
+	// generation-time counterpart (co-op determinism).
 	if (_health <= 0 && _currentAIState)
 	{
 		delete _currentAIState;
@@ -2940,14 +2760,7 @@ void BattleUnit::prepareMorale(int morale)
 	{
 		moraleChange(morale);
 		int chance = 100 - (2 * getMorale());
-		// coop (PRD-I3 straddle): the panic/berserk decision is an RNG draw the host
-		// owns; its outcome (the unit `status`) is re-shipped on `next_turn` (and the
-		// resolved panic on `panic_action`). A PARALLEL client must not roll it
-		// locally or the two RNG streams diverge - it takes the deterministic
-		// no-panic path instead, so the bravery-exp increment below still runs and a
-		// no-panic turn keeps expBravery synced. Classic/option-off: byte-identical.
-		const bool coopClientDefer = connectionTCP::parallelTurnActive() && !connectionTCP::getHost();
-		if (!coopClientDefer && RNG::percent(chance))
+		if (RNG::percent(chance))
 		{
 			int berserkChance = _unitRules ? _unitRules->getBerserkChance() : -1; // -1 represents true 1/3 (33.33333...%)
 			bool berserk = false;
@@ -3033,46 +2846,12 @@ void BattleUnit::prepareNewTurn(bool fullProcess)
 }
 
 /**
- * coop (PRD-I3 Option D-lite): the DETERMINISTIC per-unit terms of prepareNewTurn
- * that `next_turn` does NOT re-ship, run at the deferred neutral->player apply point
- * on the parallel client (whose whitelisted `endTurn` no longer runs the turn machine
- * for that transition). It is the strict subset of prepareNewTurn(true) left over
- * once next_turn's bulk apply has authored the re-shipped stats (tu/energy/health/
- * stun/morale/mana/fire/fatalWounds/status/position/motionPoints) and once the RNG
- * regen terms (prepareHealth fire draw, prepareMorale panic/berserk) are gated off on
- * the client (the SEAM-2 straddle fix). What is left is exactly the audit's set:
- * turnsSinceStunned (kept in saveBlob), dontReselect and meleeAttackedBy - plus the
- * unhashed housekeeping resets prepareNewTurn also makes here so the client's live
- * state matches. Called for PLAYER-faction units only, mirroring endTurn()'s
- * `bu->getFaction() == _side` at neutral->player; isOut() is checked exactly as
- * incTurnsSinceStunned's own guard does, so a soldier who fell during the alien side
- * is skipped on both machines (it is already out when the host reaches player-start).
- */
-void BattleUnit::coopApplyDeferredTurnStart()
-{
-	if (isIgnored())
-	{
-		return;
-	}
-	_isSurrendering = false;
-	_unitsSpottedThisTurn.clear();
-	_meleeAttackedBy.clear();
-	_hitByFire = false;
-	_dontReselect = false;
-	if (!isOut())
-	{
-		incTurnsSinceStunned();
-	}
-}
-
-/**
  * Update stats of unit.
  * @param tuAndEnergy
  * @param rest
  */
 void BattleUnit::updateUnitStats(bool tuAndEnergy, bool rest)
 {
-
 	// snapshot of current stats
 	int TURecovery = 0;
 	int ENRecovery = 0;
@@ -3190,38 +2969,8 @@ bool BattleUnit::reselectAllowed() const
  */
 void BattleUnit::setFire(int fire)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return;
-	}
-
 	if (_specab != SPECAB_BURNFLOOR && _specab != SPECAB_BURN_AND_EXPLODE)
 		_fire = fire;
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "unit_fire";
-		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
-		// holds this outcome for its own chain's opener instead of contaminating
-		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(root);
-
-		root["unit_id"] = _id;
-		root["fire"] = _fire;
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-	}
-
-}
-
-void BattleUnit::setFireCoop(int fire)
-{
-	_fire = fire;
 }
 
 /**
@@ -4443,11 +4192,6 @@ bool BattleUnit::postMissionProcedures(const Mod *mod, SavedGame *geoscape, Save
 	return hasImproved;
 }
 
-std::string BattleUnit::getCoopName()
-{
-	return _name;
-}
-
 /**
  * Converts the number of experience to the stat increase.
  * @param Experience counter.
@@ -4598,12 +4342,6 @@ void BattleUnit::stimulant(int energy, int stun, int mana)
 int BattleUnit::getMotionPoints() const
 {
 	return _motionPoints;
-}
-
-// coop
-void BattleUnit::setMotionPointsCoop(int points)
-{
-	_motionPoints = points;
 }
 
 /**
@@ -5015,23 +4753,247 @@ int BattleUnit::getRandomAggroSound() const
 	return -1;
 }
 
-// coop
-void BattleUnit::setCoopEnergy(int energy)
-{
-	_energy = energy;
-}
-
 /**
  * Set a specific amount of time units.
  * @param tu time units.
  */
-void BattleUnit::setCoopTimeUnits(int tu)
-{
-	_tu = tu;
-}
 void BattleUnit::setTimeUnits(int tu)
 {
 	_tu = Clamp(tu, 0, (int)_stats.tu);
+}
+
+/**
+ * Absolute energy set -
+ * the coop client-apply counterpart of setTimeUnits() above. Turn/kneel
+ * never actually change energy in vanilla, but action_end.final
+ * carries it unconditionally as part of the unit's full post-action state;
+ * clamped to [0, stamina] via the same setValueMax() delta-to-target trick
+ * vanilla's own internal energy mutations use.
+ * @param energy new energy value
+ */
+void BattleUnit::setEnergy(int energy)
+{
+	setValueMax(_energy, energy - _energy, 0, getBaseStats()->stamina);
+}
+
+/**
+ * Absolute health set for
+ * the `side_transition` restate applier. Plain assignment - no regen/clamp
+ * cascade, unlike the delta-based prepareHealth()/heal() or the special-cased
+ * kill()/instaKill().
+ * @param health new health value
+ */
+void BattleUnit::coopSetHealth(int health)
+{
+	_health = health;
+}
+
+/**
+ * absolute stun-level set for the `side_transition` restate
+ * applier. Plain assignment - healStun(int) is a delta and prepareStun() is
+ * a turn-transition helper, neither of which restates.
+ * @param stun new stun level
+ */
+void BattleUnit::coopSetStunlevel(int stun)
+{
+	_stunlevel = stun;
+}
+
+/**
+ * absolute morale set for the `side_transition` restate applier.
+ * Plain assignment - moraleChange(int) is a delta that also runs bravery
+ * maths, which a restate must not repeat.
+ * @param morale new morale value
+ */
+void BattleUnit::coopSetMorale(int morale)
+{
+	_morale = morale;
+}
+
+/**
+ * absolute mana set for the `side_transition` restate applier.
+ * Plain assignment - prepareMana() is a turn-transition helper and
+ * stimulant() is a delta, neither of which restates.
+ * @param mana new mana value
+ */
+void BattleUnit::coopSetMana(int mana)
+{
+	_mana = mana;
+}
+
+/**
+ * absolute unit-status set for the `side_transition` restate
+ * applier. Plain assignment.
+ * @param status new unit status
+ */
+void BattleUnit::coopSetStatus(UnitStatus status)
+{
+	_status = status;
+}
+
+/**
+ * absolute floating-flag set for the `side_transition` restate
+ * applier. Plain assignment - the caller applies this AFTER position, since
+ * setTile() recomputes _floating on its own and this restate value must win.
+ * @param floating new floating flag
+ */
+void BattleUnit::coopSetFloating(bool floating)
+{
+	_floating = floating;
+}
+
+/**
+ * absolute on-fire-turns set for the UNIT, for the `side_transition`
+ * restate applier. Unlike setFire() above, this writes unconditionally -
+ * setFire() silently drops the write for SPECAB_BURNFLOOR/
+ * SPECAB_BURN_AND_EXPLODE units, and a restate must land regardless.
+ * @param fire new on-fire-turns value
+ */
+void BattleUnit::coopSetFireAbsolute(int fire)
+{
+	_fire = fire;
+}
+
+/**
+ * Absolute BODY direction set for the
+ * `side_transition` restate applier - writes _direction/_toDirection ONLY,
+ * the mirror image of setTurretDirection() above. setDirection() also writes
+ * _directionTurret/_toDirectionTurret (serialized, NOT saveBlob-excluded);
+ * the frozen restate carries no turret field, so using setDirection() here
+ * would clobber a turret facing this restate does not carry.
+ * @param dir new body direction
+ */
+void BattleUnit::coopSetBodyDirection(int dir)
+{
+	_direction = dir;
+	_toDirection = dir;
+}
+
+/**
+ * absolute set of the unit's SCRIPT VALUES for the
+ * `side_transition` restate applier - the twelfth coop client-apply
+ * counterpart. Counterpart to BattleUnit::save's _scriptValues.save call
+ * (:856) and BattleUnit::load's _scriptValues.load call (:696).
+ * ABSOLUTE overwrite, half one: ScriptValuesBase::loadBase (Script.cpp:4303)
+ * only SETS the keys present in the node and saveBase (Script.cpp:4331)
+ * omits every zero-valued tag, so a load alone would leave a client tag the
+ * host holds at 0 stale. Zero the whole vector first, via the public
+ * ScriptValues API only. setBase() grows the vector on demand
+ * (Script.cpp:4276), so getValuesRaw().size() covers every tag this unit has
+ * ever held.
+ * ABSOLUTE overwrite, half two: decode the wire map through the identical
+ * path BattleUnit::load uses for the "tags" key - a one-node YAML document
+ * {tags: {...}} handed to _scriptValues.load(reader, shared).
+ * Runs no script and draws no RNG.
+ * @param tags wire-decoded tag name -> script value pairs
+ * @param shared the mod's ScriptGlobal (same pointer BattleUnit::load/save use)
+ */
+void BattleUnit::coopSetScriptValues(const std::vector<std::pair<std::string, int>>& tags, const ScriptGlobal* shared)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t allocated = _scriptValues.getValuesRaw().size();
+	for (size_t i = 1; i <= allocated; ++i)
+	{
+		_scriptValues.set(CoopTag::make(i), 0);
+	}
+
+	if (!tags.empty())
+	{
+		YAML::YamlRootNodeWriter writer;
+		writer.setAsMap();
+		YAML::YamlNodeWriter tagsWriter = writer["tags"];
+		tagsWriter.setAsMap();
+		for (const auto& kv : tags)
+		{
+			tagsWriter[tagsWriter.saveString(kv.first)].setValue(kv.second);
+		}
+		YAML::YamlRootNodeReader reader(writer.emit(), "coopScriptTags");
+		_scriptValues.load(reader.toBase(), shared);
+	}
+}
+
+/**
+ * absolute special-ability set, for the test-only
+ * battle_set_unit_state {specab} test command (test_delta_core.py's burning-floor
+ * walker). _specab is otherwise derived from the armor/unit rules. Plain
+ * assignment - no RNG, no rules evaluation.
+ * @param specab new SpecialAbility value
+ */
+void BattleUnit::coopSetSpecialAbility(int specab)
+{
+	_specab = (SpecialAbility)specab;
+}
+
+/**
+ * absolute motion-points set for the delta
+ * applier. Plain assignment - no RNG, no rules evaluation.
+ * @param motionPoints new motion points
+ */
+void BattleUnit::coopSetMotionPoints(int motionPoints)
+{
+	_motionPoints = motionPoints;
+}
+
+/**
+ * absolute wants-to-surrender set. Plain assignment.
+ * @param wantsToSurrender new flag
+ */
+void BattleUnit::coopSetWantsToSurrender(bool wantsToSurrender)
+{
+	_wantsToSurrender = wantsToSurrender;
+}
+
+/**
+ * the serialized morale-restored counter.
+ * @return morale restored
+ */
+int BattleUnit::coopGetMoraleRestored() const
+{
+	return _moraleRestored;
+}
+
+/**
+ * absolute morale-restored set. Plain assignment.
+ * @param moraleRestored new counter
+ */
+void BattleUnit::coopSetMoraleRestored(int moraleRestored)
+{
+	_moraleRestored = moraleRestored;
+}
+
+/**
+ * absolute reaction-hand state. Plain assignments.
+ * @param preferredHand "STR_RIGHT_HAND", "STR_LEFT_HAND" or ""
+ * @param disabledLeft reactions disabled for the left hand
+ * @param disabledRight reactions disabled for the right hand
+ */
+void BattleUnit::coopSetReactionHands(const std::string& preferredHand, bool disabledLeft, bool disabledRight)
+{
+	_preferredHandForReactions = preferredHand;
+	_reactionsDisabledForLeftHand = disabledLeft;
+	_reactionsDisabledForRightHand = disabledRight;
+}
+
+/**
+ * the raw script-value vector.
+ * @return values (element i = tag index i + 1)
+ */
+const std::vector<int>& BattleUnit::coopScriptValuesRaw() const
+{
+	return _scriptValues.getValuesRaw();
+}
+
+/**
+ * absolute raw script-value set; every index past @a values is
+ * zeroed. Runs no script and draws no RNG.
+ * @param values new values (element i = tag index i + 1)
+ */
+void BattleUnit::coopSetScriptValuesRaw(const std::vector<int>& values)
+{
+	using CoopTag = decltype(_scriptValues)::Tag;
+	const size_t n = std::max(values.size(), _scriptValues.getValuesRaw().size());
+	for (size_t i = 0; i < n; ++i)
+		_scriptValues.set(CoopTag::make(i + 1), i < values.size() ? values[i] : 0);
 }
 
 /**
@@ -5431,42 +5393,6 @@ void BattleUnit::toggleFireDamage()
  */
 bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool checkInventory) const
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && BattlescapeGame::isYourTurn == 2 && _faction == faction && !isOut() && connectionTCP::coopInventory == true && connectionTCP::_battleInit == true)
-	{
-
-		if (getHealth() <= 0)
-			return false;
-
-		if (getCoop() != 0 && connectionTCP::getHost() == false)
-			return true;
-
-		if (getCoop() == 0 && connectionTCP::getHost() == true)
-			return true;
-
-		return false;
-	}
-
-	// coop fix
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::_isActivePlayerSync == false && connectionTCP::_isActiveAISync == false && connectionTCP::coopInventory == true && connectionTCP::show_inactive_player_inventory == false)
-	{
-		return false;
-	}
-			
-	// coop (parallel turns): there `_isActivePlayerSync` marks the machine that
-	// runs the battle, and it stays true on the battle host for the whole battle,
-	// so the branch above never shuts the battle host out. When the battle host
-	// commands no soldier of its own (a Separate battle the client's craft
-	// started) it spectates, and ownership has to decide: a soldier another seat
-	// commands is never selectable on this machine.
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::parallelTurnActive()
-		&& connectionTCP::coopInventory == true && connectionTCP::show_inactive_player_inventory == false
-		&& _faction == FACTION_PLAYER && connectionTCP::unitSeat(this) != connectionTCP::localSeat())
-	{
-		return false;
-	}
-
 	return (_faction == faction && !isOut() && (!checkReselect || reselectAllowed()) && (!checkInventory || hasInventory()));
 }
 
@@ -5776,6 +5702,30 @@ void BattleUnit::removeSpecialWeapons(SavedBattleGame *save)
 			s = nullptr;
 		}
 	}
+}
+
+/**
+ * detach one special weapon - null the slot holding it, then
+ * clear its owner (removeSpecialWeapons' two writes for that one item).
+ * @return True when a slot held the item.
+ */
+bool BattleUnit::coopDetachSpecialWeapon(BattleItem* item)
+{
+	if (!item)
+	{
+		return false;
+	}
+	bool held = false;
+	for (auto*& s : _specWeapon)
+	{
+		if (s == item)
+		{
+			s = nullptr;
+			held = true;
+		}
+	}
+	item->setOwner(nullptr);
+	return held;
 }
 
 /**
@@ -6093,53 +6043,6 @@ void BattleUnit::disableIndicators()
 	_disableIndicators = true;
 }
 
-void BattleUnit::setUnitRulesCoop(Unit* unitRules)
-{
-	_unitRules = unitRules;
-}
-
-bool BattleUnit::hasCoopItem(const BattleItem* item)
-{
-	if (connectionTCP::getCoopStatic() == false)
-		return false;
-
-	if (!item)
-		return false;
-
-	if (connectionTCP::coopInventory != false)
-		return false;
-
-	if (connectionTCP::_coopCampaign != true)
-		return false;
-
-	// Separate is one host-owned world: a craft's items belong to its base owner
-	// and no two-world per-craft manifest says otherwise.
-	if (connectionTCP::isSeparateCampaignStatic())
-		return false;
-
-	auto* geo = getGeoscapeSoldier();
-	if (!geo)
-		return false;
-
-	auto* craft = geo->getCraft();
-	if (!craft)
-		return false;
-
-	auto* base = craft->getBase();
-	if (!base)
-		return false;
-
-	for (const auto& ci : craft->getCoopItems())
-	{
-
-		if (ci.id == item->getCoopID() && ci.type == item->getRules()->getType() && ci.owner == base->_isForeignBase)
-		{
-			return true;
-		}
-	}
-
-	return false;
-}
 
 ////////////////////////////////////////////////////////////
 //					Script binding
@@ -6172,6 +6075,13 @@ void getArmorValueScript(const BattleUnit *bu, int &ret, int side)
 		return;
 	}
 	ret = 0;
+}
+void setArmorValueMaxScript(BattleUnit *bu, int side, int value)
+{
+	if (bu && 0 <= side && side < SIDE_MAX)
+	{
+		bu->setMaxArmor(value, (UnitSide)side);
+	}
 }
 void getArmorValueMaxScript(const BattleUnit *bu, int &ret, int side)
 {
@@ -7090,6 +7000,7 @@ void BattleUnit::ScriptRegister(ScriptParserBase* parser)
 	bu.add<&setArmorValueScript>("setArmor", "first arg is side, second one is new value of armor");
 	bu.add<&addArmorValueScript>("addArmor", "first arg is side, second one is value to add to armor");
 	bu.add<&getArmorValueScript>("getArmor", "first arg return armor value, second arg is side");
+	bu.add<&setArmorValueMaxScript>("setArmorMax", "first arg is side, second one is new value of max armor");
 	bu.add<&getArmorValueMaxScript>("getArmorMax", "first arg return max armor value, second arg is side");
 
 	bu.add<&BattleUnit::getFatalWounds>("getFatalwoundsTotal", "sum for every body part");

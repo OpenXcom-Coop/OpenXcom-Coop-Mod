@@ -6,16 +6,26 @@ newline-delimited JSON over TCP on 127.0.0.1:<port>.
 
 Typical use: spawn two instances (host + client) with isolated -user folders,
 drive both through save-load / host / join / lobby, then assert on soldiers.
+
+Port-file failures preserve a bounded operation history, post-failure metadata
+and up to 64 KiB of the game log in TEMP/oxc-coop-port-diagnostics. The report
+path is printed; diagnostics do not retry a denied read or change its failure.
 """
 
+import atexit
+from collections import deque
+import datetime
 import json
 import errno
 import os
 import shutil
+import signal
 import socket
 import stat
 import subprocess
+import sys
 import tempfile
+import threading
 import time
 import re
 
@@ -23,6 +33,92 @@ if os.name == "nt":
     import msvcrt
 else:
     import fcntl
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
+
+    # kernel32 with use_last_error so a failed CreateFileW below surfaces its
+    # own GetLastError - the actual failing call's code, not a later reopen's.
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _CreateFileW = _kernel32.CreateFileW
+    _CreateFileW.argtypes = (
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+    _CreateFileW.restype = wintypes.HANDLE  # c_void_p; avoids c_int truncation
+    _CloseHandle = _kernel32.CloseHandle
+    _CloseHandle.argtypes = (wintypes.HANDLE,)
+    _CloseHandle.restype = wintypes.BOOL
+
+    _GENERIC_READ = 0x80000000
+    _FILE_SHARE_READ = 0x00000001
+    _FILE_SHARE_WRITE = 0x00000002
+    _FILE_SHARE_DELETE = 0x00000004
+    _OPEN_EXISTING = 3
+    _FILE_ATTRIBUTE_NORMAL = 0x00000080
+    _INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    def _port_file_opener(path, flags):
+        """Read while the publisher's rename handle still holds DELETE access.
+
+        Ordinary Windows open() omits FILE_SHARE_DELETE and can collide with
+        that handle after the final name becomes visible. Granting the missing
+        share bit removes this race without suppressing genuine access errors.
+        """
+        # lpSecurityAttributes = NULL -> the returned handle is non-inheritable.
+        handle = _CreateFileW(
+            path, _GENERIC_READ,
+            _FILE_SHARE_READ | _FILE_SHARE_WRITE | _FILE_SHARE_DELETE,
+            None, _OPEN_EXISTING, _FILE_ATTRIBUTE_NORMAL, None)
+        if handle is None or handle == _INVALID_HANDLE_VALUE:
+            error = ctypes.WinError(ctypes.get_last_error())
+            error.filename = path
+            raise error
+        owns_handle = True
+        try:
+            # Ownership transfers to the fd; closing the file object (fd) closes
+            # the handle. O_NOINHERIT keeps the CRT fd non-inheritable too.
+            fd = msvcrt.open_osfhandle(handle, flags | os.O_NOINHERIT)
+            owns_handle = False
+            return fd
+        finally:
+            if owns_handle and not _CloseHandle(handle):
+                raise ctypes.WinError(ctypes.get_last_error())
+
+    # about 20 s after a game starts, Windows 11 power throttling stops honouring the 1 ms timer
+    # period SDL requests for a process with no visible window, so the game loop's SDL_Delay(1) and the test server's
+    # 1 ms socket wait each take ~15.6 ms and every test-server call ~31 ms instead of ~3. Opting the game out of that
+    # throttling keeps SDL's 1 ms period for the whole run. Test harness only (players' games are untouched); best
+    # effort: an OS without the flag refuses the call and nothing changes.
+    class _PowerThrottlingState(ctypes.Structure):
+        _fields_ = [("Version", wintypes.ULONG), ("ControlMask", wintypes.ULONG), ("StateMask", wintypes.ULONG)]
+
+    _OpenProcess = _kernel32.OpenProcess
+    _OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _OpenProcess.restype = wintypes.HANDLE
+    _SetProcessInformation = _kernel32.SetProcessInformation
+    _SetProcessInformation.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD)
+    _SetProcessInformation.restype = wintypes.BOOL
+    _PROCESS_SET_INFORMATION = 0x0200
+    _PROCESS_POWER_THROTTLING = 4  # PROCESS_INFORMATION_CLASS ProcessPowerThrottling
+    _POWER_THROTTLING_IGNORE_TIMER_RESOLUTION = 0x4
+
+    def _keep_timer_resolution(pid):
+        """ControlMask IGNORE_TIMER_RESOLUTION with StateMask 0: the system always honours the game's timer
+        period. Returns 0, or the Windows error code."""
+        handle = _OpenProcess(_PROCESS_SET_INFORMATION, False, pid)
+        if not handle:
+            return ctypes.get_last_error() or -1
+        try:
+            state = _PowerThrottlingState(1, _POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, 0)
+            if not _SetProcessInformation(handle, _PROCESS_POWER_THROTTLING, ctypes.byref(state), ctypes.sizeof(state)):
+                return ctypes.get_last_error() or -1
+            return 0
+        finally:
+            _CloseHandle(handle)
+else:
+    # Non-Windows: open(..., opener=None) is the default open, unchanged.
+    _port_file_opener = None
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # OXC_TEST_EXE points the whole suite at a different build - e.g.
@@ -62,6 +158,11 @@ TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 # shared state: the per-slot machine lock and the s{slot}_ user-dir prefix. No
 # port bands, so K is no longer capped by the 65535 ceiling.
 HARNESS_SLOT = int(os.environ.get("OXC_HARNESS_SLOT", "0"))
+# this lane's own crash folder. Every game spawn() starts writes its crash files (the co-op
+# CrashHandler's crash_*.log / crash_*.dmp) here, not in the <exe dir>/crashlogs every lane shares, so a crash in
+# one lane is never counted by another lane's test. The game reads OXC_CRASHLOG_DIR; a game started any other way
+# (a player, manual_session.py) keeps <exe dir>/crashlogs. One test runs per slot at a time (the slot lock below).
+CRASH_DIR = os.path.join(os.path.dirname(os.path.abspath(EXE)), "crashlogs", "s%d" % HARNESS_SLOT)
 
 # Coop bring-up commands whose response carries the host's actual (ephemeral)
 # bound port, and the join commands that must reuse it. cmd() bridges the two,
@@ -73,7 +174,19 @@ _COOP_JOIN_CMDS = frozenset(("join_tcp", "join_udp"))
 # so keys never cross runs. Distinct live pairs must use distinct keys (the same
 # invariant the old per-port model relied on).
 _EPHEMERAL_COOP_PORTS = {}
+
+# the GameClient that hosted each rendezvous key (with the port it reported and its
+# transport) and the GameClients that joined it. Process-global, like _EPHEMERAL_COOP_PORTS.
+_COOP_HOSTS = {}
+_COOP_JOINERS = {}
+# every GameClient whose spawn() started a game in this process; _reap_spawned_games reads it.
+_SPAWNED = []
+# the longest a join_tcp waits for its host's lobby listener, in seconds; then it FAILS with a dump.
+LISTEN_WAIT_S = 60
+# the TestServer get_coop fields that say where a coop connection stands.
+_JOIN_VIEW = ("onConnect", "coopDialog", "serverOwner", "coopSession", "clientName")
 PORT_FILE_NAME = "testserver_port.txt"
+KILLED_RETURN_CODE = 1 if os.name == "nt" else -signal.SIGKILL
 
 # Per-slot harness lock: suites are stateful (shared TEST_ROOT under %TEMP%, one
 # game instance per s{slot}_ user dir), so two runs on the SAME slot would
@@ -86,6 +199,67 @@ _LOCK_PATH = os.path.join(
     "oxc-coop-harness.lock" if HARNESS_SLOT == 0
     else "oxc-coop-harness.slot%d.lock" % HARNESS_SLOT)
 _lock_handle = None
+_PORT_FILE_HISTORY = deque(maxlen=128)
+
+
+def _port_file_event(operation, **fields):
+    event = dict(fields, operation=operation,
+                 wall=datetime.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                 monotonic=time.monotonic(), pid=os.getpid(),
+                 tid=threading.get_native_id(), slot=HARNESS_SLOT,
+                 lock_held=_lock_handle is not None)
+    _PORT_FILE_HISTORY.append(event)
+    return event
+
+
+def _port_file_error(exc):
+    return {"type": type(exc).__name__, "message": str(exc),
+            "errno": getattr(exc, "errno", None),
+            "winerror": getattr(exc, "winerror", None),
+            "filename": getattr(exc, "filename", None)}
+
+
+def _report_port_file_error(operation, exc, user_dir, **fields):
+    event = _port_file_event(operation, error=_port_file_error(exc),
+                             user_dir=user_dir, **fields)
+    payload = {"failure": event, "history": list(_PORT_FILE_HISTORY),
+               "test": os.path.abspath(sys.argv[0]), "exe": EXE,
+               "lock_path": _LOCK_PATH, "post_failure_metadata": []}
+    port_file = os.path.join(user_dir, PORT_FILE_NAME)
+    for path in (user_dir, port_file, port_file + ".tmp"):
+        observation = {"path": path, "monotonic": time.monotonic()}
+        try:
+            st = os.stat(path)
+            observation.update(size=st.st_size, mode=st.st_mode,
+                               mtime_ns=st.st_mtime_ns, ctime_ns=st.st_ctime_ns,
+                               device=st.st_dev, inode=st.st_ino,
+                               file_attributes=getattr(st, "st_file_attributes", None))
+        except OSError as snapshot_error:
+            observation["error"] = _port_file_error(snapshot_error)
+        payload["post_failure_metadata"].append(observation)
+    try:
+        with open(os.path.join(user_dir, "openxcom.log"), "rb") as game_log:
+            game_log.seek(0, os.SEEK_END)
+            size = game_log.tell()
+            game_log.seek(max(0, size - 65536))
+            payload["game_log_tail"] = game_log.read(65536).decode("utf-8", errors="replace")
+            payload["game_log_tail_truncated"] = size > 65536
+    except OSError as log_error:
+        payload["game_log_error"] = _port_file_error(log_error)
+    # Outside the instance directory: the next make_user_dir() must not erase it.
+    diagnostics_dir = os.path.join(TEMP_ROOT, "oxc-coop-port-diagnostics")
+    report_path = os.path.join(diagnostics_dir, f"port-file-{os.getpid()}-{time.time_ns()}.json")
+    try:
+        os.makedirs(diagnostics_dir, exist_ok=True)
+        with open(report_path, "x", encoding="utf-8") as report:
+            json.dump(payload, report, indent=2)
+    except OSError as report_error:
+        print("[harness-port-file] diagnostic-write-failed " +
+              json.dumps(_port_file_error(report_error)), file=sys.stderr, flush=True)
+        print("[harness-port-file] " + json.dumps(payload), file=sys.stderr, flush=True)
+    else:
+        print("[harness-port-file] " + json.dumps(dict(event, report=report_path)),
+              file=sys.stderr, flush=True)
 
 
 def _acquire_machine_lock(timeout=3600):
@@ -119,6 +293,77 @@ def _acquire_machine_lock(timeout=3600):
                 waited = True
             time.sleep(5)
 
+# Time accounting: when OXC_TIMELOG is set, append one CSV row per event to
+# that file (header ts_iso,agent,role,event,detail). Tagged with OXC_AGENT
+# (default "unknown"); role is fixed "harness" so these automatic rows are
+# visually distinct from rows other tools write to the same file. NEVER
+# raises - a timing-accounting failure must not fail a test.
+_TIMELOG_EXIT_CODE = [0]
+
+
+def _timelog(event, detail=""):
+    path = os.environ.get("OXC_TIMELOG")
+    if not path:
+        return
+    # ~690 of the ~790 rows a session writes are the spawn tier and only a
+    # boot-time analysis needs them; OFF unless OXC_TIMELOG_SPAWNS=1.
+    # test_start/test_end keep emitting under OXC_TIMELOG.
+    if event in ("spawn", "spawn_end") and not os.environ.get("OXC_TIMELOG_SPAWNS"):
+        return
+    try:
+        agent = os.environ.get("OXC_AGENT", "unknown")
+        ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        row = "%s,%s,%s,%s,%s\n" % (
+            ts, agent, "harness", event, str(detail).replace(",", ";"))
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(row)
+    except OSError:
+        pass
+
+
+_orig_sys_exit = sys.exit
+
+
+def _tracking_sys_exit(code=None):
+    # sys.exit(None) / sys.exit() means success (0); sys.exit("message")
+    # prints the message and the PROCESS exit code is 1, not the string -
+    # mirror that so test_end's detail reports the real process exit code.
+    if code is None:
+        _TIMELOG_EXIT_CODE[0] = 0
+    elif isinstance(code, int):
+        _TIMELOG_EXIT_CODE[0] = code
+    else:
+        _TIMELOG_EXIT_CODE[0] = 1
+    _orig_sys_exit(code)
+
+
+sys.exit = _tracking_sys_exit
+
+
+_orig_excepthook = sys.excepthook
+
+
+def _tracking_excepthook(exc_type, exc, tb):
+    # an uncaught exception never calls sys.exit; Python reports it through this hook and the
+    # process exits 1, so test_end must say 1, not the default 0 (an uncaught KeyboardInterrupt exits with the
+    # OS's Ctrl-C code and is logged 1: non-zero, never 0). Then the original hook prints it as before.
+    _TIMELOG_EXIT_CODE[0] = 1
+    _orig_excepthook(exc_type, exc, tb)
+
+
+sys.excepthook = _tracking_excepthook
+
+
+def _timelog_test_end():
+    _timelog("test_end", "%s exit=%s" % (
+        os.path.basename(sys.argv[0]), _TIMELOG_EXIT_CODE[0]))
+
+
+# "at harness import" - this module body runs exactly once per process
+# (import caching), the first time any test script imports it.
+_timelog("test_start", os.path.basename(sys.argv[0]))
+atexit.register(_timelog_test_end)
+
 # A known-good land tile for first-base placement (place_first_base rejects
 # water). Shared by the fresh-campaign tests so they need no pre-existing save.
 LAND_LON, LAND_LAT = 0.7063353365604198, -0.5070346730015731
@@ -128,6 +373,18 @@ LAND_LON, LAND_LAT = 0.7063353365604198, -0.5070346730015731
 # a small windowed display. OpenXcom defaults every unspecified key and rescans
 # the other stock mods as inactive. Data (UFO/TFTD/standard/common) resolves
 # from the exe's own dir, so this runs on any machine with a built OpenXcom.exe.
+#
+# battleEdgeScroll: 0 (SCROLL_NONE, Options.h:30) for every harness game.
+# Under the dummy SDL video driver the mouse sits at (0,0), and
+# Game::run replays that position as a synthetic mouse motion on every state
+# re-init. With the default SCROLL_AUTO (2), a re-init with a live battlescape
+# on top (e.g. any popup closed after the host's phase Active) makes
+# Camera::mouseOver start the edge-scroll timer, and the camera then drifts
+# (8,4) per step after every centring until a real button-down, so a verified
+# click pixel resolves off its tile. A harness artifact: no player's mouse is
+# parked on the corner by the driver. A caller's explicit `options` entry still
+# wins: make_user_dir splices it ABOVE these keys, and the engine's options.cfg
+# reader takes the first matching key (Yaml.cpp findChildNode).
 HERMETIC_OPTIONS = """\
 mods:
   - active: true
@@ -142,6 +399,7 @@ options:
   musicVolume: 0
   soundVolume: 0
   uiVolume: 0
+  battleEdgeScroll: 0
 """
 
 
@@ -161,6 +419,7 @@ class GameClient:
         self._fixed_port = int(port) if (user_dir is None and port) else None
         self.port = self._fixed_port
         self.proc = None
+        self._shutdown_proc = None
         self.sock = None
         self.buf = b""
         self._request_id = 0
@@ -170,7 +429,12 @@ class GameClient:
         return os.path.join(self.user_dir, PORT_FILE_NAME) if self.user_dir else None
 
     def spawn(self, extra_args=()):
+        _port_file_event("spawn_requested", user_dir=self.user_dir,
+                         previous_game_pid=self.proc.pid if self.proc else None,
+                         previous_returncode=self.proc.poll() if self.proc else None)
         _acquire_machine_lock()
+        _port_file_event("spawn_lock_acquired", user_dir=self.user_dir)
+        _timelog("spawn", "%s port=%s" % (self.name, self.port))
         env = os.environ.copy()
         # Ephemeral by default (OXC_TEST_PORT=0 -> the game picks a free control
         # port and reports it via PORT_FILE_NAME). Remove any stale port file
@@ -178,27 +442,40 @@ class GameClient:
         # fixed-port GameClient (user_dir=None) keeps its explicit port.
         if self._fixed_port is None:
             env["OXC_TEST_PORT"] = "0"
+            _port_file_event("stale_file_check", path=self._port_file)
             if self._port_file and os.path.exists(self._port_file):
+                removal = _port_file_event("stale_file_remove_begin", path=self._port_file)
                 try:
                     os.remove(self._port_file)
-                except OSError:
-                    pass
+                except OSError as exc:
+                    _report_port_file_error("stale_file_remove_failed", exc, self.user_dir)
+                else:
+                    event = _port_file_event("stale_file_removed", path=self._port_file,
+                                             started=removal["wall"],
+                                             started_monotonic=removal["monotonic"])
+                    print("[harness-port-file] " + json.dumps(event), flush=True)
+            else:
+                _port_file_event("stale_file_not_observed", path=self._port_file)
         else:
             env["OXC_TEST_PORT"] = str(self._fixed_port)
-        # Headless under the parallel runner (any lane sets OXC_HARNESS_SLOT) or
-        # on demand (OXC_HARNESS_HEADLESS): no on-screen window, so no vsync cap,
-        # window-focus fights or audio-device contention between K concurrent
-        # game processes. OXC_HARNESS_WINDOWED=1 forces the window back for
-        # interactive debugging even under the runner; a caller that already
-        # exported an SDL driver wins (setdefault). A plain single-test dev run
-        # (no slot, no headless flag) keeps its window, unchanged.
-        if ((os.environ.get("OXC_HARNESS_SLOT") is not None
-             or os.environ.get("OXC_HARNESS_HEADLESS"))
-                and not os.environ.get("OXC_HARNESS_WINDOWED")):
-            env.setdefault("SDL_VIDEODRIVER", "dummy")
-            env.setdefault("SDL_AUDIODRIVER", "dummy")
-        # tuck the window into a corner (host left, client right of it)
+        # HEADLESS BY DEFAULT. Every boot_check, repro_*, test_* and SP-smoke
+        # run funnels through this one spawn(); a windowed instance opens a
+        # real window and STEALS FOCUS from whoever is using the machine. A
+        # fixture re-roll boots two instances per attempt, ten-plus attempts
+        # in a row.
+        #
+        # Windowed is an explicit OPT-IN, using the same OXC_HARNESS_WINDOWED
+        # predicate as run_parallel.py, so the repo has one convention. Set it
+        # only when a person wants to watch; no test ever should.
+        if not env.get("OXC_HARNESS_WINDOWED"):
+            env["SDL_VIDEODRIVER"] = "dummy"
+            env["SDL_AUDIODRIVER"] = "dummy"
+        # Kept for the opt-in windowed path: harmless under the dummy driver,
+        # and it is what a windowed run wants.
         env["SDL_VIDEO_WINDOW_POS"] = "0,40" if "host" in self.name else "660,40"
+        # the game writes its crash files into this lane's own folder.
+        os.makedirs(CRASH_DIR, exist_ok=True)
+        env["OXC_CRASHLOG_DIR"] = CRASH_DIR
         exe_dir = os.path.dirname(EXE) or "."
         if os.name == "nt":
             # Preserve the existing Windows launch path.
@@ -216,6 +493,12 @@ class GameClient:
             popen_kwargs["startupinfo"] = si
         self.proc = subprocess.Popen(
             args, env=env, cwd=exe_dir, **popen_kwargs)
+        if self not in _SPAWNED:  # only spawn() registers, so hand-spawned games are never reaped
+            _SPAWNED.append(self)
+        _port_file_event("spawned", user_dir=self.user_dir, game_pid=self.proc.pid)
+        if os.name == "nt":
+            _port_file_event("timer_resolution_kept", game_pid=self.proc.pid,
+                             error=_keep_timer_resolution(self.proc.pid))
 
     def _resolve_port(self, deadline):
         """The control port to dial: the fixed one, or the ephemeral port the
@@ -223,22 +506,48 @@ class GameClient:
         boot budget (no port-guessing)."""
         if self._fixed_port is not None:
             return self._fixed_port
+        attempt = 0
         while time.time() < deadline:
             if self.proc and self.proc.poll() is not None:
-                raise RuntimeError(f"{self.name}: game exited early rc={self.proc.returncode}")
+                exc = RuntimeError(f"{self.name}: game exited early rc={self.proc.returncode}")
+                _report_port_file_error("port_wait_game_exited", exc, self.user_dir,
+                                        game_pid=self.proc.pid, game_returncode=self.proc.returncode)
+                raise exc
+            attempt += 1
+            stage = "open"
+            _port_file_event("port_read_begin", path=self._port_file, attempt=attempt,
+                             game_pid=self.proc.pid if self.proc else None)
             try:
-                with open(self._port_file, encoding="utf-8") as f:
+                with open(self._port_file, encoding="utf-8",
+                          opener=_port_file_opener) as f:
+                    stage = "read"
                     txt = f.read().strip()
+                    stage = "close"
+                stage = "parse"
                 if txt:
                     p = int(txt)
                     if p > 0:
+                        _port_file_event("port_resolved", path=self._port_file,
+                                         attempt=attempt, port=p)
                         return p
-            except (FileNotFoundError, ValueError):
-                pass
-            time.sleep(0.2)
-        raise TimeoutError(
+                _port_file_event("port_not_ready", path=self._port_file, attempt=attempt,
+                                 value=txt[:80])
+            except (FileNotFoundError, ValueError) as exc:
+                _port_file_event("port_not_ready", path=self._port_file, attempt=attempt,
+                                 stage=stage, error=_port_file_error(exc))
+            except OSError as exc:
+                _report_port_file_error("port_read_failed", exc, self.user_dir,
+                                        stage=stage, attempt=attempt,
+                                        game_pid=self.proc.pid if self.proc else None,
+                                        game_returncode=self.proc.poll() if self.proc else None)
+                raise
+            time.sleep(0.02)  # was 0.2 s; a boot reports its port ~0.2-0.5 s after spawn
+        exc = TimeoutError(
             f"{self.name}: game never reported its test-server port "
             f"(no {self._port_file})")
+        _report_port_file_error("port_wait_timeout", exc, self.user_dir, attempts=attempt,
+                                game_pid=self.proc.pid if self.proc else None)
+        raise exc
 
     def connect(self, timeout=60):
         deadline = time.time() + timeout
@@ -253,23 +562,21 @@ class GameClient:
                 self.sock.settimeout(30)
                 if self.cmd({"cmd": "ping"}).get("pong"):
                     print(f"[{self.name}] connected on :{self.port}")
-                    # Wire-order lever matrix hook (boundary epoch-reset ruling
-                    # 2026-08-26): OXC_WIRE_ORDER=1 engages the wire_order_state
-                    # lever on EVERY instance the harness boots, so the whole
-                    # targeted suite runs lever-on unmodified (the Phase 5/6
-                    # both-lever matrix). Unset/0 = lever-off default, untouched.
+                    # OXC_WIRE_ORDER=1 turns the wire_order_state setting on for
+                    # EVERY instance the harness boots, so the whole suite runs with
+                    # it on, unmodified. Unset or 0 leaves the default (off) untouched.
                     if os.environ.get("OXC_WIRE_ORDER", "").lower() in ("1", "true"):
                         self.cmd({"cmd": "parallel_state", "wire_order_state": True})
                         got = self.cmd({"cmd": "parallel_state"}).get("wireOrderState")
                         if got is not True:
                             raise RuntimeError(
                                 f"{self.name}: OXC_WIRE_ORDER=1 but wire_order_state "
-                                f"lever did not engage (readback={got!r})")
-                        print(f"[{self.name}] wire_order_state lever ON (OXC_WIRE_ORDER)")
+                                f"setting did not engage (readback={got!r})")
+                        print(f"[{self.name}] wire_order_state ON (OXC_WIRE_ORDER)")
                     return
             except (ConnectionRefusedError, socket.timeout, OSError):
                 self.sock = None
-                time.sleep(1)
+                time.sleep(0.1)
         raise TimeoutError(f"{self.name}: test server not reachable on :{self.port}")
 
     def _send(self, obj):
@@ -291,6 +598,9 @@ class GameClient:
             # correlation was added. Once rebuilt, only the exact matching
             # response can satisfy this command.
             if response_id is None or response_id == request_id:
+                # The id only pairs the reply with its request: callers compare
+                # replies from two machines, whose ids differ.
+                response.pop("_requestId", None)
                 return response
 
     def cmd(self, obj):
@@ -302,6 +612,8 @@ class GameClient:
         # COPY is rewritten so a caller reusing the dict in a retry loop is
         # unaffected.
         name = obj.get("cmd")
+        if name in _COOP_JOIN_CMDS:
+            self._wait_menu_init()
         if name in _COOP_HOST_CMDS and str(obj.get("port", "")) != "":
             key = str(obj["port"])
             obj = dict(obj)
@@ -312,6 +624,9 @@ class GameClient:
             actual = resp.get("port")
             if actual:
                 _EPHEMERAL_COOP_PORTS[key] = str(actual)
+                # a TCP host unless the host window was asked for UDP (1 / 2) or hotseat (3)
+                tcp = name == "host_tcp" or (name == "host_menu_host" and obj.get("visibility", 0) in (0, "0", None))
+                _COOP_HOSTS[key] = (self, str(actual), "tcp" if tcp else "other")
             return resp
         if name in _COOP_JOIN_CMDS and str(obj.get("port", "")) != "":
             key = str(obj["port"])
@@ -319,8 +634,28 @@ class GameClient:
             obj["port"] = _EPHEMERAL_COOP_PORTS.get(key, obj["port"])
             if "localport" in obj:
                 obj["localport"] = "0"
+            # the client's connect thread makes ONE attempt (at once under the test server;
+            # ~1.1 s after this command for players) and
+            # never retries, while the host opens its listener on its own thread after host_tcp / host_menu_host
+            # returned: never send join_tcp before the host reports that listener open.
+            host = _COOP_HOSTS.get(key)
+            if name == "join_tcp" and host is not None and host[2] == "tcp":
+                _wait_host_listening(host[0], key, obj["port"], self)
+            if self not in _COOP_JOINERS.setdefault(key, []):
+                _COOP_JOINERS[key].append(self)
             return self._send(obj)
         return self._send(obj)
+
+    def _wait_menu_init(self, timeout=10):
+        """The game pumps test commands BEFORE it inits a newly pushed state, so a join that lands before
+        MainMenuState::init is wiped by that init's disconnectTCP + resetSession (test_lobby_polish, 2 of 16 runs once
+        the client connected at once). Every join waits until get_state reports no main-menu init pending. A build
+        without the field reports nothing, so nothing waits."""
+        deadline = time.time() + timeout
+        while self._send({"cmd": "get_state"}).get("mainMenuInitPending"):
+            if time.time() > deadline:
+                raise TimeoutError(f"{self.name}: main menu init still pending after {timeout} s; join not sent")
+            time.sleep(0.005)
 
     def ok(self, obj):
         r = self.cmd(obj)
@@ -351,10 +686,12 @@ class GameClient:
             line, self.buf = self.buf.split(b"\n", 1)
             response = json.loads(line)
             if response.get("_requestId") in ids:
-                got[response["_requestId"]] = response
+                got[response.pop("_requestId")] = response
         return [got[i] for i in ids]
 
-    def wait_for(self, desc, predicate, timeout=90, interval=1.0):
+    # measured 2026-09-06, 1.0 s rounding cost ~2.2 s per battle
+    # setup; 0.1 s is the measured value, not a guess.
+    def wait_for(self, desc, predicate, timeout=90, interval=0.02):  # default was 0.1 s
         deadline = time.time() + timeout
         last = None
         while time.time() < deadline:
@@ -362,19 +699,205 @@ class GameClient:
             if last:
                 return last
             time.sleep(interval)
+        _print_pair_states()  # a timed-out wait shows where each coop pair's connection stands
         raise TimeoutError(f"{self.name}: timed out waiting for {desc} (last={last!r})")
 
-    def shutdown(self):
+    def kill(self):
+        """Deliberately drop this test peer, validating and reaping the killed process."""
+        if not self.proc or self.proc.poll() is not None:
+            raise RuntimeError(f"{self.name}: cannot kill a game that is not running")
+        _port_file_event("intentional_kill", user_dir=self.user_dir, game_pid=self.proc.pid)
+        self.proc.kill()
+        self.proc.wait(timeout=15)
+        self.shutdown(expected_returncodes=(KILLED_RETURN_CODE,))
+
+    def shutdown(self, *, expected_returncodes=(0,)):
+        """Quit and reap the game; abnormal exits require an explicit expectation."""
+        if self.proc is not None and self.proc is self._shutdown_proc:
+            return
+        shutdown = _port_file_event("shutdown_requested", user_dir=self.user_dir,
+                                    game_pid=self.proc.pid if self.proc else None,
+                                    expected_returncodes=expected_returncodes)
+        forced_kill = False
         try:
-            if self.sock:
-                self.sock.sendall((json.dumps({"cmd": "quit"}) + "\n").encode())
-        except OSError:
-            pass
-        if self.proc:
             try:
-                self.proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
+                if self.sock and (not self.proc or self.proc.poll() is None):
+                    self.sock.sendall((json.dumps({"cmd": "quit"}) + "\n").encode())
+            except OSError as exc:
+                _port_file_event("shutdown_quit_failed", user_dir=self.user_dir,
+                                 error=_port_file_error(exc))
+            if self.proc:
+                try:
+                    self.proc.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    forced_kill = True
+                    _port_file_event("shutdown_wait_timeout", user_dir=self.user_dir,
+                                     game_pid=self.proc.pid)
+                    # dump the hung game's threads before the kill erases them
+                    dump = _port_file_event("shutdown_dump", user_dir=self.user_dir, game_pid=self.proc.pid,
+                                            **_dump_hung_game(self.proc, self.name))
+                    print("[harness-dump] " + json.dumps(dump, default=str), flush=True)
+                    self.proc.kill()
+                    self.proc.wait(timeout=15)
+        finally:
+            if self.sock:
+                self.sock.close()
+                self.sock = None
+                self.buf = b""
+            returncode = self.proc.poll() if self.proc else None
+            event = _port_file_event("shutdown_complete", user_dir=self.user_dir,
+                                     game_pid=self.proc.pid if self.proc else None,
+                                     game_returncode=returncode,
+                                     forced_kill=forced_kill, started=shutdown["wall"],
+                                     started_monotonic=shutdown["monotonic"])
+            print("[harness-port-file] " + json.dumps(event), flush=True)
+            _timelog("spawn_end", "%s port=%s" % (self.name, self.port))
+        if self.proc and (forced_kill or returncode not in expected_returncodes):
+            exc = RuntimeError(
+                f"{self.name}: shutdown failed: rc={returncode}, "
+                f"expected={expected_returncodes}, forced_kill={forced_kill}")
+            _report_port_file_error("shutdown_failed", exc, self.user_dir,
+                                    game_pid=self.proc.pid, game_returncode=returncode,
+                                    forced_kill=forced_kill)
+            raise exc
+        self._shutdown_proc = self.proc
+
+
+def shutdown_clients(*clients):
+    """Clean up every supplied peer before propagating any shutdown failures."""
+    errors = []
+    for client in clients:
+        if client is None:
+            continue
+        try:
+            client.shutdown()
+        except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+            errors.append(exc)
+    if errors:
+        raise RuntimeError("peer shutdown failed: " + "; ".join(map(str, errors))) from errors[0]
+
+
+def _reap_spawned_games():
+    """the process-exit backstop. A clean-up that stops at its first failed shutdown() (a
+    `host.shutdown(); client.shutdown()` chain) or never reaches a game would leave that game running after Python
+    exits. At exit, every game spawn() started in this process that is still running gets shutdown(): quit, the
+    15 s wait, and a minidump before the kill if it hangs. Games started any other way (manual_session.py,
+    repro74_setup.py) are never touched. One [harness-reap] line per game shut down; never raises; the exit code
+    is unchanged."""
+    for gc in list(_SPAWNED):
+        proc = gc.proc
+        if proc is None or proc.poll() is not None:
+            continue
+        line = {"name": gc.name, "pid": proc.pid}
+        try:
+            gc.shutdown()
+        except Exception as exc:
+            line["error"] = "%s: %s" % (type(exc).__name__, exc)
+        line["rc"] = proc.poll()
+        _port_file_event("reaped", user_dir=gc.user_dir, game_pid=proc.pid, game_returncode=line["rc"],
+                         error=line.get("error"))
+        print("[harness-reap] " + json.dumps(line, default=str), flush=True)
+
+
+atexit.register(_reap_spawned_games)  # registered after _timelog_test_end's, so it runs first (LIFO)
+
+
+def _wait_host_listening(host, key, port, joiner):
+    """poll the host's get_coop until onConnect is 1 with serverOwner set, then return.
+    connectionTCP::startTCPHost sets onConnect 1 right after SDLNet_TCP_Open opened the listener; a fresh process
+    reads -1 before it, and a re-host joins the old host thread (whose exit sets -1) before starting the new one.
+    A host that is not running is the caller's business: no wait. onConnect -3 or a 440 dialog on the host (its
+    listener failed) FAILS at once; no report within LISTEN_WAIT_S FAILS. Both failures carry the probe dump."""
+    if host.sock is None or (host.proc is not None and host.proc.poll() is not None):
+        return
+    t0, polls = time.monotonic(), 0
+    while True:
+        coop = host._send({"cmd": "get_coop"})
+        polls += 1
+        waited = int((time.monotonic() - t0) * 1000)
+        if coop.get("onConnect") == 1 and coop.get("serverOwner") is True:
+            line = {"key": key, "port": port, "host": host.name, "joiner": joiner.name, "waitedMs": waited,
+                    "polls": polls}
+            _port_file_event("listen_ready", **line)
+            print("[harness-listen] " + json.dumps(line), flush=True)
+            return
+        if coop.get("onConnect") == -3 or coop.get("coopDialog") == 440:
+            why = "reported its lobby listener failed (onConnect %s, coopDialog %s)" % (
+                coop.get("onConnect"), coop.get("coopDialog"))
+            break
+        if waited > LISTEN_WAIT_S * 1000:
+            why = ("never reported its lobby listener open (get_coop onConnect 1 with serverOwner) within %s s"
+                   % LISTEN_WAIT_S)
+            break
+        time.sleep(0.05)
+    tops = {}
+    for gc in (host, joiner):
+        try:
+            tops[gc.name] = gc._send({"cmd": "get_state"}).get("states", [])[-3:]
+        except Exception as exc:
+            tops[gc.name] = "%s: %s" % (type(exc).__name__, exc)
+    dump = {"key": key, "port": port, "waitedMs": waited, "polls": polls,
+            "hostCoop": {k: coop.get(k) for k in _JOIN_VIEW}, "top": tops}
+    exc = RuntimeError("%s: join_tcp to :%s not sent - host %s %s: %s" % (
+        joiner.name, port, host.name, why, json.dumps(dump, default=str)))
+    if host.user_dir:
+        _report_port_file_error("listen_wait_failed", exc, host.user_dir, **dump)
+    raise exc
+
+
+def _print_pair_states():
+    """on a wait_for deadline, print one [harness-join] line per running member of every coop pair
+    this process joined: its get_coop connect fields and its top states. A client whose single connect failed shows
+    coopDialog 16 (connectionTCP::updateCoopTask's onConnect == 0 branch). Read-only requests; never raises; the
+    TimeoutError is unchanged."""
+    for key, joiners in list(_COOP_JOINERS.items()):
+        host = _COOP_HOSTS.get(key, (None,))[0]
+        for role, gc in [("host", host)] + [("joiner", j) for j in joiners]:
+            if gc is None or gc.sock is None or (gc.proc is not None and gc.proc.poll() is not None):
+                continue
+            try:
+                coop = gc._send({"cmd": "get_coop"})
+                view = {k: coop.get(k) for k in _JOIN_VIEW}
+                view["top"] = gc._send({"cmd": "get_state"}).get("states", [])[-3:]
+            except Exception as exc:
+                view = {"error": "%s: %s" % (type(exc).__name__, exc)}
+            print("[harness-join] " + json.dumps(dict(view, key=key, role=role, name=gc.name), default=str),
+                  flush=True)
+
+
+# MiniDumpWithHandleData | MiniDumpWithUnloadedModules | MiniDumpWithThreadInfo (dbghelp.h)
+_HANG_DUMP_TYPE = 0x00000004 | 0x00000020 | 0x00001000
+
+
+def _dump_hung_game(proc, name):
+    """write a minidump of a game that did not exit 15 s after quit, before shutdown() kills it:
+    System32 dbghelp.dll MiniDumpWriteDump through ctypes (every thread's stack and context, handles, modules) into
+    the diagnostics dir, which make_user_dir never erases. Read it with the Windows SDK's cdb and that build's PDB,
+    no symbol server: cdb -z <dump> -y <exe dir> -c "~*k 30; q". Uses the Popen's own process handle, never a pid
+    lookup, so a reused pid is never dumped. Never raises: returns the dump path or why there is none."""
+    handle = getattr(proc, "_handle", None)
+    if os.name != "nt" or handle is None:
+        return {"dumpSkipped": "no Windows process handle"}
+    try:
+        path = os.path.join(TEMP_ROOT, "oxc-coop-port-diagnostics",
+                            "hang-%s-%d-%d.dmp" % (name, proc.pid, time.time_ns()))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        dbghelp = ctypes.WinDLL(os.path.join(os.environ["SystemRoot"], "System32", "dbghelp.dll"),
+                                use_last_error=True)
+        write = dbghelp.MiniDumpWriteDump
+        write.argtypes = (wintypes.HANDLE, wintypes.DWORD, wintypes.HANDLE, wintypes.DWORD,
+                          ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p)
+        write.restype = wintypes.BOOL
+        t0 = time.monotonic()
+        with open(path, "wb") as f:
+            ok = write(int(handle), proc.pid, msvcrt.get_osfhandle(f.fileno()), _HANG_DUMP_TYPE, None, None, None)
+            err = ctypes.get_last_error()
+        ms = int((time.monotonic() - t0) * 1000)
+        if not ok:
+            return {"dump": path, "dumpError": "MiniDumpWriteDump failed: winerror %d" % err, "dumpMs": ms}
+        return {"dump": path, "dumpBytes": os.path.getsize(path), "dumpMs": ms}
+    except Exception as exc:
+        return {"dumpError": "%s: %s" % (type(exc).__name__, exc)}
 
 
 def _is_link(entry):
@@ -497,10 +1020,24 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     # uses to identify its own processes and never touch a foreign session's.
     name = "s%d_%s" % (HARNESS_SLOT, name)
     d = os.path.join(TEST_ROOT, name)
+    _port_file_event("user_dir_prepare", user_dir=d)
     if os.path.exists(d):
-        remove_links(d)
-        shutil.rmtree(d, onerror=_remove_readonly)
-    os.makedirs(os.path.join(d, "xcom1"))
+        removal = _port_file_event("user_dir_remove_begin", user_dir=d)
+        try:
+            remove_links(d)
+            shutil.rmtree(d, onerror=_remove_readonly)
+        except OSError as exc:
+            _report_port_file_error("user_dir_remove_failed", exc, d)
+            raise
+        event = _port_file_event("user_dir_removed", user_dir=d, started=removal["wall"],
+                                 started_monotonic=removal["monotonic"])
+        print("[harness-port-file] " + json.dumps(event), flush=True)
+    try:
+        os.makedirs(os.path.join(d, "xcom1"))
+    except OSError as exc:
+        _report_port_file_error("user_dir_create_failed", exc, d)
+        raise
+    _port_file_event("user_dir_created", user_dir=d)
     # OXC_TEST_EXTRA_MOD (mod-loaded regression, GAP-10): a path - or an os.pathsep-
     # joined list of paths - to mod folder(s) appended to EVERY instance's mod set,
     # so any existing test can be run with an extra mod active without editing it.
@@ -555,9 +1092,18 @@ def make_user_dir(name, saves=(), mods=(), options=None):
     opts = HERMETIC_OPTIONS
     if extra:
         opts = opts.replace("options:\n", extra + "options:\n", 1)
-    if options:
+    all_options = dict(options) if options else {}
+    # A pass of the regression tests with coopGhostStepper OFF. None of the
+    # regression tests know anything about coopGhostStepper, so this is the
+    # mechanism for the OFF pass without editing any of them: a PYTHON-side
+    # opt-in (not an OXC_* game-process env var) that forces the option off
+    # in EVERY generated options.cfg, for this harness process only. A
+    # caller's own explicit `options` dict entry still wins.
+    if os.environ.get("COOP_GHOST_STEPPER_OFF") and "coopGhostStepper" not in all_options:
+        all_options["coopGhostStepper"] = False
+    if all_options:
         extra_opts = ""
-        for key, value in options.items():
+        for key, value in all_options.items():
             if isinstance(value, bool):
                 value = "true" if value else "false"
             extra_opts += "  %s: %s\n" % (key, value)
@@ -566,6 +1112,7 @@ def make_user_dir(name, saves=(), mods=(), options=None):
         f.write(opts)
     for save in saves:
         shutil.copy(save, os.path.join(d, "xcom1"))
+    _port_file_event("user_dir_ready", user_dir=d)
     return d
 
 
@@ -575,3 +1122,108 @@ def find_soldier(soldier_lists, name):
             if name in s["name"]:
                 return base, s
     return None, None
+
+
+# ----- the machine's CPU load for EVIDENCE lines -----
+# Tests record the machine's CPU load and any Wardogs* process (a game running beside the tests) beside their verdicts, to
+# tell a load-inflated failure from a real one. A PowerShell Get-Counter costs 1.6-2.8 s a call (up to 10 s under load);
+# cpu_load() reads the same source in-process: GetSystemTimes busy time
+# over the window, which is '\Processor(_Total)\% Processor Time' (median 0.1 point apart on matched 2 s windows). A
+# background thread samples every _CPU_SAMPLE_S from the first call on, so a call costs a process-list scan, not a wait.
+_CPU_SAMPLE_S = 0.5
+_cpu_series = deque(maxlen=64)   # (monotonic s, idle, kernel, user) in 100 ns units; kernel time includes idle time
+_cpu_lock = threading.Lock()
+_cpu_thread = []
+
+if os.name == "nt":
+    _GetSystemTimes = _kernel32.GetSystemTimes
+    _GetSystemTimes.argtypes = (ctypes.POINTER(wintypes.FILETIME),) * 3
+    _GetSystemTimes.restype = wintypes.BOOL
+
+    class _ProcessEntry(ctypes.Structure):   # PROCESSENTRY32W
+        _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD), ("th32ProcessID", wintypes.DWORD),
+                    ("th32DefaultHeapID", ctypes.c_size_t), ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                    ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", ctypes.c_long), ("dwFlags", wintypes.DWORD),
+                    ("szExeFile", ctypes.c_wchar * 260)]
+
+    _CreateToolhelp32Snapshot = _kernel32.CreateToolhelp32Snapshot
+    _CreateToolhelp32Snapshot.argtypes = (wintypes.DWORD, wintypes.DWORD)
+    _CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    _Process32FirstW = _kernel32.Process32FirstW
+    _Process32FirstW.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
+    _Process32FirstW.restype = wintypes.BOOL
+    _Process32NextW = _kernel32.Process32NextW
+    _Process32NextW.argtypes = (wintypes.HANDLE, ctypes.POINTER(_ProcessEntry))
+    _Process32NextW.restype = wintypes.BOOL
+    _TH32CS_SNAPPROCESS = 0x2
+
+    def _system_times():
+        idle, kernel, user = wintypes.FILETIME(), wintypes.FILETIME(), wintypes.FILETIME()
+        if not _GetSystemTimes(ctypes.byref(idle), ctypes.byref(kernel), ctypes.byref(user)):
+            return None
+        return (time.monotonic(),) + tuple((t.dwHighDateTime << 32) | t.dwLowDateTime for t in (idle, kernel, user))
+
+    def _process_names(prefix):
+        """Image names (no .exe) of the running processes whose name starts with `prefix`, any case (Get-Process -like)."""
+        snap = _CreateToolhelp32Snapshot(_TH32CS_SNAPPROCESS, 0)
+        if snap is None or snap == _INVALID_HANDLE_VALUE:
+            return []
+        try:
+            entry, names = _ProcessEntry(), []
+            entry.dwSize = ctypes.sizeof(_ProcessEntry)
+            ok = _Process32FirstW(snap, ctypes.byref(entry))
+            while ok:
+                name = entry.szExeFile
+                if name.lower().startswith(prefix.lower()):
+                    names.append(name[:-4] if name.lower().endswith(".exe") else name)
+                ok = _Process32NextW(snap, ctypes.byref(entry))
+            return names
+        finally:
+            _CloseHandle(snap)
+
+
+def _cpu_sampler():
+    while True:
+        sample = _system_times()
+        if sample:
+            with _cpu_lock:
+                _cpu_series.append(sample)
+        time.sleep(_CPU_SAMPLE_S)
+
+
+def cpu_load(window=2.0):
+    """{"cpu": % of every core busy over about the last `window` s (None when unreadable), "wardogs": [the names of
+    the running Wardogs* processes]}. The first call in a process starts the sampler and measures a 0.25 s window."""
+    if os.name != "nt":
+        return {"cpu": None, "wardogs": []}
+    cpu = None
+    try:
+        if not _cpu_thread:
+            first = _system_times()
+            with _cpu_lock:
+                _cpu_series.append(first)
+            _cpu_thread.append(threading.Thread(target=_cpu_sampler, name="cpu-load-sampler", daemon=True))
+            _cpu_thread[0].start()
+            time.sleep(0.25)
+        now = _system_times()
+        with _cpu_lock:
+            older = [s for s in _cpu_series if s and s[0] <= now[0] - window]
+            base = older[-1] if older else _cpu_series[0]
+        total = (now[2] - base[2]) + (now[3] - base[3])
+        if total > 0:
+            cpu = round(100.0 * (total - (now[1] - base[1])) / total, 1)
+    except Exception:  # noqa: BLE001 - a diagnostic: unreadable is None, never a test failure
+        pass
+    try:
+        wardogs = _process_names("Wardogs")
+    except Exception:  # noqa: BLE001
+        wardogs = []
+    return {"cpu": cpu, "wardogs": wardogs}
+
+
+def cpu_text(cpu, digits=1):
+    """`cpu` as the old PowerShell probes printed it ([math]::Round(x, digits): '44.4', '44'); None stays None."""
+    if cpu is None:
+        return None
+    v = round(cpu, digits)
+    return "%d" % v if v == int(v) else "%.*f" % (digits, v)

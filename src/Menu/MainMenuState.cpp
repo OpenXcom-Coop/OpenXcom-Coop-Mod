@@ -36,7 +36,8 @@
 #include "../Savegame/SavedGame.h"
 #include "../Engine/FileMap.h"
 #include "../Engine/SDL2Helpers.h"
-#include "../CoopMod/SharedEcon.h" // PRD-I5: next-launch crash reporter
+#include "../CoopMod/SharedEcon.h" // coop: next-launch crash reporter
+#include "../CoopMod/connectionTCP.h" // coop: the parked PvP world goes with the world
 #include <fstream>
 
 namespace OpenXcom
@@ -178,12 +179,13 @@ void GoToMainMenuState::init()
 	// already destroyed. Clearing in a constructor would delete the save out from under
 	// states that are still alive.
 	_game->setSavedGame(0);
+	connectionTCP::coopPvpBorrowDrop(); // coop: a parked gm3 alien world goes with the world
 
 	Screen::updateScale(Options::geoscapeScale, Options::baseXGeoscape, Options::baseYGeoscape, true);
 	_game->getScreen()->resetDisplay(false);
 	_game->setState(new MainMenuState(_updateCheck));
 
-	// PRD-I5: next-launch crash reporter. Fires only on the fresh-boot transition
+	// coop: the next-launch crash reporter. Fires only on the fresh-boot transition
 	// (StartState -> GoToMainMenuState(true)), i.e. once per launch, at the main-menu
 	// altitude (world already torn down by setSavedGame(0) above) - the same
 	// "before the main menu" altitude the save-upgrade flow lives at. Best-effort
@@ -439,6 +441,7 @@ void MainMenuState::init()
 	_game->getCoopMod()->disconnectTCP(true);
 
 	connectionTCP::_coopGamemode = 0;
+	connectionTCP::_isHotseatActive = false; // coop: back at the main menu no hotseat stays armed
 	// The main menu holds no world, so no seat survives it: a process that
 	// played as a client must host its next campaign as seat 0.
 	connectionTCP::coop_save_owner_player_id = 0;
@@ -452,6 +455,7 @@ void MainMenuState::init()
 
 	// coop
 	_game->getCoopMod()->allow_cutscene = true;
+	_coopInitDone = true; // a join sent from here on is no longer wiped by the reset above
 }
 
 /**

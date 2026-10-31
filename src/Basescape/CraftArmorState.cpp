@@ -318,23 +318,6 @@ void CraftArmorState::init()
 	_sharedRefresh.bind(_game, this, _base);
 }
 
-/**
- * Applies a pending live refresh from the host: rebuild the list in place.
- */
-void CraftArmorState::think()
-{
-	State::think();
-	if (_sharedRefresh.consume())
-	{
-		if (SharedEcon::baseIndex(_game, _base) < 0)
-		{
-			_game->popState(); // this base is gone
-			return;
-		}
-		_savedScrollPosition = _lstSoldiers->getScroll();
-		init();
-	}
-}
 
 /**
  * Shows the soldiers in a list at specified offset/scroll.
@@ -428,13 +411,12 @@ void CraftArmorState::moveSoldierUp(Action *action, unsigned int row, bool max)
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
 	// roster locally, and the row is an index into the owner-filtered list, not
-	// into _base->getSoldiers(). Separate sends the player's new order at their
-	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED does not reorder at all, and a visitor never reorders
-	// another player's roster.
+	// into _base->getSoldiers(). The player's new order of their own soldiers
+	// goes to the host (soldier_order); the list refreshes when it lands. A
+	// visitor never reorders another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
-		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+		if (_base->_isForeignBase
 			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, true, max))
 			return;
 		if (!max && action)
@@ -505,13 +487,12 @@ void CraftArmorState::moveSoldierDown(Action *action, unsigned int row, bool max
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
 	// roster locally, and the row is an index into the owner-filtered list, not
-	// into _base->getSoldiers(). Separate sends the player's new order at their
-	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED does not reorder at all, and a visitor never reorders
-	// another player's roster.
+	// into _base->getSoldiers(). The player's new order of their own soldiers
+	// goes to the host (soldier_order); the list refreshes when it lands. A
+	// visitor never reorders another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
-		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+		if (_base->_isForeignBase
 			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, false, max))
 			return;
 		if (!max && action)
@@ -777,6 +758,7 @@ void CraftArmorState::btnDeequipAllArmorClick(Action *action)
 	int row = 0;
 	for (auto* soldier : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED resets only the local player's own soldiers
 		if (!(soldier->getCraft() && soldier->getCraft()->getStatus() == "STR_OUT"))
 		{
 			Armor *a = soldier->getRules()->getDefaultArmor();
@@ -826,6 +808,7 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 	int row = 0;
 	for (auto* s : *_base->getSoldiers())
 	{
+		if (!SharedEcon::ownsSoldier(_game, s)) continue; // coop: SHARED resets only the local player's own soldiers
 		if (s->getCraft() == c || s->getCraft() == 0)
 		{
 			Armor *a = s->getRules()->getDefaultArmor();
@@ -860,6 +843,24 @@ void CraftArmorState::btnDeequipCraftArmorClick(Action *action)
 			}
 		}
 		row++;
+	}
+}
+
+/**
+ * coop: applies a pending live refresh (the CraftSoldiersState::think shape).
+ */
+void CraftArmorState::think()
+{
+	State::think();
+	if (_sharedRefresh.consume())
+	{
+		if (SharedEcon::baseIndex(_game, _base) < 0 || _craft >= _base->getCrafts()->size())
+		{
+			_game->popState(); // the base or the craft was removed out from under this screen
+			return;
+		}
+		_base->prepareSoldierStatsWithBonuses();
+		initList(_lstSoldiers->getScroll());
 	}
 }
 

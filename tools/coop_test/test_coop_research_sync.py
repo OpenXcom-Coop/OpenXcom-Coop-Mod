@@ -381,7 +381,7 @@ def main():
     if not all(alive.values()) or (note and note.startswith("ERROR")):
         sys.exit(2)
     if note:
-        sys.exit(3)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: with Shared Research a discovery is a discovery for both players")
