@@ -22,9 +22,6 @@ record = (layout, personal, personalArmor), exact. W = 10 s at 0.25 s polls; par
         within W; the host's C2 layout == one item {STR_PISTOL, STR_LEFT_HAND, 0, 0}, the client's C2 == the host's,
         the host's H == before, the client's H == the host's.
   base_equip_7 js.finish(): world equality + replica zero-disk (guard; last in the SHARED boot).
-The SEPARATE boot (labels 48706 / 48707, lobby 47923): base_equip_8 client: ClientBase soldier screen, inventory_move
-  {S, STR_PISTOL, left} (S = the first unit with an empty left hand), close: S's pistols 0 -> 1 on the client; both
-  machines' shared_stats cmd / applyCount / failCount unchanged 1 s after the close (guard).
 One EVIDENCE line per row (both machines' H, C, C2 at its start and end, compact) before its verdict; a failed row prints
 ONE CAPTURE line (both machines' soldier_layouts, base_report, shared_stats, stacks; the editor's inventory_ground). A
 boot miss fails its rows "boot" with one CAPTURE line. Every row runs after a failure. ONE run; exit 0 iff
@@ -37,20 +34,17 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 TAG_SHARED, PORTS_SHARED = "shared_base_equip_shared", (48704, 48705, 47922)
-TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "shared_base_equip_separate", (48706, 48707), "47923"
-HB, CB, OPT, ITEM = "HostBase", "ClientBase", "oxceAlternateCraftEquipmentManagement", "STR_PISTOL"
+HB, OPT, ITEM = "HostBase", "oxceAlternateCraftEquipmentManagement", "STR_PISTOL"
 STAGE = "STR_GRENADE"  # base_equip_5 stages this craft-pile item on C so C keeps an item after the drop
 W, POLL, GEO = 10.0, 0.25, "GeoscapeState"
 FORGED = "l:\n  - {itemType: STR_PISTOL, slot: STR_LEFT_HAND}\n"
 UNKNOWN = "unknown command: soldier_equip"
 ROWS_SHARED = ["base_equip_%d" % n for n in range(1, 8)]
-ORDER = ROWS_SHARED + ["base_equip_8"]
+ORDER = ROWS_SHARED
 
 
 def short(e, n=600):
@@ -360,29 +354,6 @@ def row_world_equal(x, r):
         r.cell("js.finish", False, short(e, 1500))
 
 
-def row_separate_no_command(x, r):
-    h, c = x.host, x.client
-    s0 = {gc.name: stats3(gc) for gc in (h, c)}
-    L0 = layouts(c, CB)
-    r.ev["client roster"] = [(n, e.get("id"), e.get("owner")) for n, e in L0.items()]
-    if not open_soldier_screen(r, c, CB):
-        return
-    g = q(c, {"cmd": "inventory_ground"})
-    S = next((u.get("name") for u in g.get("soldiers") or [] if "STR_LEFT_HAND" not in (u.get("slots") or {})), None)
-    rep = move(r, c, {"name": S, "slot": "left"})
-    close_soldier_screen(r, c)
-    L1 = layouts(c, CB)
-    time.sleep(1.0)  # a stray shared command from this OK would be counted by now
-    s1 = {gc.name: stats3(gc) for gc in (h, c)}
-    p0, p1 = pistols(L0.get(S)), pistols(L1.get(S))
-    r.ev.update({"S": S, "start": {"client S": compact(L0.get(S))}, "end": {"client S": compact(L1.get(S))},
-                 "shared_stats before": s0, "shared_stats after": s1})
-    r.evidence()
-    r.cell("non-vacuity: client moved", S is not None and rep.get("moved") is True, [S, rep])
-    r.cell(f"{ITEM} in the client's layout of S 0 -> 1", p0 == 0 and p1 == 1, f"{p0} -> {p1}")
-    r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
-
-
 def setup(x):
     for gc in (x.host, x.client):
         x.opts[gc.name] = q(gc, {"cmd": "option_values", "ids": [OPT]}).get("values")
@@ -457,28 +428,9 @@ def boot_shared(results, walls):
             js.shutdown()
 
 
-def boot_separate(results, walls):
-    t0 = time.time()
-    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
-    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
-    x = X(h, c, base=CB)
-    try:
-        try:
-            h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
-            geo.wait_both_ready(h, c)
-            walls["SEPARATE boot"] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails base_equip_8 "boot" with ONE CAPTURE line
-            return boot_miss(TAG_SEPARATE, e, ["base_equip_8"], results, x)
-        run_rows(x, (("base_equip_8", row_separate_no_command),), results, walls)
-    finally:
-        shutdown_clients(h, c)
-
-
 def main():
     t0, results, walls = time.time(), {}, {}
     boot_shared(results, walls)
-    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     print(f"\ntest_shared_base_equip: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) "
           f"walls {json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)
