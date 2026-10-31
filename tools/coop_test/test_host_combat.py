@@ -9,8 +9,8 @@ context the combat RESULT still reaches the client: the chain ends
 context-less, onChainQuiesced's empty-stack branch runs
 CoopDelta::flushSync(), and one `sync` ev carries the delta (units, items,
 the corpse with the host's id), but no cue ev is sent and no
-`bt_action_end` closes the action. Three scenarios, ONE boot, in this
-order:
+`bt_action_end` closes the action. Three scenarios on ONE boot, in this
+order (the tank_death_spin row below runs on a second boot):
 
   host_kill  host real-UI snap shot kills alien A. H gets a rifle + clip
       (battle_give on BOTH, ids equal), H -> KILL_H_TILE facing KILL_H_DIR (one
@@ -67,6 +67,22 @@ displayTwo all zero, the client's completed + cut == enqueued once its death
 ghosts ended (a bounded wait). coopGhostStepper is set true in both
 instances' options, as in the other ghost tests. Each row prints ONE
 "EVIDENCE <row>:" line.
+
+Death row tank_death_spin, on a second boot (test_ownerless_units.bring_up:
+STR_SMALL_SCOUT, map seed 1, the Skyranger's crew cut to three and one
+STR_TANK_CANNON on seat 0, pin_ai_neutral, every live unit's reactions 0): a
+stock tank killed by direct damage turns its turret with its hull through
+the spin (vanilla BattleUnit::turn moves the turret one octant with each
+body octant), and the watching machine draws that turret. The tank's turret
+is staged off the hull on both machines (field_poke turretDir, client
+first, every bucket EQUAL), then the HOST's battle_action kill_unit_real
+{unit: TANK_ID} (an empty host stack: the death is `front`). Wants: ONE
+client death record for the death ev whose dirsShown is TANK_DIRS and whose
+turretsShown (the turret facings the watcher drew) is TANK_TURRETS, step for
+step; the tank DEAD and off its tile on both, facing 3 with its turret on
+TANK_TURRETS[-1] on both (the drawn spin ends on the real facing); the
+asserts common to every death row and the common asserts. A watcher that
+draws the tank's own turret through the spin records only the staged facing.
 
 Effect row melee_ghost: host_stun's stun-rod swing plays on the watching
 machine as a melee ghost. The row wants ONE client combatGhost ring record of
@@ -127,7 +143,7 @@ one failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
 bounded; a wait that times out is recorded in the EVIDENCE line and fails the
 scenario.
 
-One run is the result. No skip path, no second boot, no
+One run is the result. No skip path, no retry boot, no
 alternative map or actor. Exit 0 only when every scenario passes, 2 otherwise
 (a bring-up failure is also 2). Run in the foreground to completion.
 
@@ -224,12 +240,30 @@ BURST_DEATHS = {20: {"unit": C_ID, "outcome": "dead", "instant": False, "damageT
                 21: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
 BURST_CORPSES = {22: {"unit": C_ID, "corpses": [101]}, 23: {"unit": C2_ID, "corpses": [102]}}
 DIR_FACING_3 = 3                 # a collapsed unit's final direction (the corpse ev's DEAD carrier)
+# tank_death_spin, on the second boot (test_ownerless_units.bring_up)
+TANK_ID = 1000000                # the stock STR_TANK_CANNON (turret type 0, deathFrames 3) on seat 0 at that boot;
+                                 # another stock tank (every STR_TANK_* unit has a turret) if that boot's pins change
+TANK_TYPE = "STR_TANK_CANNON"
+TANK_DIR0 = 0                    # its facing at that boot. Any facing but 3 turns (3 - it) mod 8 octants; another
+                                 # one is staged by battle_teleport_unit's dir onto a free 2 x 2 footprint (never its
+                                 # own tile)
+TANK_TURRET0 = 6                 # the turret facing staged on both machines (field_poke turretDir, client first): any
+                                 # facing but TANK_DIR0, so a drawn turret that copies the hull fails; 6 also wraps
+                                 # 7 -> 0 in the spin
+TANK_DEATH_SOUNDS = [23]         # battle_state deathSounds of the tank on both machines (its rule's deathSound 23)
+TANK_OCTANTS = (3 - TANK_DIR0) % 8                                            # 3
+TANK_DIRS = [(TANK_DIR0 + k) % 8 for k in range(1, TANK_OCTANTS + 1)]        # [1, 2, 3]: a `front` victim turns
+                                 # its first octant at its first think, so TANK_DIR0 is never drawn
+TANK_TURRETS = [(TANK_TURRET0 + k) % 8 for k in range(1, TANK_OCTANTS + 1)]  # [7, 0, 1]: the turret one octant
+                                 # with each body octant (BattleUnit::turn, a unit whose turret type is > -1)
+TANK_DEATH = {"unit": TANK_ID, "outcome": "dead", "instant": False, "damageType": 1}   # kill_unit_real: DT_AP
 
 PORT = "48625"
 FACTION_PLAYER = 0
 FACTION_HOSTILE = 1
 COOP_SEAT_0 = 0
-STATUS_DEAD = 6                  # src/Mod/Unit.h enum UnitStatus
+STATUS_STANDING = 0              # src/Mod/Unit.h enum UnitStatus
+STATUS_DEAD = 6
 STATUS_UNCONSCIOUS = 7
 CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targeting after a shot
 # the 16 cue kinds; `sync` is the context-less flush, not a combat cue.
@@ -557,8 +591,8 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
     """A death row after the row's chain settled. `wants` = the expected client death records in the host's
     queue order, each {seq, actionId, unit, payload (the pinned subset), front (None = only equal to the
     payload's), fromDir, octants, respawn, Is, sounds, startedAfterSeq, overKill, endedBy, and optionally
-    unitDyingSet, unitDyingCleared, dirsShown, phasesShown, headStartedAtEnqueue, payloadFront (False: the
-    payload's `front` is checked through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns fails.
+    unitDyingSet, unitDyingCleared, dirsShown, turretsShown, phasesShown, headStartedAtEnqueue, payloadFront (False:
+    the payload's `front` is checked through the record only)}. Prints ONE "EVIDENCE <tag>:" line, returns fails.
     Common to every death row: the client's rngSeed unchanged across the row, the host's displayTwo all zero,
     the client's completed + cut == enqueued; frames, sound lists and overKill equal on both machines and equal
     the pins."""
@@ -621,18 +655,20 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
                     "octants": w["octants"], "frames": DEATH_F, "respawn": w["respawn"], "Is": w["Is"],
                     "startedAfterSeq": w["startedAfterSeq"], "overKill": w["overKill"], "endedBy": w["endedBy"]}
             want.update(death_schedule(want["front"], w["octants"], w["Is"], DEATH_F, w["respawn"]))
-            for k in ("unitDyingSet", "unitDyingCleared", "dirsShown", "phasesShown", "headStartedAtEnqueue"):
+            for k in ("unitDyingSet", "unitDyingCleared", "dirsShown", "turretsShown", "phasesShown",
+                      "headStartedAtEnqueue"):
                 if k in w:
                     want[k] = w[k]
             got = {k: r.get(k) for k in want}
-            # dirsShown / phasesShown are per-advance samples of the fixed schedule (a non-front
+            # dirsShown / turretsShown / phasesShown are per-advance samples of the fixed schedule (a non-front
             # victim: fromDir drawn at the start, each pirouette octant Is ms, the final 3 >= 2 x Ic - Is ms, each
-            # collapse phase >= Ic ms); a client frame stall leaves out only whole windows (sampled_list_fails)
-            for k in ("dirsShown", "phasesShown"):
+            # collapse phase >= Ic ms; a turret turns with the body, on dirsShown's windows); a client frame stall
+            # leaves out only whole windows (sampled_list_fails)
+            for k in ("dirsShown", "turretsShown", "phasesShown"):
                 if k in want:
                     lst = want.pop(k)
-                    win = ([0] + [w["Is"]] * (len(lst) - 2) + [2 * want["Ic"] - w["Is"]] if k == "dirsShown"
-                           else [want["Ic"]] * len(lst))
+                    win = ([0] + [w["Is"]] * (len(lst) - 2) + [2 * want["Ic"] - w["Is"]]
+                           if k in ("dirsShown", "turretsShown") else [want["Ic"]] * len(lst))
                     fails += [f"{tag}: {m}" for m in sampled_list_fails(
                         f"client death record seq {w['seq']} {k}", got.pop(k), lst, win, r.get("maxGapMs"))]
             bad = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
@@ -1407,7 +1443,83 @@ def row_death_burst(host, client, ctx):
     finish(fails)
 
 
+def tank_unit(gc):
+    u = units(gc).get(TANK_ID) or {}
+    return {k: u.get(k) for k in ("type", "coop", "status", "onTile", "direction", "directionTurret", "x", "y", "z")}
+
+
+def row_tank_death_spin(host, client, ctx):
+    """Row tank_death_spin (the second boot): the tank's turret staged at TANK_TURRET0 on both machines (client
+    first), every bucket EQUAL; then the HOST's kill_unit_real {unit: TANK_ID}; bounded waits for the tank DEAD on
+    the host with no BState, the client caught up and its death ghosts ended. The client's one death record draws
+    the hull TANK_DIRS and the turret TANK_TURRETS step for step; the tank ends DEAD, off its tile, facing 3 with
+    its turret on TANK_TURRETS[-1] on both machines."""
+    notes = []
+    pre = {"host": tank_unit(host), "client": tank_unit(client)}
+    poke = {}
+    for gc in (client, host):
+        r = gc.cmd({"cmd": "field_poke", "class": "unit", "id": TANK_ID, "field": "turretDir", "value": TANK_TURRET0,
+                    "restore": False})
+        poke[gc.name] = {k: r.get(k) for k in ("ok", "error", "before", "poked")}
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after the staging: {short(e)}")
+    staged_diff = diff_buckets(host, client)
+    staged = {"host": tank_unit(host), "client": tank_unit(client)}
+    before = {"host": probes(host), "client": probes(client)}
+    snap_d = death_snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": TANK_ID})
+    try:
+        host.wait_for("host tank DEAD, no BState", lambda: host_both_dead_idle(host, (TANK_ID,)), timeout=30)
+    except Exception as e:
+        notes.append(f"host kill chain: {short(e)}")
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after the kill: {short(e)}")
+    wait_death_ghosts_ended(client, notes)
+    hev = evs_since(host, seq0)
+    deaths = [e["seq"] for e in hev if e["kind"] == "death"]
+    end = {"host": tank_unit(host), "client": tank_unit(client)}
+    ev = {"pre": pre, "poke": poke, "staged": staged, "stagedDiff": staged_diff, "kill": k, "seq0": seq0,
+          "hostEvs": [(e["seq"], e["kind"], e["actionId"]) for e in hev], "end": end, "notes": list(notes)}
+    spin_fails = death_row("tank_death_spin", host, client, snap_d, extra=ev, wants=[
+        {"seq": deaths[0] if len(deaths) == 1 else None, "actionId": 0, "unit": TANK_ID, "payload": TANK_DEATH,
+         "front": True, "fromDir": TANK_DIR0, "octants": TANK_OCTANTS, "respawn": False, "Is": DEATH_IS_TURN,
+         "sounds": TANK_DEATH_SOUNDS, "startedAfterSeq": 0, "overKill": OVERKILL_NONE, "endedBy": "out",
+         "dirsShown": TANK_DIRS, "turretsShown": TANK_TURRETS}])
+    fails = list(notes)
+    want_pre = {"type": TANK_TYPE, "coop": COOP_SEAT_0, "status": STATUS_STANDING, "direction": TANK_DIR0}
+    for n, v in pre.items():
+        if {x: v[x] for x in want_pre} != want_pre:
+            fails.append(f"{n} tank {TANK_ID} at the row start {v} (want {want_pre})")
+    for n, p in poke.items():
+        if p.get("ok") is not True or p.get("poked") != TANK_TURRET0:
+            fails.append(f"{n} field_poke turretDir {TANK_TURRET0} answered {p} (want ok, poked {TANK_TURRET0})")
+    if staged_diff:
+        fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
+    for n, v in staged.items():
+        if (v["direction"], v["directionTurret"]) != (TANK_DIR0, TANK_TURRET0):
+            fails.append(f"{n} tank {TANK_ID} after the staging {v} (want direction {TANK_DIR0}, directionTurret "
+                         f"{TANK_TURRET0})")
+    if not k.get("ok") or k.get("killed") != [TANK_ID]:
+        fails.append(f"kill_unit_real {{unit: {TANK_ID}}} answered {k} (want ok, killed [{TANK_ID}])")
+    if len(deaths) != 1:
+        fails.append(f"host death evs since seq {seq0}: {deaths} (want exactly one)")
+    want_end = {"status": STATUS_DEAD, "onTile": False, "direction": DIR_FACING_3, "directionTurret": TANK_TURRETS[-1]}
+    for n, v in end.items():
+        if {x: v[x] for x in want_end} != want_end:
+            fails.append(f"{n} tank {TANK_ID} at the end {v} (want {want_end}: the drawn spin ends on the real "
+                         f"facing)")
+    fails += spin_fails
+    fails += common_fails(host, client, before, {}, "tank_death_spin")
+    finish(fails)
+
+
 SCENARIOS = (("host_kill", row_host_kill), ("host_stun", row_host_stun), ("death_burst", row_death_burst))
+TANK_SCENARIOS = (("tank_death_spin", row_tank_death_spin),)
 
 
 # ===================== bring-up =====================
@@ -1465,37 +1577,57 @@ def boot(host, client):
     return {}
 
 
+def tank_boot(host, client):
+    """The second boot: test_ownerless_units.bring_up (imported here: that file imports this one), with its own
+    pins asserted; then the tank TANK_ID live on both machines."""
+    import test_ownerless_units as own
+    view, _crash0 = own.bring_up(host, client)
+    for gc in (host, client):
+        u = units(gc).get(TANK_ID) or {}
+        assert u.get("type") == TANK_TYPE and not u.get("isOut"), (
+            f"{gc.name} tank {TANK_ID} at bring-up: {tank_unit(gc)} (want a live {TANK_TYPE})")
+    print(f"[host_combat] tank boot ok: {json.dumps(view, default=str)} tank host={tank_unit(host)} "
+          f"client={tank_unit(client)}", flush=True)
+    return {}
+
+
+# (tag, bring-up, its scenarios, the (user dir, port label) of the host and the client)
+BOOTS = (("terror", boot, SCENARIOS, (("host_combat_host", 49846), ("host_combat_client", 49847))),
+         ("tank", tank_boot, TANK_SCENARIOS, (("host_combat_tank_host", None), ("host_combat_tank_client", None))))
+
+
 def main():
     t0 = time.time()
-    # coopGhostStepper set true in both instances (the death rows need the client's death ghosts)
-    host = GameClient("host", 49846, make_user_dir("host_combat_host", options={"coopGhostStepper": True}))
-    client = GameClient("client", 49847, make_user_dir("host_combat_client",
-                                                       options={"coopGhostStepper": True}))
     results = {}
-    try:
+    names = [n for _, _, scenarios, _ in BOOTS for n, _ in scenarios]
+    for tag, boot_fn, scenarios, dirs in BOOTS:
+        # coopGhostStepper set true in both instances (the death rows need the client's death ghosts)
+        host = GameClient("host", dirs[0][1], make_user_dir(dirs[0][0], options={"coopGhostStepper": True}))
+        client = GameClient("client", dirs[1][1], make_user_dir(dirs[1][0], options={"coopGhostStepper": True}))
         try:
-            ctx = boot(host, client)
-        except Exception as e:  # a bring-up failure fails the whole run
-            print(f"FAIL boot: {type(e).__name__}: {e}", flush=True)
-            return 2
-        for name, fn in SCENARIOS:
             try:
-                fn(host, client, ctx)
-                results[name] = True
-                print(f"PASS {name}", flush=True)
-            except Exception as e:
-                results[name] = False
-                kind = "" if isinstance(e, AssertionError) else f"{type(e).__name__}: "
-                print(f"FAIL {name}: {kind}{e}", flush=True)
-    finally:
-        for gc in (host, client):
-            try:
-                gc.shutdown()
-            except Exception as e:
-                print(f"[host_combat] shutdown {gc.name}: {short(e)}", flush=True)
-    passed = [n for n, _ in SCENARIOS if results.get(n)]
-    failed = [n for n, _ in SCENARIOS if not results.get(n)]
-    print(f"\ntest_host_combat: {len(passed)}/{len(SCENARIOS)} passed "
+                ctx = boot_fn(host, client)
+            except Exception as e:  # a bring-up failure fails every scenario of that boot
+                print(f"FAIL boot {tag}: {type(e).__name__}: {e}", flush=True)
+                continue
+            for name, fn in scenarios:
+                try:
+                    fn(host, client, ctx)
+                    results[name] = True
+                    print(f"PASS {name}", flush=True)
+                except Exception as e:
+                    results[name] = False
+                    kind = "" if isinstance(e, AssertionError) else f"{type(e).__name__}: "
+                    print(f"FAIL {name}: {kind}{e}", flush=True)
+        finally:
+            for gc in (host, client):
+                try:
+                    gc.shutdown()
+                except Exception as e:
+                    print(f"[host_combat] shutdown {gc.name}: {short(e)}", flush=True)
+    passed = [n for n in names if results.get(n)]
+    failed = [n for n in names if not results.get(n)]
+    print(f"\ntest_host_combat: {len(passed)}/{len(names)} passed "
           f"(pass={passed} fail={failed}) in {time.time() - t0:.1f}s", flush=True)
     return 0 if not failed else 2
 
