@@ -24445,7 +24445,8 @@ struct DeathGhost
 	std::uint32_t afterSeq = 0;     // the released head it waited behind (0: none)
 	bool started = false;
 	std::uint32_t startedAtMs = 0;
-	// The schedule in ms from the start, FIXED AT START and never recomputed.
+	// The schedule in ms from the start, fixed at start; fixed again from the same start only when a later
+	// death of a started `front` head's burst is applied (deathOnEv).
 	std::uint32_t intervalS = 0;    // Is: the state interval the pirouette steps at
 	std::uint32_t intervalC = 0;    // Ic: the collapse interval
 	std::uint32_t tc = 0;           // startFalling
@@ -24462,12 +24463,15 @@ struct DeathGhost
 };
 /// The host-order death queue (index 0 = the head: started, or the next to start; a ghost leaves the
 /// queue at its release), the released ghosts still drawing their last frame until they end (the
-/// hold), the host's last state interval as the watcher mirrors it and whether a death ghost set
-/// the live Map's dying flag. Cleared by combatSync()'s generation branch.
+/// hold), the host's last state interval as the watcher mirrors it, whether a death ghost set
+/// the live Map's dying flag and the seq of the last `death` of the burst a `front` death started (0: none;
+/// the host pushes one burst's deaths in one frame, so their evs follow one another with no other ev
+/// between). Cleared by combatSync()'s generation branch.
 std::vector<DeathGhost> g_deathGhosts;
 std::vector<DeathGhost> g_deathHolding;
 int g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 bool g_deathDyingOn = false;
+std::uint32_t g_deathBurstSeq = 0;
 /// the TEST-ONLY `death_apply_hold` hook (TestServer battle_action,
 /// sent to the client). While on, an applied `death` first runs ONE deathAdvance() when the queue head is enqueued
 /// but not started, so the head starts before the later death is enqueued whether or
@@ -24587,6 +24591,7 @@ void combatSync()
 		g_deathHolding.clear();
 		g_deathInterval = BattlescapeState::DEFAULT_ANIM_SPEED;
 		g_deathDyingOn = false;
+		g_deathBurstSeq = 0;
 		g_deathApplyHold = false; // the test-only hook is battle-scoped
 		// The fall ghosts go too (they hold no Map object; their records go with
 		// the probe storage below).
@@ -25991,19 +25996,14 @@ bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* turr
 	return true;
 }
 
-/// Starts the queue head at @a nowMs with its schedule fixed now, never recomputed.
-/// Is = the host's last state interval as mirrored; a victim that must turn: Ic = DEFAULT_ANIM_SPEED (the
-/// pirouette's end sets it, UnitDieBState :183) and tc = its last octant ((front ? 0 : Is) + (D - 1) x Is) +
-/// 2 x Ic - Is; a victim already facing 3: Ic = Is and tc = its first think (front ? 0 : Is); isOut = tc (a
-/// respawn victim) or tc + F x Ic; pop = isOut + 2 x Ic; the interval it leaves behind = Ic. Its record gets the
-/// schedule, the released head it waited behind (startedAfterSeq) and the unit's overkill now (derived
-/// from the synced health).
-void deathStart(DeathGhost& g, std::uint32_t nowMs)
+/// Fixes @a g's schedule in ms from its start for the state interval @a interval (Is), and writes it to its
+/// record. A victim that must turn: Ic = DEFAULT_ANIM_SPEED (the pirouette's end sets it, UnitDieBState :183)
+/// and tc = its last octant ((front ? 0 : Is) + (D - 1) x Is) + 2 x Ic - Is; a victim already facing 3: Ic = Is
+/// and tc = its first think (front ? 0 : Is); isOut = tc (a respawn victim) or tc + F x Ic; pop = isOut + 2 x Ic;
+/// the interval it leaves behind = Ic.
+void deathSchedule(DeathGhost& g, int interval)
 {
-	g.started = true;
-	g.startedAtMs = nowMs;
-	g.lastAdvanceMs = nowMs; // probe only
-	const int is = std::max(1, g_deathInterval);
+	const int is = std::max(1, interval);
 	const int first = g.front ? 0 : is;
 	int ic = is;
 	int tc = first;
@@ -26018,8 +26018,6 @@ void deathStart(DeathGhost& g, std::uint32_t nowMs)
 	g.tc = (std::uint32_t)tc;
 	g.isOutMs = (std::uint32_t)isOut;
 	g.popMs = (std::uint32_t)(isOut + 2 * ic);
-	++g_combatProbe.death.started;
-	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
 	if (Json::Value* r = deathRecord(g.ordinal))
 	{
 		(*r)["Is"] = g.intervalS;
@@ -26027,6 +26025,22 @@ void deathStart(DeathGhost& g, std::uint32_t nowMs)
 		(*r)["tc"] = g.tc;
 		(*r)["isOutMs"] = g.isOutMs;
 		(*r)["popMs"] = g.popMs;
+	}
+}
+
+/// Starts the queue head at @a nowMs with its schedule fixed now (deathSchedule) for Is = the host's last state
+/// interval as mirrored. Its record also gets the released head it waited behind (startedAfterSeq) and the unit's
+/// overkill now (derived from the synced health).
+void deathStart(DeathGhost& g, std::uint32_t nowMs)
+{
+	g.started = true;
+	g.startedAtMs = nowMs;
+	g.lastAdvanceMs = nowMs; // probe only
+	deathSchedule(g, g_deathInterval);
+	++g_combatProbe.death.started;
+	const BattleUnit* unit = CoopIdMaps::unit(g.unitId);
+	if (Json::Value* r = deathRecord(g.ordinal))
+	{
 		(*r)["startedAfterSeq"] = g.afterSeq;
 		(*r)["overKill"] = unit ? unit->getOverKillDamage() : 0;
 	}
@@ -26179,13 +26193,19 @@ bool deathAdvance(const SavedBattleGame* save, std::uint32_t nowMs)
 /// index 0 when `front`; otherwise index 1 when the head started or was itself enqueued `front`, else
 /// index 0), with its death sound picked now (outcome "dead" only), the interval the host's constructor left
 /// (DEFAULT_ANIM_SPEED / 3 for a victim that must turn, else DEFAULT_ANIM_SPEED) and, for a player victim, the
-/// live Map's dying flag set.
+/// live Map's dying flag set. The host runs every constructor of one burst in one frame, before the burst's
+/// first victim thinks, so that victim turns and falls at the interval the LAST constructor left: a later death
+/// of the burst of a started `front` head (a client frame ran between the two applies) fixes that head's
+/// schedule again, from its own start, with the interval this death's constructor left.
 void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs)
 {
 	const Json::Value& p = ev["payload"];
 	const bool front = p.get("front", false).asBool();
 	if (front)
 		deathEndAll(nowMs, "front");
+	const std::uint32_t seq = ev.get("seq", 0u).asUInt();
+	const bool sameBurst = !front && g_deathBurstSeq != 0 && seq == g_deathBurstSeq + 1;
+	g_deathBurstSeq = (front || sameBurst) ? seq : 0;
 	if (!Options::coopGhostStepper)
 		return; // starting a death display is gated, ending one is not
 	const int unitId = p.get("unit", -1).asInt();
@@ -26269,6 +26289,12 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["sound"] = g.sound;
 	// The UnitDieBState constructor's intervals (:100/:103): DEFAULT_ANIM_SPEED, then / 3 when it must turn.
 	g_deathInterval = g.octants > 0 ? BattlescapeState::DEFAULT_ANIM_SPEED / 3 : BattlescapeState::DEFAULT_ANIM_SPEED;
+	if (sameBurst && !g_deathGhosts.empty())
+	{
+		DeathGhost& h = g_deathGhosts.front();
+		if (h.front && h.started && !h.ended)
+			deathSchedule(h, g_deathInterval);
+	}
 	if (coopFactionIsMine((int)unit->getFaction())) // this machine's own unit dying lifts its hidden-movement screen
 	{
 		if (Map* live = combatLiveMap())
