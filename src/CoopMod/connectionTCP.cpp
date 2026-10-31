@@ -24369,6 +24369,7 @@ struct DeathGhost
 	int octants = 0;                // D = (3 - fromDir) mod 8, clockwise (UnitDieBState :172-:185)
 	int frames = 0;                 // F = the armour's deathFrames
 	bool respawn = false;           // a respawn victim consumes every collapse frame in one tick (:198-:204)
+	bool hasTurret = false;         // the unit has a turret (getTurretType() > -1)
 	Position pos;                   // where its death sound plays (the host's getSoundAngle(unit position))
 	int sound = Mod::NO_SOUND;      // picked at enqueue from the unit's raw list (RNG::seedless)
 	std::uint64_t ordinal = 0;      // its ring record (CombatProbeStore::deathPushed at enqueue)
@@ -24387,6 +24388,7 @@ struct DeathGhost
 	std::uint32_t lastAdvanceMs = 0;  // probe only - the last advance() that stepped it
 	std::uint32_t maxGapMs = 0;       // probe only - the largest advance() gap while it drew
 	std::vector<int> dirsShown;
+	std::vector<int> turretsShown;  // probe only - the turret facings drawn (a unit with a turret only)
 	std::vector<int> phasesShown;
 };
 /// The host-order death queue (index 0 = the head: started, or the next to start; a ghost leaves the
@@ -25935,6 +25937,10 @@ void deathEnd(DeathGhost& g, const char* endedBy, std::uint32_t nowMs)
 		for (int d : g.dirsShown)
 			dirs.append(d);
 		(*r)["dirsShown"] = dirs;
+		Json::Value turrets(Json::arrayValue);
+		for (int t : g.turretsShown)
+			turrets.append(t);
+		(*r)["turretsShown"] = turrets;
 		Json::Value phases(Json::arrayValue);
 		for (int ph : g.phasesShown)
 			phases.append(ph);
@@ -25998,6 +26004,13 @@ bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
 	deathPoseAt(g, e, &dir, &status, &phase);
 	if (g.dirsShown.empty() || g.dirsShown.back() != dir)
 		g.dirsShown.push_back(dir);
+	if (g.hasTurret)
+	{
+		// the turret facing the sprite draws: the unit's own
+		const int turret = unit->getTurretDirection();
+		if (g.turretsShown.empty() || g.turretsShown.back() != turret)
+			g.turretsShown.push_back(turret);
+	}
 	if (status == (int)STATUS_COLLAPSING && (g.phasesShown.empty() || g.phasesShown.back() != phase))
 		g.phasesShown.push_back(phase);
 	if (!g.soundDone && e >= g.tc)
@@ -26088,6 +26101,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	r["sound"] = Mod::NO_SOUND;
 	r["startedAfterSeq"] = 0;
 	r["dirsShown"] = Json::Value(Json::arrayValue);
+	r["turretsShown"] = Json::Value(Json::arrayValue);
 	r["phasesShown"] = Json::Value(Json::arrayValue);
 	r["unitDyingSet"] = false;
 	r["unitDyingCleared"] = false;
@@ -26136,6 +26150,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	g.octants = ((3 - g.fromDir) % 8 + 8) % 8;
 	g.frames = unit->getArmor()->getDeathFrames();
 	g.respawn = unit->getRespawn();
+	g.hasTurret = unit->getTurretType() > -1;
 	g.pos = unit->getPosition();
 	g.sound = dead ? combatPickSound(unit->getDeathSounds()) : Mod::NO_SOUND;
 	r["octants"] = g.octants;

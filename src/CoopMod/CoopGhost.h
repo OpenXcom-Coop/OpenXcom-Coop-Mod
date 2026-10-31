@@ -265,7 +265,8 @@ Json::Value turnGhostProbe();
 /// probe of THIS machine this battle - {death:{counts:{enqueued, started, completed, cut, instant}, queued (the
 /// death ghosts queued, started or holding now), ring:[the last 32 death records]}}. A death record: {seq,
 /// actionId, unit, instant, outcome, front, fromDir, octants, frames, respawn, Is, Ic, tc, isOutMs, popMs, sound,
-/// startedAfterSeq, dirsShown, phasesShown, unitDyingSet, unitDyingCleared, overKill, holdMs, endedBy,
+/// startedAfterSeq, dirsShown, turretsShown (the turret facings drawn, a unit with a turret only), phasesShown,
+/// unitDyingSet, unitDyingCleared, overKill, holdMs, endedBy,
 /// headStartedAtEnqueue (the queue head had started at this record's enqueue)}. The death ghosts write it, on a
 /// coop client only. Kept apart from the stepper counters and the combat ghosts; main thread only, cleared with
 /// the combat probe storage.
