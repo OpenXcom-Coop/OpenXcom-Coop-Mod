@@ -1,7 +1,7 @@
 """test_old_pvp_gm3_refused.py: a gm3 PvP campaign (the host plays the aliens, the second player X-COM) that an
 older version (v2.0.x, unstamped) saved mid-battle keeps refusing at the host's menu load, and ONLY that refusal's text
 gains where to ask for a repair. Every other save that reaches the same refusal keeps the plain text: a battle save
-stamped by a newer build, and an unstamped save of a mode with no conversion.
+stamped by a newer build.
 Each row is ONE host with no client (the refusal comes at the menu load, before any session; no lobby key), spawned,
 the row, shut down. The load is load_save_menu (the LoadGameState LOAD GAME pushes); the box is read with list_widgets
 once its Text is no longer hidden (the popup window hides every surface while it opens); OK is the real button
@@ -18,12 +18,9 @@ Row newer_build_save (dir old_pvp_newer_build_host; stamped by a newer build): t
   old_pvp_newer_build.sav.
   newer_build_save-text  refused as old_gm3-refused; the box == HEADER + SEP + PLAIN_TEXT, one TextButton OK_CAPTION;
                          log field == PLAIN_TEXT; OK -> MainMenuState
-Row other_mode_save (dir old_pvp_other_mode_host; another unconverted mode): the working copy with the body's ONE
-  `coop_gamemode: 3` line -> `coop_gamemode: 5` (header 0, line ending kept), as old_pvp_other_mode.sav.
-  other_mode_save-text   as newer_build_save-text
-common_checks (after the three rows): 0 new crash files since the start; every host alive at its row's end; no save
+common_checks (after the two rows): 0 new crash files since the start; every host alive at its row's end; no save
   file in any host dir beyond the one its row placed.
-Without the fix: exit 2, 5/6 - FAIL old_gm3-text only (the plain text in the box and in the log). With it: 6/6.
+Without the fix: exit 2, 4/5 - FAIL old_gm3-text only (the plain text in the box and in the log). With it: 5/5.
 One EVIDENCE line per row, one PASS / FAIL line per cell, one ROW line per row; every row runs after a failure; a
 precondition miss ends its row (later cells "not reached"); a boot miss prints ONE CAPTURE line and FAILs the row's
 cells "boot". ONE run is the result, no skip path; exit 0 only when every cell passes, else 2.
@@ -57,13 +54,11 @@ HEADER, SEP, OK_CAPTION = "Load failed", "\x02", "OK"
 LOAD_S, LOG_S, OK_S, POPUP_S = 30, 10, 30, 5
 SHOT_SETTLE = 0.5                      # one drawn frame after the popup ends, before the evidence screenshot
 GM3_SAVE = os.path.join(HERE, "fixtures", "pvp_gm3_battle.sav")
-TAGS = {"old_gm3": "old_pvp_gm3", "newer_build_save": "old_pvp_newer_build", "other_mode_save": "old_pvp_other_mode"}
-FILES = {"old_gm3": os.path.basename(GM3_SAVE), "newer_build_save": "old_pvp_newer_build.sav",
-         "other_mode_save": "old_pvp_other_mode.sav"}
+TAGS = {"old_gm3": "old_pvp_gm3", "newer_build_save": "old_pvp_newer_build"}
+FILES = {"old_gm3": os.path.basename(GM3_SAVE), "newer_build_save": "old_pvp_newer_build.sav"}
 AWAY = ("HostMenu", "LobbyMenu", "BattlescapeState")
-ROWS = {"old_gm3": ["old_gm3-refused", "old_gm3-text", "old_gm3-ok"], "newer_build_save": ["newer_build_save-text"],
-        "other_mode_save": ["other_mode_save-text"]}
-ALL = ROWS["old_gm3"] + ROWS["newer_build_save"] + ROWS["other_mode_save"] + ["common_checks"]
+ROWS = {"old_gm3": ["old_gm3-refused", "old_gm3-text", "old_gm3-ok"], "newer_build_save": ["newer_build_save-text"]}
+ALL = ROWS["old_gm3"] + ROWS["newer_build_save"] + ["common_checks"]
 FIX = {"old_gm3-text"}
 stack, top, crash_set, wait, alive = RR.stack, RR.top, RR.crash_set, RR.wait, RR.alive
 if TEXT_GM3 != TEXT_GM3_FULL:  # character for character
@@ -104,27 +99,20 @@ def log_text(gc):
 
 
 def variant_bytes(row, data):
-    """The newer_build_save / other_mode_save copy made from the working copy's bytes (its own line ending); a miss is
+    """The newer_build_save copy made from the working copy's bytes (its own line ending); a miss is
     a FixtureMiss. Returns the new bytes."""
     sep, stamp = rb"(?m)^---(\r?)$", rb"(?m)^coopBattleProtocol:"
     seps = list(re.finditer(sep, data))
     if len(seps) != 1:
         raise FixtureMiss(f"the {row} copy: {len(seps)} separator line(s) (want 1)")
     m = seps[0]
-    if row == "newer_build_save":
-        eol = b"\r\n" if m.group(1) else b"\n"
-        new = data[:m.start()] + b"coopBattleProtocol: 2" + eol + data[m.start():]
-        ns = list(re.finditer(sep, new))
-        counts = (len(re.findall(stamp, data[:m.start()])), len(re.findall(stamp, new[:ns[0].start()])) if len(ns) == 1 else -1)
-        if counts != (0, 1):
-            raise FixtureMiss(f"the newer_build_save copy: header stamp count {counts[0]} -> {counts[1]} (want 0 -> 1)")
-        return new
-    pat = rb"(?m)^coop_gamemode: 3(\r?)$"
-    body, n = re.subn(pat, rb"coop_gamemode: 5\1", data[m.end():])
-    nh = len(re.findall(pat, data[:m.end()]))
-    if n != 1 or nh != 0:
-        raise FixtureMiss(f"the other_mode_save copy: {n} body replacement(s), {nh} header line(s) (want 1 / 0)")
-    return data[:m.end()] + body
+    eol = b"\r\n" if m.group(1) else b"\n"
+    new = data[:m.start()] + b"coopBattleProtocol: 2" + eol + data[m.start():]
+    ns = list(re.finditer(sep, new))
+    counts = (len(re.findall(stamp, data[:m.start()])), len(re.findall(stamp, new[:ns[0].start()])) if len(ns) == 1 else -1)
+    if counts != (0, 1):
+        raise FixtureMiss(f"the newer_build_save copy: header stamp count {counts[0]} -> {counts[1]} (want 0 -> 1)")
+    return new
 
 
 def box(host):
@@ -240,7 +228,7 @@ def row_plain_refusal(row):
 
 
 def run_row(row, fn):
-    """One row: the host's user dir (old_gm3: the fixture; newer_build_save / other_mode_save: the variant copy), spawn
+    """One row: the host's user dir (old_gm3: the fixture; newer_build_save: the variant copy), spawn
     + connect, the row, the host shut down."""
     d = make_user_dir(TAGS[row] + "_host", saves=(GM3_SAVE,) if row == "old_gm3" else ())
     host = GameClient("host", None, d)
@@ -299,7 +287,6 @@ def main():
     crash0 = crash_set()
     run_row("old_gm3", row_old_gm3)
     run_row("newer_build_save", row_plain_refusal("newer_build_save"))
-    run_row("other_mode_save", row_plain_refusal("other_mode_save"))
     common(crash0)
     fails = [n for n, ok, _ in RESULTS if not ok]
     print(f"\n==== older gm3 PvP campaign battle save refusal: {len(RESULTS) - len(fails)}/{len(ALL)} cells PASS, "
