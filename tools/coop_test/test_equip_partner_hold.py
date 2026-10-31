@@ -26,7 +26,7 @@ left-click on a ground cell with an empty cursor):
                   pick_race-line (the client's cursor empty, its line TEXT_ITEM_MISSING), pick_race-host (GUARD)
 Boot pvp (PvP gm2, X-COM equipment for aliens on, LOBBY_KEY after boot coop's shutdown, dirs
 equip_partner_hold_pvp_host / equip_partner_hold_pvp_client): test_alien_equip.py's boot client_aliens (copied) plus
-one STR_RIFLE_CLIP dropped on PILE while both briefings are up.
+one STR_RIFLE_CLIP dropped on PILE while both briefings are up, once the client has applied the host's first evs.
   pvp_pick        the alien client picks the clip: pvp_pick-no_hold (GUARD: the host's count unchanged, its table all
                   -1, the client's sends delta 0)
   END             after both boots: no_crash (GUARD: no new crash file, both hosts alive)
@@ -515,6 +515,9 @@ def boot_pvp(host, client):
     if ctx["boot"]["gm"] != 2 or not (in_battle(host) and in_battle(client)):
         miss("pvp", f"gamemode {ctx['boot']['gm']} (want 2), inBattle host {in_battle(host)} client "
              f"{in_battle(client)}", m)
+    # the host's first evs applied before staging: the drop runs on each machine on its own, so a drop that lands
+    # on the client before an ev already on its way puts the clip in that ev's hash check on the client only
+    G3F.guarded("pvp", lambda: session.wait_seq_barrier(host, client), m)
     ctx["clip"] = G3F.guarded("pvp", lambda: both(host, client, {"cmd": "battle_drop", "x": PILE[0], "y": PILE[1],
                                                                  "z": PILE[2], "item": STACK_TYPE},
                                                   ("ids",))["ids"][0], m)
