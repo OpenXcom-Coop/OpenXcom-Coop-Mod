@@ -95,6 +95,30 @@ at the wrong pace; each failing record also prints the host's and the
 watcher's step times (each octant, then each collapse frame, in ms from the
 head's first think).
 
+Death row death_one_step_phase, on the terror boot after the mixed burst
+rows: a death whose first think is also its last turning step (the victim
+faces one octant from 3) collapses on the watching machine when it does on
+the host. That think raises the state interval to DEFAULT_ANIM_SPEED inside
+the timer's tick, so the host's fall starts 2 x DEATH_IC after the timer's
+tick BEFORE the step: (2 x DEATH_IC - phase) ms after the step, phase = the
+ms the timer had run since its last tick when the step ran. A death pushed
+between two of the host's ticks (a side ending its turn into the neutral
+side from outside a tick, the kill test command) takes its step at once at
+any phase. The row stages the victim on an open tile (tele_both) and runs
+the HOST's battle_action kill_unit_real {unit, afterTickMs: PHASE_TICK_MS}
+(the kill waits for that timer phase). Wants: the host's deathSteps record
+for the death (its own poses in ms from the first think) with its first
+step at a phase >= PHASE_TICK_MS; host evs since the kill exactly death,
+death_step, corpse, the death_step with no `h` and payload {victim, fallMs};
+the client's record schedule equal to death_schedule() with that fallMs and
+fallMs within ONE_FRAME_MS of the host's measured fall start; each step the
+watcher draws (the turning step, then each collapse frame) within
+ONE_FRAME_MS of the host's; the victim DEAD, off its tile and facing 3 on
+both machines; the asserts common to every death row and the common asserts.
+A watcher that always falls 2 x DEATH_IC - DEATH_IS_TURN ms after the step
+falls about PHASE_TICK_MS - DEATH_IS_TURN ms late (each failing step prints
+both machines' times).
+
 Death row tank_death_spin, on a second boot (test_ownerless_units.bring_up:
 STR_SMALL_SCOUT, map seed 1, the Skyranger's crew cut to three and one
 STR_TANK_CANNON on seat 0, pin_ai_neutral, every live unit's reactions 0): a
@@ -331,6 +355,16 @@ MIXED_TILES = ((12, 26, 0), (12, 27, 0))   # death_burst's open road tiles, free
 MIXED_FACES_3 = ((1000002, 3), (1000003, 4))
 MIXED_TURNS = ((1000004, 4), (1000005, 3))
 MIXED_EVS = ["death", "death", "corpse", "corpse"]   # host evs since the kill command (actionId 0)
+# death_one_step_phase (the terror boot, after death_burst_head_turns)
+PHASE_UNIT = 1000006             # a live 1x1 Sectoid (deathFrames DEATH_F, SECTOID_DEATH_SOUNDS) no earlier row touches;
+                                 # the next such unit if it is gone
+PHASE_TILE = MIXED_TILES[0]      # an open tile with no unit on it (the mixed rows' victims left it); another if it changes
+PHASE_DIR = 2                    # one octant from 3: the death's first think is its last turning step (only 2 gives that)
+PHASE_TICK_MS = 80               # kill_unit_real afterTickMs; any value from 51 to 99: the host's fall then starts more
+                                 # than ONE_FRAME_MS before the 167 ms a fixed schedule draws
+ONE_FRAME_MS = 17                # one display frame at the default 60 FPS limit, rounded up
+PHASE_EVS = ["death", "death_step", "corpse"]   # host evs since the kill command (actionId 0)
+STATUS_COLLAPSING = 5
 # tank_death_spin, on the second boot (test_ownerless_units.bring_up)
 TANK_ID = 1000000                # the stock STR_TANK_CANNON (turret type 0, deathFrames 3) on seat 0 at that boot;
                                  # another stock tank (every STR_TANK_* unit has a turret) if that boot's pins change
@@ -655,16 +689,16 @@ def death_snap(host, client):
     return {"dt": {"host": display_two(host), "client": display_two(client)}, "rng": rng_of(client)}
 
 
-def death_schedule(front, octants, is_ms, frames, respawn):
+def death_schedule(front, octants, is_ms, frames, respawn, fall_ms=None):
     """The host's traced death schedule in ms from the victim's first think. A `front` death (the host's state
     stack was empty at the push) turns its first octant at +0, a queued head at +Is; later octants every Is; the
-    last octant -> startFalling (tc) takes 2 x Ic - Is; isOut = tc + F x Ic (a respawn victim consumes every frame
+    last octant -> startFalling (tc) takes 2 x Ic - Is, or `fall_ms` when given (the host's own delay for a death
+    whose first think is its last octant); isOut = tc + F x Ic (a respawn victim consumes every frame
     in tc's own tick, so isOut = tc); pop = isOut + 2 x Ic. Ic = DEATH_IC after a pirouette (UnitDieBState :183);
-    a victim already facing 3 (no pirouette; no row covers it) keeps the inherited Is and falls at its first
-    think."""
+    a victim already facing 3 (no pirouette) keeps the inherited Is and falls at its first think."""
     if octants > 0:
         ic = DEATH_IC
-        tc = (0 if front else is_ms) + (octants - 1) * is_ms + 2 * ic - is_ms
+        tc = (0 if front else is_ms) + (octants - 1) * is_ms + (2 * ic - is_ms if fall_ms is None else fall_ms)
     else:
         ic = is_ms
         tc = 0 if front else is_ms
@@ -794,7 +828,7 @@ def death_row(tag, host, client, snap0, wants=(), extra=None):
                     "front": p.get("front") if w["front"] is None else w["front"], "fromDir": w["fromDir"],
                     "octants": w["octants"], "frames": DEATH_F, "respawn": w["respawn"], "Is": w["Is"],
                     "startedAfterSeq": w["startedAfterSeq"], "overKill": w["overKill"], "endedBy": w["endedBy"]}
-            want.update(death_schedule(want["front"], w["octants"], w["Is"], DEATH_F, w["respawn"]))
+            want.update(death_schedule(want["front"], w["octants"], w["Is"], DEATH_F, w["respawn"], w.get("fallMs")))
             for k in ("unitDyingSet", "unitDyingCleared", "dirsShown", "turretsShown", "phasesShown",
                       "headStartedAtEnqueue"):
                 if k in w:
@@ -1699,6 +1733,102 @@ def row_death_burst_head_turns(host, client, ctx):
     mixed_burst_row("death_burst_head_turns", host, client, MIXED_TURNS)
 
 
+def death_steps_of(host, seq):
+    """The HOST's deathSteps record for the death ev `seq` ({} when absent)."""
+    return next((r for r in (event_state(host).get("deathSteps") or []) if r.get("seq") == seq), {})
+
+
+def row_death_one_step_phase(host, client, ctx):
+    """Row death_one_step_phase (the module docstring): the victim one octant from 3, killed at a known host
+    timer phase; the watcher's fall starts when the host's does."""
+    notes = []
+    uid = PHASE_UNIT
+    u0 = units(host).get(uid) or {}
+    own = (u0.get("x"), u0.get("y"), u0.get("z")) == PHASE_TILE
+    tele = None if own else tele_both(host, client, uid, PHASE_TILE, PHASE_DIR)   # never onto its own tile
+    staged_diff = diff_buckets(host, client)
+    staged = {n: unit_brief(units(gc).get(uid)) for n, gc in (("host", host), ("client", client))}
+    before = {"host": probes(host), "client": probes(client)}
+    snap_d = death_snap(host, client)
+    seq0 = before["host"]["lastSeqEmitted"] or 0
+    k = host.cmd({"cmd": "battle_action", "action": "kill_unit_real", "unit": uid, "afterTickMs": PHASE_TICK_MS})
+    try:
+        host.wait_for(f"host {uid} DEAD, no BState", lambda: host_both_dead_idle(host, (uid,)), timeout=30)
+    except Exception as e:
+        notes.append(f"host kill chain: {short(e)}")
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after the kill: {short(e)}")
+    wait_death_ghosts_ended(client, notes)
+    uh, uc = units(host), units(client)
+    hev, cev = evs_since(host, seq0), evs_since(client, seq0)
+    s_death = next((e["seq"] for e in hev if e["kind"] == "death"), None)
+    s_step = next((e["seq"] for e in hev if e["kind"] == "death_step"), None)
+    pl = cue_payloads(host, [s for s in (s_death, s_step) if s is not None])
+    step_p = pl.get(s_step) or {}
+    hs = death_steps_of(host, s_death)
+    hsteps = hs.get("steps") or []
+    # the host's own step times: the turning step, then each collapse frame (status COLLAPSING, phase 0..F-1)
+    host_fall = [s[0] for s in hsteps if s[2] == STATUS_COLLAPSING]
+    host_steps = [hsteps[0][0]] + host_fall if hsteps else []
+    ring = death_of(display_two(client)).get("ring") or []
+    rec = next((r for r in ring if s_death is not None and r.get("seq") == s_death), {})
+    watch_steps = ([0] + [rec["tc"] + j * rec["Ic"] for j in range(DEATH_F)]
+                   if all(isinstance(rec.get(x), int) for x in ("tc", "Ic")) else None)
+    fall_ms = step_p.get("fallMs") if isinstance(step_p.get("fallMs"), int) else (host_fall[0] if host_fall else None)
+    chain_ev = {"unit": uid, "tile": PHASE_TILE, "dir": PHASE_DIR, "tele": tele, "ownTile": own,
+                "stagedDiff": staged_diff, "staged": staged, "kill": k, "seq0": seq0,
+                "hostEvs": [(e["seq"], e["kind"], e["actionId"], e["h"] is not None) for e in hev],
+                "clientEvs": [(e["seq"], e["kind"], e["actionId"]) for e in cev],
+                "hostDeathSteps": hs, "deathStepPayload": step_p,
+                "stepsMs": {"host": host_steps, "watcher": watch_steps},
+                "after": {"host": unit_brief(uh.get(uid)), "client": unit_brief(uc.get(uid))}, "notes": list(notes)}
+    row_fails = death_row("death_one_step_phase", host, client, snap_d, extra=chain_ev, wants=[
+        {"seq": s_death, "actionId": 0, "unit": uid, "payload": {"unit": uid, "outcome": "dead", "instant": False,
+                                                                 "damageType": 1},
+         "front": True, "fromDir": PHASE_DIR, "octants": (3 - PHASE_DIR) % 8, "respawn": False, "Is": DEATH_IS_TURN,
+         "fallMs": fall_ms, "sounds": SECTOID_DEATH_SOUNDS, "startedAfterSeq": 0, "overKill": OVERKILL_NONE,
+         "endedBy": "out", "phasesShown": PHASES_ALL}])
+    fails = list(notes)
+    if own:
+        fails.append(f"unit {uid} already stands on {PHASE_TILE} (never teleported onto its own tile)")
+    if staged_diff:
+        fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
+    if not k.get("ok") or k.get("killed") != [uid] or not isinstance(k.get("tickMs"), int) \
+            or k["tickMs"] < PHASE_TICK_MS:
+        fails.append(f"kill_unit_real {{unit: {uid}, afterTickMs: {PHASE_TICK_MS}}} answered {k} (want ok, killed "
+                     f"[{uid}], tickMs >= {PHASE_TICK_MS})")
+    if not isinstance(hs.get("firstStepTimerMs"), int) or hs["firstStepTimerMs"] < PHASE_TICK_MS \
+            or not hsteps or hsteps[0][:3] != [0, DIR_FACING_3, STATUS_STANDING] or len(host_fall) != DEATH_F:
+        fails.append(f"host deathSteps record for seq {s_death}: {hs} (want the first step at phase >= "
+                     f"{PHASE_TICK_MS}: [0, {DIR_FACING_3}, {STATUS_STANDING}, 0], then {DEATH_F} collapse frames)")
+    hk = [e["kind"] for e in hev]
+    if hk != PHASE_EVS or [e["kind"] for e in cev] != PHASE_EVS or any(e["actionId"] != 0 for e in hev):
+        fails.append(f"evs since seq {seq0} host={chain_ev['hostEvs']} client={chain_ev['clientEvs']} (want the kinds "
+                     f"{PHASE_EVS} with actionId 0 on both)")
+    step_ev = next((e for e in hev if e["kind"] == "death_step"), None)
+    if step_ev is not None and step_ev["h"] is not None:
+        fails.append(f"death_step seq {step_ev['seq']} carries `h` (want a display-only cue: no hash)")
+    if s_step is not None and (step_p.get("victim") != uid or not isinstance(step_p.get("fallMs"), int)):
+        fails.append(f"death_step seq {s_step} payload {step_p} (want {{victim: {uid}, fallMs: int}})")
+    if host_fall and isinstance(step_p.get("fallMs"), int) and abs(step_p["fallMs"] - host_fall[0]) > ONE_FRAME_MS:
+        fails.append(f"death_step fallMs {step_p['fallMs']} vs the host's measured fall start {host_fall[0]} ms "
+                     f"(want within {ONE_FRAME_MS} ms)")
+    if watch_steps is None or len(watch_steps) != len(host_steps) \
+            or any(abs(a - b) > ONE_FRAME_MS for a, b in zip(watch_steps, host_steps)):
+        fails.append(f"death_one_step_phase: step times in ms from the turning step (the step, then each collapse "
+                     f"frame) host {host_steps} watcher {watch_steps} (want each within {ONE_FRAME_MS} ms)")
+    for name, u in (("host", uh), ("client", uc)):
+        v = u.get(uid) or {}
+        if (v.get("status"), v.get("onTile"), v.get("direction")) != (STATUS_DEAD, False, DIR_FACING_3):
+            fails.append(f"{name} unit {uid} {unit_brief(v)} (want status DEAD ({STATUS_DEAD}), onTile false, "
+                         f"direction {DIR_FACING_3})")
+    fails += row_fails
+    fails += common_fails(host, client, before, {}, "death_one_step_phase")
+    finish(fails)
+
+
 def tank_unit(gc):
     u = units(gc).get(TANK_ID) or {}
     return {k: u.get(k) for k in ("type", "coop", "status", "onTile", "direction", "directionTurret", "x", "y", "z")}
@@ -2121,7 +2251,8 @@ def row_tank_turret_aim(host, client, ctx):
 
 SCENARIOS = (("host_kill", row_host_kill), ("host_stun", row_host_stun), ("death_burst", row_death_burst),
              ("death_burst_head_faces_3", row_death_burst_head_faces_3),
-             ("death_burst_head_turns", row_death_burst_head_turns))
+             ("death_burst_head_turns", row_death_burst_head_turns),
+             ("death_one_step_phase", row_death_one_step_phase))
 TANK_SCENARIOS = (("tank_hull_turn", row_tank_hull_turn), ("tank_turret_turn", row_tank_turret_turn),
                   ("tank_turret_aim", row_tank_turret_aim), ("tank_death_spin", row_tank_death_spin))
 
