@@ -299,8 +299,10 @@ Json::Value selectionSnapshot(); // the shared selection store {key: {rows, edit
 void onPeerLeft(int seat); // host - the seat (< 0: every other seat) leaves every shared list
 /// Low-level validated command engine shared by the two one-world protocols.
 /// Public UI code must call SharedEcon or SeparateEcon, never this directly.
+/// @a seat < 0 = this machine's seat; the host may name another seat for a
+/// player's own action that reached it outside the command protocol.
 int submitCommandEngine(Game* game, const std::string& cmd, int baseId,
-	const Json::Value& payload, bool separateProtocol);
+	const Json::Value& payload, bool separateProtocol, int seat = -1);
 
 /// PRD-J10: THE single "the host rejected your command" dialog. Every J05-J08
 /// failure path funnels here (the screens never pop their own): the host's
@@ -488,6 +490,10 @@ void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled)
 /// icon; the host's DogfightState with 'remember disabled craft weapons'); submits the weapon's flag as an
 /// absolute end-state; the host decides the craft re-check (craft_weapon_disable).
 void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot);
+/// The host's dogfight with 'remember disabled craft weapons' after it switched @a craft's weapon @a slot: as
+/// submitCraftWeaponDisabled; in SEPARATE a craft of another player is that player's own switch, sent from its own
+/// dogfight window, so the host submits it as that player's and every machine remembers it.
+void submitDogfightWeaponDisabled(Game* game, Craft* craft, int slot);
 /// One-world campaigns (SHARED and Separate): load a craft equipment template on
 /// @a craft. @a listed = the item types the craft equipment screen shows (the
 /// load considers only those), @a tmpl = the template's contents, @a onlyAdd =
@@ -528,12 +534,13 @@ void submitLoadoutTemplate(Game* game, Base* base, int index);
 /// preview): the type's end-state (its positions, or none) goes to the host as craft_deployment, so both machines hold the same entry and
 /// reset the same crafts' own deployments (vanilla's invalidation). Either player, last save wins (shared templates).
 void craftDeploymentSaved(Game* game, const std::string& craftType);
-/// SHARED and a real base only - no-op otherwise; called right AFTER vanilla's template armor change
-/// (InventoryState::tryArmorChange) set @a soldier's armor (it wore armor type @a prevArmorType): an own soldier's change goes to the host as
-/// soldier_armor (both machines then wear and stock the same); a partner's soldier's change is put back at once (stores and armor).
+/// SHARED and SEPARATE only, a real base (SEPARATE: also another player's base) - no-op otherwise; called right AFTER
+/// vanilla's template armor change (InventoryState::tryArmorChange) set @a soldier's armor (it wore armor type @a prevArmorType):
+/// an own soldier's change goes to the host as soldier_armor (both machines then wear and stock the same); a partner's
+/// soldier's change is put back at once (stores and armor).
 void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType);
 
-/// SHARED and a real base of a live campaign only - null otherwise: the {type: count} of @a craft's items,
+/// SHARED and SEPARATE, a real base of a live campaign only - null otherwise: the {type: count} of @a craft's items,
 /// taken right BEFORE a vanilla local batch that moves items between @a craft and @a base's stores (a template load, move-ground-to-base).
 Json::Value craftItemsMark(Game* game, Base* base, Craft* craft);
 /// right AFTER that batch: each item type whose count on @a craft differs from @a mark (@a every: each type of

@@ -5930,11 +5930,11 @@ int submitLocalCmd(Game* game, const std::string& cmd, int baseId,
 }
 
 int submitCommandEngine(Game* game, const std::string& cmd, int baseId,
-	const Json::Value& payload, bool separateProtocol)
+	const Json::Value& payload, bool separateProtocol, int seat)
 {
 	if (!game) return 0;
 	int seq = ++g_seqCounter;
-	int seat = connectionTCP::localSeat();
+	if (seat < 0 || !isHost()) seat = connectionTCP::localSeat();
 	// Key every base the command names now, while the indexes still mean the
 	// bases the player picked (a base_move can land before this command does).
 	const int baseKey = baseKeyAt(game, baseId);
@@ -7127,16 +7127,40 @@ void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled)
 	submitLocalCmd(game, "fac_disable", baseIndex(game, base), p);
 }
 
-void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot)
+static Json::Value craftWeaponPayload(Craft* craft, int slot)
 {
-	if (!game || !craft) return;
-	if (!sendsChange(game, SeparateEcon::ownsCraft(game, craft))) return;
-	if (slot < 0 || slot >= (int)craft->getWeapons()->size() || !craft->getWeapons()->at(slot)) return;
 	Json::Value p;
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
 	p["slot"] = slot;
 	p["disabled"] = craft->getWeapons()->at(slot)->isDisabled();
+	return p;
+}
+
+void submitDogfightWeaponDisabled(Game* game, Craft* craft, int slot)
+{
+	if (!game || !craft || !craft->getBase()) return;
+	connectionTCP* coop = game->getCoopMod();
+	if (!coop || !coop->isSeparateCampaign() || !isHost() || SeparateEcon::ownsCraft(game, craft))
+	{
+		submitCraftWeaponDisabled(game, craft, slot);
+		return;
+	}
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size() || !craft->getWeapons()->at(slot)) return;
+	int owner = -1;
+	for (int seat = 0; seat < connectionTCP::seatCount() && owner < 0; ++seat)
+		if (!connectionTCP::seatName(seat).empty() && craft->getBase()->isOwnedByPlayer(connectionTCP::seatName(seat)))
+			owner = seat;
+	if (owner < 0) return;
+	submitCommandEngine(game, "craft_weapon_disable", craftBaseIndex(game, craft), craftWeaponPayload(craft, slot), true, owner);
+}
+
+void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot)
+{
+	if (!game || !craft) return;
+	if (!sendsChange(game, SeparateEcon::ownsCraft(game, craft))) return;
+	if (slot < 0 || slot >= (int)craft->getWeapons()->size() || !craft->getWeapons()->at(slot)) return;
+	Json::Value p = craftWeaponPayload(craft, slot);
 	submitLocalCmd(game, "craft_weapon_disable", craftBaseIndex(game, craft), p);
 }
 
@@ -7277,7 +7301,10 @@ void craftDeploymentSaved(Game* game, const std::string& craftType)
 // See SharedEcon.h.
 void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::string& prevArmorType)
 {
-	if (!game || !base || !soldier || base->_isForeignBase || !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!game || !base || !soldier || !game->getCoopMod()) return;
+	const bool separate = game->getCoopMod()->isSeparateCampaign();
+	if (!game->getCoopMod()->isSharedCampaign() && !separate) return;
+	if (base->_isForeignBase && !separate) return; // SEPARATE: a player's own soldier at another player's base too
 	Armor* prev = game->getMod()->getArmor(prevArmorType, false);
 	Armor* next = soldier->getArmor();
 	if (!prev || !next || next == prev) return;
@@ -7305,7 +7332,8 @@ void baseArmorChanged(Game* game, Base* base, Soldier* soldier, const std::strin
 Json::Value craftItemsMark(Game* game, Base* base, Craft* craft)
 {
 	if (!game || !base || !craft || base->_isForeignBase || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
-		|| !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return Json::Value(Json::nullValue);
+		|| !game->getCoopMod() || !(game->getCoopMod()->isSharedCampaign() || game->getCoopMod()->isSeparateCampaign()))
+		return Json::Value(Json::nullValue);
 	Json::Value m(Json::objectValue);
 	for (const auto& pr : *craft->getItems()->getContents())
 		if (pr.second > 0) m[pr.first->getType()] = pr.second;

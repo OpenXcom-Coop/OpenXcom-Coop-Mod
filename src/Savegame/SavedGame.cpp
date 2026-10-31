@@ -4298,9 +4298,40 @@ Soldier *SavedGame::getSoldier(int id) const
  */
 bool SavedGame::handlePromotions(std::vector<Soldier*> &participants, const Mod *mod)
 {
+	// coop, Separate campaign: each player's army is its own. The openings count only that player's
+	// soldiers, and only the players with a soldier in the battle promote.
+	if (isSeparateCoopCampaign())
+	{
+		std::set<int> owners;
+		for (const auto* participant : participants)
+			owners.insert(participant->getOwnerPlayerId());
+		const std::vector<Soldier*> all = getAllActiveSoldiers();
+		bool promoted = false;
+		for (int owner : owners)
+		{
+			std::vector<Soldier*> own;
+			for (auto* soldier : all)
+				if (soldier->getOwnerPlayerId() == owner)
+					own.push_back(soldier);
+			promoted = handlePromotions(own, participants, mod) || promoted;
+		}
+		return promoted;
+	}
+	std::vector<Soldier*> soldiers = getAllActiveSoldiers();
+	return handlePromotions(soldiers, participants, mod);
+}
+
+/**
+ * Handles the higher promotions among the given soldiers.
+ * @param soldiers the live soldiers whose ranks are counted and who may be promoted.
+ * @param participants a list of soldiers that were actually present at the battle.
+ * @param mod the Game Mod
+ * @return Whether or not some promotions happened.
+ */
+bool SavedGame::handlePromotions(std::vector<Soldier*> &soldiers, std::vector<Soldier*> &participants, const Mod *mod)
+{
 	int soldiersPromoted = 0;
 	Soldier *highestRanked = 0;
-	std::vector<Soldier*> soldiers = getAllActiveSoldiers();
 	RankCount rankCounts = RankCount(soldiers);
 
 	int totalSoldiers = rankCounts.getTotalSoldiers();
