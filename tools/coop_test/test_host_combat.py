@@ -1779,7 +1779,7 @@ def row_death_one_step_phase(host, client, ctx):
     fall_ms = step_p.get("fallMs") if isinstance(step_p.get("fallMs"), int) else (host_fall[0] if host_fall else None)
     chain_ev = {"unit": uid, "tile": PHASE_TILE, "dir": PHASE_DIR, "tele": tele, "ownTile": own,
                 "stagedDiff": staged_diff, "staged": staged, "kill": k, "seq0": seq0,
-                "hostEvs": [(e["seq"], e["kind"], e["actionId"], e["h"] is not None) for e in hev],
+                "hostEvs": [(e["seq"], e["kind"], e["actionId"], e["h"]) for e in hev],
                 "clientEvs": [(e["seq"], e["kind"], e["actionId"]) for e in cev],
                 "hostDeathSteps": hs, "deathStepPayload": step_p,
                 "stepsMs": {"host": host_steps, "watcher": watch_steps},
@@ -1808,7 +1808,7 @@ def row_death_one_step_phase(host, client, ctx):
         fails.append(f"evs since seq {seq0} host={chain_ev['hostEvs']} client={chain_ev['clientEvs']} (want the kinds "
                      f"{PHASE_EVS} with actionId 0 on both)")
     step_ev = next((e for e in hev if e["kind"] == "death_step"), None)
-    if step_ev is not None and step_ev["h"] is not None:
+    if step_ev is not None and step_ev["h"] is not False:
         fails.append(f"death_step seq {step_ev['seq']} carries `h` (want a display-only cue: no hash)")
     if s_step is not None and (step_p.get("victim") != uid or not isinstance(step_p.get("fallMs"), int)):
         fails.append(f"death_step seq {s_step} payload {step_p} (want {{victim: {uid}, fallMs: int}})")
