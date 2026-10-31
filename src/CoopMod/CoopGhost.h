@@ -86,7 +86,7 @@ struct CoopUnitDrawView
 	Position lastPos;           // vanilla _lastPos, for the mask/terrain lerp
 	Position destination;       // vanilla _destination, for the mask/terrain lerp
 	int  direction         = 0; // body facing 0-7
-	int  turretDirection   = 0; // untouched by any ghost - copied straight through
+	int  turretDirection   = 0; // a death ghost turns it with the body; copied straight through otherwise
 	int  walkPhase         = 0; // raw, same domain as BattleUnit::_walkPhase
 	int  verticalDirection = 0; // copied straight through; a fall ghost draws DIR_DOWN (9)
 	int  status            = 0; // UnitStatus as int

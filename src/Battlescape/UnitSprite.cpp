@@ -830,7 +830,7 @@ void UnitSprite::drawRoutine2()
 	if (_part == 3 && turret != -1)
 	{
 		Part t{ BODYPART_LARGE_TURRET };
-		selectUnit(t, 64 + (turret * 8), _unit->getTurretDirection());
+		selectUnit(t, 64 + (turret * 8), uTurretDir());
 		int turretOffsetX = 0;
 		int turretOffsetY = -4;
 		if (hoverTank)
@@ -1359,7 +1359,7 @@ void UnitSprite::drawRoutine11()
 	if ((_part == 3 || _part == 0) && turret != -1 && !_unit->getFloorAbove())
 	{
 		Part t{ BODYPART_LARGE_TURRET };
-		selectUnit(t, 256 + (turret * 8), _unit->getTurretDirection());
+		selectUnit(t, 256 + (turret * 8), uTurretDir());
 		t.offX = (offTurretX[uDir()]);
 		if (_part == 3)
 			t.offY = (offTurretYBelow[uDir()]);

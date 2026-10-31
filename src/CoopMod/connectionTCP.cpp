@@ -24366,10 +24366,11 @@ struct DeathGhost
 	bool front = false;             // the payload's `front`: the host's state stack was empty at the push
 	bool dead = true;               // outcome "dead" (a stun plays no death sound)
 	int fromDir = 0;                // the canonical direction at the apply (read before the delta)
+	int turretFrom = 0;             // the canonical turret direction at the apply (read before the delta)
 	int octants = 0;                // D = (3 - fromDir) mod 8, clockwise (UnitDieBState :172-:185)
 	int frames = 0;                 // F = the armour's deathFrames
 	bool respawn = false;           // a respawn victim consumes every collapse frame in one tick (:198-:204)
-	bool hasTurret = false;         // the unit has a turret (getTurretType() > -1)
+	bool hasTurret = false;         // the unit has a turret (getTurretType() > -1): it turns with the body
 	Position pos;                   // where its death sound plays (the host's getSoundAngle(unit position))
 	int sound = Mod::NO_SOUND;      // picked at enqueue from the unit's raw list (RNG::seedless)
 	std::uint64_t ordinal = 0;      // its ring record (CombatProbeStore::deathPushed at enqueue)
@@ -25847,12 +25848,14 @@ void deathClearDying(const DeathGhost& g)
 /// a queued head's one Is after its start. Then the pirouette: one octant clockwise every Is, status STANDING,
 /// until it faces 3; from tc the collapse: direction 3, status COLLAPSING, fall phase min(F - 1, (e - tc) / Ic)
 /// (so it holds F - 1 after isOutMs); a respawn victim stands facing 3 from tc (it consumes every collapse frame
-/// in that one tick). Shared by view() and deathStep()'s dirsShown / phasesShown, so the probe records what
-/// view() draws. Reads only.
-bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* status, int* phase)
+/// in that one tick). A unit with a turret turns it one octant with each body octant (vanilla's body turn carries
+/// the turret), so its turret faces turretFrom + the octants turned, and turretFrom + D from tc. Shared by view()
+/// and deathStep()'s dirsShown / turretsShown / phasesShown, so the probe records what view() draws. Reads only.
+bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* turret, int* status, int* phase)
 {
 	const std::uint32_t first = g.front ? 0u : g.intervalS;
 	*direction = g.fromDir;
+	*turret = g.turretFrom;
 	*status = (int)STATUS_STANDING;
 	*phase = 0;
 	if (e < first)
@@ -25863,9 +25866,13 @@ bool deathPoseAt(const DeathGhost& g, std::uint32_t e, int* direction, int* stat
 		if (g.intervalS > 0)
 			steps = std::min(steps, (e - first) / g.intervalS + 1u);
 		*direction = (g.fromDir + (int)steps) % 8;
+		if (g.hasTurret)
+			*turret = (g.turretFrom + (int)steps) % 8;
 		return true;
 	}
 	*direction = 3;
+	if (g.hasTurret)
+		*turret = (g.turretFrom + g.octants) % 8;
 	if (!g.respawn)
 	{
 		*status = (int)STATUS_COLLAPSING;
@@ -25999,18 +26006,14 @@ bool deathStep(DeathGhost& g, const SavedBattleGame* save, std::uint32_t nowMs)
 	}
 	const std::uint32_t e = nowMs - g.startedAtMs;
 	int dir = g.fromDir;
+	int turret = g.turretFrom;
 	int status = 0;
 	int phase = 0;
-	deathPoseAt(g, e, &dir, &status, &phase);
+	deathPoseAt(g, e, &dir, &turret, &status, &phase);
 	if (g.dirsShown.empty() || g.dirsShown.back() != dir)
 		g.dirsShown.push_back(dir);
-	if (g.hasTurret)
-	{
-		// the turret facing the sprite draws: the unit's own
-		const int turret = unit->getTurretDirection();
-		if (g.turretsShown.empty() || g.turretsShown.back() != turret)
-			g.turretsShown.push_back(turret);
-	}
+	if (g.hasTurret && (g.turretsShown.empty() || g.turretsShown.back() != turret))
+		g.turretsShown.push_back(turret);
 	if (status == (int)STATUS_COLLAPSING && (g.phasesShown.empty() || g.phasesShown.back() != phase))
 		g.phasesShown.push_back(phase);
 	if (!g.soundDone && e >= g.tc)
@@ -26147,6 +26150,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	g.front = front;
 	g.dead = dead;
 	g.fromDir = unit->getDirection();
+	g.turretFrom = unit->getTurretDirection();
 	g.octants = ((3 - g.fromDir) % 8 + 8) % 8;
 	g.frames = unit->getArmor()->getDeathFrames();
 	g.respawn = unit->getRespawn();
@@ -26174,7 +26178,7 @@ void deathOnEv(SavedBattleGame* save, const Json::Value& ev, std::uint32_t nowMs
 	deathSyncQueued();
 }
 
-/// The started, not yet ended death ghost of @a u draws its pose (direction, status, collapse
+/// The started, not yet ended death ghost of @a u draws its pose (direction, turret direction, status, collapse
 /// frame) and takes draw precedence over any ghost-stepper ghost of the same unit, which it never touches. FALSE with
 /// none, or before its first octant (the canonical unit draws).
 bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
@@ -26197,11 +26201,14 @@ bool deathView(const BattleUnit* u, CoopUnitDrawView* io)
 	if (!g)
 		return false;
 	int dir = g->fromDir;
+	int turret = g->turretFrom;
 	int status = 0;
 	int phase = 0;
-	if (!deathPoseAt(*g, SDL_GetTicks() - g->startedAtMs, &dir, &status, &phase))
+	if (!deathPoseAt(*g, SDL_GetTicks() - g->startedAtMs, &dir, &turret, &status, &phase))
 		return false;
 	io->direction = dir;
+	if (g->hasTurret)
+		io->turretDirection = turret;
 	io->status = status;
 	if (status == (int)STATUS_COLLAPSING)
 		io->fallPhase = phase;

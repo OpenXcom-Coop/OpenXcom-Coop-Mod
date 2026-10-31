@@ -77,6 +77,7 @@ private:
 	int uStatus()    const { return _coopView ? _coopView->status : (int)_unit->getStatus(); }
 	bool uKneeled()  const { return _coopView ? _coopView->kneeled    : _unit->isKneeled(); }
 	int uFallPhase() const { return _coopView ? _coopView->fallPhase : _unit->getFallingPhase(); }
+	int uTurretDir() const { return _coopView ? _coopView->turretDirection : _unit->getTurretDirection(); }
 
 	/// Drawing routine for XCom soldiers in overalls, sectoids (routine 0),
 	/// mutons (routine 10),
