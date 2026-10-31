@@ -2741,7 +2741,7 @@ void GeoscapeState::timeAdvance()
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
 		// Separate only: in SHARED and PvP the host freezes on
-		// a stale client heartbeat alone. A SHARED client's open dogfight window
+		// a stale client heartbeat, or on the client's popup hold. A SHARED client's open dogfight window
 		// reports focus 0 while it stays on the geoscape, and time keeps
 		// running through it.
 		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
@@ -2752,7 +2752,8 @@ void GeoscapeState::timeAdvance()
 			if (_game->getCoopMod()->peerFocusScreen >= 0 || peerStale)
 				timeSpan = 0;
 		}
-		else if (_game->getCoopMod()->getServerOwner() && peerStale)
+		else if (_game->getCoopMod()->getServerOwner()
+			&& (peerStale || _game->getCoopMod()->peerGeoHold.load())) // the client's heartbeat says it has a popup
 		{
 			timeSpan = 0;
 		}
