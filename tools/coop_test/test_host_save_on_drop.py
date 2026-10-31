@@ -1,22 +1,22 @@
-"""test_host_save_on_drop.py: in a co-op campaign every host geoscape save is deferred - SaveGameState arms it and shows
-"Saving..." (CoopState 54) until the second player's world arrives. When that player drops while the 54 is up, the host
+"""test_host_save_on_drop.py: in a PvP co-op campaign (each player keeps its own world) every host geoscape save is deferred
+- SaveGameState arms it and shows "Saving..." (CoopState 54) until the second player's world arrives. A Shared or
+Separate campaign has one world and its host saves at once. When that player drops while the 54 is up, the host
 writes the armed save at once, with the partner's world it already holds, and the drop's wait dialog 62 is left on top
 of the stack the save started from. When broken, the drop path pushes the 62 over the 54 and
 CoopSession::onClientDrop() clears the armed name (a main-thread -3 keeps it armed under a READY 62): the file is never
-written. Six rows, one fresh boot pair each (key "49197", dirs save_on_drop_<row>_host / _client;
-session.new_campaign SEPARATE gm1 tcp, shared_kill campaign_mode="shared"; both tops GeoscapeState unchanged STABLE_S
-within BOOT_S):
+written. Five rows, one fresh boot pair each (key "49197", dirs save_on_drop_<row>_host / _client;
+pvp_fixture.start_pvp_campaign gm3 tcp, the host on the Alien team; both tops GeoscapeState unchanged STABLE_S within
+BOOT_S):
   quick_kill: quick save + client.kill(); auto_kill: auto_geoscape + kill; send_failure: quick + host
   force_send_failure (the host's next PING fails: the canonical drop); server_error: quick + host force_server_error (a
-  test command: a main-thread -3 with the socket open, taken by updateCoopTask's -3 campaign arm); shared_kill: SHARED
-  quick + kill (no blob cell: a SHARED save embeds no coopClientSaves); client_running: quick, the client running
-  (control, LAST).
+  test command: a main-thread -3 with the socket open, taken by updateCoopTask's -3 campaign arm); client_running: quick,
+  the client running (control, LAST).
 The drop rows suspend the client (NtSuspendProcess by its own GameClient pid; resumed or killed in finally) at the
 host's first sight of the 54 and read the host HOLD_S after the drop event (send_failure: after SEND_LOST_GEO,
 server_error: after the 62; then the client is killed); client_running reads 1 s after the 54 is gone and the file
 written.
 Cells, named <row>-<check>: -pre GUARD (the 54 on top within SEEN54_S, the armed name = the row's file; drop rows: CLEAR
-+0 at the 54, the suspend rc 0; quick_kill, auto_kill, shared_kill: the client exited; send_failure: armed + ARMED +1 +
++0 at the 54, the suspend rc 0; quick_kill, auto_kill: the client exited; send_failure: armed + ARMED +1 +
 SEND_LOST_GEO +1 within W_LOST; server_error: SERVER +1 + the 62 within W_62); -file FIX (written: present, mtime newer
 than the baseline's); -dialog FIX (the baseline stack + [CoopState], code 62); -blob FIX (quick_kill, auto_kill,
 send_failure, server_error: one coopClientSaves entry, key host_<saveID at the 54>_<baseline clientName>.data, its
@@ -24,9 +24,8 @@ FNV-1a 64 = the baseline coop_file_info fnv1a64); -name GUARD (pendingHostSaveNa
 -path FIX ((DEFERRED_DROP, CLEAR, FREEZE, DROP) = (1, 1, 1, 1); server_error (1, 1, 1, 0) and SERVER 1); -common GUARD
 (host alive, no new crash_*.log since the baseline). client_running's -file / -dialog / -blob / -path are GUARDs
 (written, the baseline stack within W_SAVE, the single entry at the saveID after with coop_file_info's fnv after the
-write, (0, 1, 0, 0)). 41 cells. When broken: exit 2, failing exactly the -file, -dialog, -blob and -path cells of
-quick_kill, auto_kill and send_failure, server_error's -file, -dialog, -name, -blob and -path, and shared_kill's -file,
--dialog and -path (20).
+write, (0, 1, 0, 0)). 35 cells. When broken: exit 2, failing exactly the -file, -dialog, -blob and -path cells of
+quick_kill, auto_kill and send_failure, and server_error's -file, -dialog, -name, -blob and -path (17).
 A precondition miss ends its row (cells "not reached"); a boot miss fails the row "boot" with ONE CAPTURE line. ONE
 EVIDENCE line per row, one PASS / FAIL line per cell, the row verdict; exit 0 only when every cell passes, else 2. one
 foreground run per invocation.
@@ -37,6 +36,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import yaml  # noqa: E402
 import session  # noqa: E402
+import pvp_fixture as PF  # noqa: E402
 from harness import GameClient, make_user_dir, cpu_load, cpu_text  # noqa: E402
 
 KEY = "49197"
@@ -344,8 +344,6 @@ def row_send_failure(x, results, walls):
 def row_server_error(x, results, walls):
     drop_row(x, results, walls, "server_error", "server_error", "quick", QUICK, drop_server)
 
-def row_shared_kill(x, results, walls):
-    drop_row(x, results, walls, "shared_kill", "shared_kill", "quick", QUICK, drop_kill, shared=True)
 
 def row_client_running(x, results, walls):
     """the control (LAST): the quick save with the client running - the 54 closes and QUICK is written when its world arrives"""
@@ -397,13 +395,13 @@ def row_client_running(x, results, walls):
     r.end(results, walls)
 
 def boot(rid, tag, shared):
-    """CPU, host + client spawn, connect, session.new_campaign(port=KEY), both tops GeoscapeState unchanged STABLE_S within BOOT_S
+    """CPU, host + client spawn, connect, a PvP campaign (port=KEY), both tops GeoscapeState unchanged STABLE_S within BOOT_S
     (else x.err and x.cap: both stacks, coop_dialog_info, get_coop)"""
     x = SimpleNamespace(rid=rid, tag=tag, host=None, client=None, err=None, cap=None, held=False, cpu=cpu())
     try:
         x.host, x.client = GameClient("host", None, make_user_dir(tag + "_host")), GameClient("client", None, make_user_dir(tag + "_client"))
         x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
-        session.new_campaign(x.host, x.client, port=KEY, campaign_mode="shared" if shared else "coop")
+        PF.start_pvp_campaign(x.host, x.client, KEY, alien_player="host")
         t0, last, tch = time.time(), None, time.time()
         while True:
             s = (tuple(stack(x.host)), tuple(stack(x.client)))
@@ -439,7 +437,6 @@ ROWS = (("quick_kill", "save_on_drop_quick_kill", row_quick_kill, False),
         ("auto_kill", "save_on_drop_auto_kill", row_auto_kill, False),
         ("send_failure", "save_on_drop_send_failure", row_send_failure, False),
         ("server_error", "save_on_drop_server_error", row_server_error, False),
-        ("shared_kill", "save_on_drop_shared_kill", row_shared_kill, True),
         ("client_running", "save_on_drop_client_running", row_client_running, False))
 
 def main():

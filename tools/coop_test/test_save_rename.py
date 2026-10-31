@@ -2,9 +2,10 @@
 short bounded time; a rename that still fails shows vanilla's save error on the machine whose save failed, and the save
 stays in <name>.bak. Vanilla single-player saves are unchanged. Two co-op save paths, three rows each, one fresh boot
 pair per row:
-  deferred_* = the deferred host save (connectionTCP::writePendingHostSave): a SEPARATE campaign host quick save on the
-      geoscape (save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...", the partner's world lands,
-      MAP_RESULT_SAVE_PROGRESS writes);
+  deferred_* = the deferred host save (connectionTCP::writePendingHostSave): a PvP campaign host quick save on the
+      geoscape (gm3, the host on the Alien team; save_game_ui quick: SaveGameState arms it, CoopState 54 "Saving...",
+      the partner's world lands, MAP_RESULT_SAVE_PROGRESS writes; a Shared or Separate campaign has one world and its
+      host saves at once);
   battle_* = SaveGameState's own write in co-op: a skirmish host's mid-battle quick save (save_game_ui quick_battle, the
       F5 key's path).
   *_no_lock (control); *_short_lock: a helper process (this file's HELPER, started and killed by the row) holds <name>
@@ -41,6 +42,7 @@ from types import SimpleNamespace
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 import repro_atom_walk as raw  # noqa: E402
+import pvp_fixture as PF  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY_CAMPAIGN, KEY_SKIRMISH = "49471", "49472"
@@ -381,7 +383,7 @@ def settle_tops(x, top):
 
 
 def boot(rid, lvl):
-    """deferred rows: spawn, connect, session.new_campaign(port=KEY_CAMPAIGN) SEPARATE, both tops GeoscapeState;
+    """deferred rows: spawn, connect, a PvP campaign (port=KEY_CAMPAIGN, gm3), both tops GeoscapeState;
     battle rows: repro_atom_walk.bring_up_lobby (KEY_SKIRMISH) + session.drive_to_battlescape(seat_count=2), both tops
     BattlescapeState (else x.err and x.cap)"""
     path = rid[0]  # the row name's first letter: "d" deferred host save, "b" battle save
@@ -392,7 +394,7 @@ def boot(rid, lvl):
         x.host, x.client = GameClient("host", None, make_user_dir(tag + "_host")), GameClient("client", None, make_user_dir(tag + "_client"))
         if path == "d":
             x.host.spawn(); x.client.spawn(); x.host.connect(); x.client.connect()
-            session.new_campaign(x.host, x.client, port=KEY_CAMPAIGN, campaign_mode="coop")
+            PF.start_pvp_campaign(x.host, x.client, KEY_CAMPAIGN, alien_player="host")
         else:
             raw.bring_up_lobby(x.host, x.client, KEY_SKIRMISH)
             session.drive_to_battlescape(x.host, x.client, {}, seat_count=2)

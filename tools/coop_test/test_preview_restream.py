@@ -19,7 +19,8 @@ copy landing on the second player's OWN preview closes it like any screen (a gua
 PV = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing (<= 2 s per
 probe, SETTLE 0.3 s before a key or click); END = end_turn_button, StatsForNerdsState + has_battle false, keyCancel to
 depth 0; never close_screens on a preview. W = 10 s at 0.25 s polls, HOLD = 2 s. CL = the client's openxcom.log after
-the trigger. BLOB = the host's dump_coop_file {shared_world} at host.user_dir/xcom1/shared_world; noBattle = no line
+the trigger. BLOB = the host's dump_coop_file {authoritative_campaign_world} at
+host.user_dir/xcom1/authoritative_campaign_world (the key the host streams its world under); noBattle = no line
 `battleGame:`. CRASH = new crashlogs/crash_*.log. Setup guard per boot: stacks [GeoscapeState], localSeat 0 / 1,
 has_battle false (a miss fails the boot's rows `boot`). A dead client leaves its row's later cells "not reached" (its
 crash rc is tolerated at shutdown). EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every row runs
@@ -86,10 +87,10 @@ def crash_info(before):
 
 def blob(host):
     """BLOB: the dump reply, battleGame: present, its negative unit ids (the stand-ins), the file's first 30 lines"""
-    path = os.path.join(host.user_dir, "xcom1", "shared_world")
+    path = os.path.join(host.user_dir, "xcom1", "authoritative_campaign_world")
     if os.path.exists(path):
         os.remove(path)
-    rep = q(host, {"cmd": "dump_coop_file", "key": "shared_world"})
+    rep = q(host, {"cmd": "dump_coop_file", "key": "authoritative_campaign_world"})
     if not os.path.exists(path):
         return {"reply": rep, "error": "no file", "battleGame": None, "head": []}
     with open(path, "rb") as f:

@@ -1,11 +1,12 @@
 """A co-op host save while the second player names a new base.
-In a SEPARATE campaign the client's new base sits in its own base list with the name "" while BaseNameState is open, so
+In a PvP campaign (gm3, the host on the Alien team) the X-COM client keeps its own world, and its new base sits in its
+own base list with the name "" while BaseNameState is open, so
 the memory save of the client's answer to a host save request refuses the whole world: the client gets a false 995
 over a Disconnect-only "Saving..." (53) that never closes (the base can never be named), the host's "Saving." (54)
 waits with no file, and the client's stream thread loopData retries every 10 ms with a crash file each time (~90 / s).
 Boot name_open (dirs save_naming_name_open_*) = row naming; boot name_set (dirs save_naming_name_set_*) = row control,
-then row key_miss. Each boot: spawn + connect both; session.new_campaign (key KEY, SEPARATE, tcp; host base at
-HOST_POS); geo.slow_clock; geo.drain_popups; the window mapping per machine from INTERCEPT + its CANCEL (real clicks).
+then row key_miss. Each boot: spawn + connect both; pvp_fixture.start_pvp_campaign (key KEY, gm3, tcp);
+geo.slow_clock; geo.drain_popups; the client's window mapping from INTERCEPT + its CANCEL (real clicks).
 "Growth" = new crash_*.log files in this harness slot's crash folder (harness.CRASH_DIR, both machines) whose text holds
 "Error in loopData" (each file read once).
   Row naming  client BASES, BUILD NEW BASE, ONE real globe click at LAND_PICK (globe_point), OK -> BaseNameState, own
@@ -52,10 +53,10 @@ import geo  # noqa: E402
 import harness  # noqa: E402
 import session  # noqa: E402
 import yaml  # noqa: E402
+import pvp_fixture as PF  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 KEY = "49235"                               # the lobby key
-HOST_POS = (0.90, -0.60)                    # rad, the host base: both bases on land, >= 0.15 rad apart
 NEWNAME = "hnew"                            # lowercase: inject_input key = unicode sym
 LIFT_TILE = (2, 2)                          # BaseView tile: base (80, 88) in the 192 x 192 view at (0, 8), 32 px tiles
 HOLD_S, DONE_S, F_WINDOW, POLL, STATE_S = 5.0, 10.0, 3.0, 0.2, 5.0
@@ -253,13 +254,11 @@ def bring_up(b):
     for gc in (b.host, b.client):
         gc.spawn()
         gc.connect(timeout=240)
-    session.HOST_LON, session.HOST_LAT = HOST_POS
-    session.new_campaign(b.host, b.client, port=KEY)
+    PF.start_pvp_campaign(b.host, b.client, KEY, alien_player="host")
     geo.slow_clock(b.host, b.client)
     time.sleep(2.0)
     ev = {"drain": [str(geo.drain_popups(gc))[:120] for gc in (b.host, b.client)]}
-    for gc in (b.host, b.client):
-        b.aff[gc.name] = affine(cw(gc, "INTERCEPT", 0.6), cw(gc, "CANCEL", 0.6, ready=True))
+    b.aff["client"] = affine(cw(b.client, "INTERCEPT", 0.6), cw(b.client, "CANCEL", 0.6, ready=True))
     h, c = census(b.host), census(b.client)
     ev.update({"aff": b.aff, "host": h, "client": c})
     ok = h["stack"] == ["GeoscapeState"] and c["stack"] == ["GeoscapeState"] and len(own(h)) == 1 and len(own(c)) == 1
