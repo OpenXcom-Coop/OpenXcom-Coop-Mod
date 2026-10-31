@@ -66,6 +66,8 @@ private:
 	std::string _coopPickResearch, _coopPickBonus;
 	bool _replicatedResearchNames = false;
 	std::string _ownerPlayerName;
+	/// coop SEPARATE, shared research: the player whose base finished the research (the rewards' destination)
+	std::string _rewardPlayerName;
 	const RuleEvent &_eventRule;
 	/// coop: the region id, city index and item rows eventLogic picked (recorded, never read by vanilla).
 	std::string _coopRegion;
@@ -87,9 +89,12 @@ private:
 public:
 	/// Creates the GeoscapeEventState. With @a replicated the window only shows
 	/// the host's result and never runs the event logic (no world change).
+	/// @a rewardPlayerName: an event without an owner gives its items, craft and
+	/// soldiers to this player's first own base (coop SEPARATE, shared research).
 	GeoscapeEventState(const RuleEvent& eventRule,
 		const std::string& ownerPlayerName = std::string(), bool coopShared = false,
-		const GeoscapeEventDisplay* replicated = nullptr);
+		const GeoscapeEventDisplay* replicated = nullptr,
+		const std::string& rewardPlayerName = std::string());
 	/// Cleans up the GeoscapeEventState.
 	~GeoscapeEventState();
 	/// Initializes the state.

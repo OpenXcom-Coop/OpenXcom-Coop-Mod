@@ -5573,7 +5573,9 @@ void SavedGame::handlePrimaryResearchSideEffects(const std::vector<const RuleRes
 		}
 		// 3l. handle spawned events
 		RuleEvent* spawnedEventRule = mod->getEvent(myResearchRule->getSpawnedEvent());
-		spawnEvent(spawnedEventRule, researchOwner);
+		// coop SEPARATE, shared research: the event has no owner; its rewards go to the player whose base finished it
+		if (spawnEvent(spawnedEventRule, researchOwner) && !playerScoped && base && isSeparateCoopCampaign())
+			_geoscapeEvents.back()->setRewardPlayerName(base->getOwnerPlayerName());
 		// 3m. handle counters
 		for (auto& inc : myResearchRule->getIncreaseCounter())
 		{

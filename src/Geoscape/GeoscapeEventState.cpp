@@ -58,7 +58,8 @@ namespace OpenXcom
  */
 GeoscapeEventState::GeoscapeEventState(const RuleEvent& eventRule,
 	const std::string& ownerPlayerName, bool coopShared,
-	const GeoscapeEventDisplay* replicated) : _ownerPlayerName(ownerPlayerName), _eventRule(eventRule), _coopShared(coopShared)
+	const GeoscapeEventDisplay* replicated, const std::string& rewardPlayerName)
+	: _ownerPlayerName(ownerPlayerName), _rewardPlayerName(rewardPlayerName), _eventRule(eventRule), _coopShared(coopShared)
 {
 	_screen = false;
 
@@ -170,10 +171,13 @@ void GeoscapeEventState::eventLogic()
 	}
 
 	SavedGame *save = _game->getSavedGame();
+	// coop SEPARATE: the player the items, craft and soldiers go to - the event's owner, else (shared research) the
+	// player whose base finished the research
+	const std::string& rewardOwner = _ownerPlayerName.empty() ? _rewardPlayerName : _ownerPlayerName;
 	Base *hq = save->getBases()->front();
-	if (!_ownerPlayerName.empty())
+	if (!rewardOwner.empty())
 		for (Base* candidate : *save->getBases())
-			if (candidate && candidate->isOwnedByPlayer(_ownerPlayerName))
+			if (candidate && candidate->isOwnedByPlayer(rewardOwner))
 			{
 				hq = candidate;
 				break;
@@ -264,10 +268,10 @@ void GeoscapeEventState::eventLogic()
 	// seat), as a hire belongs to its purchaser; without it the soldier stays
 	// unowned (999) and no player's roster shows it.
 	int spawnedSoldierOwner = -1;
-	if (_game->getCoopMod()->isSeparateCampaign() && !_ownerPlayerName.empty())
+	if (_game->getCoopMod()->isSeparateCampaign() && !rewardOwner.empty())
 	{
 		const std::vector<std::string>& players = save->getCoopPlayers();
-		auto seat = std::find(players.begin(), players.end(), _ownerPlayerName);
+		auto seat = std::find(players.begin(), players.end(), rewardOwner);
 		if (seat != players.end())
 			spawnedSoldierOwner = (int)(seat - players.begin());
 	}

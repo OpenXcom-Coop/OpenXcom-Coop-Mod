@@ -4252,7 +4252,8 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 		timerReset();
 		const Json::Value eventFxMark = SharedEcon::eventMark(_game); // coop: the world before the event's reward
 		const std::string eventOwner = ge->getOwnerPlayerName();
-		GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner, ge->isCoopShared());
+		GeoscapeEventState* eventState = new GeoscapeEventState(ge->getRules(), eventOwner, ge->isCoopShared(), nullptr,
+			ge->getRewardPlayerName());
 		const std::string eventResearch = eventState->getResearchName();
 		const std::string eventBonus = eventState->getBonusResearchName();
 		const GeoscapeEventDisplay eventDisplay = eventState->getDisplay();

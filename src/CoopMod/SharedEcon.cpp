@@ -8445,7 +8445,7 @@ int64_t chkEvents(SavedGame* save)
 	uint64_t sum = 0;
 	for (const GeoscapeEvent* ge : save->getGeoscapeEvents())
 		if (!ge->isOver())
-			sum += chkEntry(ge->getRules().getName() + '\x1f' + ge->getOwnerPlayerName(),
+			sum += chkEntry(ge->getRules().getName() + '\x1f' + ge->getOwnerPlayerName() + '\x1f' + ge->getRewardPlayerName(),
 				ge->isCoopShared() ? 1 : 0, 0);
 	return chkValue(sum);
 }
@@ -8820,6 +8820,7 @@ void hostWorldExtras(Game* game)
 		Json::Value e;
 		e["name"] = ge->getRules().getName();
 		e["owner"] = ge->getOwnerPlayerName();
+		e["reward"] = ge->getRewardPlayerName();
 		e["countdown"] = Json::Value::UInt64(ge->getSpawnCountdown());
 		e["shared"] = ge->isCoopShared();
 		list.append(e);
@@ -8838,7 +8839,7 @@ void hostWorldExtras(Game* game)
 }
 
 namespace {
-// world_extras payload: { events: [ {name, owner, countdown, shared} ],
+// world_extras payload: { events: [ {name, owner, reward, countdown, shared} ],
 // counters: { name: value } }. The host's whole set; the replica replaces its own.
 void worldExtrasApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
 {
@@ -8855,6 +8856,7 @@ void worldExtrasApply(Game* game, Json::Value& payload, Base* /*base*/, int /*se
 		if (!rule) continue;
 		GeoscapeEvent* ge = new GeoscapeEvent(*rule);
 		ge->setOwnerPlayerName(e.get("owner", "").asString());
+		ge->setRewardPlayerName(e.get("reward", "").asString());
 		ge->setSpawnCountdown((size_t)e.get("countdown", 30).asUInt64());
 		ge->setCoopShared(e.get("shared", false).asBool());
 		events.push_back(ge);

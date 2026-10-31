@@ -35,6 +35,7 @@ private:
 	size_t _spawnCountdown;
 	bool _over;
 	std::string _ownerPlayerName;
+	std::string _rewardPlayerName; // coop SEPARATE, shared research: the player whose base finished the research
 	bool _coopShared; // coop SEPARATE: the other player has the same event, on the same timer
 	bool _coopBothWorlds = false; // coop: SEPARATE, shared research - the other player's world spawned this same event (main #197), on its own timer
 public:
@@ -54,6 +55,10 @@ public:
 	void setSpawnCountdown(size_t minutes);
 	const std::string& getOwnerPlayerName() const { return _ownerPlayerName; }
 	void setOwnerPlayerName(const std::string& owner) { _ownerPlayerName = owner; }
+	/// Coop SEPARATE, shared research: the player whose base finished the research that spawned this event (its
+	/// rewards go to that player's first own base); empty for an event with an owner or no research behind it.
+	const std::string& getRewardPlayerName() const { return _rewardPlayerName; }
+	void setRewardPlayerName(const std::string& player) { _rewardPlayerName = player; }
 
 	/// Is this event over?
 	bool isOver() const { return _over; }
