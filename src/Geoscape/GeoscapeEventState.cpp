@@ -472,6 +472,7 @@ void GeoscapeEventState::eventLogic()
 			std::ostringstream ss;
 			ss << -removed;
 			addTransferRow(ti.first, ss.str());
+			_coopRows.push_back(std::make_pair(ti.first, -removed)); // coop: the Shared replica shows the same row
 		}
 		else if (Options::oxceGeoscapeEventsInstantDelivery)
 		{
@@ -480,6 +481,7 @@ void GeoscapeEventState::eventLogic()
 			std::ostringstream ss;
 			ss << ti.second;
 			addTransferRow(ti.first, ss.str());
+			_coopRows.push_back(std::make_pair(ti.first, ti.second)); // coop: the Shared replica shows the same row
 		}
 		else
 		{
