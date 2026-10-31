@@ -399,6 +399,18 @@ def resume_campaign(host, client, save_file, port="47900",
     print("session resumed (redesigned flow)")
 
 
+def save_and_resume(host, client, save_file, port):
+    """The host saves the campaign to `save_file`, both machines leave to the main menu, the host loads that save and
+    the client rejoins (resume_campaign). Afterwards both machines hold what the host's save holds."""
+    host.ok({"cmd": "save_game", "file": save_file})
+    for gc in (client, host):
+        gc.ok({"cmd": "disconnect_to_menu"})
+        gc.wait_for(gc.name + " main menu",
+                    lambda gc=gc: (states(gc) and "MainMenuState" in states(gc)[-1]) or None,
+                    timeout=60, interval=0.25)
+    resume_campaign(host, client, save_file, port=str(port))
+
+
 def resume_campaign_battle(host, client, save_file, port="47900",
                            host_name="HostPlayer", client_name="ClientPlayer",
                            timeout=120, interval=2.0):

@@ -3,11 +3,13 @@ the host's remembered dogfight weapon switch reach the shared world. Test comman
 set_toggle_state (staging, THIS machine), open_craft_info. Real input: right-click on the BaseView cell centre,
 left-click on the CraftInfoState weapon icon (after its icons are not hidden). The SHARED boot (the host's
 oxceRememberDisabledCraftWeapons on): client_shield_off .. dogfight_weapon_remembered (the dogfight last); the
-SEPARATE boot: separate_stays_local (guard row).
+SEPARATE boot (one world; the client's own base is ClientBase): separate_reaches_host, separate_partner_refused (a weapon
+switch the client sends for the host's interceptor at the host's base is refused), separate_reload (the host saves and
+loads the campaign, the client rejoins: both hold the client's switches).
 Row baseline (every row): every switch enabled except the row's start values, client first; both probes equal;
 R0 = requests.
-Without the fix every SHARED row fails on its named cell (weapon_on_while_out on bothEnabled); separate_stays_local
-passes. "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if
+Without the fix every SHARED row fails on its named cell (weapon_on_while_out on bothEnabled); a build where a Separate
+client's switches stay on the client fails separate_reaches_host and separate_reload on their named cell. "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if
 all pass, else 2."""
 
 import json
@@ -32,6 +34,7 @@ WEAPONS = {"I1.0": (INT, 1, 0), "I1.1": (INT, 1, 1), "I2.0": (INT, 2, 0), "I2.1"
 SCALE, BAND, GRID = 2, 0, 32                     # window = int(base * 2 + 0); BaseView::GRID_SIZE
 POLL_S, POLL_I, UI_S = 3.0, 0.25, 3.0
 GEO, BASE, INFO = "GeoscapeState", "BasescapeState", "CraftInfoState"
+SEP_SAVE, SEP_RESUME = "toggles_separate.sav", 47317      # the reload row's save; its resume lobby
 
 class GuardMiss(Exception):
     """A guard failed: the row ends after its CAPTURE line."""
@@ -268,40 +271,87 @@ def row_dogfight(r, x):
         r.ev["after disengage"] = {"pumps": n, "host": len(dfs(h)), "client": len(dfs(c))}
     now = r.ev["requests"] = {gc.name: rs(gc)["requests"] for gc in (h, c)}
     r.cell("requests", now == d["R0"], f"requests {now} vs R0 {d['R0']}")
-def row_separate(r, x):
-    """SEPARATE: the client's own mind-shield and weapon switches stay on its machine; no shared command. The one
-    shared world lists the host's base first: the client's own base is ClientBase, its interceptor the first there. The
-    client's facility build is the host's command in one world: the command count is taken once the host lists it."""
+def sep_flags(bases, x):
+    """The client's two switches in one toggle_probe: mind shield A at ClientBase, its interceptor's first weapon."""
+    w = (craft(bases, INT, x.cid, x.bi).get("weapons") or [{}])[0]
+    return [flag(bases, "A", bi=x.bi), w.get("disabled")]
+def sep_start(r, x):
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, 10.0, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
+    return {"R0": {gc.name: rs(gc)["requests"] for gc in (h, c)}}
+def row_separate_reaches(r, x):
+    """SEPARATE: the client switches off its own base's mind shield (right-click) and its own interceptor's first
+    weapon (the craft screen's icon): both machines hold both switches off (host applyCount + 2). The one shared world
+    lists the host's base first: the client's own base is ClientBase, its interceptor the first there. The client's
+    facility build is the host's command in one world: its build time is staged on both machines once the host lists
+    it."""
+    h, c = x.host, x.client
+    d = sep_start(r, x)
     b = tp(c)
     names = [e["name"] for e in b]
-    bi = names.index("ClientBase") if "ClientBase" in names else None
-    cid = next((cr["id"] for cr in b[bi]["crafts"] if cr["type"] == INT), None) if bi is not None else None
-    r.ev["own"] = {"bases": names, "baseIndex": bi, "interceptor": cid}
-    guard(r, x, "own base and interceptor", bi is not None and cid is not None, f"{r.ev['own']}")
+    x.bi = names.index("ClientBase") if "ClientBase" in names else None
+    x.hbi = names.index("HostBase") if "HostBase" in names else None
+    x.cid = next((cr["id"] for cr in b[x.bi]["crafts"] if cr["type"] == INT), None) if x.bi is not None else None
+    x.hcid = next((cr["id"] for cr in b[x.hbi]["crafts"] if cr["type"] == INT), None) if x.hbi is not None else None
+    r.ev["own"] = {"bases": names, "baseIndex": x.bi, "interceptor": x.cid, "hostBase": x.hbi, "hostInterceptor": x.hcid}
+    guard(r, x, "bases and interceptors", None not in (x.bi, x.hbi, x.cid, x.hcid), f"{r.ev['own']}")
     fb = c.cmd({"cmd": "fac_build", "facility": FAC, "x": CELLS["A"][0], "y": CELLS["A"][1]})
-    ok, i = wait_until(lambda: fidx(tp(c), "A", bi), UI_S, 0.05)       # index 9, never 0
-    bt = c.cmd({"cmd": "set_facility_build_time", "baseId": bi, "index": i if ok else -1, "time": 0})
-    r.ev["facility"] = {"fac_build": pick(fb, "ok", "error"), "index": i, "buildTime0": pick(bt, "ok", "type", "buildTime")}
-    guard(r, x, "own facility", ok and bt.get("ok") is True and bt.get("buildTime") == 0, f"{r.ev['facility']}")
-    def applied():
+    ok = wait_until(lambda: all(fidx(tp(gc), "A", x.bi) is not None for gc in (h, c)), UI_S, 0.05)[0]
+    ix = {gc.name: fidx(tp(gc), "A", x.bi) for gc in (h, c)}
+    bt = {gc.name: pick(gc.cmd({"cmd": "set_facility_build_time", "baseId": x.bi, "index": ix[gc.name], "time": 0}),
+                        "ok", "type", "buildTime") for gc in (c, h)} if ok else {}
+    r.ev["facility"] = {"fac_build": pick(fb, "ok", "error"), "index": ix, "buildTime0": bt}
+    guard(r, x, "own facility on both", ok and all(v.get("ok") is True and v.get("buildTime") == 0 for v in bt.values()),
+          f"{r.ev['facility']}")
+    def settled():
         s = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
-        return s if fidx(tp(h), "A", bi) is not None and s["host"]["applyCount"] == s["client"]["applyCount"] else None
-    ok, s_0 = wait_until(applied, UI_S, 0.1)
-    r.ev["buildApplied"] = s_0 or {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
-    guard(r, x, "build applied on both", ok, f"host lists A {fidx(tp(h), 'A', bi)}; shared_stats {r.ev['buildApplied']}")
+        return s if s["host"]["applyCount"] == s["client"]["applyCount"] else None
+    ok, s_0 = wait_until(settled, UI_S, 0.1)
+    r.ev["s0"] = s_0
+    guard(r, x, "build applied on both", ok, f"shared_stats {[pick(ss(gc), 'cmd', 'applyCount') for gc in (h, c)]}")
     rclick(r, x, c, "A")
-    icon(r, x, c, open_info(r, x, c, INT, cid), 0)
-    time.sleep(2.0)
+    icon(r, x, c, open_info(r, x, c, INT, x.cid), 0)
+    ok = wait_until(lambda: sep_flags(tp(h), x) == [True, True], POLL_S, POLL_I)[0]
     e = end(r, x)
-    fa = flag(e["client"], "A", bi=bi)
-    wa = ((craft(e["client"], INT, cid, bi).get("weapons") or [{}])[0]).get("disabled")
-    s_1 = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
-    r.ev["shared_stats"] = {"before": s_0, "after": s_1}
-    r.cell("ownFlags", fa is True and wa is True, f"client facility A disabled {fa}, client I2.0 disabled {wa} (want True / True)")
-    r.cell("noCommand", s_0 == s_1, f"shared_stats {s_0} -> {s_1} (want unchanged)")
-    r.ev["close"] = closeall(x)
+    now = r.ev["flags"] = {n: sep_flags(bs, x) for n, bs in e.items()}
+    s_1 = r.ev["s1"] = {gc.name: pick(ss(gc), "cmd", "applyCount") for gc in (h, c)}
+    guard(r, x, "client own flags", now["client"] == [True, True], f"client facility A / weapon disabled {now['client']}")
+    r.cell("reachedHost", ok and now["host"] == [True, True] and s_1["host"]["applyCount"] == s_0["host"]["applyCount"] + 2,
+           f"host facility A / weapon disabled {now['host']} (want [True, True]), host applyCount "
+           f"{s_0['host']['applyCount']} -> {s_1['host']['applyCount']} (want +2): the client's switches stayed on its machine")
+    close(r, x, d)
+def row_separate_partner_refused(r, x):
+    """SEPARATE: the client sends a weapon switch for the host's first interceptor at the host's base, as a stale or
+    changed client could: the host refuses it ("Action refused": not the client's base); the weapon stays enabled on
+    both machines."""
+    h, c = x.host, x.client
+    d = sep_start(r, x)
+    def hw(gc): return ((craft(tp(gc), INT, x.hcid, x.hbi).get("weapons") or [{}])[0]).get("disabled")  # noqa: E704
+    w0 = r.ev["before"] = {gc.name: hw(gc) for gc in (h, c)}
+    r.ev["reset"] = [pick(gc.cmd({"cmd": "shared_reset_stats"}), "ok") for gc in (h, c)]
+    r.ev["send"] = c.cmd({"cmd": "shared_cmd", "jcmd": "craft_weapon_disable", "baseId": x.hbi,
+                          "payload": {"craftId": x.hcid, "craftType": INT, "slot": 0, "disabled": True}})
+    ok = wait_until(lambda: ss(c)["failCount"] >= 1, UI_S, 0.05)[0]
+    f1 = r.ev["refusal"] = pick(c.cmd({"cmd": "shared_stats"}), "failCount", "lastFail")
+    wait_until(lambda: "CoopState" in top(c), 1.0, 0.05)
+    r.ev["box"] = c.cmd({"cmd": "coop_dialog_back"}) if "CoopState" in top(c) else {"none": stack(c)}
+    guard(r, x, "refusal box closed", wait_until(lambda: top(c) == GEO, UI_S, 0.05)[0], f"stack {stack(c)}")
+    w1 = r.ev["after"] = {gc.name: hw(gc) for gc in (h, c)}
+    r.cell("refused", ok and f1.get("lastFail") == "STR_COOP_ACTION_REFUSED" and w0 == w1 == {"host": False, "client": False},
+           f"client lastFail {f1.get('lastFail')!r} (want 'STR_COOP_ACTION_REFUSED'), host interceptor weapon disabled "
+           f"{w0} -> {w1} (want False on both)")
+    close(r, x, d)
+def row_separate_reload(r, x):
+    """SEPARATE: the host saves and loads the campaign and the client rejoins: both machines hold the client's two
+    switches off (the host's save holds them)."""
+    h, c = x.host, x.client
+    sep_start(r, x)
+    r.ev["before"] = {gc.name: sep_flags(tp(gc), x) for gc in (h, c)}
+    session.save_and_resume(h, c, SEP_SAVE, SEP_RESUME)
+    guard(r, x, "resumed", wait_until(lambda: top(h) == GEO and top(c) == GEO, 10.0, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
+    now = r.ev["after"] = {gc.name: sep_flags(tp(gc), x) for gc in (h, c)}
+    r.cell("reloaded", now == {"host": [True, True], "client": [True, True]},
+           f"after the reload facility A / weapon disabled {now} (want [True, True] on both)")
 def run_one(rid, fn, x, results):
     r = Row(rid)
     try:
@@ -387,7 +437,8 @@ ROWS_SHARED = (
     ("host_weapon_off", lambda r, x: row_switch(r, x, x.host, "I1.1", False, "reachedClient", WHY_HOST_WEAPON)),
     ("weapon_on_while_out", row_weapon_while_out),
     ("dogfight_weapon_remembered", row_dogfight))
-ROWS_SEPARATE = (("separate_stays_local", row_separate),)
+ROWS_SEPARATE = (("separate_reaches_host", row_separate_reaches), ("separate_partner_refused", row_separate_partner_refused),
+                 ("separate_reload", row_separate_reload))
 
 def main():
     t0, results, walls = time.time(), {}, {}

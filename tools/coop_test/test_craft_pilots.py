@@ -5,9 +5,12 @@ open_craft_pilots (the REAL CraftPilotsState), craft_pilots_probe (read-only; th
 set_craft_pilots (staging, THIS machine). Real input: click_widget "Add Pilot" -> the select list not hidden -> inject_input
 at the probe's row of the soldier; click_widget "Remove All". SHARED boot: client_pick_reaches, host_pick_reaches,
 client_remove_all, host_remove_all, partner_soldier_refused, last_seat_race, launch_pilots_reach (the launch, last);
-SEPARATE boot: separate_pick_local (guard row). at_start: set_craft_pilots on both (client first) to the row's start
-list.
-A build without the fix fails each SHARED row on its named cell and passes separate_pick_local; with the fix all pass.
+SEPARATE boot (one world; the client's own Skyranger at ClientBase): separate_pick_reaches, separate_partner_refused (a
+pick the client sends for the host's Skyranger at the host's base is refused), separate_remove_all, separate_reload (the
+host saves and loads the campaign, the client rejoins: both hold the client's pilot). at_start (SHARED): set_craft_pilots
+on both (client first) to the row's start list.
+A build where a Separate client's pilot changes stay on the client fails separate_pick_reaches, separate_remove_all and
+separate_reload on their named cell; with them applied by the host all rows pass.
 "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass,
 else 2.
 """
@@ -28,6 +31,7 @@ MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Pil
 BOOT_SHARED = ("craft_pilots_shared", (49344, 49345, 47334))      # SHARED; lobby 47334
 BOOT_SEPARATE = ("craft_pilots_separate", (49346, 49347, 47336))      # SEPARATE; lobby 47336
 SKY = {"craftId": 1, "craftType": "STR_SKYRANGER"}
+SEP_SAVE, SEP_RESUME = "craft_pilots_separate.sav", 47337      # the reload row's save; its resume lobby
 POLL_S, POLL_I, UI_S, BETWEEN_S, SETTLE_S = 3.0, 0.25, 3.0, 10.0, 0.25
 GEO, CPS, CPSS = "GeoscapeState", "CraftPilotsState", "CraftPilotSelectState"
 
@@ -49,10 +53,11 @@ def stack(gc): return session.states_stripped(gc)  # noqa: E704
 def top(gc): return (stack(gc) or [""])[-1]  # noqa: E704
 def rs(gc): return keys(gc.cmd({"cmd": "shared_resync_stats"}), "requests", "pending", "mismatches")  # noqa: E704
 def ss(gc): return keys(gc.cmd({"cmd": "shared_stats"}), "cmd", "failCount", "applyCount", "lastFail")  # noqa: E704
-def pil(gc): return probe(gc).get("pilots")  # noqa: E704
+def pil(gc, sky=SKY): return probe(gc, sky).get("pilots")  # noqa: E704
+def nobase(sky): return {k: v for k, v in sky.items() if k != "base"}  # noqa: E704
 
-def probe(gc):
-    p = gc.cmd(dict({"cmd": "craft_pilots_probe"}, **SKY))
+def probe(gc, sky=SKY):
+    p = gc.cmd(dict({"cmd": "craft_pilots_probe"}, **sky))
     return dict(p, top=str(p.get("top", "")).replace("class OpenXcom::", ""))
 
 def shown(gc):
@@ -75,7 +80,7 @@ def guard(r, x, name, ok, detail):
     cap = {}
     for gc in (x.host, x.client):
         try:
-            cap[gc.name] = {"stack": stack(gc), "probe": probe(gc), "list_widgets": gc.cmd({"cmd": "list_widgets"}),
+            cap[gc.name] = {"stack": stack(gc), "probe": probe(gc, x.sky), "list_widgets": gc.cmd({"cmd": "list_widgets"}),
                             "shared_stats": gc.cmd({"cmd": "shared_stats"}), "resync": rs(gc)}
         except Exception as e:
             cap[gc.name] = f"probe failed: {short(e)}"
@@ -83,11 +88,11 @@ def guard(r, x, name, ok, detail):
     raise GuardMiss(f"guard {name}")
 
 def open_cps(r, x, gc, tag):
-    o = gc.cmd(dict({"cmd": "open_craft_pilots"}, **SKY))
+    o = gc.cmd(dict({"cmd": "open_craft_pilots"}, **x.sky))
     guard(r, x, f"{tag} open", o.get("ok") is True, f"{o}")
     guard(r, x, f"{tag} pilots screen", wait_until(lambda: top(gc) == CPS, UI_S, 0.05)[0], f"stack {stack(gc)}")
     time.sleep(SETTLE_S)        # init() -> updateUI() sets the button visibilities on the frame after the push
-    return probe(gc)
+    return probe(gc, x.sky)
 
 def pick(r, x, gc, sid, tag):
     """open_craft_pilots -> Add Pilot -> list shown -> real click on the soldier's row; guard: the clicker's own list."""
@@ -100,14 +105,14 @@ def pick(r, x, gc, sid, tag):
     ev["add"] = cw = gc.cmd({"cmd": "click_widget", "match": "Add Pilot"})
     guard(r, x, f"{tag} select shown", wait_until(lambda: shown(gc), UI_S, 0.05)[0] and cw.get("ok") is True,
           f"click {cw}; stack {stack(gc)}")
-    rows = probe(gc).get("rows") or []
+    rows = probe(gc, x.sky).get("rows") or []
     row = next((w for w in rows if w.get("name") == x.names.get(sid) and "wx" in w), None)
     ev["select"] = {"want": [sid, x.names.get(sid)], "rows": rows}
     guard(r, x, f"{tag} row of {sid}", row is not None, f"rows {rows}")
     ev["click"] = gc.cmd({"cmd": "inject_input", "kind": "click", "x": row["wx"], "y": row["wy"]})
     guard(r, x, f"{tag} back on CPS", wait_until(lambda: top(gc) == CPS, UI_S, 0.05)[0], f"stack {stack(gc)}")
     time.sleep(SETTLE_S)
-    ev["after"] = a = pil(gc)
+    ev["after"] = a = pil(gc, x.sky)
     guard(r, x, f"{tag} own change", sid in (a or []), f"{tag} pilots {a} (want {sid} in it)")
 
 def clear(r, x, gc, own, tag):
@@ -116,7 +121,7 @@ def clear(r, x, gc, own, tag):
     ev["before"] = open_cps(r, x, gc, tag).get("pilots")
     ev["click"] = cw = gc.cmd({"cmd": "click_widget", "match": "Remove All"})
     time.sleep(SETTLE_S)
-    ev["after"] = a = pil(gc)
+    ev["after"] = a = pil(gc, x.sky)
     guard(r, x, f"{tag} own change", cw.get("ok") is True and a is not None and own not in a,
           f"click {cw}; pilots {a} (want {own} gone)")
 
@@ -124,7 +129,7 @@ def poll(x, secs=POLL_S):
     """Both machines' pilot lists every 0.25 s; only the changes are kept."""
     out, n, t0 = [], 0, time.time()
     while time.time() - t0 < secs:
-        s = {"host": pil(x.host), "client": pil(x.client)}
+        s = {"host": pil(x.host, x.sky), "client": pil(x.client, x.sky)}
         if not out or {k: v for k, v in out[-1].items() if k != "t"} != s:
             out.append(dict(s, t=round(time.time() - t0, 2)))
         n += 1
@@ -133,7 +138,7 @@ def poll(x, secs=POLL_S):
 
 def end(r, x):
     """Both machines' craft_pilots_probe at the row's end (pasted in EVIDENCE); returns the pilot lists."""
-    e = {gc.name: probe(gc) for gc in (x.host, x.client)}
+    e = {gc.name: probe(gc, x.sky) for gc in (x.host, x.client)}
     r.ev["end"] = {n: keys(p, "top", "required", "pilots", "crew", "rows", "buttons") for n, p in e.items()}
     r.ev["end shared_stats"] = {gc.name: ss(gc) for gc in (x.host, x.client)}
     return {n: p.get("pilots") for n, p in e.items()}
@@ -261,25 +266,85 @@ def row_launch_pilots_reach(r, x):
            f"after a launch the client's craft shows no pilots")
     close(r, x, d)
 
-def row_separate_pick_local(r, x):
-    """SEPARATE: the client's pick on its own base's Skyranger stays local; no shared command on either machine."""
+def sep_start(r, x):
+    """A SEPARATE row's start: tops on the geoscape; the client's Skyranger pilots, requests and counters on both."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0],
           f"stacks {stack(h)} / {stack(c)}")
-    p0, sid = probe(c), (x.crew[0] if x.crew else None)
-    r.ev["at_start"] = {"client": keys(p0, "required", "pilots", "crew"), "id": sid, "name": x.names.get(sid)}
-    guard(r, x, "at_start", p0.get("required") == 2 and sid is not None and p0.get("pilots") == [],
-          f"{r.ev['at_start']}")
-    ss_start = {gc.name: ss(gc) for gc in (h, c)}
+    r.ev["at_start"] = d = {"pilots": {gc.name: pil(gc, x.sky) for gc in (h, c)},
+                            "req": {gc.name: rs(gc)["requests"] for gc in (h, c)}, "ss": {gc.name: ss(gc) for gc in (h, c)}}
+    return d
+
+def row_separate_pick_reaches(r, x):
+    """SEPARATE: the client picks its own soldier as a pilot of its own Skyranger; both machines hold the pick (host
+    applyCount + 1)."""
+    d, sid = sep_start(r, x), x.crew[0]
+    guard(r, x, "no pilot", d["pilots"] == {"host": [], "client": []}, f"{d['pilots']}")
+    pick(r, x, x.client, sid, "client own")
+    r.ev["poll"] = poll(x)
+    v = end(r, x)
+    a0, a1 = d["ss"]["host"]["applyCount"], ss(x.host)["applyCount"]
+    r.cell("reached", v["host"] == [sid] and v["client"] == [sid] and a1 == a0 + 1,
+           f"host {v['host']}, client {v['client']} (want [{sid}] on both), host applyCount {a0} -> {a1} (want +1): "
+           "the client's pilot pick stayed on its machine")
+    close(r, x, d)
+
+def row_separate_partner_refused(r, x):
+    """SEPARATE: the client sends a pilot pick of its own soldier for the host's Skyranger at the host's base, as a
+    stale or changed client could: the host refuses it ("Action refused": not the client's base); the host's Skyranger
+    keeps no pilot on both machines."""
+    h, c = x.host, x.client
+    d = sep_start(r, x)
+    p0 = r.ev["host Skyranger"] = {gc.name: pil(gc, x.hostSky) for gc in (h, c)}
+    r.ev["reset"] = [gc.ok({"cmd": "shared_reset_stats"}) for gc in (h, c)]
+    r.ev["send"] = c.cmd({"cmd": "shared_cmd", "jcmd": "craft_pilots", "baseId": x.hostBase,
+                          "payload": dict(nobase(x.hostSky), op="add", soldierId=x.crew[1])})
+    ok, _ = wait_until(lambda: ss(c)["failCount"] >= 1, UI_S)
+    r.ev["refusal"] = f1 = ss(c)
+    dialog_back(r, x, c, "host Skyranger")
+    p1 = r.ev["after refusal"] = {gc.name: pil(gc, x.hostSky) for gc in (h, c)}
+    r.cell("refused", ok and f1.get("lastFail") == "STR_COOP_ACTION_REFUSED" and p0 == p1 == {"host": [], "client": []},
+           f"client failCount {f1.get('failCount')}, lastFail {f1.get('lastFail')!r} (want 'STR_COOP_ACTION_REFUSED'), "
+           f"host Skyranger pilots {p0} -> {p1} (want [] on both)")
+    close(r, x, d)
+
+def row_separate_remove_all(r, x):
+    """SEPARATE: both machines hold the client's pilot (its own pick, sent as a command when not yet held); the client's
+    Remove All Pilots clears it on both (host applyCount + 1)."""
+    h, c = x.host, x.client
+    sid = x.crew[0]
+    sep_start(r, x)
+    if not (pil(h, x.sky) == [sid] and pil(c, x.sky) == [sid]):
+        r.ev["stage"] = c.cmd({"cmd": "shared_cmd", "jcmd": "craft_pilots", "baseId": x.ownBase,
+                               "payload": dict(nobase(x.sky), op="add", soldierId=sid)})
+    ok = wait_until(lambda: pil(h, x.sky) == [sid] and pil(c, x.sky) == [sid], UI_S)[0]
+    guard(r, x, "pilot on both", ok, f"host {pil(h, x.sky)}, client {pil(c, x.sky)} (want [{sid}])")
+    d = sep_start(r, x)
+    clear(r, x, c, sid, "client")
+    r.ev["poll"] = poll(x)
+    v = end(r, x)
+    a0, a1 = d["ss"]["host"]["applyCount"], ss(h)["applyCount"]
+    r.cell("applied", v["host"] == [] and v["client"] == [] and a1 == a0 + 1,
+           f"host {v['host']}, client {v['client']} (want [] on both), host applyCount {a0} -> {a1} (want +1): the "
+           "client's Remove All stayed on its machine")
+    close(r, x, d)
+
+def row_separate_reload(r, x):
+    """SEPARATE: the client picks another own soldier; the host saves and loads the campaign and the client rejoins:
+    both machines hold that pilot (the host's save holds it)."""
+    h, c = x.host, x.client
+    sid = x.crew[1]
+    sep_start(r, x)
     pick(r, x, c, sid, "client own")
-    time.sleep(2.0)
-    a, ss_end = pil(c), {gc.name: ss(gc) for gc in (h, c)}
-    r.ev["end"] = {"client": probe(c), "shared_stats": {"at_start": ss_start, "end": ss_end}}
-    r.cell("clientOwn", a == [sid], f"client {a} (want [{sid}])")
-    r.cell("noCmd", all(keys(ss_start[n], "cmd", "applyCount") == keys(ss_end[n], "cmd", "applyCount")
-                        for n in ss_start),
-           f"shared_stats {ss_start} -> {ss_end} (want cmd / applyCount unchanged)")
+    r.ev["poll"] = poll(x)
     r.ev["close"] = {gc.name: keys(gc.cmd({"cmd": "close_screens"}), "popped", "refused") for gc in (c, h)}
+    r.ev["before"] = {gc.name: pil(gc, x.sky) for gc in (h, c)}
+    session.save_and_resume(h, c, SEP_SAVE, SEP_RESUME)
+    guard(r, x, "resumed", wait_until(lambda: top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0],
+          f"stacks {stack(h)} / {stack(c)}")
+    v = r.ev["after"] = {gc.name: pil(gc, x.sky) for gc in (h, c)}
+    r.cell("reloaded", v["host"] == [sid] and v["client"] == [sid],
+           f"after the reload host {v['host']}, client {v['client']} (want [{sid}] on both)")
 
 def run_one(rid, fn, x, results):
     r = Row(rid)
@@ -308,12 +373,24 @@ def setup(x, tag):
     pr = {gc.name: probe(gc) for gc in (h, c)}
     info = {"probe": {n: keys(p, "required", "pilots", "crew", "top") for n, p in pr.items()}}
     if tag == BOOT_SEPARATE[0]:
-        br = c.ok({"cmd": "base_report"})      # no args: the client's own base (index 0)
+        seat = c.cmd({"cmd": "synced_options_state"}).get("localSeat")
+        bases = c.ok({"cmd": "geo_state"})["bases"]
+        names = [b["name"] for b in bases]
+        sky = {b["name"]: next((cr["id"] for cr in b.get("crafts") or [] if cr.get("type") == SKY["craftType"]), None)
+               for b in bases}
+        x.sky = {"craftId": sky.get("ClientBase"), "craftType": SKY["craftType"], "base": "ClientBase"}
+        x.hostSky = {"craftId": sky.get("HostBase"), "craftType": SKY["craftType"], "base": "HostBase"}
+        x.ownBase, x.hostBase = (names.index(n) if n in names else -1 for n in ("ClientBase", "HostBase"))
+        pr = {gc.name: probe(gc, x.sky) for gc in (h, c)}
+        br = c.ok({"cmd": "base_report", "base": "ClientBase"})
         x.names = {s["id"]: s["name"] for s in br["soldiers"]}
-        x.crew = [e["id"] for e in pr["client"].get("crew") or []]
-        info.update(base=br.get("name"), crew=x.crew, names=x.names)
-        if pr["client"].get("required") != 2 or pr["client"].get("pilots") != [] or not x.crew:
-            raise RuntimeError(f"separate boot guard (client's own Skyranger: two seats, no pilot, a crew): {info}")
+        x.crew = [e["id"] for e in pr["client"].get("crew") or [] if e.get("owner") == seat]
+        info.update(seat=seat, bases=names, sky=x.sky, hostSky=x.hostSky, crew=x.crew, names=x.names,
+                    probe={n: keys(p, "required", "pilots", "crew", "top") for n, p in pr.items()})
+        if (x.ownBase < 0 or x.hostBase < 0 or None in sky.values() or len(x.crew) < 2
+                or any(p.get("required") != 2 or p.get("pilots") != [] for p in pr.values())):
+            raise RuntimeError(f"separate boot guard (the client's own Skyranger on both: two seats, no pilot, two own "
+                               f"crew; the host's Skyranger): {info}")
         return info
     seat = {gc.name: gc.cmd({"cmd": "synced_options_state"}).get("localSeat") for gc in (h, c)}
     br = h.ok({"cmd": "base_report"})
@@ -348,7 +425,7 @@ def boot(tag, up, rows, results, walls):
     t0, js, info = time.time(), None, None
     try:
         js = up()
-        x = SimpleNamespace(host=js.host, client=js.client)
+        x = SimpleNamespace(host=js.host, client=js.client, sky=SKY)
         walls[tag + " bring-up"] = round(time.time() - t0, 1)
         info = setup(x, tag)
         print(f"EVIDENCE boot {tag}: {json.dumps(info, sort_keys=True, default=str)}", flush=True)
@@ -375,7 +452,9 @@ ROWS_SHARED = (("client_pick_reaches", lambda r, x: reach(r, x, x.client, x.C1, 
           ("host_remove_all", lambda r, x: remove(r, x, x.host, x.H1, x.C1, "host")),
           ("partner_soldier_refused", row_partner_soldier_refused), ("last_seat_race", row_last_seat_race),
           ("launch_pilots_reach", row_launch_pilots_reach))
-ROWS_SEPARATE = (("separate_pick_local", row_separate_pick_local),)
+ROWS_SEPARATE = (("separate_pick_reaches", row_separate_pick_reaches),
+                 ("separate_partner_refused", row_separate_partner_refused),
+                 ("separate_remove_all", row_separate_remove_all), ("separate_reload", row_separate_reload))
 
 def main():
     t0, results, walls = time.time(), {}, {}

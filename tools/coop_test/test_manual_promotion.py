@@ -2,9 +2,16 @@
 Test commands: open_soldier_info, set_soldier_rank (staging, THIS machine), soldier_attr_probe. Real input: rank badge
 (click_widget nth 0) -> rank TextList shown (hidden false) -> inject_input at rankScreen.rows[r].wx/wy; flag =
 click_widget nth 1. The SHARED boot: client_promotes, host_promotes, one_opening_two_promotions, nationality_change; the
-SEPARATE boot: separate_own_soldier (guard row). S0: S1, S2 (client-owned), S3 (host-owned) -> squaddie, client then
-host; floor(N/5) - 1 others -> sergeant; one sergeant opening on both (guard). Without the fix the four SHARED rows fail
-on their named cell and separate_own_soldier passes; with it all pass.
+SEPARATE boot (one world: the client's soldiers at ClientBase, the host's at HostBase): separate_own_soldier (the client
+promotes its own soldier, staged squaddie on both machines: both hold sergeant, host applyCount +1); separate_openings
+(the host's first floor(N/5) soldiers staged sergeant fill every sergeant opening counted over all N soldiers; the
+client's rank screen still shows the one opening its own soldiers leave, and the promotion lands on both);
+separate_nationality (the client's flag change on its own soldier reaches the host); separate_partner_refused (a
+promotion and a flag change the client sends for a host soldier are refused with "Not one of your soldiers"; nothing
+changes); separate_reload (the host saves and loads the campaign, the client rejoins: both hold the client's changes).
+S0: S1, S2 (client-owned), S3 (host-owned) -> squaddie, client then host; floor(N/5) - 1 others -> sergeant; one
+sergeant opening on both (guard). A build where a Separate client's promotion and flag change stay on the client fails
+every SEPARATE row on a named cell; with them applied by the host all rows pass.
 "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -23,7 +30,10 @@ from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 OPT = "oxceManualPromotions"
 BOOT_SHARED = ("manual_promotion_shared", (49290, 49291, 47280))      # SHARED; lobby 47280
 BOOT_SEPARATE = ("manual_promotion_separate", (49292, 49293, 47282))      # SEPARATE; lobby 47282
-SQUADDIE, SERGEANT = 1, 2
+ROOKIE, SQUADDIE, SERGEANT = 0, 1, 2
+PER_SERGEANT = 5                                  # the ruleset's soldiers per sergeant
+NOT_YOURS = "STR_COOP_NOT_YOUR_SOLDIER"
+SEP_SAVE, SEP_RESUME = "manual_promotion_separate.sav", 47283      # the reload row's save; its resume lobby
 POLL_S, POLL_I, UI_S, BETWEEN_S, CLEAN_S = 3.0, 0.1, 3.0, 30, 4.0
 INFO, GEO = "SoldierInfoState", "GeoscapeState"
 
@@ -47,6 +57,7 @@ def sol(gc, sid): return sap(gc, sid).get("soldier") or {}  # noqa: E704
 def rs(gc): return pick(gc.cmd({"cmd": "shared_resync_stats"}), "requests", "pending", "mismatches")  # noqa: E704
 def ss(gc): return pick(gc.cmd({"cmd": "shared_stats"}), "cmd", "okCount", "applyCount", "applyQueued")  # noqa: E704
 def opt(gc): return gc.cmd({"cmd": "option_values", "ids": [OPT]}).get("values", {}).get(OPT)  # noqa: E704
+def fs(gc): return pick(gc.cmd({"cmd": "shared_stats"}), "failCount", "lastFail")  # noqa: E704
 
 def sap(gc, sid):
     p = gc.cmd({"cmd": "soldier_attr_probe", "id": sid})
@@ -217,25 +228,149 @@ def row_nationality_change(r, x):
     clean(r, x, d)
 
 def row_separate_own_soldier(r, x):
+    """The client promotes its own soldier at its own base; in the one Separate world both machines hold the new rank
+    by the end of the poll (host applyCount S0 + 1) and the replica asks for no re-copy."""
     h, c = x.host, x.client
-    ok = wait_until(lambda: top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0]
-    guard(r, x, "start", ok, f"stacks {stack(h)} / {stack(c)}")
+    ok = wait_until(lambda: not rs(c)["pending"] and top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0]
+    guard(r, x, "start", ok, f"stacks {stack(h)} / {stack(c)}, replica {rs(c)}")
     guard(r, x, "option", x.option is True, f"client {OPT} {x.option}")
-    br = c.cmd({"cmd": "base_report"})                # the client's own base (not a soldier filter on owner == seat)
-    sid = (br.get("soldiers") or [{}])[0].get("id")
+    seat = c.cmd({"cmd": "synced_options_state"}).get("localSeat")
+    br = c.cmd({"cmd": "base_report", "base": "ClientBase"})          # the client's own base in the one world
+    sid = next((s.get("id") for s in br.get("soldiers") or [] if s.get("owner") == seat), None)
     r.ids = (sid,) if sid is not None else ()
-    r.ev["pick"] = {"base": br.get("name"), "id": sid, "soldier": sol(c, sid) if sid is not None else None}
-    guard(r, x, "own base 0", (r.ev["pick"]["soldier"] or {}).get("baseIndex") == 0, f"{r.ev['pick']}")
-    hc0 = ss(h)["cmd"]
-    st = c.cmd({"cmd": "set_soldier_rank", "soldierId": sid, "rank": SQUADDIE})
-    guard(r, x, "staging", st.get("ok") is True and st.get("rank") == SQUADDIE, f"{st}")
-    r.ev["S0"] = {"client": sol(c, sid), "openings": sap(c, sid)["openings"], "host shared_stats": ss(h)}
+    r.ev["pick"] = {"base": br.get("name"), "seat": seat, "id": sid, "soldier": sol(c, sid) if sid is not None else None}
+    guard(r, x, "own soldier", sid is not None and (r.ev["pick"]["soldier"] or {}).get("owner") == seat, f"{r.ev['pick']}")
+    st = [(gc.name, gc.cmd({"cmd": "set_soldier_rank", "soldierId": sid, "rank": SQUADDIE})) for gc in (c, h)]
+    guard(r, x, "staging", all(v.get("ok") is True and v.get("rank") == SQUADDIE for _, v in st), f"{st}")
+    d = {"req": {gc.name: rs(gc)["requests"] for gc in (h, c)}, "ss": {gc.name: ss(gc) for gc in (h, c)},
+         "openings": {gc.name: sap(gc, sid)["openings"] for gc in (h, c)},
+         "soldier": {gc.name: sol(gc, sid) for gc in (h, c)}}
+    r.ev["S0"] = d
     promote(r, x, c, sid, SERGEANT, "client own")
-    time.sleep(2.0)
+    r.ev["poll"] = poll(x, r.ids)
     v, _ = end(r, x)
-    cr, hc = v["client"][sid].get("rank"), ss(h)["cmd"]
-    r.cell("clientRank", cr == SERGEANT, f"client rank {cr} (want 2)")
-    r.cell("hostCmd", hc == hc0, f"host shared_stats.cmd {hc0} -> {hc} (want unchanged)")
+    keep(x, sid, v)
+    hr, cr = v["host"][sid].get("rank"), v["client"][sid].get("rank")
+    a0, a1 = d["ss"]["host"]["applyCount"], ss(h)["applyCount"]
+    r.cell("bothRank", hr == SERGEANT and cr == SERGEANT and a1 == a0 + 1,
+           f"host rank {hr}, client rank {cr} (want 2/2), host applyCount {a0} -> {a1} (want +1): "
+           "the client's promotion of its own soldier reaches the host")
+    clean(r, x, d)
+
+def stage_ranks(r, x, want):
+    """STAGING on both machines (client first, no command): want [(id, rank)]; guard: every reply reads its rank."""
+    st = [(gc.name, sid, rk, gc.cmd({"cmd": "set_soldier_rank", "soldierId": sid, "rank": rk}))
+          for gc in (x.client, x.host) for sid, rk in want]
+    guard(r, x, "staging", all(v.get("ok") is True and v.get("rank") == rk for _, _, rk, v in st), f"{st}")
+
+def sep_start(r, x):
+    """A SEPARATE row's start: tops on the geoscape, no replica repair pending; returns its requests and counters."""
+    h, c = x.host, x.client
+    ok = wait_until(lambda: not rs(c)["pending"] and top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0]
+    guard(r, x, "start", ok, f"stacks {stack(h)} / {stack(c)}, replica {rs(c)}")
+    return {"req": {gc.name: rs(gc)["requests"] for gc in (h, c)}, "ss": {gc.name: ss(gc) for gc in (h, c)}}
+
+def keep(x, sid, v):
+    """The client's end values of a row soldier: what separate_reload expects on both machines."""
+    x.expect[sid] = pick(v["client"][sid], "rank", "nationality")
+
+def refused_box(r, x, gc, tag):
+    """A refused command raises CoopState on its sender: close it with coop_dialog_back; guard: back on the geoscape."""
+    wait_until(lambda: "CoopState" in top(gc), 1.0, 0.05)
+    r.ev["box " + tag] = gc.cmd({"cmd": "coop_dialog_back"}) if "CoopState" in top(gc) else {"none": stack(gc)}
+    guard(r, x, tag + " box closed", wait_until(lambda: top(gc) == GEO, UI_S, 0.05)[0], f"stack {stack(gc)}")
+
+def row_separate_openings(r, x):
+    """Manual promotion openings count the promoting player's own soldiers: the host's first floor(N/5) soldiers staged
+    sergeant fill every sergeant opening counted over both players' N soldiers; the client's own soldiers still leave
+    one. The client's rank screen shows it on its own squaddie and the promotion lands on both machines."""
+    h, c = x.host, x.client
+    sid, k = x.own[1], (len(x.own) + len(x.partner)) // PER_SERGEANT
+    r.ids = (sid,)
+    d = sep_start(r, x)
+    guard(r, x, "fixture", len(x.partner) >= k and len(x.own) // PER_SERGEANT >= 1, f"own {x.own}, partner {x.partner}")
+    stage_ranks(r, x, [(i, SQUADDIE if i == sid else ROOKIE) for i in x.own]
+                + [(i, SERGEANT if n < k else ROOKIE) for n, i in enumerate(x.partner)])
+    x.expect = {}                                     # the staging reset every soldier the rows before changed
+    r.ev["S0"] = {gc.name: sap(gc, sid)["openings"] for gc in (h, c)}
+    ev = r.ev.setdefault("rank screen", {})
+    ev["open"] = open_info(r, x, c, sid, "client own")
+    ev["badge"] = cw = c.cmd({"cmd": "click_widget", "nth": 0})
+    ok = wait_until(lambda: sap(c, sid)["rankScreen"]["open"], UI_S)[0]
+    guard(r, x, "rankScreen.open", ok and cw.get("ok") is True, f"click {cw}; stack {stack(c)}")
+    guard(r, x, "list shown", wait_until(lambda: shown(c), UI_S)[0], f"{c.cmd({'cmd': 'list_widgets'})}")
+    rows = ev["rows"] = sap(c, sid)["rankScreen"]["rows"]
+    row = rows[SERGEANT] if SERGEANT < len(rows) else {}
+    if r.cell("clientOpening", row.get("openings") == "1" and row.get("allowed") is True and "wx" in row,
+              f"sergeant row {row} (want openings 1, allowed): the host's sergeants took the client's opening"):
+        ev["click"] = c.cmd({"cmd": "inject_input", "kind": "click", "x": row["wx"], "y": row["wy"]})
+        guard(r, x, "back to info", wait_until(lambda: top(c) == INFO, UI_S)[0], f"stack {stack(c)}")
+        close_info(r, x, c, "client own")
+    else:
+        ev["close"] = c.cmd({"cmd": "close_screens"})
+    r.ev["poll"] = poll(x, r.ids)
+    v, _ = end(r, x)
+    keep(x, sid, v)
+    hr, cr = v["host"][sid].get("rank"), v["client"][sid].get("rank")
+    r.cell("bothRank", hr == SERGEANT and cr == SERGEANT, f"host rank {hr}, client rank {cr} (want 2/2)")
+    clean(r, x, d)
+
+def row_separate_nationality(r, x):
+    """The client changes its own soldier's flag: both machines hold the new nationality (host applyCount + 1)."""
+    h, c = x.host, x.client
+    sid = x.own[2]
+    r.ids = (sid,)
+    d = sep_start(r, x)
+    n0, n1 = flag(r, x, c, sid, "client own")
+    r.ev["poll"] = poll(x, r.ids)
+    v, _ = end(r, x)
+    keep(x, sid, v)
+    g = [v["host"][sid].get("nationality"), v["client"][sid].get("nationality")]
+    a0, a1 = d["ss"]["host"]["applyCount"], ss(h)["applyCount"]
+    r.cell("nationality", g == [n1, n1] and a1 == a0 + 1, f"host / client {g} (want {n1} on both, from {n0}), host "
+           f"applyCount {a0} -> {a1} (want +1): the client's flag change stayed on its machine")
+    clean(r, x, d)
+
+def row_separate_partner_refused(r, x):
+    """The client sends a promotion and a flag change for one of the host's soldiers at the host's base, as a stale or
+    changed client could: the host refuses each ("Not one of your soldiers"); neither machine changes."""
+    h, c = x.host, x.client
+    sid = x.partner[-1]
+    r.ids = (sid,)
+    d = sep_start(r, x)
+    stage_ranks(r, x, [(sid, SQUADDIE)])
+    b = r.ev["before"] = {gc.name: pick(sol(gc, sid), "rank", "nationality") for gc in (h, c)}
+    for cmd, p in (("soldier_rank", {"rank": SERGEANT}), ("soldier_nationality", {"nationality": b["host"]["nationality"] + 1})):
+        f0 = fs(c)["failCount"]
+        r.ev["send " + cmd] = c.cmd({"cmd": "shared_cmd", "jcmd": cmd, "baseId": x.hostBase,
+                                     "payload": dict(p, soldierId=sid)})
+        ok = wait_until(lambda: fs(c)["failCount"] > f0, UI_S)[0]
+        f = r.ev["fail " + cmd] = fs(c)
+        refused_box(r, x, c, cmd)
+        r.cell(cmd + "Refused", ok and f.get("lastFail") == NOT_YOURS, f"client failCount {f0} -> "
+               f"{f.get('failCount')}, lastFail {f.get('lastFail')!r} (want {NOT_YOURS!r})")
+    r.ev["poll"] = poll(x, r.ids)
+    v, _ = end(r, x)
+    now = {n: pick(v[n][sid], "rank", "nationality") for n in v}
+    r.cell("unchanged", now == b, f"{now} (want {b})")
+    clean(r, x, d)
+
+def row_separate_reload(r, x):
+    """The host saves the campaign, both machines leave to the main menu, the host loads the save and the client
+    rejoins: both hold every soldier the rows before changed as the client left it (the host's save holds it)."""
+    h, c = x.host, x.client
+    r.ids = tuple(x.expect)
+    sep_start(r, x)
+    guard(r, x, "expect", bool(r.ids), f"{x.expect}")
+    r.ev["expect"] = {str(i): e for i, e in x.expect.items()}
+    r.ev["before"] = {gc.name: {str(i): pick(sol(gc, i), "rank", "nationality") for i in r.ids} for gc in (h, c)}
+    session.save_and_resume(h, c, SEP_SAVE, SEP_RESUME)
+    ok = wait_until(lambda: not rs(c)["pending"] and top(h) == GEO and top(c) == GEO, BETWEEN_S, 0.2)[0]
+    guard(r, x, "resumed", ok, f"stacks {stack(h)} / {stack(c)}")
+    now = {gc.name: {i: pick(sol(gc, i), "rank", "nationality") for i in r.ids} for gc in (h, c)}
+    r.ev["after"] = {n: {str(i): e for i, e in m.items()} for n, m in now.items()}
+    bad = {f"{n} {i}": e for n, m in now.items() for i, e in m.items() if e != x.expect[i]}
+    r.cell("reloaded", not bad, f"after the reload {bad} differ from the client's values {r.ev['expect']}")
 
 def run_one(rid, fn, x, results):
     r = Row(rid)
@@ -261,7 +396,15 @@ def setup(x, tag):
     base_report."""
     x.option = wait_until(lambda: opt(x.client) is True, 10.0)[0] or opt(x.client)
     if tag != BOOT_SHARED[0]:
-        return {"option": x.option}
+        seat = x.client.cmd({"cmd": "synced_options_state"}).get("localSeat")
+        names = [b["name"] for b in x.client.ok({"cmd": "geo_state"})["bases"]]
+        own, par = (x.client.ok({"cmd": "base_report", "base": n})["soldiers"] for n in ("ClientBase", "HostBase"))
+        x.own, x.partner = [s["id"] for s in own if s["owner"] == seat], [s["id"] for s in par if s["owner"] != seat]
+        x.hostBase, x.expect = names.index("HostBase") if "HostBase" in names else -1, {}
+        info = {"option": x.option, "seat": seat, "bases": names, "own": x.own, "partner": x.partner}
+        if len(x.own) < 3 or not x.partner or x.hostBase < 0:
+            raise RuntimeError(f"no three own soldiers at ClientBase / a host soldier at HostBase: {info}")
+        return info
     seat = {gc.name: gc.cmd({"cmd": "synced_options_state"}).get("localSeat") for gc in (x.host, x.client)}
     bases = x.host.ok({"cmd": "geo_state"})["bases"]
     sols = x.host.ok({"cmd": "base_report", "base": bases[0]["name"]})["soldiers"]
@@ -317,7 +460,9 @@ ROWS_SHARED = (("client_promotes", lambda r, x: reach(r, x, x.client, x.S1, "cli
                                                     "the host's promotion never reached the client", False)),
                ("one_opening_two_promotions", row_one_opening_two_promotions),
                ("nationality_change", row_nationality_change))
-ROWS_SEPARATE = (("separate_own_soldier", row_separate_own_soldier),)
+ROWS_SEPARATE = (("separate_own_soldier", row_separate_own_soldier), ("separate_openings", row_separate_openings),
+                 ("separate_nationality", row_separate_nationality),
+                 ("separate_partner_refused", row_separate_partner_refused), ("separate_reload", row_separate_reload))
 
 def main():
     t0, results, walls = time.time(), {}, {}
