@@ -10,17 +10,19 @@ lets the two machines' rosters drift apart. Both go through the host:
   host transform    the host transforms its own soldier -> the client's replica
                     shows it
   training sort     a name sort (and the original order) on the martial / psi
-                    training screen sorts what the screen shows; both machines
-                    keep the same roster order
+                    training screen leaves the shared order alone: the screen
+                    keeps listing the client's own soldiers in roster order and
+                    both machines keep the same roster order
   craft armor       the crew armor screen's name sort and original order reorder
                     both machines the same way
   craft crew        the host sorts its soldiers while the client's craft crew
                     screen is open; the client's original order then keeps both
                     machines the same
   training          the client's martial / psi training screen puts its own
-                    soldier and a host soldier into training (SHARED lets a
-                    player change any soldier) through the host: both machines
-                    end with the same flags
+                    soldier into training and out again through the host: both
+                    machines end with the same flags. Each player trains only
+                    their own soldiers: a host soldier is not on the client's
+                    screen and its training stays off on both machines
 
 Exit 0 = every row passed. Any other rc is a failure.
 """
@@ -174,8 +176,9 @@ def shown_names(gc, base, shown):
 
 
 def row_training_sort(host, client, base, screen, row):
-    """A name sort on a training screen sorts what the screen shows and
-    leaves both machines with the same roster order."""
+    """A name sort on a training screen leaves the shared order alone: the
+    screen keeps the client's own soldiers in roster order, and both machines
+    keep the same roster order."""
     full = ids(host, base)
     assert full == ids(client, base), (full, ids(client, base))
     client.ok({"cmd": "open_screen", "screen": screen, "base": base})
@@ -184,9 +187,10 @@ def row_training_sort(host, client, base, screen, row):
     same = settled_same(host, client, base)
     check(f"{row} {screen}: a name sort leaves both machines with the same roster order",
           same, f"host={ids(host, base)} client={ids(client, base)}")
-    check(f"{row} {screen}: the screen shows its soldiers in name order",
-          names_shown == sorted(RENAMED) and sorted(r["displayed"]) == sorted(full),
-          f"shown={r['displayed']} names={names_shown} roster={full}")
+    own = ids(client, base, 1)
+    check(f"{row} {screen}: the screen keeps the client's own soldiers in roster order",
+          r["displayed"] == own and ids(host, base) == full,
+          f"shown={r['displayed']} names={names_shown} own={own} roster={full} host={ids(host, base)}")
     client.ok({"cmd": "roster_screen", "action": "sort", "sort": 0})
     same = settled_same(host, client, base)
     client.ok({"cmd": "close_screens"})
@@ -195,21 +199,31 @@ def row_training_sort(host, client, base, screen, row):
 
 
 def row_training(host, client, screen, key, row):
-    """The client's training screen changes its own soldier's and a host
-    soldier's training flag through the host (SHARED: any soldier)."""
+    """The client's training screen changes its own soldier's training flag
+    through the host; a host soldier is not on the client's screen (each
+    player trains only their own soldiers) and its flag stays off."""
     def flag(gc, base, sid):
         return next((s[key] for s in roster(gc, base) if s["id"] == sid), None)
 
     for base, owner in ((own_base(client, 1), 1), (own_base(client, 0), 0)):
         sid = ids(host, base, owner)[0]
+        if owner == 0:
+            client.ok({"cmd": "open_screen", "screen": screen, "base": base})
+            r = client.cmd({"cmd": "roster_screen", "action": "toggle", "soldier_id": sid})
+            client.ok({"cmd": "close_screens"})
+            time.sleep(2.0)
+            check(f"{row} {screen}: a host soldier is not on the client's screen and its training "
+                  f"stays off on both machines",
+                  not r.get("ok") and flag(host, base, sid) is False and flag(client, base, sid) is False,
+                  f"resp={r} host={flag(host, base, sid)} client={flag(client, base, sid)}")
+            continue
         for want in (True, False):
             client.ok({"cmd": "open_screen", "screen": screen, "base": base})
             r = client.cmd({"cmd": "roster_screen", "action": "toggle", "soldier_id": sid})
             got = poll(lambda: (flag(host, base, sid) == want
                                 and flag(client, base, sid) == want) or None, timeout=10)
             client.ok({"cmd": "close_screens"})
-            check(f"{row} {screen}: the client sets {'its own' if owner else 'a host'} "
-                  f"soldier's training to {want} on both machines",
+            check(f"{row} {screen}: the client sets its own soldier's training to {want} on both machines",
                   bool(got) and r.get("ok"),
                   f"resp={r} host={flag(host, base, sid)} client={flag(client, base, sid)}")
 

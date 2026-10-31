@@ -1,26 +1,30 @@
-"""In a SHARED campaign the base strip, the craft list, the soldier sort boxes and arrows and the research arrows must
-not reorder a shared list on one machine only (issue #65; SHARED commands address a base by its index). Boot
-shared (SHARED; 49331/49332, lobby 47310): the setup (SharedBase2 built, research P1 / P2 started, both machines'
-four orders equal), then craft_list, soldier_sort, crew_armor_sort, martial_training, psi_training,
-research_arrows and base_strip (last: it reorders and renames bases). There is no ORIGINAL ORDER row after an
-arrival: the host clock stops while the client sits in a base screen, so the test cannot stage one. Boot separate
-(SEPARATE; 49333/49334, lobby 47312): separate_reorders (guard row: the vanilla reorders stay local).
+"""In a SHARED campaign both players play one world, so a reorder control either changes a shared list on both
+machines through the host or leaves it alone (issue #65; SHARED commands address a base by its index). Boot shared
+(SHARED; 49331/49332, lobby 47310): the setup (SharedBase2 built, research P1 / P2 started, both machines' four orders
+equal), then craft_list, soldier_sort, crew_armor_sort, martial_training, psi_training, research_arrows and base_strip
+(last: it reorders and renames bases). The craft list, the training screens and the research arrows leave the shared
+order alone. The soldier-list sort and the crew-armor sort reorder the clicking player's own soldiers among the places
+they already hold, through the host, on both machines; the partner's soldiers keep their places. The base strip moves
+the selected base one place left on both machines, so a later command that names a base by its index reaches the same
+base on both. There is no ORIGINAL ORDER row after an arrival: the host clock stops while the client sits in a base
+screen, so the test cannot stage one. Boot separate (SEPARATE; 49333/49334, lobby 47312): separate_reorders (guard row:
+the client's soldier sort goes through the host as one command, its craft list still reorders).
 
 Cell rule: ONE click per cell; both machines' order of the list the click targets, read before and polled every 0.25 s
-for 2 s. A cell passes when the clicker's order is unchanged and both machines are equal at the window end; it fails
-with its named message when the clicker's order changed. "guard:" cells are guards (with and without the fix): the
-other machine's order unchanged at every poll, the craft-list click guard, the equal sort key on the clicker, every
-screen reached, the 4 own rows of the SHARED training screens (their arrows swap roster positions at the visible row
-index, so every cell reads the roster through base_report). The first guard miss of a row prints ONE CAPTURE (four
-orders, stacks, list_widgets of the top state, shared_stats). requests == R0 at each row end. Every sort cell uses a
-key EQUAL for every soldier (SOLDIER TYPE; CRAFT on the crew-armor screen, the hole of its :193 fence) plus shift:
-unfenced, the stable sort keeps the order and shift reverses it, so the order ALWAYS changes, whatever an earlier
-failed row left behind.
+for 2 s. A "leave alone" cell passes when the clicker's order is unchanged and both machines are equal at the window
+end; it fails with its named message when the clicker's order changed. A "both machines" cell passes when both
+machines hold the expected order at the window end; its partner cell fails when a partner's soldier left its place at
+any poll. "guard:" cells are guards: the other machine's order unchanged at every poll (leave alone cells), the
+craft-list click guard, the equal sort key on the clicker, one roster on both machines before a sort, every screen
+reached, the 4 own rows of the SHARED training screens (every cell reads the roster through base_report). The first
+guard miss of a row prints ONE CAPTURE (four orders, stacks, list_widgets of the top state, shared_stats).
+requests == R0 at each row end. Every sort cell uses a key EQUAL for every soldier (SOLDIER TYPE; CRAFT on the
+crew-armor screen) plus shift: a sort that runs keeps the order and shift reverses it, so it ALWAYS reverses the
+clicker's own soldiers, whatever an earlier row left behind.
 Pixels: window = int(base x 2.0), bands 0 (checked against the EQUIP CRAFT click_widget reply), from the unrounded
 centre; list row r: y = rect.y + 8r + 4; arrow buttons 11x8 at rect.x + arrowPos (up) / + 12 (down), centre + 5.5,
 arrowPos 238 (training) / 192 (research); ComboBox: the box centre, then dropdown row r at (x + 2 + (w - 17) / 2,
 popupY + 3 + 8r + 4), popupY = y + h (below) or y - 86 (above: 10 rows x 8 + 6).
-Without the fix every boot shared row fails on its named cells and separate_reorders passes; with it all pass.
 ONE run; exit 0 iff every row passes, else 2.
 """
 
@@ -38,6 +42,7 @@ BOOT_SHARED, BOOT_SEPARATE = (("list_order_shared", (49331, 49332, 47310)),
                               ("list_order_separate", (49333, 49334), "47312"))
 HB, SB2, CB, RENAME = "HostBase", "SharedBase2", "ClientBase", "Renamed"
 H, C, GEO = "host", "client", "GeoscapeState"
+SEAT = {H: 0, C: 1}                                       # the owner seat a soldier carries (base_report "owner")
 SCALE, POLL_S, POLL_I, POPUP_H, OWN_ROWS = 2.0, 2.0, 0.25, 10 * 8 + 3 * 2, 4
 ROW_SS_TYPE, ROW_CAS_CRAFT, ROW_ALLOC_TYPE = 4, 3, 3      # dropdown rows: SOLDIER TYPE / CRAFT / SOLDIER TYPE
 ARROW_TRAINING, ARROW_RESEARCH = 238, 192                 # setArrowColumn: ATS :187, APS :175 / RS :104
@@ -85,6 +90,25 @@ def soldiers(gc, base):
 def roster(gc, base):
     s = soldiers(gc, base)
     return [k["id"] for k in s] if s is not None else "<base_report %s>" % base
+def owned(gc, base):
+    """The base roster as [id, owner seat] pairs."""
+    s = soldiers(gc, base)
+    return [[k["id"], k.get("owner")] for k in s] if s is not None else "<base_report %s>" % base
+def crafts_at(gc, base):
+    g = q(gc, {"cmd": "geo_state"})
+    for b in g.get("bases") or []:
+        if b["name"] == base:
+            return ["%s-%d" % (k["type"].replace("STR_", ""), k["id"]) for k in b.get("crafts", [])]
+    return "<geo_state %s: no base %s>" % (g.get("error"), base)
+def reversed_own(order, seat):
+    """`order` after the soldiers of `seat` reverse among the places they hold; every other soldier keeps its place."""
+    places = [i for i, s in enumerate(order) if s[1] == seat]
+    out = list(order)
+    for i, s in zip(places, [order[i] for i in reversed(places)]):
+        out[i] = s
+    return out
+def partner_places(order, seat):
+    return [[i] + s for i, s in enumerate(order) if s[1] != seat] if isinstance(order, list) else order
 def widgets(gc):
     r = q(gc, {"cmd": "list_widgets"})
     return r.get("state"), [{"t": (w.get("type") or "").split("::")[-1], "rect": [w["x"], w["y"], w["w"], w["h"]],
@@ -189,14 +213,38 @@ def cell(x, r, name, gc, probe, act, reorder_msg, shift=False, expect_change=Fal
     if shift:   # the latch is cleared after the window (measured: consumed within 0.05 s)
         q(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "none"})
     r.ev[name] = {"before": b, "after": a, "tChange": t_ch}
-    r.cell(f"guard:{name}: {o.name} unchanged", not seen, f"{o.name} {b[o.name]} -> {seen}")
-    if expect_change:   # separate_reorders: SEPARATE keeps the vanilla reorder
+    if expect_change:   # separate_reorders: the SEPARATE craft list keeps its reorder (the other machine: evidence only)
         return r.cell(name, a[gc.name] != b[gc.name], f"the {gc.name}'s order did not change in SEPARATE: {a[gc.name]}")
+    r.cell(f"guard:{name}: {o.name} unchanged", not seen, f"{o.name} {b[o.name]} -> {seen}")
     if a[gc.name] != b[gc.name]:
         return r.cell(name, False, f"{reorder_msg}: {gc.name} {b[gc.name]} -> {a[gc.name]}")
     return r.cell(name, a[H] == a[C], f"orders differ: host {a[H]} client {a[C]}")
-def sort_cell(x, r, name, gc, row, above, key, reorder_msg, expect_change=False):
-    """The top state's ONE ComboBox: the box, 0.3 s, then dropdown row `row` with shift (equal key: a pure reversal)."""
+def both_cell(x, r, name, gc, probe, act, want, msg, keep=None, shift=False):
+    """ONE click whose change goes through the host: both machines must hold `want` at the window end, and `keep(order)`
+    (the partner's soldiers with their places) must stay as it was before the click on both machines at every poll."""
+    b = {m.name: probe(m) for m in (x.host, x.client)}
+    r.ev[name + " click [bx, by, wx, wy, button, mod]"] = act()
+    t0, t_ch, moved = time.time(), {}, []
+    while True:
+        a = {m.name: probe(m) for m in (x.host, x.client)}
+        for m in (x.host, x.client):
+            if m.name not in t_ch and a[m.name] != b[m.name]:
+                t_ch[m.name] = round(time.time() - t0, 2)
+            if keep and keep(a[m.name]) != keep(b[m.name]) and [m.name, a[m.name]] not in moved:
+                moved.append([m.name, a[m.name]])
+        if time.time() - t0 >= POLL_S:
+            break
+        time.sleep(POLL_I)
+    if shift:   # the latch is cleared after the window (measured: consumed within 0.05 s)
+        q(gc, {"cmd": "inject_input", "kind": "modstate", "mod": "none"})
+    r.ev[name] = {"before": b, "after": a, "want": want, "tChange": t_ch}
+    if keep:
+        r.cell(f"{name}: the partner's soldiers keep their places", not moved, f"moved {moved}")
+    return r.cell(name, a[H] == want and a[C] == want, f"{msg}: want {want}, host {a[H]} client {a[C]}")
+def sort_cell(x, r, name, gc, row, above, key, reorder_msg, expect_change=False, own=False, partner_min=1):
+    """The top state's ONE ComboBox: the box, 0.3 s, then dropdown row `row` with shift (equal key: a pure reversal).
+    own: the sort goes through the host and reverses the clicker's own soldiers among their places on both machines
+    (both read the clicker's base)."""
     sol = soldiers(gc, x.base[gc.name]) or []
     vals = sorted(set(str(s.get(key)) for s in sol))
     r.ev[f"{name} key {key}"] = [len(sol), vals]
@@ -209,6 +257,14 @@ def sort_cell(x, r, name, gc, row, above, key, reorder_msg, expect_change=False)
         k = click(gc, *box)
         time.sleep(0.3)
         return [k, click(gc, *pick, mod="shift")]
+    if own:
+        seat, base = SEAT[gc.name], x.base[gc.name]
+        b = {m.name: owned(m, base) for m in (x.host, x.client)}
+        mine = sum(1 for s in b[gc.name] if s[1] == seat) if isinstance(b[gc.name], list) else 0
+        r.need(f"guard:{name}: one roster on both machines, the {gc.name} owns >= 2, the partner >= {partner_min}",
+               b[H] == b[C] and mine >= 2 and len(b[gc.name]) - mine >= partner_min, b)
+        return both_cell(x, r, name, gc, lambda m: owned(m, base), act, reversed_own(b[gc.name], seat), reorder_msg,
+                         keep=lambda o: partner_places(o, seat), shift=True)
     return cell(x, r, name, gc, x.roster, act, reorder_msg, shift=True, expect_change=expect_change)
 def arrow(x, r, name, gc, L, pos, row, down, reorder_msg, probe=None):
     p = (L[0] + pos + (12 if down else 0) + 5.5, L[1] + 8 * row + 4)
@@ -227,17 +283,17 @@ def row_craft_list(x, r):   # craft list: right-click (client, row 1) and shift+
         r.need(f"guard:{n.split(' ')[0]} {gc.name} click guard CraftInfoState",
                wait_until(lambda: top(gc) == "CraftInfoState", 3.0), stack(gc))
         close(r, gc, n.split(" ")[0])
-def row_soldier_sort(x, r):   # soldier-list sort box (client)
+def row_soldier_sort(x, r):   # soldier-list sort box (client): its own soldiers, through the host
     c = x.client
     open_screen(r, c, "soldier_sort", "soldiers", "SoldiersState")
     sort_cell(x, r, "soldier_sort client soldier list SOLDIER TYPE + shift", c, ROW_SS_TYPE, False, "type",
-              "the client's soldier-list sort reordered the shared roster on its machine only")
+              "the client's soldier-list sort did not reverse its own soldiers on both machines", own=True)
     close(r, c, "soldier_sort")
-def row_crew_armor_sort(x, r):   # crew-armor sort box, CRAFT (selIdx 3: inside the hole of the :193 fence) (host)
+def row_crew_armor_sort(x, r):   # crew-armor sort box, CRAFT (selIdx 3; a stat sort only shows its column) (host)
     h = x.host
     open_screen(r, h, "crew_armor_sort", "craft_armor", "CraftArmorState", craft_id=1)
     sort_cell(x, r, "crew_armor_sort host crew-armor CRAFT + shift", h, ROW_CAS_CRAFT, True, "craft",
-              "the host's crew-armor CRAFT sort reordered the shared roster on its machine only")
+              "the host's crew-armor CRAFT sort did not reverse its own soldiers on both machines", own=True)
     close(r, h, "crew_armor_sort")
 def row_martial_training(x, r):   # martial training: arrows (client), sort box (host)
     h, c = x.host, x.client
@@ -281,41 +337,42 @@ def row_base_strip(x, r):   # base strip (client) + a command by index (LAST in 
     open_screen(r, c, "base_strip_client", "basescape", "BasescapeState", base=SB2)
     m = one(r, c, "MiniBaseView", "base_strip_client")
     p = (m[0] + 24, m[1] + 8)   # MiniBaseView slot 1 centre (test_old_bases MINI_SLOT1_CENTRE)
-    cell(x, r, "base_strip_client client right-click base-strip slot 1", c, bases, lambda: click(c, *p, button="right"),
-         "the base list reordered on the client only")
+    both_cell(x, r, "base_strip_client client right-click base-strip slot 1", c, bases,
+              lambda: click(c, *p, button="right"), [SB2, HB],
+              "the base strip did not move SharedBase2 one place left on both machines")
     r.ev["base_strip_client selectedBase"] = {g.name: q(g, {"cmd": "geo_state"}).get("selectedBase") for g in (h, c)}
     close(r, c, "base_strip_client")
     rep = q(c, {"cmd": "base_rename", "base": SB2, "name": RENAME})
     r.need("guard:base_rename_client client base_rename", rep.get("ok"), rep)
     time.sleep(POLL_S)
-    a, want = {g.name: bases(g) for g in (h, c)}, [HB, RENAME]
+    a, want = {g.name: bases(g) for g in (h, c)}, [RENAME, HB]
     r.ev["base_rename_client bases after the client's rename of SharedBase2 (2 s)"] = a
-    n = "base_rename_client client renames SharedBase2"
-    if a[H] == [RENAME, SB2] and a[C] == [RENAME, HB]:
-        r.cell(n, False, f"the client's rename of SharedBase2 renamed the host's HostBase: host {a[H]} client {a[C]}")
-    else:
-        r.cell(n, a[H] == want and a[C] == want, f"bases host {a[H]} client {a[C]} != {want} on both")
+    r.cell("base_rename_client client renames SharedBase2", a[H] == want and a[C] == want,
+           f"bases host {a[H]} client {a[C]} != {want} on both")
 
 # --------------------------------------------------------------------------- boot separate row
-# SEPARATE keeps vanilla: the client's own roster and craft order change; nothing goes over the wire
+# SEPARATE (one world): the client's soldier sort goes through the host as one command; its craft list still reorders
 def row_separate_reorders(x, r):
     h, c = x.host, x.client
     ss0 = {g.name: sstats(g) for g in (h, c)}
     r.ev["separate_reorders shared_stats before"] = ss0
     open_screen(r, c, "separate_soldier_sort", "soldiers", "SoldiersState")
     sort_cell(x, r, "separate_soldier_sort client soldier list SOLDIER TYPE + shift (SEPARATE)", c, ROW_SS_TYPE, False,
-              "type", "",
-              expect_change=True)
+              "type", "the client's SEPARATE soldier sort did not reverse its own soldiers on both machines",
+              own=True, partner_min=0)
     close(r, c, "separate_soldier_sort")
     L = equip_craft(r, c, "separate_craft_order")
     p = (L[0] + L[2] / 2.0, L[1] + 8 * 1 + 4)
-    cell(x, r, "separate_craft_order client right-click craft row 1 (SEPARATE)", c, crafts,
+    cell(x, r, "separate_craft_order client right-click craft row 1 (SEPARATE)", c, lambda m: crafts_at(m, CB),
          lambda: click(c, *p, button="right"), "",
          expect_change=True)
     close(r, c, "separate_craft_order")
     ss1 = {g.name: sstats(g) for g in (h, c)}
     r.ev["separate_reorders shared_stats after"] = ss1
-    r.cell("separate_no_traffic shared_stats unchanged on both", ss1 == ss0, f"{ss0} -> {ss1}")
+    d = {g: {k: ss1[g].get(k, 0) - ss0[g].get(k, 0) for k in ("cmd", "okCount", "failCount")} for g in (H, C)}
+    r.cell("separate_one_command the sort is one host command, the craft reorder none",
+           d[H]["cmd"] == 1 and all(d[g]["okCount"] == 1 and d[g]["failCount"] == 0 for g in (H, C)),
+           f"{ss0} -> {ss1}")
 
 # --------------------------------------------------------------------------- boots
 def shared_setup(x):
