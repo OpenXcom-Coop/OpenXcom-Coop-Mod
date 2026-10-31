@@ -74,19 +74,34 @@ last: its blast changes the terrain):
 
 TURN assertions (host_turn_snap, throw_arc and launch_legs - the three rows
 whose shooter turns before it fires): the host event_log of the row's action
-(the actionId of its first `shot`) starts ["turn", "shot"] (host_turn_snap:
-exactly TURN_SNAP_CHAIN); the host's `[coop-turn]` payload is {unit, fromDir =
-the staged facing, toDir = the target's facing, turretOnly false, tuAfter = the
-staged tu - octants}; the client event_log holds the same seqs and kinds; both
-machines' per-seat speed table holds the shooter's seat xcom dial ==
-TURN_PACE_MS; the client's turnGhost ring holds exactly one record with the
-turn's seq {actionId, unit, fromDir, toDir, octants, durationMs == octants x
-TURN_PACE_MS, seat, endedBy "natural", dirsShown == vanilla's octant path minus
-the final facing (host_turn_snap [0, 1], throw_arc [2, 1], launch_legs [6, 7,
-0, 1]), poseShown == STATUS_TURNING (3)}; the action's first shot record has
-afterTurnSeq == the turn's seq and startStamp > the turn record's endStamp > 0
-(the projectile starts only after the turn ended; launch_legs' second leg:
-afterTurnSeq 0). Every projectile assertion of the row is unchanged.
+(the actionId of its first `shot`) starts ["turn_start", "turn", "shot"]
+(host_turn_snap: exactly TURN_SNAP_CHAIN); the host's `[coop-cue] turn_start`
+payload (the display-only cue the host sends when the turn starts) is {actor,
+fromDir = the staged facing, toDir = the target's facing, turret false}, and
+that cue carries no `h` on either machine's event_log and no delta (no host
+`[coop-delta] attached to seq <its seq>` line); the host's `[coop-turn]`
+payload is {unit, fromDir, toDir, turretOnly false, tuAfter = the staged tu -
+octants}; the client event_log holds the same seqs and kinds; both machines'
+per-seat speed table holds the shooter's seat xcom dial == TURN_PACE_MS; the
+client's turnGhost ring holds exactly one record with the turn's seq
+{actionId, unit, cueSeq == the turn_start's seq (the cue started it), fromDir,
+toDir, octants, durationMs == octants x TURN_PACE_MS, seat, endedBy "natural",
+dirsShown == vanilla's octant path minus the final facing (host_turn_snap [0,
+1], throw_arc [2, 1], launch_legs [6, 7, 0, 1]), poseShown == STATUS_TURNING
+(3)}; the action's first shot record has startStamp > the turn record's
+endStamp > 0 (the projectile starts only after the turn ended) and either
+waited on that turn (afterTurnSeq == the turn's seq: the turn ghost still ran
+when the shot applied) or did not need to (afterTurnSeq 0 and waitMs 0: the
+turn the cue started had drawn its whole turn by then); launch_legs' second
+leg: afterTurnSeq 0. Every projectile assertion of the row is unchanged.
+
+FLIGHT assertions (host_snap, host_turn_snap, throw_arc and every leg of
+launch_legs): each shot ghost draws its whole flight - it ends at its own end
+(record cut false) or after drawing its last position (lastIndex ==
+min(trajLen - 1, (ticks - 1) x speed)) - and, with every client advance() gap
+below one 16 ms tick (maxGapMs < TICK_MS), steps == ticks - 1 (every position
+after the first). host_snap, with no turn, is the control: a turn before the
+shot costs no flight positions.
 
 Common to every row (after session.wait_host_idle: the host has no context
 and no BState, the client applied up to the host's lastSeqEmitted):
@@ -113,9 +128,10 @@ the read-only test command display_rules {types} (items' display rules and the
 Mod constants from the loaded rules); battle_fire's keepSelection.
 turnGhost {counts {enqueued, natural, replaced, cut}, ring
 [{seq, actionId, unit, fromDir, toDir, octants, durationMs, seat, shownMs,
-endedBy, dirsShown, poseShown, maxGapMs, endStamp}]} (both; written on the
-client) and the combat ring record's afterTurnSeq, waitMs, maxGapMs and
-startStamp; the host's `[coop-turn]` log line carries the turn payload.
+endedBy, dirsShown, poseShown, maxGapMs, endStamp, cueSeq}]} (both; written
+on the client) and the combat ring record's afterTurnSeq, waitMs, maxGapMs,
+startStamp and lastIndex; the host's `[coop-turn]` log line carries the turn
+payload.
 
 FIXTURE (the roster-pinned terror boot of test_client_shoot.py): set_seed
 SEED_ROSTER on the HOST right before its open_new_battle, mission
@@ -131,7 +147,11 @@ pre-action turn ev, host_turn_snap, throw_arc and launch_legs FAIL on "no `turn`
 ev in the action / no turnGhost record" and every other row PASSES; with the
 turn ev but without its display they pass every wire assertion and FAIL only on
 the display ones (endedBy, dirsShown, afterTurnSeq, poseShown); with the turn
-held before the same action's projectile, all nine PASS. Each row
+held before the same action's projectile but without the `turn_start` cue,
+host_turn_snap, throw_arc and launch_legs FAIL on the leading `turn_start` and
+on the FLIGHT assertions (the watching machine starts the turn only when the
+host's has ended, so the host's next ev cuts the held flight's tail); with the
+cue all nine PASS. Each row
 prints ONE "EVIDENCE <id>:" line (JSON) with both machines' fields BEFORE its
 pass conditions are checked; main() runs every row even after an earlier one
 failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
@@ -229,7 +249,7 @@ TURN_SNAP_DIRS = [0, 1]                   # vanilla's octant path 0, 1, 2 minus 
 # speed 12; H tu 58 -> 42 (the turn's 2 + the snap's 14); without the turn ev the host chain is
 # [shot, hit, bt_action_end].
 TURN_SNAP_SEED = 1
-TURN_SNAP_CHAIN = ["turn", "shot", "hit", "bt_action_end"]   # that chain with the leading turn
+TURN_SNAP_CHAIN = ["turn_start", "turn", "shot", "hit", "bt_action_end"]   # that chain with the leading turn
 THROW_TURN = (THROW_C_DIR, 0, [2, 1])     # (fromDir, toDir, dirsShown): C 2 -> 0, two octants
 LAUNCH_TURN = (LAUNCH_C_DIR, 2, [6, 7, 0, 1])  # C 6 -> 2, four octants (the tie turns clockwise)
 # Measured: the client's advance() gap (combat record maxGapMs) during the host_turn_snap / throw_arc / launch_legs
@@ -462,6 +482,41 @@ def record_fails(rec, seq, payload, speed, seat, arc=False):
     return fails
 
 
+def flight_fails(rec, seq):
+    """FLIGHT: one shot ghost drew its whole flight - it ended at its own end (cut false) or after drawing its
+    last position (lastIndex == min(trajLen - 1, (ticks - 1) x speed)); and with every client advance() gap below
+    one tick (maxGapMs < TICK_MS) it drew every position after the first (steps == ticks - 1)."""
+    rs = rec["ring"].get(seq) or []
+    if len(rs) != 1:
+        return []  # record_fails reports it
+    r = rs[0]
+    ticks, speed, n = r.get("ticks"), r.get("speed"), r.get("trajLen")
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in (ticks, speed, n)):
+        return [f"shot seq {seq}: flight record ticks {ticks} speed {speed} trajLen {n} (want positive ints)"]
+    last = min(n - 1, (ticks - 1) * speed)
+    fails = []
+    if r.get("cut") is not False and r.get("lastIndex") != last:
+        fails.append(f"shot seq {seq}: the flight ended at position {r.get('lastIndex')} of {last} (cut "
+                     f"{r.get('cut')}, steps {r.get('steps')} of {ticks - 1}, waitMs {r.get('waitMs')}; want the "
+                     f"whole flight drawn)")
+    gap = r.get("maxGapMs")
+    if isinstance(gap, int) and gap < TICK_MS and r.get("steps") != ticks - 1:
+        fails.append(f"shot seq {seq}: record steps {r.get('steps')} (want {ticks - 1}: every position after the "
+                     f"first, maxGapMs {gap} < {TICK_MS})")
+    return fails
+
+
+def delta_attached(host, seq):
+    """True when the host's openxcom.log says a delta rode the envelope `seq`."""
+    path = os.path.join(host.user_dir, "openxcom.log")
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return None
+    return f"[coop-delta] attached to seq {seq} kind=" in text
+
+
 def staged_tu(host, client, uid):
     """The shooter's tu on both machines after its staging (the `tuAfter` baseline)."""
     return {"host": (units(host).get(uid) or {}).get("tu"), "client": (units(client).get(uid) or {}).get("tu")}
@@ -474,8 +529,14 @@ def turn_view(host, rec, seat):
     firsts = [e for e in rec["hev"] if e["kind"] == "shot"]
     aid = firsts[0]["actionId"] if firsts else None
     hc = [e for e in rec["hev"] if e["actionId"] == aid] if aid is not None else []
-    turn_seq = hc[0]["seq"] if hc and hc[0]["kind"] == "turn" else None
-    tp = ((host_payloads(host, [turn_seq]).get(turn_seq) or {}).get("payload") or {}) if turn_seq else None
+    cue_seq = hc[0]["seq"] if hc and hc[0]["kind"] == "turn_start" else None
+    turns = [e["seq"] for e in hc if e["kind"] == "turn"]
+    turn_seq = turns[0] if turns else None
+    want_pl = [s for s in (cue_seq, turn_seq) if s]
+    pl = host_payloads(host, want_pl) if want_pl else {}
+    tp = ((pl.get(turn_seq) or {}).get("payload") or {}) if turn_seq else None
+    cp = ((pl.get(cue_seq) or {}).get("payload") or {}) if cue_seq else None
+    cue_h = {n: [e["h"] for e in rec[k] if e["seq"] == cue_seq] for n, k in (("host", "hev"), ("client", "cev"))}
     tg = rec["after"]["client"]["turnGhost"] or {}
     trec = [r for r in (tg.get("ring") or []) if aid is not None and (r.get("seq") == turn_seq
                                                                         or r.get("actionId") == aid)]
@@ -486,10 +547,12 @@ def turn_view(host, rec, seat):
         pace[n] = ent[0].get("xcom") if ent else None
     return {"actionId": aid, "hostChain": [(e["seq"], e["kind"]) for e in hc],
             "clientChain": [(e["seq"], e["kind"], e["actionId"]) for e in rec["cev"] if e["actionId"] == aid],
-            "turnSeq": turn_seq, "turnPayload": tp, "turnRecords": trec,
+            "turnSeq": turn_seq, "turnPayload": tp, "turnRecords": trec, "cueSeq": cue_seq, "cuePayload": cp,
+            "cueH": cue_h, "cueDelta": delta_attached(host, cue_seq) if cue_seq else None,
             "turnCounts": {n: (rec["after"][n]["turnGhost"] or {}).get("counts") for n in ("host", "client")},
             "shotRecords": [{k: (r or {}).get(k) for k in ("seq", "afterTurnSeq", "waitMs", "maxGapMs", "startStamp",
-                                                           "ms", "steps", "cut")} for r in shot_recs],
+                                                           "ms", "ticks", "steps", "lastIndex", "cut")}
+                            for r in shot_recs],
             "pace": pace}
 
 
@@ -501,8 +564,8 @@ def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
     octants = len(dirs)
     if aid is None:
         return [f"turn: the row has no host `shot` ev since seq {rec['seq0']} (want the row's action)"]
-    want = chain if chain is not None else ["turn", "shot"]
-    got = kinds if chain is not None else kinds[:2]
+    want = chain if chain is not None else ["turn_start", "turn", "shot"]
+    got = kinds if chain is not None else kinds[:3]
     if tv["turnSeq"] is None:
         fails.append(f"no `turn` ev in the action: host evs of actionId {aid} = {kinds} (want a leading `turn`: "
                      f"{'exactly ' if chain is not None else 'starting '}{want})")
@@ -513,6 +576,20 @@ def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
     if got != want:
         fails.append(f"host evs of actionId {aid} = {kinds} (want {'exactly ' if chain is not None else 'starting '}"
                      f"{want})")
+    if tv["cueSeq"] is None:
+        fails.append(f"no `turn_start` cue opens actionId {aid}: host evs {kinds}")
+    else:
+        cp = tv["cuePayload"] or {}
+        want_c = {"actor": actor, "fromDir": from_dir, "toDir": to_dir, "turret": False}
+        got_c = {k: cp.get(k) for k in want_c}
+        if got_c != want_c:
+            fails.append(f"turn_start seq {tv['cueSeq']}: host [coop-cue] payload {got_c} (want {want_c})")
+        if tv["cueH"] != {"host": [False], "client": [False]}:
+            fails.append(f"turn_start seq {tv['cueSeq']}: event_log h {tv['cueH']} (want no `h`, once on each "
+                         f"machine: the cue is display only)")
+        if tv["cueDelta"] is not False:
+            fails.append(f"turn_start seq {tv['cueSeq']}: host delta attached {tv['cueDelta']} (want none: the cue "
+                         f"is display only)")
     tp = tv["turnPayload"] or {}
     tu_host = tu0.get("host")
     want_p = {"unit": actor, "fromDir": from_dir, "toDir": to_dir, "turretOnly": False,
@@ -531,7 +608,8 @@ def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
                      f"exactly 1)")
         return fails
     tr = trs[0]
-    want_r = {"actionId": aid, "unit": actor, "fromDir": from_dir, "toDir": to_dir, "octants": octants,
+    want_r = {"actionId": aid, "unit": actor, "cueSeq": tv["cueSeq"], "fromDir": from_dir, "toDir": to_dir,
+              "octants": octants,
               "durationMs": octants * TURN_PACE_MS, "seat": seat, "endedBy": "natural", "dirsShown": dirs,
               "poseShown": STATUS_TURNING}
     got_r = {k: tr.get(k) for k in want_r}
@@ -546,9 +624,12 @@ def turn_fails(rec, tv, actor, seat, from_dir, to_dir, dirs, tu0, chain=None):
     if not srs or srs[0].get("seq") is None:
         fails.append(f"actionId {aid}: no client ring record for its first shot {srs}")
     else:
-        if srs[0].get("afterTurnSeq") != tv["turnSeq"]:
-            fails.append(f"shot seq {srs[0].get('seq')}: record afterTurnSeq {srs[0].get('afterTurnSeq')} (want the "
-                         f"turn's seq {tv['turnSeq']})")
+        # the shot waits on the turn ghost only while it still runs at the shot's apply; a turn the cue started
+        # may have drawn its whole turn by then (afterTurnSeq 0, no wait)
+        wait = (srs[0].get("afterTurnSeq"), srs[0].get("waitMs"))
+        if wait[0] != tv["turnSeq"] and wait != (0, 0):
+            fails.append(f"shot seq {srs[0].get('seq')}: record afterTurnSeq {wait[0]} waitMs {wait[1]} (want the "
+                         f"turn's seq {tv['turnSeq']}, or 0 with waitMs 0 when the turn had ended)")
         es, ss = tr.get("endStamp") or 0, srs[0].get("startStamp") or 0
         if not (ss > es > 0):
             fails.append(f"shot seq {srs[0].get('seq')}: record startStamp {ss} vs the turn record's endStamp {es} "
@@ -616,6 +697,7 @@ def row_host_snap(host, client, ctx):
     fails += common_fails(host, client, rec, True, "host_snap")
     for s, p in rec["shots"][:1]:
         fails += record_fails(rec, s, p, HOST_FIRE_DIAL, COOP_SEAT_0)
+        fails += flight_fails(rec, s)
         r = (rec["ring"].get(s) or [{}])[0]
         want = fire_sound(ctx["rules"], "STR_RIFLE", "STR_RIFLE_CLIP")
         if r.get("sound") != want:
@@ -663,6 +745,7 @@ def row_host_turn_snap(host, client, ctx):
     fails += common_fails(host, client, rec, True, "host_turn_snap")
     for s, p in rec["shots"][:1]:
         fails += record_fails(rec, s, p, HOST_FIRE_DIAL, COOP_SEAT_0)
+        fails += flight_fails(rec, s)
         r = (rec["ring"].get(s) or [{}])[0]
         want = fire_sound(ctx["rules"], "STR_RIFLE", "STR_RIFLE_CLIP")
         if r.get("sound") != want:
@@ -819,6 +902,7 @@ def row_throw_arc(host, client, ctx):
     k = ctx["constants"]
     for s, p in rec["shots"][:1]:
         fails += record_fails(rec, s, p, CLIENT_FIRE_DIAL, COOP_SEAT_1, arc=True)
+        fails += flight_fails(rec, s)
         r = (rec["ring"].get(s) or [{}])[0]
         if r.get("sound") != k.get("ITEM_THROW") or r.get("soundEnd") != k.get("ITEM_DROP"):
             fails.append(f"shot seq {s}: record sound {r.get('sound')} soundEnd {r.get('soundEnd')} (want ITEM_THROW "
@@ -984,6 +1068,7 @@ def row_launch_legs(host, client, ctx):
     fails += common_fails(host, client, rec, True, "launch_legs")
     for s, p in rec["shots"]:
         fails += record_fails(rec, s, p, CLIENT_FIRE_DIAL, COOP_SEAT_1)
+        fails += flight_fails(rec, s)
     fails += turn_fails(rec, tv, C_ID, COOP_SEAT_1, LAUNCH_TURN[0], LAUNCH_TURN[1], LAUNCH_TURN[2], tu0)
     finish(fails)
 
