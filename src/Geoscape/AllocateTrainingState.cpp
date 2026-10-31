@@ -225,20 +225,23 @@ std::vector<Soldier*>* AllocateTrainingState::shown()
 
 /**
  * Keeps the shown copy in step with the roster: a soldier who left the base is
- * dropped, one who arrived is appended in roster order. In co-op each player
- * trains only their own soldiers, so the copy holds only this player's own: a
- * row, assign-all and de-assign-all then act on exactly the soldiers listed.
+ * dropped, one who arrived is appended in roster order. In a Shared campaign
+ * each player trains only their own soldiers, so the copy holds only this
+ * player's own: a row, assign-all and de-assign-all then act on exactly the
+ * soldiers listed. A Separate screen lists every soldier at the base; the host
+ * refuses a change to the partner's soldier.
  */
 void AllocateTrainingState::syncShown()
 {
 	if (!_coopView) return;
+	const bool ownOnly = _game->getCoopMod()->isSharedCampaign();
 	const std::vector<Soldier*>& roster = *_base->getSoldiers();
 	_shown.erase(std::remove_if(_shown.begin(), _shown.end(),
 		[&](Soldier* s) { return std::find(roster.begin(), roster.end(), s) == roster.end()
-			|| !SharedEcon::ownsSoldier(_game, s); }),
+			|| (ownOnly && !SharedEcon::ownsSoldier(_game, s)); }),
 		_shown.end());
 	for (Soldier* s : roster)
-		if (SharedEcon::ownsSoldier(_game, s) && std::find(_shown.begin(), _shown.end(), s) == _shown.end())
+		if ((!ownOnly || SharedEcon::ownsSoldier(_game, s)) && std::find(_shown.begin(), _shown.end(), s) == _shown.end())
 			_shown.push_back(s);
 }
 
@@ -430,7 +433,7 @@ void AllocateTrainingState::initList(size_t scrl)
 	_lstSoldiers->clearList();
 	for (auto* soldier : *shown())
 	{
-		if (!SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists only the local player's own soldiers
+		if (_game->getCoopMod()->isSharedCampaign() && !SharedEcon::ownsSoldier(_game, soldier)) continue; // coop: SHARED lists only the local player's own soldiers
 		const UnitStats* stats = _btnPlus->getPressed() ? soldier->getStatsWithSoldierBonusesOnly() : soldier->getCurrentStats();
 
 		std::ostringstream tu;
