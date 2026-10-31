@@ -3,8 +3,9 @@ only. Test commands: open_transformation, set_soldier_dead, transform_probe. Rea
 (the drop-down arithmetic in dropdown()) and Start (click_widget, raw rule key). Shared boot (SHARED), in order:
 list_own_only, dead_list_own_only, client_boost_reaches_host, host_boost_reaches_client, client_clone_on_both,
 client_retire_reaches_host, client_raise_reaches_host, partner_soldier_refused, info_screen_refreshes,
-stale_start_refused. Separate boot (SEPARATE): separate_stays_local. Without the fix every shared-boot row except
-info_screen_refreshes fails on its named cells, and info_screen_refreshes and separate_stays_local pass; with it all
+stale_start_refused. Separate boot (SEPARATE): separate_reaches_host (the client's own transformation is applied by
+the host in the one Separate world; both machines hold it). Without the fix every shared-boot row except
+info_screen_refreshes fails on its named cells, and info_screen_refreshes and separate_reaches_host pass; with it all
 pass. "guard:" cells are guards (CAPTURE on a miss). `requests` is recorded per row, never a verdict. EVIDENCE then
 PASS / FAIL per row; one run; exit 0 only if all pass, else 2.
 """
@@ -400,7 +401,7 @@ def row_stale_start_refused(r, x):
            f"applyCount {a0} -> {a1} (want +1): two transformations paid from one budget; the worlds disagree")
     close(r, x)
 
-def row_separate_stays_local(r, x):
+def row_separate_reaches_host(r, x):
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, BASELINE_S, 0.2)[0],
           f"stacks {stack(h)} / {stack(c)}")
@@ -419,8 +420,12 @@ def row_separate_stays_local(r, x):
     r.cell("clientBoost", hist(p1, sid, BOOST) == hist(p0, sid, BOOST) + 1 and one(p1, sid).get("stats") != one(p0, sid).get("stats"),
            f"client soldier {sid}: history {one(p1, sid).get('history')}, stats changed "
            f"{one(p1, sid).get('stats') != one(p0, sid).get('stats')}")
-    r.cell("noCommand", all(pick(s2[n], "cmd", "applyCount") == pick(s1[n], "cmd", "applyCount") for n in s2),
-           f"shared_stats before {s1} / after {s2} (want cmd and applyCount unchanged)")
+    want = [hist(p1, sid, BOOST), one(p1, sid).get("stats")]
+    agree, ph = wait_until(lambda: (lambda p: p if [hist(p, sid, BOOST), one(p, sid).get("stats")] == want else None)(
+        h.cmd({"cmd": "transform_probe", "base": br.get("name")})), 3.0)
+    r.ev["end"]["host"] = view(ph or h.cmd({"cmd": "transform_probe", "base": br.get("name")}), r.ids)
+    r.cell("hostAgrees", agree, f"the host's {br.get('name')} soldier {sid}: {r.ev['end']['host']}, client history / stats "
+           f"{want}: the host's world does not hold the client's transformation")
 
 def run_one(rid, fn, x, results):
     r = Row(rid)
@@ -518,7 +523,7 @@ ROWS_SHARED = (("list_own_only", row_list_own_only),
                ("partner_soldier_refused", row_partner_soldier_refused),
                ("info_screen_refreshes", row_info_screen_refreshes),
                ("stale_start_refused", row_stale_start_refused))
-ROWS_SEPARATE = (("separate_stays_local", row_separate_stays_local),)
+ROWS_SEPARATE = (("separate_reaches_host", row_separate_reaches_host),)
 
 def main():
     t0, results, walls = time.time(), {}, {}

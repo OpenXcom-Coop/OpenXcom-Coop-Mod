@@ -1,8 +1,10 @@
 """In SHARED the random-production window lists the host's items on both machines and its right-click sale goes
-through the host (`sell`, capped at the host's stores); SEPARATE stays local. Test hook (read-only): prodwin_probe; real
-input (inject_input). SHARED boot: client_list, client_sells, host_sells (one completion's windows), two_sales,
-after_repair (last); SEPARATE boot: separate_local (guard row). Without the fix the five SHARED rows fail on their named
-cells and separate_local passes; with it all pass. "guard:" cells are guards (CAPTURE on a miss); never `mismatches`.
+through the host (`sell`, capped at the host's stores); in the one SEPARATE world the host runs the client's own
+production at ClientBase and the client's sale reaches the host. Test hook (read-only): prodwin_probe; real input
+(inject_input). SHARED boot: client_list, client_sells, host_sells (one completion's windows), two_sales, after_repair
+(last); SEPARATE boot: separate_reaches_host (guard row: progress 9 staged on both machines, the window on the client,
+its right-click on SMALL; both machines' ClientBase SMALL -3). Without the fix the five SHARED rows fail on their named
+cells and separate_reaches_host passes; with it all pass. "guard:" cells are guards (CAPTURE on a miss); never `mismatches`.
 EVIDENCE then PASS / FAIL per row; ONE run; exit 0 if all pass, else 2."""
 
 import json
@@ -46,6 +48,8 @@ def rs(gc): return pick(gc.cmd({"cmd": "shared_resync_stats"}), "requests", "pen
 def ss(gc): return pick(gc.cmd({"cmd": "shared_stats"}), "cmd", "okCount", "failCount", "applyCount", "applyQueued", "lastFail")  # noqa: E704,E501
 def pf(gc): return gc.cmd({"cmd": "prod_fx_probe"})  # noqa: E704
 def pw(gc): return gc.cmd({"cmd": "prodwin_probe"})  # noqa: E704
+def pfb(gc, base): return gc.cmd({"cmd": "prod_fx_probe", "base": base})  # noqa: E704
+def owner_funds(gc, base): return gc.cmd({"cmd": "base_report", "base": base}).get("ownerFunds")  # noqa: E704
 def st(p, k=SR): return (p.get("stores") or {}).get(k, 0)  # noqa: E704
 def prods(p): return [[q.get("name"), q.get("amount")] for q in p.get("productions") or []]  # noqa: E704
 def prod(p): return ([q for q in p.get("productions") or [] if q.get("name") == ITEM] or [None])[0]  # noqa: E704
@@ -337,33 +341,39 @@ def row_after_repair(r, x):
     release(r, x)
 
 
-def row_separate_local(r, x):
-    """SEPARATE stays local (guard row): the client's own start (1, 1), its window, its right-click on SMALL."""
-    h, c = x.host, x.client
+def row_separate_reaches_host(r, x):
+    """SEPARATE (guard row): the client's own start (1, 1) at ClientBase; in the one world the host runs it (progress 9
+    staged on both machines), the window opens on the client and its right-click on SMALL sells through the host."""
+    h, c, cb = x.host, x.client, "ClientBase"
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, AGREE_S, 0.2)[0],
           f"stacks {both(x, stack)}")
     r.ev["speed0"] = speed(x, 0)
-    p0, h0, s1 = pf(c), pf(h), both(x, ss)
-    r.ev["atStart"] = {"client": view(p0), "host": view(h0), "shared_stats": s1,
+    p0, h0, s1 = pf(c), pfb(h, cb), both(x, ss)
+    r.ev["atStart"] = {"client": view(p0), "host ClientBase": view(h0), "shared_stats": s1,
                        "window": both(x, lambda g: wslim(pw(g)))}
     r.ev["start"] = pick(c.cmd({"cmd": "manufacture_start", "item": ITEM, "engineers": 1, "qty": 1}), "ok", "sent", "error")
-    guard(r, x, "listed", wait_until(lambda: (prod(pf(c)) or {}).get("assigned") == 1, UI_S)[0] and prod(pf(h)) is None,
-          f"client {view(pf(c))} {prod(pf(c))}, host {prod(pf(h))}")
-    guard(r, x, "progress 9", (v := c.cmd({"cmd": "set_production_progress", "item": ITEM, "timeSpent": 9})).get("found") is True, f"{v}")
+    guard(r, x, "listed", wait_until(lambda: (prod(pf(c)) or {}).get("assigned") == 1
+                                     and (prod(pfb(h, cb)) or {}).get("assigned") == 1, UI_S)[0],
+          f"client {view(pf(c))} {prod(pf(c))}, host ClientBase {prod(pfb(h, cb))}")
+    st9 = {gc.name: gc.cmd({"cmd": "set_production_progress", "item": ITEM, "timeSpent": 9, "base": cb}) for gc in (c, h)}
+    guard(r, x, "progress 9", all(v.get("found") is True for v in st9.values()), f"{st9}")
     roll_to_window(r, x, [c])
     summary(r, x, [c])
-    r.ev["atWindow"] = {"client": view(p1 := pf(c)), "rows": rows(w := pw(c))}
+    # the host's ClientBase holds the delivered units and the client's funds when the window opens; the client's own
+    # view may still lag the host's delivery then
+    r.ev["atWindow"] = {"client": view(p1 := pf(c)), "host ClientBase": view(h1 := pfb(h, cb)),
+                        "host's client funds": (f1 := owner_funds(h, cb)), "rows": rows(w := pw(c))}
     r.cell("rows", rows(w) == [[LR, 1], [SR, 3]], f"client rows {rows(w)} (want [[{LR}, 1], [{SR}, 3]])")
     rclick(r, x, c, SR, "client rclick SMALL")
-    ok, p2 = wait_until(lambda: (lambda p: p if st(p) == st(p1) - 3 else None)(pf(c)), UI_S, 0.05)
-    time.sleep(1.0)
-    p2, h2, s2 = pf(c), pf(h), both(x, ss)
-    r.ev["end"] = {"client": view(p2), "host": view(h2), "shared_stats": s2, "rows": rows(pw(c))}
-    r.cell("ownSale", ok and st(p2) == st(p1) - 3 and p2["funds"] == p1["funds"] + 3 * P_S, f"client SMALL {st(p1)} -> {st(p2)} "
-           f"(want -3), funds {p1['funds']} -> {p2['funds']} (want +3 x P_S = {3 * P_S})")
-    r.cell("hostUnchanged", view(h2) == view(h0), f"host {view(h0)} -> {view(h2)}")
-    r.cell("noCommand", all(pick(s2[n], "cmd", "applyCount") == pick(s1[n], "cmd", "applyCount") for n in s2), f"shared_stats "
-           f"before {s1} / after {s2} (want cmd and applyCount unchanged)")
+    sold = wait_until(lambda: st(pfb(h, cb)) == st(h1) - 3 and owner_funds(h, cb) == f1 + 3 * P_S, UI_S, 0.05)[0]
+    seen = wait_until(lambda: st(pf(c)) == st(pfb(h, cb)) and pf(c).get("funds") == owner_funds(h, cb), UI_S, 0.05)[0]
+    p2, h2, f2, s2 = pf(c), pfb(h, cb), owner_funds(h, cb), both(x, ss)
+    r.ev["end"] = {"client": view(p2), "host ClientBase": view(h2), "host's client funds": f2, "shared_stats": s2,
+                   "rows": rows(pw(c))}
+    r.cell("hostAgrees", sold, f"host's ClientBase SMALL {st(h1)} -> {st(h2)} (want -3), the client's funds on the host "
+           f"{f1} -> {f2} (want +3 x P_S = {3 * P_S}): the sale did not reach the host")
+    r.cell("ownSale", seen, f"client SMALL {st(p2)} / funds {p2.get('funds')}, the host's {st(h2)} / {f2}: the client does "
+           f"not show the host's result")
 
 
 def run_one(rid, fn, x, results):
@@ -438,7 +448,7 @@ def main():
     t0, results, walls = time.time(), {}, {}
     SHARED_ROWS = (("client_list", row_client_list), ("client_sells", row_client_sells),
                    ("host_sells", row_host_sells), ("two_sales", row_two_sales), ("after_repair", row_after_repair))
-    SEPARATE_ROWS = (("separate_local", row_separate_local),)
+    SEPARATE_ROWS = (("separate_reaches_host", row_separate_reaches_host),)
     boot(SHARED_BOOT[0], lambda: shared_fixture.bring_up(SHARED_BOOT[0], SHARED_BOOT[1], mods=(MOD,)), setup_shared,
          SHARED_ROWS, results, walls)
     boot(SEPARATE_BOOT[0], bring_up_separate, lambda x: {"mods": [os.path.basename(MOD)]}, SEPARATE_ROWS, results,

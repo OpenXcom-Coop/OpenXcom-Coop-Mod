@@ -8,7 +8,8 @@ separate_own_step. Row frame: S0 (both probes agree) -> staging -> roll-to-unit 
 the row's change) -> hold (host SoldiersState: no heartbeat, the host's clock stops) -> window (both probes every 0.25
 s for 3 s; the row's cells read at the FIRST sample) -> release (speed 0 on both, host close_screens, drain both; on a
 row whose cells passed, the client's `requests` stays R0 for 4 s). Without the fix the six SHARED rows fail on their
-named cells and separate_own_step passes. "guard:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE
+named cells and separate_own_step passes (the client's own production steps and the host's world holds its unit).
+"guard:" cells are guards (CAPTURE on a miss). Never `mismatches`. EVIDENCE
 then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -61,6 +62,7 @@ def pf(gc): return gc.cmd({"cmd": "prod_fx_probe"})  # noqa: E704
 def tp(gc): return gc.cmd({"cmd": "transform_probe"})  # noqa: E704
 def st(p, k=SR): return (p.get("stores") or {}).get(k, 0)  # noqa: E704
 def ids(p): return {k: (p.get("ids") or {}).get(k) for k in IDS}  # noqa: E704
+def client_base_items(gc): return next((b.get("items") or {} for b in gc.cmd({"cmd": "geo_state"}).get("bases") or [] if b.get("name") == "ClientBase"), {})  # noqa: E704,E501
 def prod(p, name): return ([q for q in p.get("productions") or [] if q.get("name") == name] or [None])[0]  # noqa: E704
 def trs(p, hours=True): return [t if hours else {k: v for k, v in t.items() if k != "hours"} for t in p.get("transfers") or []]  # noqa: E704,E501
 def new_tr(p0, p): return trs(p)[len(p0.get("transfers") or []):]  # noqa: E704
@@ -388,8 +390,8 @@ def row_fallback_engineers(r, x):
 
 
 def row_separate_own_step(r, x):
-    """SEPARATE steps its own production (guard row): the client's own ROCKETS with 2 engineers, quantity 1, progress 8
-    on the client only."""
+    """SEPARATE steps the client's own production (guard row): the client's own ROCKETS with 2 engineers, quantity 1,
+    progress 8; in the one Separate world the host runs it and both machines hold the unit at ClientBase."""
     h, c = x.host, x.client
     guard(r, x, "start", wait_until(lambda: top(h) == GEO and top(c) == GEO, S0_S, 0.2)[0], f"stacks {stack(h)} / {stack(c)}")
     r.ev["speed0"] = speed(x, 0)
@@ -407,8 +409,10 @@ def row_separate_own_step(r, x):
     r.ev["end"] = {"client": slim(p1, p0), "host": slim(h1, h0), "shared_stats": s2}
     r.cell("ownStep", ok and st(p1) == k0 + 1, f"client rockets {k0} -> {st(p1)} (want +1): the SEPARATE client did not step its "
            f"own production")
-    r.cell("noCommand", all(pick(s2[n], "cmd", "applyCount") == pick(s1[n], "cmd", "applyCount") for n in s2), f"shared_stats "
-           f"before {s1} / after {s2} (want cmd and applyCount unchanged)")
+    agree = wait_until(lambda: client_base_items(h).get(SR, 0) == st(p1), UI_S)[0]
+    r.ev["host ClientBase " + SR] = client_base_items(h).get(SR, 0)
+    r.cell("hostAgrees", agree, f"host's ClientBase {SR} {r.ev['host ClientBase ' + SR]}, client {st(p1)}: the host's world "
+           f"does not hold the client's unit")
 
 
 def run_one(rid, fn, x, results):
