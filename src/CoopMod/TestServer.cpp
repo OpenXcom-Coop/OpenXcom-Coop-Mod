@@ -16789,6 +16789,13 @@ std::string TestServer::execute(const std::string& line)
 				resp["refused"] = "restream";
 				resp["error"] = "restream-owned state (a world load in flight; closes itself; not dismissable)";
 			}
+			else if (_game->getStates().size() <= 1)
+			{
+				// The last screen is never popped: with no screen left the engine
+				// crashes on its next frame. Answer an error and leave it on top.
+				resp["refused"] = "last";
+				resp["error"] = "the last screen (never popped)";
+			}
 			else
 			{
 				// Unknown geoscape popup: generically close it so "skip all
