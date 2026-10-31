@@ -862,6 +862,16 @@ bool coopAbortVoteRequest(Game* game, SavedBattleGame* save);
 /// nullptr asks.
 bool coopAbortVoteHolds(const char* held = nullptr);
 
+/// The start hook UnitTurnBState::init() calls right after the unit's lookAt(),
+/// toward @a target (@a turretTurn: only the turret turns). On the co-op host, for
+/// the pre-action turn of the current action (coopArmPreActionTurn(): the host's own
+/// shot / throw / launch, the second player's shot / throw / launch and the berserk
+/// shot) of a unit that does turn, it sends the display-only `turn_start` cue
+/// {actor, fromDir, toDir, turret, turretFrom, turretTo?}: no `h`, no attachment, so
+/// the watching machine starts drawing the turn while the host turns. The state
+/// still rides the `turn` ev at the turn's end. A no-op everywhere else.
+void coopOnUnitTurnStarted(BattleUnit* unit, const Position& target, bool turretTurn);
+
 /// The
 /// THIN completion/abort hook UnitTurnBState::think() calls, once, at
 /// whichever branch actually pops its own state - never per 45-degree tick

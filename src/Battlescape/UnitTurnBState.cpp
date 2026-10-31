@@ -71,6 +71,9 @@ void UnitTurnBState::init()
 	_turret = _unit->getTurretType() != -1 && (_action.targeting || _action.strafe);
 
 	_unit->lookAt(_action.target, _turret);
+	// coop: ONE guarded coop call - the co-op host tells the watching machine that a
+	// pre-action turn starts (display only); a no-op in single player and on a client.
+	coopOnUnitTurnStarted(_unit, _action.target, _turret);
 
 	if (_chargeTUs && _unit->getStatus() != STATUS_TURNING)
 	{

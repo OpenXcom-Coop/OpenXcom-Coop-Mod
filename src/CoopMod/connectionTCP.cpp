@@ -5088,6 +5088,8 @@ void absorbItemRemoved(int id)
 
 } // namespace CoopDelta
 
+namespace CoopEmit { void sendDisplayEv(Json::Value ev); } // defined after sendEv() below
+
 // ===== host combat cues (CoopDelta.h) =====
 // The cue payload schemas are frozen; the hooks serve every
 // origin; there is no medikit/scanner hook. A cue's payload is DISPLAY
@@ -5165,8 +5167,11 @@ int coopCueDamageType(const RuleDamageType* damageType)
 }
 
 /// Build one cue bt_ev{kind, actionId, payload, h}, send it through the choke
-/// (which attaches the delta) and record the host's cue probe.
-void coopEmitCue(const char* kind, const Json::Value& payload)
+/// (which attaches the delta) and record the host's cue probe. A @a displayOnly
+/// cue carries no `h` and goes out through CoopEmit::sendDisplayEv() with none of
+/// the choke's attachments: it changes nothing on the watching machine but what it
+/// draws, and every state change still pending leaves with the next envelope.
+void coopEmitCue(const char* kind, const Json::Value& payload, bool displayOnly = false)
 {
 	SavedBattleGame* battle = connectionTCP::getStaticBattle();
 	if (!battle)
@@ -5174,9 +5179,13 @@ void coopEmitCue(const char* kind, const Json::Value& payload)
 	const std::uint32_t actionId = CoopArbiter::currentActionId();
 	Json::Value ev = CoopWire::makeEv(0u, actionId, kind);
 	ev["payload"] = payload;
-	ev["h"] = coopBuildStructuredHash(battle, /*withSaveBlob=*/false);
+	if (!displayOnly)
+		ev["h"] = coopBuildStructuredHash(battle, /*withSaveBlob=*/false);
 	const std::uint32_t seqBefore = CoopEmit::lastSeqEmitted();
-	CoopEmit::sendEv(ev);
+	if (displayOnly)
+		CoopEmit::sendDisplayEv(ev);
+	else
+		CoopEmit::sendEv(ev);
 	const std::uint32_t seq = CoopDelta::hostSeqOf(kind, seqBefore);
 	CoopDelta::noteCue(kind, seq, actionId, payload);
 	Json::StreamWriterBuilder wb;
@@ -5218,7 +5227,8 @@ bool coopIsCueKind(const std::string& kind)
 	static const char* const kCueKinds[] = { "shot", "hit", "explosion", "melee", "psi", "death", "corpse",
 		"prime", "sync", "fall", "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner",
 		"skill", // the host's own skill use (coopHostSkill())
-		"mindprobe", "zero_tu" }; // the host's own mind probe / Zero TU press (coopHostMindProbe(), coopHostZeroTu())
+		"mindprobe", "zero_tu", // the host's own mind probe / Zero TU press (coopHostMindProbe(), coopHostZeroTu())
+		"turn_start" }; // the display-only start of a pre-action turn (coopOnUnitTurnStarted())
 	for (const char* k : kCueKinds)
 	{
 		if (kind == k)
@@ -5988,6 +5998,25 @@ void sendEv(Json::Value ev)
 	if (hostAuthoring)
 		CoopReveal::emitPendingOtherSides();
 	--g_sendEvDepth;
+}
+
+/// A DISPLAY-ONLY envelope (coopEmitCue's displayOnly cue): it takes the next seq
+/// and goes out in the same stream, in order, but carries none of sendEv()'s
+/// attachments - no fog `reveal`, `delta`, `hitLog` or `seen` - and sends no
+/// other side's `reveal` after it. Everything those would carry stays pending and
+/// leaves with the next sendEv() envelope. The hostile baseline restate still goes
+/// first when it is pending, so it stays the first ev after phase Active.
+void sendDisplayEv(Json::Value ev)
+{
+	if (isCoopBattle() && coopBattleAuthority().hostSim)
+		CoopReveal::emitPendingBaseline();
+	ev["seq"] = nextSeq();
+	CoopDelta::battleEndNoteSend(ev);
+	CoopEventLog::record(ev);
+	Json::StreamWriterBuilder wb;
+	wb["indentation"] = "";
+	std::string s = Json::writeString(wb, ev);
+	coopEmitBlockingPush(std::move(s));
 }
 
 } // namespace CoopEmit
@@ -16567,6 +16596,31 @@ bool coopHostPartnerCamera(const BattleUnit* actor, const char* what)
 // (UnitTurnBState.cpp:104/:116/:142).
 // Kept outside namespace CoopArbiter for the same call-site-simplicity
 // reason as coopOnChainQuiesced() above.
+// See CoopArbiter.h's own doc comment on this function.
+void coopOnUnitTurnStarted(BattleUnit* unit, const Position& target, bool turretTurn)
+{
+	if (!coopCueAuthoring() || !unit || unit->getStatus() != STATUS_TURNING)
+		return; // not the co-op host, or the unit already faces its target (UnitTurnBState::init pops)
+	if (g_coopPendingChainActorId != unit->getId())
+		return;
+	// Only the pre-action turn coopArmPreActionTurn() armed for the current action: the host's own
+	// shot / throw / launch, the second player's and the berserk shot. The AI attack's own pre-attack
+	// turn (context origin "ai") sends none.
+	const std::uint32_t actionId = CoopArbiter::currentActionId();
+	if (actionId == 0 || g_coopPreAttackTurnActionId != actionId
+		|| std::strcmp(CoopArbiter::currentActionOrigin(), "ai") == 0)
+		return;
+	Json::Value p(Json::objectValue);
+	p["actor"] = unit->getId(); // `actor`, not `unit`: the apply path refreshes a `unit`'s sight
+	p["fromDir"] = unit->getDirection();
+	p["toDir"] = turretTurn ? unit->getDirection() : unit->directionTo(target); // the body's facing at the end
+	p["turret"] = turretTurn; // only the turret turns (a unit with a turret, aiming)
+	p["turretFrom"] = unit->getTurretDirection();
+	if (turretTurn)
+		p["turretTo"] = unit->getTurretToDirection();
+	coopEmitCue("turn_start", p, /*displayOnly=*/true);
+}
+
 void coopOnUnitTurnFinished(BattleUnit* unit, bool aborted)
 {
 	if (!isCoopBattle() || !unit)
@@ -24089,6 +24143,11 @@ struct GhostReplay
 	int poseShown = -1;
 	std::uint32_t lastAdvanceMs = 0;
 	std::uint32_t maxGapMs = 0;
+	// A `turn` ghost the display-only `turn_start` cue started: the cue's seq (0 when the `turn` ev started
+	// it) and whether its `turn` ev has yet to apply. Until it does, the ghost holds its last facing when its
+	// time is up instead of ending; the `turn` ev then takes it over (onEvApplied).
+	std::uint32_t cueSeq = 0;
+	bool awaitingTurn = false;
 };
 
 // Battle-scoped: one live slot per unit id. Cleared by reset() (called from
@@ -24642,6 +24701,7 @@ void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t now
 	r["dirsShown"] = dirs;
 	r["poseShown"] = g.poseShown;
 	r["maxGapMs"] = g.maxGapMs;
+	r["cueSeq"] = g.cueSeq;
 	r["endStamp"] = ++g_combatProbe.stamp;
 	const std::string how = endedBy;
 	if (how == "natural")
@@ -24653,6 +24713,25 @@ void turnGhostEnded(const GhostReplay& g, const char* endedBy, std::uint32_t now
 	g_combatProbe.turnRing.push_back(r);
 	while (g_combatProbe.turnRing.size() > kCombatRingCap)
 		g_combatProbe.turnRing.pop_front();
+}
+
+/// Ends every cue-started `turn` ghost still waiting for its `turn` ev once an ev of another action, or any
+/// bt_action_end, applies: the `turn` ev it waited for is not coming (turn record `cut`). Main thread only.
+void turnCueEndOrphans(std::uint32_t evActionId, bool actionEnd, std::uint32_t nowMs)
+{
+	for (auto it = g_coopGhosts.begin(); it != g_coopGhosts.end(); )
+	{
+		if (it->second.awaitingTurn && (actionEnd || it->second.actionId != evActionId))
+		{
+			turnGhostEnded(it->second, "cut", nowMs); // probe only
+			g_ghostCompleted.fetch_add(1);
+			it = g_coopGhosts.erase(it);
+		}
+		else
+		{
+			++it;
+		}
+	}
 }
 
 // ----- the combat ghosts -----
@@ -26527,6 +26606,11 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 	if (kind == "reveal")
 		return; // a nested reveal carries no delta - it neither ends nor starts a ghost
 	const std::uint32_t nowMs = SDL_GetTicks();
+	turnCueEndOrphans(ev.get("actionId", 0u).asUInt(), false, nowMs);
+	// The display-only `turn_start` cue changes no state: it neither ends nor starts a combat ghost (onEvApplied
+	// starts its turn ghost).
+	if (kind == "turn_start")
+		return;
 	combatEndPendingPairs(ev, kind, nowMs);
 	// a pellet `hit` does not end the running hit / explosion ghost of its own
 	// action - it joins it below; every other running ghost still ends first.
@@ -26606,7 +26690,10 @@ void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string&
 		}
 		else
 		{
-			turnGhostEnded(own->second, "cut", nowMs); // probe only
+			// A turn the `turn_start` cue started whose time is up has drawn its whole turn: it ended naturally.
+			const bool drawn = t.kind == "turn" && t.cueSeq != 0 && evActionId != 0 && t.actionId == evActionId
+				&& (std::uint32_t)(nowMs - t.startedAtMs) >= t.durationMs;
+			turnGhostEnded(own->second, drawn ? "natural" : "cut", nowMs); // probe only
 			g_ghostCompleted.fetch_add(1);
 			g_coopGhosts.erase(own);
 		}
@@ -26767,25 +26854,59 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	if (!Options::coopGhostStepper)
 		return;
 
-	if (kind != "turn" && kind != "kneel" && kind != "walk_step")
+	if (kind != "turn" && kind != "kneel" && kind != "walk_step" && kind != "turn_start")
 		return;
 
 	const Json::Value& payload = ev["payload"];
-	if (!payload.isMember("unit"))
+	const char* unitKey = kind == "turn_start" ? "actor" : "unit"; // the cue names its unit `actor`
+	if (!payload.isMember(unitKey))
 		return;
-	BattleUnit* unit = CoopIdMaps::unit(payload["unit"].asInt());
+	BattleUnit* unit = CoopIdMaps::unit(payload[unitKey].asInt());
 	if (!unit)
 		return;
+	// A `turn_start` whose body does not turn (only the turret turns) has nothing for this ghost to draw: its
+	// `turn` ev plays as it does without the cue.
+	if (kind == "turn_start" && payload.get("fromDir", 0).asInt() == payload.get("toDir", 0).asInt())
+		return;
+	// The `turn` ev of a turn its `turn_start` cue already started: the running ghost goes on from where it
+	// is (no restart) under the ev's seq, toward the ev's facing (the host's final one, an aborted turn's
+	// too). A ghost that has drawn its whole turn by now ends here.
+	const std::uint32_t evActionId = ev.get("actionId", 0u).asUInt();
+	if (kind == "turn" && evActionId != 0)
+	{
+		auto c = g_coopGhosts.find(unit->getId());
+		if (c != g_coopGhosts.end() && c->second.awaitingTurn && c->second.actionId == evActionId)
+		{
+			GhostReplay& g = c->second;
+			g.seq = ev.get("seq", 0u).asUInt();
+			g.awaitingTurn = false;
+			const int toDir = payload.get("toDir", g.toDir).asInt();
+			if (toDir != g.toDir)
+			{
+				g.toDir = toDir;
+				g.frames = turnOctants(g.fromDir, g.toDir, nullptr);
+				g.durationMs = ghostDurationMs(g);
+			}
+			const std::uint32_t nowMs = SDL_GetTicks();
+			if (nowMs - g.startedAtMs >= g.durationMs)
+			{
+				turnGhostEnded(g, "natural", nowMs); // probe only
+				g_ghostCompleted.fetch_add(1);
+				g_coopGhosts.erase(c);
+			}
+			return;
+		}
+	}
 
 	GhostReplay rec;
-	rec.kind = kind;
+	rec.kind = kind == "turn_start" ? std::string("turn") : kind;
 	rec.unitId = unit->getId();
 	rec.seq = ev.get("seq", 0u).asUInt();
 	rec.startedAtMs = SDL_GetTicks();
 	rec.actionId = ev.get("actionId", 0u).asUInt(); // probe only
 	rec.lastAdvanceMs = rec.startedAtMs;            // probe only
 
-	if (kind == "turn")
+	if (rec.kind == "turn")
 	{
 		// Both endpoints already ride the payload - no canonical read
 		// needed for direction. A body turn never moves or kneels the unit.
@@ -26793,6 +26914,11 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.toDir = payload.get("toDir", unit->getDirection()).asInt();
 		rec.kneeledBefore = rec.kneeledAfter = unit->isKneeled();
 		rec.fromPos = rec.toPos = unit->getPosition();
+		if (kind == "turn_start")
+		{
+			rec.cueSeq = rec.seq;
+			rec.awaitingTurn = true;
+		}
 	}
 	else if (kind == "kneel")
 	{
@@ -26967,7 +27093,8 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 		}
 		if (it->second.kind == "walk_step")
 			ghostStepSounds(save, it->second, elapsed); // the footstep rider, before a finished ghost pops
-		if (elapsed >= it->second.durationMs) // fixed at enqueue, never recomputed
+		// fixed at enqueue, never recomputed; a cue-started turn still waiting for its `turn` ev holds its last facing
+		if (elapsed >= it->second.durationMs && !it->second.awaitingTurn)
 		{
 			turnGhostEnded(it->second, "natural", nowMs); // probe only
 			g_ghostCompleted.fetch_add(1);
@@ -27096,6 +27223,7 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 	const std::uint32_t nowMs = SDL_GetTicks();
 	fallSeenProbe(save, ev, "bt_action_end", nowMs); // probe only
 	combatEndPendingPairs(ev, "bt_action_end", nowMs);
+	turnCueEndOrphans(0u, true, nowMs);
 	combatEndAll(nowMs);
 	// The chain's end ends every death ghost (never gated).
 	deathEndAll(nowMs, "action_end");
