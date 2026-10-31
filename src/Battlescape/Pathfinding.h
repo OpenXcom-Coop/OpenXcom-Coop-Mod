@@ -279,6 +279,8 @@ public:
 	const std::vector<int> &getPath() const;
 	/// Makes a copy to the path.
 	std::vector<int> copyPath() const;
+	/// coop: Keeps only the first steps of the path.
+	void keepFirstSteps(size_t steps);
 };
 
 }

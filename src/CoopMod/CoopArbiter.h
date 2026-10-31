@@ -58,8 +58,9 @@ class Text;             // coop: coopEquipApplyViewLook()'s owner line
  *
  * `dest` is the tile the ordering seat CLICKED (the value it handed to
  * Pathfinding::calculate), NOT necessarily the last tile of `path`: a reserve
- * truncation ships a shorter prefix, and the wire's `dest`
- * then names that prefix's own endpoint so the plan stays self-consistent.
+ * truncation ships a shorter prefix flagged `prefix` on the wire, whose `dest`
+ * stays the clicked tile; the host checks the prefix against the first steps
+ * of its own route there.
  * `pathOverride`, when non-empty, REPLACES the client's own previewed path -
  * it exists only for the `battle_intent` test command's `path` argument, which is how
  * a test ships a deliberately-blocked plan for the `path_changed`
@@ -368,14 +369,15 @@ const char* validateKneel(const BattleUnit* unit, bool kneel, int tuBasis);
 /// recomputed `tuBasis` (Sigma per-step getTUCost(bam), never the A* route
 /// cost) and the energy total come from. It ALSO re-runs
 /// Pathfinding::calculate() for @a unit and proves the host's own route is
-/// tile-for-tile the shipped one, which is what lets the caller execute
+/// tile-for-tile the shipped one (for a `prefix` plan, that the shipped plan
+/// is the route's first steps; the rest of the route is dropped), which is what lets the caller execute
 /// through vanilla's UnitWalkBState with NO silent reroute: the path the host
 /// walks has been proven equal to the path the wire carried, or the intent was
 /// denied (no silent reroute / truncation / no-op - ever).
 ///
 /// On a clean pass @a outPath receives the validated tile list, @a outTuCost /
 /// @a outEnergyCost the recomputed totals, and the host's Pathfinding is left
-/// holding exactly that route, ready for UnitWalkBState.
+/// holding exactly that route (a `prefix` plan's steps only), ready for UnitWalkBState.
 const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 	std::vector<Position>& outPath, int& outTuCost, int& outEnergyCost);
 
@@ -418,7 +420,8 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 /// getKneelReserved(), a violation at step 1 sends NOTHING (returning 0, with
 /// vanilla's own reserve warning already on screen because that first check is
 /// made with justChecking=false), and a violation at step k>1 ships the k-1
-/// prefix with `tuBasis` over that prefix only.
+/// prefix with `tuBasis` over that prefix only, flagged `prefix`, with the
+/// clicked `dest`.
 ///
 /// @a kind may also be "shoot", in which case @a combat
 /// carries the plan (CoopCombatIntentArgs above) and MUST be non-null; `tuBasis`

@@ -12755,6 +12755,7 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 	const BattleActionMove bam = coopWalkBam(run, strafe, sneak);
 	const int tuBasis = intent.get("tuBasis", -1).asInt();
 	const Position dest = coopJsonPos(intent["dest"]);
+	const bool prefix = intent.get("prefix", false).asBool();
 
 	Pathfinding* pf = save->getPathfinding();
 
@@ -12763,6 +12764,11 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 	//    tile-for-tile the shipped one. Anything else - a re-route around a
 	//    newly-occupied tile, a shorter route, no route at all - is
 	//    `path_changed`, and the host executes the wire's plan or nothing.
+	//    A `prefix` plan (the ordering client's own TU reserve shortened it)
+	//    carries the CLICKED destination: it must be tile-for-tile the FIRST
+	//    steps of the route there - the same call the client made - and only
+	//    those steps are walked. A route of the host's own to the prefix's last
+	//    tile is not the check: it can be a different route of the same length.
 	pf->calculate(unit, dest, bam);
 	std::vector<CoopWalkPlanStep> steps;
 	if (!coopWalkExpandPath(save, unit, bam, steps) || steps.empty())
@@ -12770,18 +12776,23 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 		pf->abortPath();
 		return "path_changed";
 	}
-	if (steps.size() != shipped.size())
+	if (prefix ? shipped.size() > steps.size() : shipped.size() != steps.size())
 	{
 		pf->abortPath();
 		return "path_changed";
 	}
-	for (std::size_t i = 0; i < steps.size(); ++i)
+	for (std::size_t i = 0; i < shipped.size(); ++i)
 	{
 		if (steps[i].to != shipped[i])
 		{
 			pf->abortPath();
 			return "path_changed";
 		}
+	}
+	if (shipped.size() < steps.size())
+	{
+		steps.resize(shipped.size());
+		pf->keepFirstSteps(shipped.size());
 	}
 
 	// 2. CANONICAL OCCUPANCY AT EXECUTION (the wording for
@@ -12841,7 +12852,8 @@ const char* validateWalk(BattleUnit* unit, const Json::Value& intent,
 
 	// Pathfinding is LEFT HOLDING the validated route on purpose: the caller
 	// pushes UnitWalkBState immediately, and that state walks `_path`. The
-	// route it walks has just been proven identical to the wire's plan.
+	// route it walks has just been proven identical to the wire's plan (for a
+	// `prefix` plan, cut to the prefix above).
 	return nullptr;
 }
 
@@ -15368,6 +15380,7 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	// shorten it or refuse to send at all.
 	std::vector<Position> walkPath;
 	Position walkDest;
+	bool walkPrefix = false;
 
 	if (kindStr == "walk")
 	{
@@ -15510,10 +15523,12 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 				walkPath.push_back(steps[k].to);
 				basis += steps[k].tu;
 			}
-			// A truncated plan's `dest` is its OWN endpoint, so the concrete
-			// plan stays self-consistent and the host re-derives the same route.
-			if (allowed < steps.size())
-				walkDest = walkPath.back();
+			// A truncated plan keeps the CLICKED `dest` and says it is a
+			// `prefix`: the host routes to the clicked tile, the call made here,
+			// and checks the plan against that route's first steps. A route to
+			// the prefix's own last tile can be a different route of the same
+			// length.
+			walkPrefix = allowed < steps.size();
 			if (tuBasis < 0)
 				tuBasis = basis;
 		}
@@ -15610,7 +15625,8 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	{
 		// The frozen envelope. `path` is the CONCRETE plan (element shape
 		// {x,y,z}, identical to the completion restate's); `dest` is the
-		// tile the plan ends at as far as the ordering seat is concerned;
+		// tile the ordering seat routed to; `prefix` is true when this machine's
+		// own TU reserve shortened the plan, which then ends before `dest`;
 		// `bamMode` is the RESOLVED BattleActionMove, presence-gated and carried
 		// for observability only - the host derives the move type from the three
 		// bools, exactly as BattleAction::getMoveType() does.
@@ -15619,6 +15635,7 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 			jpath.append(coopPosJson(p));
 		intent["path"] = jpath;
 		intent["dest"] = coopPosJson(walkDest);
+		intent["prefix"] = walkPrefix;
 		intent["run"] = walk->run;
 		intent["strafe"] = walk->strafe;
 		intent["sneak"] = walk->sneak;
