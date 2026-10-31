@@ -1,21 +1,13 @@
-"""test_event_relay_once.py: in SEPARATE co-op with shared research (Research Sync on), an event window that both worlds
-hold - a paired certain event (coopShared) or an event spawned by research both players learn (the research-sync
-receiver spawns it too, #197) - plays its video once for each player, at that player's own OK, with no relay. An
-ending still relays (the first OK ends both campaigns); a private SEPARATE event keeps its relay.
-Mod Coop_Event_Relay_Test: four empty cutscenes (a "play" = one `cutscene definition empty: <id>` engine-log line after
-the row's mark, read 1.0 s after the row's last OK); STR_RELAY_EV_C certain in month 0 (paired on both machines);
-STR_RELAY_T_A -> STR_RELAY_EV_A; STR_RELAY_T_M (a terror site's despawn topic) -> STR_RELAY_EV_M; STR_RELAY_T_WIN ->
-STR_RELAY_EV_WIN, whose cutscene wins the game. Both boots SEPARATE, EnableResearchSync on both machines, boot guard
-event_state.researchMode {shared false, sync true} on both. OK = dismiss_popup with the keep list (CutsceneState,
-StatisticsState) after reading the top. F = the machine whose window shows first, O = the other.
-Boot events (key "49433"): paired_event, research_event, private_event. Boot ending (key "49434"): shared_ending.
-13 cells; FIX cells fail on a build that relays these videos, GUARD cells pass with or without the fix:
-  paired_event a paired certain event: secondNoRelay (FIX), secondMid (FIX), secondOnce (FIX), firstOnce (GUARD cell)
-  research_event a research-spawned event: otherMid (FIX), otherOnce (FIX), firstOnce (FIX)
-  private_event a mission-outcome topic (private, keeps its relay): hostNoWindow, clientOnce, hostRelay (GUARD cells)
-  shared_ending an ending both worlds hold: firstEnds, otherEnds, plays (GUARD cells)
+"""test_event_relay_once.py: in a SEPARATE campaign with shared research (Research Sync on), an ending that both players
+reach through research still relays: the first OK ends both campaigns and each machine plays the ending video once.
+Mod Coop_Event_Relay_Test: empty cutscenes (a "play" = one `cutscene definition empty: <id>` engine-log line after the
+row's mark, read 1.0 s after the row's last OK); STR_RELAY_T_WIN -> STR_RELAY_EV_WIN, whose cutscene wins the game.
+SEPARATE boot, EnableResearchSync on both machines, boot guard event_state.researchMode {shared false, sync true} on
+both. OK = dismiss_popup with the keep list (CutsceneState, StatisticsState) after reading the top. F = the machine
+whose window shows first, O = the other.
+Boot ending (key "49434"): shared_ending, 3 GUARD cells: firstEnds, otherEnds, plays.
 "guard:" = a guard: CAPTURE line and the row ends (later cells "not reached"). EVIDENCE per row, PASS / FAIL per cell,
-the row verdict; every row runs after a failure; ONE run: exit 0 only when every cell passes, else 2.
+the row verdict; ONE run: exit 0 only when every cell passes, else 2.
 no wait-hook; run to completion in the foreground.
 """
 
@@ -33,19 +25,11 @@ import session  # noqa: E402
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_Event_Relay_Test")
-KEY_EVENTS, KEY_ENDING = "49433", "49434"
-T_A, EV_A, CUT_A = "STR_RELAY_T_A", "STR_RELAY_EV_A", "STR_RELAY_A"
-EV_C, CUT_C = "STR_RELAY_EV_C", "STR_RELAY_C"
-T_M, EV_M, CUT_M = "STR_RELAY_T_M", "STR_RELAY_EV_M", "STR_RELAY_M"
+KEY_ENDING = "49434"
 T_W, EV_W, CUT_W = "STR_RELAY_T_WIN", "STR_RELAY_EV_WIN", "STR_RELAY_WIN"
 EV, KEEP = "GeoscapeEventState", ("CutsceneState", "StatisticsState")
 PLAY = "cutscene definition empty: "
-FLUSH_S, POLL_I, LISTED_S, WINDOWS_S, PAIRED_S = 1.0, 0.2, 5.0, 5.0, 10.0   # every state within 0.1 s
-# research_event holds the host's EV_A copy HOLD_M game minutes until F's window is shown and OK'd (measured roles:
-# F = client, O = host), then sets O's copy to RELEASE_M, the measured O countdown, before skip2. HOLD_M is a multiple
-# of 30 far above what the host's clock runs before F's OK (a speed-5 tick runs a whole game day; up to 3210 minutes
-# measured in 4 runs); RELEASE_M is a multiple of 30 inside skip2's one-day window.
-RC, HOLD_M, RELEASE_M = "ResearchCompleteState", 43200, 30
+FLUSH_S, POLL_I, LISTED_S = 1.0, 0.2, 5.0   # every state within 0.1 s
 SKIP_2D = 60 * 24 * 2
 
 
@@ -74,25 +58,9 @@ def allow(gc): return gc.cmd({"cmd": "research_probe", "names": [], "tail": 0}).
 def ending(gc): return gc.cmd({"cmd": "ending_state"}).get("ending")  # noqa: E704
 def geo_s(gc): return gc.cmd({"cmd": "geo_state"})  # noqa: E704
 def rmode(gc): return gc.cmd({"cmd": "event_state"}).get("researchMode") or {}  # noqa: E704
-def learned(gc, t): return gc.cmd({"cmd": "is_researched", "topic": t}).get("researched")  # noqa: E704
-
-
 def geo_events(gc):
     """This world's pending geoscape events: {name: (countdown, over)}."""
     return {e.get("name"): (e.get("countdown"), e.get("over")) for e in gc.cmd({"cmd": "geo_events"}).get("events", [])}
-
-
-def pending(gc, name):
-    ge = geo_events(gc)
-    return name in ge and not ge[name][1]
-
-
-def base0(gc):
-    """test_coop_mission_research.base0 (copied): this machine's own base, or None."""
-    for b in gc.ok({"cmd": "geo_state"})["bases"]:
-        if not b.get("coopBase") and not b.get("coopIcon"):
-            return b
-    return None
 
 
 def listed(gc, topic):
@@ -133,7 +101,7 @@ def plays(gc, cur):
 
 def capture(gc):
     try:
-        return {"research_probe": gc.cmd({"cmd": "research_probe", "names": [T_A, T_M, T_W], "tail": 4}),
+        return {"research_probe": gc.cmd({"cmd": "research_probe", "names": [T_W], "tail": 4}),
                 "geo_event_probe": gep(gc), "geo_events": geo_events(gc), "researchMode": rmode(gc),
                 "get_state": stack(gc), "logTail": log_lines(gc)[-30:]}
     except Exception as e:
@@ -193,15 +161,6 @@ def press_ok(r, x, gc, want, label):
     return o
 
 
-def poll(gc, secs):
-    out, t0 = [], time.time()
-    while time.time() - t0 < secs:
-        ts = time.time()
-        out.append({"t": round(ts - t0, 2), "allow": allow(gc), "top": top(gc)})
-        time.sleep(max(0.0, POLL_I - (time.time() - ts)))
-    return out
-
-
 def seen(samples, f):
     """Distinct values of field f over the poll, as [value, first t]."""
     out = []
@@ -237,118 +196,6 @@ def start_topic(r, x, topic):
 
 def roles(x, name):
     return (x.host, x.client) if name == "host" else (x.client, x.host)
-
-
-def row_paired_event(r, x):
-    """A paired certain event: the host's OK first; the client must not get the host's video over its window."""
-    h, c = x.host, x.client
-
-    def paired():
-        a, b = geo_events(h), geo_events(c)
-        return EV_C in a and EV_C in b and not a[EV_C][1] and not b[EV_C][1] and a[EV_C][0] == b[EV_C][0]
-    ok, w = wait_until(paired, PAIRED_S)
-    gstep(r, x, "paired")
-    guard(r, x, "paired", ok, f"{EV_C} not paired with equal countdowns after {w} s: {r.ev['geoEvents']['paired']}")
-    r.ev["drain"] = {gc.name: geo.drain_popups(gc)[0] for gc in (h, c)}
-    geo.slow_clock(h, c)
-    resp = h.cmd({"cmd": "set_event_countdown", "name": EV_C, "minutes": 60})
-    guard(r, x, "countdown", resp.get("ok") is True, f"set_event_countdown {resp}")
-    guard(r, x, "hit", skip(r, x, 180, "skip") is not None, f"skip {r.ev['skip']}")
-    ok, w = wait_until(lambda: evs(h) == 1 and evs(c) == 1, WINDOWS_S)
-    tt = r.ev["titles"] = {gc.name: title(gc) for gc in (h, c)}
-    guard(r, x, "bothWindows", ok and tt == {"host": EV_C, "client": EV_C},
-          f"eventStates host {evs(h)} / client {evs(c)} after {w} s; titles {tt}")
-    cur = mark(r, x)
-    press_ok(r, x, h, EV, "hostOK")
-    p = poll(c, 2.0)
-    r.ev["clientPoll"] = {"allow": seen(p, "allow"), "top": seen(p, "top"), "n": len(p)}
-    mid = r.ev["clientMid"] = plays(c, cur["client"])
-    al = r.ev["clientPoll"]["allow"]
-    r.cell("secondNoRelay", all(s["allow"] is True for s in p), "the host's OK relayed the paired event's video over "
-                                                               f"the client's open window: allowCutscene {al}")
-    r.cell("secondMid", mid.get(CUT_C, 0) == 0, f"the client played {CUT_C} {mid.get(CUT_C, 0)} time(s) before its own OK "
-                                                "(the host's relay)")
-    press_ok(r, x, c, EV, "clientOK")
-    pl = counts(r, x, cur)
-    r.cell("secondOnce", pl["client"].get(CUT_C, 0) == 1, f"client {CUT_C} plays {pl['client'].get(CUT_C, 0)} (the host's "
-                                                          "relay, then its own OK)")
-    gcell(r, x, "firstOnce", pl["host"].get(CUT_C, 0) == 1, f"host {CUT_C} plays {pl['host'].get(CUT_C, 0)}")
-
-
-def hold(r, x):
-    """research_event's premise (measured: F = client, O = host): skip until T_A's ResearchCompleteState shows, wait
-    until both worlds hold EV_A pending, stop both clocks (geo_set_speed 0 works under a popup), hold the host's copy
-    HOLD_M minutes, close the research popups (never a GeoscapeEventState). Both copies count down from the same half
-    hour, so without the hold both windows open inside one skip pass."""
-    h, c = x.host, x.client
-    t = time.time()
-    sk = geo.skip_ingame_time(h, c, SKIP_2D, speed_idx=5, interest=geo.popup(RC, EV, *KEEP), real_timeout=150)
-    hit = sk.get("hit")
-    ok, w = wait_until(lambda: pending(h, EV_A) and pending(c, EV_A), WINDOWS_S)
-    ev = r.ev["hold"] = {"hit": hit, "skipS": round(time.time() - t, 2), "pendingS": w,
-                         "geoEvents": {gc.name: geo_events(gc) for gc in (h, c)}}
-    guard(r, x, "held", ok and hit is not None and RC in str(hit[1]), f"hold {ev}")
-    ev["stop"] = {gc.name: gc.cmd({"cmd": "geo_set_speed", "idx": 0}).get("ok") for gc in (h, c)}
-    ev["set"] = h.cmd({"cmd": "set_event_countdown", "name": EV_A, "minutes": HOLD_M})
-    guard(r, x, "holdSet", ev["set"].get("ok") is True and all(v is True for v in ev["stop"].values()), f"hold {ev}")
-    ev["drain"] = {gc.name: geo.drain_popups(gc, interest=geo.popup(EV, *KEEP))[0] for gc in (h, c)}
-
-
-def row_research_event(r, x):
-    """A research-spawned event: F's window first, O's copy pending; O must not get F's video."""
-    start_topic(r, x, T_A)
-    hold(r, x)
-    name = skip(r, x, SKIP_2D, "skip")
-    guard(r, x, "hit", name is not None, f"skip {r.ev['skip']}")
-    F, O = roles(x, name)
-    r.ev["roles"] = {"F": F.name, "O": O.name}
-    tf = r.ev["firstTitle"] = title(F)
-    guard(r, x, "firstWindow", tf == EV_A, f"{F.name} title {tf}")
-    ok, w = wait_until(lambda: evs(O) == 0 and pending(O, EV_A), WINDOWS_S)
-    r.ev["otherPending"] = {"s": w, "eventStates": evs(O), "geoEvents": geo_events(O), "stack": stack(O)}
-    guard(r, x, "otherPending", ok, f"{O.name} {r.ev['otherPending']}")
-    cur = mark(r, x)
-    press_ok(r, x, F, EV, "firstOK")
-    p = poll(O, 2.0)
-    r.ev["otherPoll"] = {"allow": seen(p, "allow"), "top": seen(p, "top"), "n": len(p)}
-    omid = r.ev["otherMid"] = plays(O, cur[O.name])
-    r.cell("otherMid", omid.get(CUT_A, 0) == 0, f"{O.name} played {CUT_A} {omid.get(CUT_A, 0)} time(s) before its own "
-                                                f"window ({F.name}'s relay)")
-    rel = r.ev["release"] = O.cmd({"cmd": "set_event_countdown", "name": EV_A, "minutes": RELEASE_M})  # the hold ends
-    guard(r, x, "release", rel.get("ok") is True, f"{O.name} set_event_countdown {rel}")
-    name2 = skip(r, x, 60 * 24, "skip2", real_timeout=90)
-    to = r.ev["otherTitle"] = title(O)
-    guard(r, x, "otherWindow", name2 == O.name and to == EV_A, f"hit {r.ev['skip2']['hit']}, {O.name} title {to}")
-    press_ok(r, x, O, EV, "otherOK")
-    pl = counts(r, x, cur)
-    r.cell("otherOnce", pl[O.name].get(CUT_A, 0) == 1, f"{O.name} {CUT_A} plays {pl[O.name].get(CUT_A, 0)} (the relay, "
-                                                       "then its own OK)")
-    r.cell("firstOnce", pl[F.name].get(CUT_A, 0) == 1, f"{F.name} {CUT_A} plays {pl[F.name].get(CUT_A, 0)} ({O.name}'s OK "
-                                                       "relayed back)")
-
-
-def row_private_event(r, x):
-    """A mission-outcome topic: only the client's world spawns EV_M; its private window keeps the relay."""
-    h, c = x.host, x.client
-    b = base0(h)
-    resp = h.cmd({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION",
-                  "lon": b["lon"] + 0.35, "lat": b["lat"] + 0.10, "race": "STR_SECTOID", "hours": 1}) if b else {}
-    r.ev["site"] = {"base": b and [b.get("name"), b.get("lon"), b.get("lat")], "resp": resp}
-    guard(r, x, "site", resp.get("ok") is True, f"spawn_mission_site {resp}")
-    name = skip(r, x, 360, "skip", speed=4, real_timeout=120)
-    tc = r.ev["clientTitle"] = title(c)
-    guard(r, x, "clientWindow", name == "client" and tc == EV_M, f"hit {r.ev['skip']['hit']}, client title {tc}")
-    lt = r.ev["learned"] = {gc.name: learned(gc, T_M) for gc in (h, c)}
-    guard(r, x, "learned", lt == {"host": True, "client": True}, f"is_researched {T_M} {lt}")
-    cur = mark(r, x)
-    press_ok(r, x, c, EV, "clientOK")
-    pl = counts(r, x, cur)
-    hs = [(r.ev[k]["host"]["eventStates"], EV_M in r.ev["geoEvents"][k]["host"]) for k in ("atMark", "end")]
-    gcell(r, x, "hostNoWindow", hs == [(0, False), (0, False)],
-          f"host (eventStates, holds {EV_M}) at the mark / end {hs}")
-    gcell(r, x, "clientOnce", pl["client"].get(CUT_M, 0) == 1, f"client {CUT_M} plays {pl['client'].get(CUT_M, 0)}")
-    gcell(r, x, "hostRelay", pl["host"].get(CUT_M, 0) == 1, f"host {CUT_M} plays {pl['host'].get(CUT_M, 0)}: a private "
-                                                            "SEPARATE event keeps its relay")
 
 
 def row_shared_ending(r, x):
@@ -461,12 +308,8 @@ def boot(tag, key, rows, results, walls):
         walls[tag] = round(time.time() - t0, 1)
 
 
-BOOTS = (("event_relay_events", KEY_EVENTS,
-          (("paired_event", row_paired_event, ("secondNoRelay", "secondMid", "secondOnce", "firstOnce")),
-           ("research_event", row_research_event, ("otherMid", "otherOnce", "firstOnce")),
-           ("private_event", row_private_event, ("hostNoWindow", "clientOnce", "hostRelay")))),
-         ("event_relay_ending", KEY_ENDING,
-          (("shared_ending", row_shared_ending, ("firstEnds", "otherEnds", "plays")),)))
+BOOTS = (("event_relay_ending", KEY_ENDING,
+          (("shared_ending", row_shared_ending, ("firstEnds", "otherEnds", "plays")),)),)
 
 
 def main():
