@@ -791,9 +791,10 @@ class connectionTCP
 	// CLIENT, SHARED - the campaign OK's last step: vanilla's forced
 	// containment / storage screens on the adopted world for whatever is still over its limit.
 	static void coopSharedForcedScreens(Game* game, DebriefingState* db);
-	// CLIENT - at the OK load the
-	// own world, apply each guest row's record by the owner's own id, return to the own geoscape in place and push the own
-	// world to the host (no own-world blob -> main menu).
+	// CLIENT - snapshot the live own world at a PvP campaign battle entry (true iff taken), and at the OK load it, apply each
+	// guest row's record by the owner's own id, return to the own geoscape in place and push the own world to the host (no
+	// own-world blob -> main menu).
+	bool coopOwnWorldEntrySnapshot();
 	bool coopSeparateReturn(DebriefingState* db, const char* phaseAtOk);
 	// `[Player] Name` for another seat's soldier
 	// on every co-op debrief (else the plain name); the host's page-2 name site; PromotionsState's row hook (the client's

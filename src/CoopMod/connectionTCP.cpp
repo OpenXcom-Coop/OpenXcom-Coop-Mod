@@ -32390,6 +32390,11 @@ void onBlobChunkAppended(Game* game)
 
 	// a SEPARATE client's battle entry (the battle world is marked below).
 	const bool sepGuestEntry = newSave->getCampaignType() == CoopCampaignType::Separate && !connectionTCP::getServerOwner();
+	// A PvP campaign client returns to its own world at its debriefing OK (coopSeparateReturn): store the live own world
+	// under its own-world key now, before setSavedGame replaces it with the battle world. A Separate campaign client
+	// adopts the host's post-battle world instead. Recorded (sepSnapshot) after initBattleAuthority, which resets the record.
+	const bool ownWorldSnapshot = sepGuestEntry && !game->getCoopMod()->isSeparateCampaign()
+		&& game->getCoopMod()->coopOwnWorldEntrySnapshot();
 
 	// As in LoadGameState.cpp, a SHARED client adopts the
 	// host's streamed world as its own replica, then re-asserts its own seat
@@ -32419,7 +32424,10 @@ void onBlobChunkAppended(Game* game)
 	// Remember the battle-world pointer so the per-tick background
 	// tasks pause while the live world is this battle world (self-clearing at the return).
 	if (sepGuestEntry)
+	{
 		g_coopSepBattleWorld = newSave;
+		CoopDelta::battleEndRecordSet("sepSnapshot", ownWorldSnapshot ? 1 : 0);
+	}
 	coopApplySeatMap(g_pendingClient.seatMap); // re-apply the REAL seatMap onOffer() already validated
 	// Same re-apply for the turn mode, same reason - the initBattleAuthority()
 	// call above reset the mirror to the parallel default.
@@ -35774,6 +35782,27 @@ void connectionTCP::sendInitialSeparateBaseToHost()
 	obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
 	sendTCPPacketData(obj.toStyledString());
 	Log(LOG_INFO) << "[coop-separate] sending initial base contribution to host";
+}
+
+// A PvP campaign client's battle-entry snapshot. Writes the client's LIVE own world (with the pre-mission marker that
+// only exists in memory) under its own-world key, so the return at its OK restores it. Only when the live world holds
+// no battle; called before setSavedGame() swaps in the battle world. Returns true iff the snapshot was taken.
+bool connectionTCP::coopOwnWorldEntrySnapshot()
+{
+	SavedGame* live = _game->getSavedGame();
+	// coop: a practice screen (a preview, a base equipment screen) leaves the own world live - take the snapshot,
+	// written as vanilla holds the world once that screen is closed (CoopPracticeBattleHidden).
+	if (!live || live->coopHasRealBattle())
+		return false;
+	CoopPracticeBattleHidden coopPracticeHidden(live);
+	const std::string filename = pvpClientWorldKey(getHostName());
+	live->saveCoopToMemory(filename, _game->getMod(), filename);
+	{
+		std::lock_guard<std::mutex> lock(coopFilesMutex);
+		eraseStaleBlobEntries(coopFilesClient, "client_", getHostName(), filename);
+	}
+	Log(LOG_INFO) << "[coop-debrief] client: battle-entry own-world snapshot taken (" << filename << ")";
+	return true;
 }
 
 void connectionTCP::syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments)
