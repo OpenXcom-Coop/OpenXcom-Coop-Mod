@@ -84,7 +84,7 @@ SoldierRankState::SoldierRankState(Base* base, size_t soldierId) : _base(base), 
 	_lstRanks->setBackground(_window);
 	_lstRanks->setMargin(8);
 
-	PromotionOpenings openings = PromotionOpenings(_game->getSavedGame()->getAllActiveSoldiers(), _game->getMod());
+	PromotionOpenings openings = PromotionOpenings(SharedEcon::promotionSoldiers(_game, soldier), _game->getMod()); // coop: SEPARATE counts the player's own soldiers
 
 	// a copy is unavoidable here because me may want to modify this set.
 	std::vector<std::string> rankStringsCopy = soldier->getRules()->getRankStrings();

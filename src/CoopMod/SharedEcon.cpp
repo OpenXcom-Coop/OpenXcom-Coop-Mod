@@ -2714,6 +2714,7 @@ bool craftPilotsValidate(Game* game, const Json::Value& payload, Base* base, int
 	if (op != "add") { failReason = "unknown pilot order"; return false; }
 	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
 	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat)) { failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
 	if (s->getOwnerPlayerId() != seat) { failReason = "not your soldier"; return false; } // own soldiers only
 	return true;
 }
@@ -3123,12 +3124,14 @@ void craftRearmApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 // the host's world and apply or keep it; ALWAYS write the resolved rank into the payload
 // (the buy idiom: the broadcast carries it). REPLICA (the initiator included): adopt the
 // payload's rank. A lost race for the last opening is undone by the host's result.
-bool soldierRankValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+bool soldierRankValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                          int64_t& cost, std::string& failReason)
 {
 	cost = 0;
 	if (!base) { failReason = "base not found"; return false; }
-	if (!findSoldier(base, payload.get("soldierId", -1).asInt())) { failReason = "soldier not found"; return false; }
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat)) { failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
 	int rank = payload.get("rank", -1).asInt();
 	if (rank < (int)RANK_ROOKIE || rank > (int)RANK_COMMANDER) { failReason = "bad rank"; return false; }
 	return true;
@@ -3143,7 +3146,7 @@ void soldierRankApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 	{
 		SavedGame* save = game ? game->getSavedGame() : nullptr;
 		if (save && s->getRank() != (SoldierRank)rank
-			&& PromotionOpenings(save->getAllActiveSoldiers(), game->getMod()).isManualPromotionPossible(s, (SoldierRank)rank))
+			&& PromotionOpenings(promotionSoldiers(game, s), game->getMod()).isManualPromotionPossible(s, (SoldierRank)rank))
 			s->setRank((SoldierRank)rank);
 		payload["rank"] = (int)s->getRank(); // the resolved rank rides the broadcast
 	}
@@ -3156,12 +3159,14 @@ void soldierRankApply(Game* game, Json::Value& payload, Base* base, int /*seat*/
 // soldier_nationality payload: { soldierId, nationality }. the flag on the
 // soldier screen (SoldierInfoState::btnFlagClick) keeps vanilla's local write and submits the
 // result as an absolute end-state; both roles set it (last-write-wins, like soldier_rename).
-bool soldierNationalityValidate(Game* /*game*/, const Json::Value& payload, Base* base, int /*seat*/,
+bool soldierNationalityValidate(Game* game, const Json::Value& payload, Base* base, int seat,
                                 int64_t& cost, std::string& failReason)
 {
 	cost = 0;
 	if (!base) { failReason = "base not found"; return false; }
-	if (!findSoldier(base, payload.get("soldierId", -1).asInt())) { failReason = "soldier not found"; return false; }
+	Soldier* s = findSoldier(base, payload.get("soldierId", -1).asInt());
+	if (!s) { failReason = "soldier not found"; return false; }
+	if (!separateSoldierOwnerOk(game, s, seat)) { failReason = "STR_COOP_NOT_YOUR_SOLDIER"; return false; }
 	if (payload.get("nationality", -1).asInt() < 0) { failReason = "bad nationality"; return false; }
 	return true;
 }
@@ -5451,6 +5456,17 @@ void processApply(Game* game, const Json::Value& ap)
 
 } // anonymous namespace
 
+// see SharedEcon.h.
+std::vector<Soldier*> promotionSoldiers(Game* game, const Soldier* soldier)
+{
+	std::vector<Soldier*> all = game->getSavedGame()->getAllActiveSoldiers();
+	if (!soldier || !game->getSavedGame()->isSeparateCoopCampaign()) return all;
+	std::vector<Soldier*> own;
+	for (auto* s : all)
+		if (s->getOwnerPlayerId() == soldier->getOwnerPlayerId()) own.push_back(s);
+	return own;
+}
+
 // ---- Public API --------------------------------------------------------------
 
 // coop: the SHARED pre-battle equip end's soldier
@@ -7027,10 +7043,21 @@ int lastCraftOrderSeat(const Craft* craft)
 	return it == g_craftOrderSeat.end() ? -1 : it->second;
 }
 
+// SHARED: every change goes to the host. SEPARATE: a change to this player's own soldier, craft or base goes to the
+// host, which applies it to the one world; a client's change to another player's is sent too and refused there. The
+// host does not send a change to the partner's.
+static bool sendsChange(Game* game, bool own)
+{
+	connectionTCP* coop = game ? game->getCoopMod() : nullptr;
+	if (!coop) return false;
+	if (coop->isSharedCampaign()) return true;
+	return coop->isSeparateCampaign() && (own || !coop->getServerOwner());
+}
+
 void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId)
 {
 	if (!game || !craft) return;
-	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!sendsChange(game, SeparateEcon::ownsCraft(game, craft))) return;
 	Json::Value p;
 	p["craftId"] = craft->getId();
 	p["craftType"] = craft->getRules()->getType();
@@ -7042,7 +7069,7 @@ void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId)
 bool removeOwnCraftPilots(Game* game, Craft* craft)
 {
 	if (!game || !craft) return false;
-	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return false;
+	if (!sendsChange(game, SeparateEcon::ownsCraft(game, craft))) return false;
 	std::vector<Soldier*> list = craft->getPilotList(false, game->getMod());
 	craft->removeAllPilots();
 	for (auto* s : list)
@@ -7092,7 +7119,7 @@ void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string&
 void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled)
 {
 	if (!game || !base || base->_isForeignBase) return;
-	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!sendsChange(game, true)) return;
 	Json::Value p;
 	p["x"] = x;
 	p["y"] = y;
@@ -7103,7 +7130,7 @@ void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled)
 void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot)
 {
 	if (!game || !craft) return;
-	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!sendsChange(game, SeparateEcon::ownsCraft(game, craft))) return;
 	if (slot < 0 || slot >= (int)craft->getWeapons()->size() || !craft->getWeapons()->at(slot)) return;
 	Json::Value p;
 	p["craftId"] = craft->getId();
@@ -7395,12 +7422,18 @@ bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemT
 	return true;
 }
 
-// SHARED and a real base only (the SoldierInfoState rename guard); vanilla's
-// local write already ran. The host resolves the value both worlds hold.
+// A real base only (the SoldierInfoState rename guard; in SEPARATE also this player's own soldier at another player's
+// base); vanilla's local write already ran. The host resolves the value both worlds hold.
+static bool sendsSoldierChange(Game* game, Base* base, Soldier* soldier)
+{
+	if (!game || !base || !soldier) return false;
+	if (base->_isForeignBase && !(game->getCoopMod() && game->getCoopMod()->isSeparateCampaign())) return false;
+	return sendsChange(game, ownsSoldier(game, soldier));
+}
+
 void submitSoldierRank(Game* game, Base* base, Soldier* soldier)
 {
-	if (!game || !base || !soldier || base->_isForeignBase) return;
-	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!sendsSoldierChange(game, base, soldier)) return;
 	Json::Value p;
 	p["soldierId"] = soldier->getId();
 	p["rank"] = (int)soldier->getRank();
@@ -7409,8 +7442,7 @@ void submitSoldierRank(Game* game, Base* base, Soldier* soldier)
 
 void submitSoldierNationality(Game* game, Base* base, Soldier* soldier)
 {
-	if (!game || !base || !soldier || base->_isForeignBase) return;
-	if (!game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!sendsSoldierChange(game, base, soldier)) return;
 	Json::Value p;
 	p["soldierId"] = soldier->getId();
 	p["nationality"] = soldier->getNationality();

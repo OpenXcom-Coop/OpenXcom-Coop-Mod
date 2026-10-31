@@ -451,10 +451,11 @@ void submitCraftTarget(Game* game, Craft* craft, Target* target); // launch/reta
 void submitCraftPoint(Game* game, Craft* craft, double lon, double lat); // waypoint
 void submitCraftReturn(Game* game, Craft* craft);
 void submitCraftPatrol(Game* game, Craft* craft, bool autoPatrol);
-/// SHARED only - no-op otherwise; called AFTER vanilla's local addPilot (CraftPilotSelectState);
-/// the host re-checks the seat and broadcasts the craft's pilot list (craft_pilots).
+/// SHARED, and SEPARATE (this player's own craft; the host refuses another player's) - no-op otherwise; called AFTER
+/// vanilla's local addPilot (CraftPilotSelectState); the host re-checks the seat and broadcasts the craft's pilot list
+/// (craft_pilots).
 void submitCraftPilotAdd(Game* game, Craft* craft, int soldierId);
-/// SHARED only - returns false otherwise (vanilla's removeAllPilots runs); removes THIS
+/// SHARED, and SEPARATE as submitCraftPilotAdd - returns false otherwise (vanilla's removeAllPilots runs); removes THIS
 /// player's own pilots locally, keeps the partner's, submits craft_pilots clear; returns true.
 bool removeOwnCraftPilots(Game* game, Craft* craft);
 
@@ -478,12 +479,12 @@ void submitCraftEquip(Game* game, Craft* craft, const std::string& itemType, int
 /// that absolute count goes to the host as craft_equip (its HWP branch); a non-vehicle type is a no-op (items route before vanilla).
 void craftVehiclesMoved(Game* game, Base* base, Craft* craft, const std::string& itemType, int before);
 
-/// SHARED and a real base only - no-op otherwise; called AFTER vanilla's local toggle
+/// SHARED or SEPARATE, and this machine's own base only - no-op otherwise; called AFTER vanilla's local toggle
 /// (BasescapeState, mind shield); submits the facility's flag as an absolute end-state; the host re-checks
 /// vanilla's gate and broadcasts the flag both worlds hold (fac_disable).
 void submitFacilityDisabled(Game* game, Base* base, int x, int y, bool disabled);
 
-/// SHARED only - no-op otherwise; called AFTER vanilla's local toggle (CraftInfoState's weapon
+/// SHARED, and SEPARATE as submitCraftPilotAdd - no-op otherwise; called AFTER vanilla's local toggle (CraftInfoState's weapon
 /// icon; the host's DogfightState with 'remember disabled craft weapons'); submits the weapon's flag as an
 /// absolute end-state; the host decides the craft re-check (craft_weapon_disable).
 void submitCraftWeaponDisabled(Game* game, Craft* craft, int slot);
@@ -558,13 +559,16 @@ bool submitSoldierTransform(Game* game, Base* base, const std::string& rule, Sol
 /// holds) and writes nothing locally; a count <= 0 submits nothing.
 bool submitRandomProductionSale(Game* game, Base* base, const std::string& itemType, int qty);
 
-/// SHARED only - no-op otherwise; called AFTER vanilla's local write
-/// (SoldierRankState); submits the soldier's current rank as an absolute end-state.
-/// The host re-checks the promotion openings against its own world and broadcasts
+/// SHARED, and SEPARATE (this player's own soldier, also at another player's base; the host refuses another player's)
+/// - no-op otherwise; called AFTER vanilla's local write (SoldierRankState); submits the soldier's current rank as an
+/// absolute end-state. The host re-checks the promotion openings against its own world and broadcasts
 /// the rank both worlds hold (soldier_rank).
 void submitSoldierRank(Game* game, Base* base, Soldier* soldier);
+/// The soldiers whose ranks set @a soldier's manual promotion openings (PromotionOpenings): every active soldier; in
+/// SEPARATE only those of @a soldier's player (each player's army is its own).
+std::vector<Soldier*> promotionSoldiers(Game* game, const Soldier* soldier);
 
-/// SHARED only - no-op otherwise; called AFTER vanilla's local write
+/// SHARED, and SEPARATE as submitSoldierRank - no-op otherwise; called AFTER vanilla's local write
 /// (SoldierInfoState's flag); submits the soldier's current nationality as an
 /// absolute end-state, last-write-wins (soldier_nationality).
 void submitSoldierNationality(Game* game, Base* base, Soldier* soldier);

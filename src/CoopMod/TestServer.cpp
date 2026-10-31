@@ -11809,7 +11809,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	{
 		// TEST INTROSPECTION ONLY - read-only. {id}: `top` (typeid of the top state); `soldier` {id, owner,
 		// baseIndex, rank, rankString, nationality} (every base, index order) or null; `openings` {sergeant, captain, colonel,
-		// commander} = PromotionOpenings(getAllActiveSoldiers(), mod) on this world; `rankScreen` {open (the top state is a
+		// commander} = PromotionOpenings(SharedEcon::promotionSoldiers(soldier), mod) on this world (the rank screen's); `rankScreen` {open (the top state is a
 		// SoldierRankState), rows [{row, name (cell 0), openings (cell 1), rank (= row: SRS adds the rows in rank order),
 		// allowed (isManualPromotionPossible(soldier, rank) on this world), wx, wy (the row centre in window pixels, the
 		// coopSyncedAdvancedView conversion; visible rows only)}]}.
@@ -11839,7 +11839,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		rsSA["rows"] = Json::Value(Json::arrayValue);
 		if (sgSA)
 		{
-			PromotionOpenings poSA(sgSA->getAllActiveSoldiers(), _game->getMod());
+			PromotionOpenings poSA(SharedEcon::promotionSoldiers(_game, sSA), _game->getMod());
 			opSA["sergeant"] = poSA[RANK_SERGEANT]; opSA["captain"] = poSA[RANK_CAPTAIN];
 			opSA["colonel"] = poSA[RANK_COLONEL]; opSA["commander"] = poSA[RANK_COMMANDER];
 			TextList* lstSA = nullptr;

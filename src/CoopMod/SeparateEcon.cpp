@@ -722,14 +722,15 @@ bool allowsForeignBaseCommand(const std::string& cmd, bool remote)
 	// Player-facing exceptions agreed for a foreign Separate base. Commands in
 	// the second group are host simulation results, never remote player requests.
 	// A visitor may buy, equip/crew with their own soldiers and vehicles, and
-	// sack, rename, re-armor or train their own soldier stationed there (the
+	// sack, rename, re-armor, train, promote or re-flag their own soldier stationed there (the
 	// validators check the soldier's owner; armor comes from that base's stores;
 	// training uses that base's gym and psi lab), and equip their own
 	// soldiers there from that base's stores (soldier_layout).
 	// Craft weapon rearm stays with the base owner.
 	if (cmd == "buy" || cmd == "craft_equip" || cmd == "craft_assign"
 		|| cmd == "sack" || cmd == "soldier_rename" || cmd == "soldier_armor"
-		|| cmd == "soldier_training" || cmd == "soldier_layout")
+		|| cmd == "soldier_training" || cmd == "soldier_layout"
+		|| cmd == "soldier_rank" || cmd == "soldier_nationality")
 		return true;
 	// A saved equipment template belongs to its player, not to a base: the
 	// command names no base, and no base's owner may refuse it.
