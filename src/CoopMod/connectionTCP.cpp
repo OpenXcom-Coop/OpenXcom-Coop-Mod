@@ -25011,6 +25011,7 @@ void combatEnd(CombatGhost& g, bool cut)
 	{
 		(*r)["cut"] = cut;
 		(*r)["steps"] = g.steps;
+		(*r)["lastIndex"] = (int)g.index; // probe only: the last trajectory position a shot ghost drew
 		(*r)["maxGapMs"] = g.maxGapMs; // probe only
 	}
 	++combatKindSlot(cut ? g_combatProbe.cut : g_combatProbe.completed, g.kind);
@@ -25107,6 +25108,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	r["sound"] = Mod::NO_SOUND;
 	r["soundEnd"] = Mod::NO_SOUND;
 	r["steps"] = 0;
+	r["lastIndex"] = 0;
 	r["cut"] = false;
 	// Probe only: afterTurnSeq and waitMs
 	// stay 0 until the hold writes them; maxGapMs is the advance() gap while the ghost lives (written at
