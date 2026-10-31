@@ -1263,16 +1263,17 @@ void InventoryState::btnOkClick(Action *)
 	_game->popState();
 	if (!_tu)
 	{
-		if (oneWorldBaseScreen())
+		if (separateBaseScreen())
 		{
-			// The host owns the world: the layouts go to it as one command. Separate
-			// mutates nothing here (the applier also moves the gear); SHARED keeps
-			// its local write, which the command then makes the same everywhere.
+			// Separate: the host owns the world, so the layouts go to it as one
+			// command and this screen mutates nothing (the applier also moves the gear).
 			submitOneWorldLayouts();
-			if (!separateBaseScreen())
-			{
-				saveEquipmentLayout();
-			}
+		}
+		else if (oneWorldBaseScreen())
+		{
+			// SHARED: the local write; baseEquipOk below sends the player's own
+			// soldiers' records to the host and puts the partner's back.
+			saveEquipmentLayout();
 		}
 		else if (_base || !Options::oxceAlternateCraftEquipmentManagement)
 		{
