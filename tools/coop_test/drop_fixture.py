@@ -127,7 +127,8 @@ def real_click(gc, text, timeout=15.0):
     return rec
 
 def quick_save(host, name=QUICK, timeout=20.0):
-    """save_game_ui {type: quick} with the partner running: the 54 seen, then gone; pending ""; `name` written after the trigger"""
+    """save_game_ui {type: quick} with the partner running: the host's top GeoscapeState, pending "", `name` written after
+    the trigger (a Shared or Separate host writes at once; a 54 on the way is recorded as seen54)"""
     before = files(host).get(name)
     session_s = session.wait_coop_session(host)   # the 54 needs the host's live session
     c = {"filesBefore": files(host), "saveIDBefore": sid(host), "coopBefore": coop(host), "n0": len(logl(host)), "sessionS": session_s}
@@ -140,13 +141,13 @@ def quick_save(host, name=QUICK, timeout=20.0):
             trail.append(dict(s, t=now(t0)))
         seen = seen or s["code"] == 54
         written = bool(s["file"] and (not before or s["file"][1] > before[1]))
-        if seen and s["hostStack"] and s["hostStack"][-1] == "GeoscapeState" and s["pend"] == "" and written:
+        if s["hostStack"] and s["hostStack"][-1] == "GeoscapeState" and s["pend"] == "" and written:
             break
         time.sleep(0.02)
     c.update(trail=trail, seen54=seen, t=now(t0), saveIDAfter=sid(host), filesAfter=files(host), coopAfter=coop(host))
     a = c["filesAfter"].get(name)
     c["written"] = bool(a and (not before or a[1] > before[1]))
-    c["ok"] = bool(seen and c["written"] and trail and trail[-1]["hostStack"][-1:] == ["GeoscapeState"] and trail[-1]["pend"] == "")
+    c["ok"] = bool(c["written"] and trail and trail[-1]["hostStack"][-1:] == ["GeoscapeState"] and trail[-1]["pend"] == "")
     c["log"] = lines_since(host, c["n0"])[-20:]
     return c
 

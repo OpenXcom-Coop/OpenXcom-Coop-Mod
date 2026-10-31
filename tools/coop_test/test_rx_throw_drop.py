@@ -6,7 +6,8 @@ drop; UDP: the canonical -2), so the partner sees "Server connection lost" and c
 Three rows, one fresh boot pair each (key "49201", user dirs <tag>_host / _client / _client2 with the tags rx_throw_tcp,
 rx_throw_udp and rx_throw_on_client; session.new_campaign SEPARATE gm1, host_bad_message_udp over transport udp; then
 F.stable_geo(host, client, STABLE_S)). Every trigger is the test-only command throw_next_rx.
-  host_bad_message_tcp: host throw_next_rx {state: "target_positions"}; MARKED on the host within W_MARK; the client's
+  host_bad_message_tcp: host throw_next_rx {state: "time"} (the client's time heartbeat: in the one Separate world
+      only the host sends craft positions); MARKED on the host within W_MARK; the client's
       21 within W_21; wait(host) read_settled / read_held; then (only if tcp_client_sees_lost passed) client.kill(),
       F.rejoin(host, client2, KEY, NAME), F.resume_and_clear(host), client2's top GeoscapeState within W_GEO,
       F.quick_save(host). Cells: tcp_armed GUARD, tcp_no_flood FIX, tcp_reconnect_dialog FIX, tcp_partner_dropped FIX,
@@ -222,15 +223,15 @@ def baseline(r, x):
     r.ev["NAME"] = x.name if hc.get("clientName") else "%s (get_coop.clientName empty: the name new_campaign passed)" % DEFAULT_NAME
 
 
-def arm(r, gc, n0):
-    """throw_next_rx {state: target_positions} on gc; MARKED within W_MARK -> the pre cell's ok"""
+def arm(r, gc, n0, state):
+    """throw_next_rx {state} on gc; MARKED within W_MARK -> the pre cell's ok"""
     ta = time.time()
-    r.ev["arm"] = pick(q(gc, {"cmd": "throw_next_rx", "state": "target_positions"}), ("ok", "armed", "error"))
+    r.ev["arm"] = pick(q(gc, {"cmd": "throw_next_rx", "state": state}), ("ok", "armed", "error"))
     r.ev["arm at"] = time.strftime("%H:%M:%S")
     r.ev["mark s"] = wait(lambda: marked(gc, n0) is not None, W_MARK)
     r.ev["MARKED"] = mk = marked(gc, n0)
     n = counts(gc, n0)
-    ok = r.ev["arm"].get("armed") is True and n["ARMED"] == 1 and n["MARKED"] == 1 and mk is not None and "target_positions" in mk
+    ok = r.ev["arm"].get("armed") is True and n["ARMED"] == 1 and n["MARKED"] == 1 and mk is not None and state in mk
     return ta, ok, "armed %s, ARMED %d, MARKED %d (%s) within %.0f s" % (r.ev["arm"].get("armed"), n["ARMED"], n["MARKED"], mk, W_MARK)
 
 
@@ -247,7 +248,7 @@ def geo_cells(r, x, p, w21):
     """the shared host_bad_message_tcp / host_bad_message_udp trigger and cells (p = "tcp" or "udp") -> the 21 seen"""
     h, c, ev = x.host, x.client, r.ev
     ack0 = ev["base"]["host get_coop"].get("resumeAck") is True
-    tt, ok, why = arm(r, h, x.n_h)
+    tt, ok, why = arm(r, h, x.n_h, "time")
     r.cell(p + "_armed", ack0 and ok, "host resumeAck %s before the arm; %s" % (ack0, why))
     if not (ack0 and ok):
         raise Stop("%s_armed: resumeAck %s; %s" % (p, ack0, why))
@@ -350,7 +351,7 @@ def row_client(x, results, walls):
     h, c, ev = x.host, x.client, r.ev
     try:
         baseline(r, x)
-        tt, ok, why = arm(r, c, x.n_c)
+        tt, ok, why = arm(r, c, x.n_c, "target_positions")
         r.cell("client_armed", ok, "the client's " + why)
         if not ok:
             raise Stop("client_armed: " + why)
