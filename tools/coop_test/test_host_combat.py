@@ -10,7 +10,7 @@ context-less, onChainQuiesced's empty-stack branch runs
 CoopDelta::flushSync(), and one `sync` ev carries the delta (units, items,
 the corpse with the host's id), but no cue ev is sent and no
 `bt_action_end` closes the action. Three scenarios on ONE boot, in this
-order (the tank_death_spin row below runs on a second boot):
+order (the tank_hull_turn and tank_death_spin rows below run on a second boot):
 
   host_kill  host real-UI snap shot kills alien A. H gets a rifle + clip
       (battle_give on BOTH, ids equal), H -> KILL_H_TILE facing KILL_H_DIR (one
@@ -83,6 +83,24 @@ step; the tank DEAD and off its tile on both, facing 3 with its turret on
 TANK_TURRETS[-1] on both (the drawn spin ends on the real facing); the
 asserts common to every death row and the common asserts. A watcher that
 draws the tank's own turret through the spin records only the staged facing.
+
+Turn row tank_hull_turn, on the second boot before tank_death_spin: the
+watching machine draws a tank's turret turning with its hull through a hull
+turn (vanilla turns the turret one octant with each body octant). The
+turret is staged off the hull on both machines (field_poke turretDir
+TANK_TURRET0, client first, every bucket EQUAL); the host TAB-selects the
+tank and right-clicks TANK_TURN_TILES[0], then TANK_TURN_TILES[1]
+(map_tile_click, button right): two hull turns, the second back to
+TANK_DIR0 so tank_death_spin starts as before. Per turn k: exactly one host
+`turn` ev whose `[coop-turn]` payload is {unit, fromDir, toDir, turretFrom,
+turretTo} == TANK_TURN_PAYLOADS[k]; ONE client turnGhost record for its seq
+{unit, fromDir, toDir, octants, durationMs == octants x TANK_TURN_PACE_MS,
+endedBy natural, cueSeq 0} whose dirsShown is TANK_TURN_HULL[k] and whose
+turretsShown (the turret facings the watcher drew) is TANK_TURN_TURRET[k],
+step for step (whole entries left out only across a client frame gap that
+spans them); the tank on both machines at the payload's toDir / turretTo.
+Then every bucket EQUAL and the common asserts. A watcher that draws the
+tank's own turret through the turn records only the turn's final facing.
 
 Effect row melee_ghost: host_stun's stun-rod swing plays on the watching
 machine as a melee ghost. The row wants ONE client combatGhost ring record of
@@ -258,6 +276,20 @@ TANK_DIRS = [(TANK_DIR0 + k) % 8 for k in range(1, TANK_OCTANTS + 1)]        # [
 TANK_TURRETS = [(TANK_TURRET0 + k) % 8 for k in range(1, TANK_OCTANTS + 1)]  # [7, 0, 1]: the turret one octant
                                  # with each body octant (BattleUnit::turn, a unit whose turret type is > -1)
 TANK_DEATH = {"unit": TANK_ID, "outcome": "dead", "instant": False, "damageType": 1}   # kill_unit_real: DT_AP
+# tank_hull_turn, on the second boot before tank_death_spin (the tank on (14, 19, 1) facing TANK_DIR0)
+TANK_TURN_TILES = [(17, 19, 1), (14, 16, 1)]   # the host's right-clicks: due east (TANK_DIR0 -> 2, two octants
+                                 # clockwise), then due north (back to TANK_DIR0, two octants counterclockwise). Any
+                                 # tile on the tank's level in that direction if map_tile_click does not verify one
+# each turn's host payload: the hull from / to the tiles' directions, the turret from TANK_TURRET0 the same two octants
+TANK_TURN_PAYLOADS = [
+    {"unit": TANK_ID, "fromDir": TANK_DIR0, "toDir": 2, "turretFrom": TANK_TURRET0, "turretTo": 0},
+    {"unit": TANK_ID, "fromDir": 2, "toDir": TANK_DIR0, "turretFrom": 0, "turretTo": TANK_TURRET0}]
+TANK_TURN_HULL = [[0, 1], [2, 1]]      # the drawn hull per turn: vanilla's octant path minus the final facing
+TANK_TURN_TURRET = [[6, 7], [0, 7]]    # the drawn turret: one octant with each hull octant, the same way
+TANK_TURN_PACE_MS = 30           # seat 0's xcom dial (battleXcomSpeed, the default): the turn ghost's pace per octant;
+                                 # follows that option's default if it changes
+TANK_TURN_RECORD_S = 5.0         # bounded wait for the client's turnGhost record after the host's turn settled (it
+                                 # lands 2 x TANK_TURN_PACE_MS after the apply); any bound well above that
 
 PORT = "48625"
 FACTION_PLAYER = 0
@@ -1524,8 +1556,124 @@ def row_tank_death_spin(host, client, ctx):
     finish(fails)
 
 
+def tank_turn(host, client, tile, notes):
+    """One host right-click turn of the selected tank toward `tile` (map_tile_click, button right): the host's evs
+    since, its one `turn` ev's [coop-turn] payload, the client's turnGhost record for that seq (bounded wait) and
+    the tank on both machines after it."""
+    from test_ai_origins import host_payloads  # lazy: that file imports this one
+    seq0 = event_state(host).get("lastSeqEmitted") or 0
+    clk = host.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2], "button": "right"})
+    out = {"tile": tile, "click": {k: clk.get(k) for k in ("verified", "clicked", "hitX", "hitY", "hitZ")}}
+    try:
+        host.wait_for(f"the host's turn toward {tile} ended (a bt_action_end after seq {seq0})",
+                      lambda: any(e["kind"] == "bt_action_end" for e in evs_since(host, seq0)) or None,
+                      timeout=15, interval=0.05)
+    except Exception as e:
+        notes.append(f"turn toward {tile}: {short(e)}")
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after the turn toward {tile}: {short(e)}")
+    hev = evs_since(host, seq0)
+    turns = [e["seq"] for e in hev if e["kind"] == "turn"]
+    s = turns[0] if len(turns) == 1 else None
+    out.update(hostEvs=[(e["seq"], e["kind"], e["actionId"]) for e in hev], turnSeq=s,
+               payload=((host_payloads(host, [s]).get(s) or {}).get("payload") or {}) if s else None, record=None)
+    t0 = time.time()
+    while s is not None and time.time() - t0 < TANK_TURN_RECORD_S:
+        mine = [r for r in ((event_state(client).get("turnGhost") or {}).get("ring") or []) if r.get("seq") == s]
+        if mine:
+            out["record"] = mine[0]
+            break
+        time.sleep(0.05)
+    out["tank"] = {"host": tank_unit(host), "client": tank_unit(client)}
+    return out
+
+
+def tank_turn_fails(out, k):
+    """Turn k of tank_hull_turn: its click, payload, client turnGhost record (hull and turret step for step) and
+    the tank's end facing on both machines."""
+    tag, want_p = f"turn {k + 1}", TANK_TURN_PAYLOADS[k]
+    fails = []
+    if out["click"].get("verified") is not True or out["click"].get("clicked") is not True:
+        fails.append(f"{tag}: map_tile_click {out['tile']} button right answered {out['click']} (want verified and "
+                     f"clicked)")
+    if out["turnSeq"] is None:
+        return fails + [f"{tag}: host evs {out['hostEvs']} (want exactly one `turn` ev)"]
+    got_p = {x: (out["payload"] or {}).get(x) for x in want_p}
+    if got_p != want_p:
+        fails.append(f"{tag}: host [coop-turn] payload of seq {out['turnSeq']} {got_p} (want {want_p})")
+    r = out["record"]
+    if r is None:
+        return fails + [f"{tag}: no client turnGhost record for turn seq {out['turnSeq']} within "
+                        f"{TANK_TURN_RECORD_S} s"]
+    octants = len(TANK_TURN_HULL[k])
+    want_r = {"unit": TANK_ID, "fromDir": want_p["fromDir"], "toDir": want_p["toDir"], "octants": octants,
+              "durationMs": octants * TANK_TURN_PACE_MS, "endedBy": "natural", "cueSeq": 0}
+    got_r = {x: r.get(x) for x in want_r}
+    if got_r != want_r:
+        fails.append(f"{tag}: client turnGhost record {got_r} (want {want_r})")
+    # per-advance samples of the turn's fixed schedule (each entry TANK_TURN_PACE_MS): whole entries may be left
+    # out only across a client frame gap that spans them
+    for field, full in (("dirsShown", TANK_TURN_HULL[k]), ("turretsShown", TANK_TURN_TURRET[k])):
+        fails += [f"{tag}: {m}" for m in sampled_list_fails(f"client turnGhost record {field}", r.get(field), full,
+                                                            [TANK_TURN_PACE_MS] * len(full), r.get("maxGapMs"))]
+    want_t = {"direction": want_p["toDir"], "directionTurret": want_p["turretTo"]}
+    for n, v in out["tank"].items():
+        if {x: v[x] for x in want_t} != want_t:
+            fails.append(f"{tag}: {n} tank {TANK_ID} after the turn {v} (want {want_t})")
+    return fails
+
+
+def row_tank_hull_turn(host, client, ctx):
+    """Row tank_hull_turn (the second boot, before tank_death_spin): the tank's turret staged at TANK_TURRET0 on both
+    machines (client first), every bucket EQUAL; the host TAB-selects the tank and right-clicks the two
+    TANK_TURN_TILES; per turn the host's payload, the client's turnGhost record drawing the hull TANK_TURN_HULL[k]
+    and the turret TANK_TURN_TURRET[k] step for step, and the tank's end facing on both machines."""
+    notes = []
+    pre = {"host": tank_unit(host), "client": tank_unit(client)}
+    poke = {}
+    for gc in (client, host):
+        r = gc.cmd({"cmd": "field_poke", "class": "unit", "id": TANK_ID, "field": "turretDir", "value": TANK_TURRET0,
+                    "restore": False})
+        poke[gc.name] = {k: r.get(k) for k in ("ok", "error", "before", "poked")}
+    try:
+        session.wait_host_idle(host, client, timeout=30)
+    except Exception as e:
+        notes.append(f"wait_host_idle after the staging: {short(e)}")
+    staged_diff = diff_buckets(host, client)
+    staged = {"host": tank_unit(host), "client": tank_unit(client)}
+    before = {"host": probes(host), "client": probes(client)}
+    sel = tab_select(host, TANK_ID)
+    turns = [tank_turn(host, client, t, notes) for t in TANK_TURN_TILES] if sel else []
+    ev = {"pre": pre, "poke": poke, "staged": staged, "stagedDiff": staged_diff, "selected": sel,
+          "turns": turns, "notes": list(notes)}
+    print(f"EVIDENCE tank_hull_turn: {json.dumps(ev, sort_keys=True, default=str)}", flush=True)
+    fails = list(notes)
+    want_pre = {"type": TANK_TYPE, "coop": COOP_SEAT_0, "status": STATUS_STANDING, "direction": TANK_DIR0}
+    for n, v in pre.items():
+        if {x: v[x] for x in want_pre} != want_pre:
+            fails.append(f"{n} tank {TANK_ID} at the row start {v} (want {want_pre})")
+    for n, p in poke.items():
+        if p.get("ok") is not True or p.get("poked") != TANK_TURRET0:
+            fails.append(f"{n} field_poke turretDir {TANK_TURRET0} answered {p} (want ok, poked {TANK_TURRET0})")
+    if staged_diff:
+        fails.append(f"buckets differ after the staging: {staged_diff} (want none)")
+    for n, v in staged.items():
+        if (v["direction"], v["directionTurret"]) != (TANK_DIR0, TANK_TURRET0):
+            fails.append(f"{n} tank {TANK_ID} after the staging {v} (want direction {TANK_DIR0}, directionTurret "
+                         f"{TANK_TURRET0})")
+    if not sel:
+        fails.append(f"precondition: tab_select(host, {TANK_ID}) did not select the tank (selectedId "
+                     f"{battle_state(host).get('selectedId')})")
+    for k, out in enumerate(turns):
+        fails += tank_turn_fails(out, k)
+    fails += common_fails(host, client, before, {}, "tank_hull_turn")
+    finish(fails)
+
+
 SCENARIOS = (("host_kill", row_host_kill), ("host_stun", row_host_stun), ("death_burst", row_death_burst))
-TANK_SCENARIOS = (("tank_death_spin", row_tank_death_spin),)
+TANK_SCENARIOS = (("tank_hull_turn", row_tank_hull_turn), ("tank_death_spin", row_tank_death_spin))
 
 
 # ===================== bring-up =====================
