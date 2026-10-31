@@ -39,6 +39,10 @@ WHAT THE WALK CONTRACT REQUIRES, and where each requirement is asserted below:
                     settings, with an identical result, which proves the
                     reserve is per machine: the host does not apply ITS
                     reserve to a client-origin walk.
+        prefix      a staged walk whose prefix ends on a tile the host would
+                    reach by a DIFFERENT route of the same length is still
+                    admitted and executed tile for tile: the host checks the
+                    prefix against its own route to the CLICKED destination.
   SAFE-LIST PHASE
       with `coopCancelOnAnyPartnerAction` ON, a partner walk does NOT cancel a
       held pending intent. The cancel policy's safe-list names the ev kind as
@@ -162,6 +166,38 @@ FORMATION = {  # slot -> (x, y) start tile; slots 0-4 = client soldiers (seat or
 # done 1.16 s after the send.
 BLOCKER_WALK_STEPS = 7
 BLOCKER_XCOM_DIAL = 100
+
+# The RESERVE PREFIX PHASE's staged walk. Its walker starts on its FORMATION tile S and is ordered to
+# S + PREFIX_LEN * D + PREFIX_SIDE. Pathfinding's straight-line route there (Pathfinding::bresenhamPath,
+# tried before A*) steps sideways once, at step PREFIX_LEN // 2 + 1; with only the kneel reserve set, the
+# client's own reserve lets PREFIX_STEPS steps through, so the prefix ends on
+# S + PREFIX_STEPS * D + PREFIX_SIDE, and the straight-line route to that tile steps sideways at step
+# PREFIX_STEPS // 2 + 1: the same length, different tiles. Each value with the precondition it must meet
+# and how to pick the next one:
+# PREFIX_SLOT: a client soldier that every earlier phase leaves on its FORMATION tile with its turn-start TU
+#   (slot 4 is only the DENY PHASE walker, and both its walks are denied), with no unit on its lane or on
+#   the row beside it. Next pick: another client slot that the phases before this one leave unmoved.
+PREFIX_SLOT = 4
+# PREFIX_SIDE: the sideways step, one tile toward the next lane. Precondition: every tile of the two rows
+#   from S + D to the destination is open floor with no door part and no unit, and the route to every one of
+#   them is a straight line at a uniform cost (path_probe: k steps, 4 TU each, 6 for the side step). Next
+#   pick: the other side, (0, -1).
+PREFIX_SIDE = (0, 1)
+# PREFIX_LEN, PREFIX_STEPS: PREFIX_LEN // 2 + 1 <= PREFIX_STEPS < PREFIX_LEN and
+#   PREFIX_STEPS // 2 != PREFIX_LEN // 2 (the side step lies inside the prefix, and the prefix's own route
+#   puts it at another step), with the PREFIX_SIDE precondition holding out to PREFIX_LEN (on this seed's map
+#   a wall west of x = 10 ends the straight line on these rows: the route to x = 10 and beyond detours, so
+#   PREFIX_LEN <= 8). Next pick: the next PREFIX_STEPS that meets it, then the next shorter PREFIX_LEN.
+PREFIX_LEN = 8
+PREFIX_STEPS = 6
+# PREFIX_TU: the walker's TU for the walk. The kneel reserve costs the kneel-down cost (4 TU) whatever the
+#   weapon. Precondition: 4 + the cost of the first PREFIX_STEPS steps <= PREFIX_TU < 4 + the cost of the
+#   first PREFIX_STEPS + 1 steps (open ground: 4 TU a straight step, 6 the side step, so 30 <= TU < 34),
+#   and PREFIX_TU <= the walker's maximum TU. Next pick: the middle of that window.
+PREFIX_TU = 32
+KNEEL_DOWN_TU = 4
+STEP_TU = 4
+SIDE_STEP_TU = 6
 
 SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 SDLK_TAB = 9     # Options::keyBattleNextUnit default
@@ -978,6 +1014,100 @@ def phase_reserve_truncation(host, client, client_ids):
           f"'the host does not apply ITS reserve to a client-origin walk'")
 
 
+def phase_reserve_prefix(host, client, actor_id):
+    """A walk the client's OWN reserve shortened is admitted and executed tile for tile even
+    when the host's own route to the prefix's last tile is a different route of the same length:
+    the host checks the prefix against its route to the CLICKED destination (the call the client
+    made), never against a fresh route to the prefix's end. The walker is restored afterwards
+    (tile, facing, TU), so the phases after this one start from the same state."""
+    what = "RESERVE PREFIX PHASE"
+    home = unit_of(host, actor_id)
+    start = pos_of(home)
+    assert start == (FORMATION[PREFIX_SLOT][0], FORMATION[PREFIX_SLOT][1], Z), (
+        f"FIXTURE PREMISE BROKE: {what}: unit {actor_id} sits at {start}, not on its FORMATION "
+        f"tile {FORMATION[PREFIX_SLOT]}")
+    side_at = PREFIX_LEN // 2 + 1
+
+    def route_tile(k, side_step):
+        s = 1 if k >= side_step else 0
+        return (start[0] + D[0] * k + PREFIX_SIDE[0] * s,
+                start[1] + D[1] * k + PREFIX_SIDE[1] * s, start[2])
+
+    dest = route_tile(PREFIX_LEN, side_at)
+    want = [route_tile(k, side_at) for k in range(1, PREFIX_STEPS + 1)]
+    other = [route_tile(k, PREFIX_STEPS // 2 + 1) for k in range(1, PREFIX_STEPS + 1)]
+    assert want[-1] == other[-1] and want != other, (
+        f"{what}: PREFIX_LEN / PREFIX_STEPS do not stage a tie: {want} vs {other}")
+
+    # Both rows open, no door, nobody on them.
+    st = battle_state(host)
+    occupied = {pos_of(u) for u in st["units"] if not u.get("isOut")} - {start}
+    box = [route_tile(k, s) for k in range(1, PREFIX_LEN + 1) for s in (0, PREFIX_LEN + 1)]
+    xs = [t[0] for t in box]
+    ys = [t[1] for t in box]
+    rows = session.tile_scan(host, min(xs), max(xs), min(ys), max(ys), Z, Z, doors=True)
+    shut = [t for t in box if not session.scan_is_open_ground(rows, t, occupied)]
+    assert not shut, (
+        f"FIXTURE PREMISE BROKE: {what}: tile(s) {shut} are not open ground (floor, no door, no unit)")
+    # Every route the row relies on is a straight line at a uniform cost: k steps, STEP_TU each, plus
+    # SIDE_STEP_TU - STEP_TU for the side step.
+    for k in range(1, PREFIX_LEN + 1):
+        for s, extra in ((PREFIX_LEN + 1, 0), (0, SIDE_STEP_TU - STEP_TU)):
+            t = route_tile(k, s)
+            r = host.ok({"cmd": "path_probe", "unit": actor_id, "x": t[0], "y": t[1], "z": t[2]})
+            assert r["reachable"] and r["steps"] == k and r["tuCost"] == k * STEP_TU + extra, (
+                f"FIXTURE PREMISE BROKE: {what}: the route from {start} to {t} is {r['steps']} step(s) for "
+                f"{r['tuCost']} TU (reachable {r['reachable']}), not a straight line of {k} step(s) for "
+                f"{k * STEP_TU + extra} TU")
+
+    session.place_deterministic(
+        host, client, [{"cmd": "battle_set_unit_state", "unit": actor_id, "tu": PREFIX_TU}],
+        what=f"{what} unit {actor_id} TU {PREFIX_TU}")
+    assert unit_of(host, actor_id)["tu"] == PREFIX_TU, (
+        f"FIXTURE PREMISE BROKE: {what}: unit {actor_id}'s maximum TU is below {PREFIX_TU}")
+    set_reserve(host, mode="none", kneel=False)
+    set_reserve(client, mode="none", kneel=True)
+    ev0 = event_state(client)
+    out = send_walk_outcome(host, client, actor_id, dest)
+    ev1 = event_state(client)
+    set_reserve(client, mode="none", kneel=False)
+
+    assert ev1["coopWalkReserveTruncations"] == ev0["coopWalkReserveTruncations"] + 1, (
+        f"{what}: the client's own reserve did not shorten the walk to {dest} (truncations "
+        f"{ev0['coopWalkReserveTruncations']} -> {ev1['coopWalkReserveTruncations']}, outcome {out[0]})")
+    assert out[0] == "walk", (
+        f"{what}: the client's own reserve shortened the walk to {dest} to a prefix and the host "
+        f"answered {out[0]}: {out[1]} - the prefix ends on {want[-1]}, which the host reaches by "
+        f"{other} on its own, and the shipped prefix {want} must be checked against the route to {dest}")
+    hw, cw = out[1], last_walk(client)
+    assert_step_stream(hw, cw, what, expect_len=PREFIX_STEPS, expect_halted=False)
+    executed = [tpos(s["to"]) for s in hw["steps"]]
+    assert executed == want, (
+        f"{what}: the host walked {executed}; the straight-line route to {dest} begins {want}")
+    assert hw["plannedLen"] == PREFIX_STEPS, (
+        f"{what}: the host planned {hw['plannedLen']} step(s), the client shipped {PREFIX_STEPS}")
+    assert_every_step_hashed(client, PREFIX_STEPS, what)
+    hu, cu = assert_unit_parity(host, client, actor_id, f"after the {what} walk")
+    assert pos_of(hu) == want[-1], f"{what}: unit {actor_id} ended on {pos_of(hu)}, not {want[-1]}"
+    tus = [PREFIX_TU] + [s["tuAfter"] for s in hw["steps"]]
+    step_costs = [a - b for a, b in zip(tus, tus[1:])]
+    charged = PREFIX_TU - hu["tu"]
+    assert charged == sum(step_costs) and hu["tu"] >= KNEEL_DOWN_TU, (
+        f"{what}: the walk charged {charged} TU (steps {step_costs}) and left {hu['tu']}; the client's "
+        f"kneel reserve ({KNEEL_DOWN_TU} TU) let exactly these steps through")
+    assert_hash_clean(host, client, full=True, what=f"after the {what} walk")
+    print(f"PASS {what}: the client's kneel reserve shortened unit {actor_id}'s walk to {dest} to "
+          f"{PREFIX_STEPS} step(s) ending on {want[-1]} (the host's own route there is {other}); the host "
+          f"admitted it and walked {executed}, {charged} TU charged, all buckets EQUAL")
+
+    session.place_deterministic(
+        host, client,
+        [{"cmd": "battle_teleport_unit", "unit": actor_id,
+          "x": start[0], "y": start[1], "z": start[2], "dir": home["direction"]},
+         {"cmd": "battle_set_unit_state", "unit": actor_id, "tu": home["tu"]}],
+        what=f"{what} restore unit {actor_id}")
+
+
 def set_client_xcom_dial(host, client, value):
     """The CLIENT's walk dial (the host paces a walk by the WALKER's seat
     dial). Waits until both machines' seat tables hold it."""
@@ -1283,6 +1413,7 @@ def main():
         phase_hud(host, client, slot_unit[2])
         phase_halt(host, client, slot_unit[3])
         phase_denies(host, client, slot_unit[4], slot_unit[0])
+        phase_reserve_prefix(host, client, slot_unit[PREFIX_SLOT])
 
         # ORDER MATTERS. SAFE-LIST PHASE needs a LONG busy window (the holder's real
         # 7-step walk, 28 TU) and BURST PHASE needs actors that can still walk at all, while
