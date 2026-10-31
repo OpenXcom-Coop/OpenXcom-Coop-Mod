@@ -135,6 +135,7 @@ SEAT1_SOLDIERS = 5
 # Door-free radius around every lane tile (precalc_walk_fixture.py): a walk of
 # up to WALK_RUN tiles plus vanilla's own one-tile door lookahead.
 WALK_RUN = 3
+FULL_TU = 255  # a battle_set_unit_state TU write is clamped to the unit's own maximum
 WALK_DOOR_RADIUS = WALK_RUN + 2
 
 # The contact margin precalc_walk_fixture.py applies when it bakes the
@@ -856,11 +857,21 @@ def phase_reserve_refusal(host, client, client_ids):
     # Every probe of the search, for the failure message: (unit, weapon, reserve
     # mode, [(TU before the probe, outcome), ...]).
     trail = []
-    # highest-TU actor first: the reserve-bite window is reached by walking an
-    # actor DOWN, so an actor that starts with the most room is the one that can
-    # be walked into it.
+    # highest-TU actor first; each walk-down below starts from the actor's full TU.
     for actor_id in sorted(client_ids, key=lambda u: -unit_of(host, u)["tu"]):
         for mode in ("aimed", "snap"):
+            # The window is reached by walking an actor DOWN, so the walk-down starts
+            # from the actor's own full TU, set on both machines (hash-gated). The TU
+            # the earlier phases leave varies per boot, and an actor already below its
+            # reserve cost can never be walked into the window: the first step's
+            # early-out allows it and walking only lowers TU. From full TU (the reserve
+            # cost is a share of it) every walk the client's own reserve allows keeps
+            # the TU at or above the cost, so the walk-down ends in the refusal unless
+            # the weapon reserves nothing for this mode.
+            session.place_deterministic(
+                host, client,
+                [{"cmd": "battle_set_unit_state", "unit": actor_id, "tu": FULL_TU}],
+                what=f"RESERVE REFUSAL PHASE unit {actor_id} full TU before the {mode} walk-down")
             probes = []
             trail.append((actor_id, unit_of(host, actor_id).get("weapon"), mode, probes))
             for _ in range(14):
