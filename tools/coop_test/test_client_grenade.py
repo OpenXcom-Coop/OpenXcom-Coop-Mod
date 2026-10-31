@@ -167,7 +167,7 @@ THROW_ROWS = 2                    # primed with the mod: THROW + UNPRIME
 SEED_THROW = 2                    # seed 1 landed on (11,21,0)
 GRENADE_BLAST_TILES = 5           # the grenade's blast radius (tiles): no unit may stand this close
 THROW_TU_AFTER = 46               # 64 - 16 throw - 2 (two octants of pre-throw turn)
-THROW_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
+THROW_CHAIN = ["turn_start", "turn", "shot", "bt_action_end"]   # the pre-throw turn
 
 # ----- launcher_dive -----
 LAUNCH_C_TILE, LAUNCH_C_DIR = (28, 25, 0), 6   # faces west, away from the waypoints
@@ -175,7 +175,7 @@ LAUNCH_W = (46, 25, 0)            # both waypoints (vanilla's dive)
 LAUNCH_CAMERA = (41, 24, 0)       # client camera before the waypoint clicks
 SEED_LAUNCH = 1
 LAUNCH_TU_AFTER = 18              # 64 - 42 launch - 4 (four octants of pre-launch turn)
-LAUNCH_CHAIN = ["turn", "shot", "shot", "explosion", "bt_action_end"]   # the pre-launch turn
+LAUNCH_CHAIN = ["turn_start", "turn", "shot", "shot", "explosion", "bt_action_end"]   # the pre-launch turn
 BOMB_POWER, BOMB_RADIUS = 200, 10
 BOMB_CENSUS_BOX = (range(34, 50), range(13, 38), range(0, 2))   # the census box (x, y), z 0-1
 BOMB_TILES_CHANGED = 285

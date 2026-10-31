@@ -66,7 +66,7 @@ TANK, ALIEN, P_ID = 1000000, 1000001, 1000002
 S_TYPE = "STR_SECTOID_SOLDIER"    # what H converts into (no spawn unit of its own)
 STAGE_S, STAGE_DIR = (20, 19, 0), 4   # C1's open-ground stage
 FLOOR_S = (24, 19, 0)             # the snap target; the projectile's end converts H
-CHAIN_KINDS = ["turn", "shot", "hit", "spawn", "bt_action_end"]
+CHAIN_KINDS = ["turn_start", "turn", "shot", "hit", "spawn", "bt_action_end"]
 FACTION_PLAYER, STATUS_DEAD = 0, 6
 STEP_S, CLIENT_S, LOG_FLUSH_S = 30, 15, 3
 DESYNC_RE = re.compile(r"\[coop-hash\] DESYNC: bucket=(\S+) seq=(\d+) kind=(\S+) expect=([0-9a-f]+) got=([0-9a-f]+)")

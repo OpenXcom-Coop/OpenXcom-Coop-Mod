@@ -217,10 +217,13 @@ def host_cg():  # the host combatGhost all zero
     return dict({g: {k: 0 for k in kinds} for g in ("enqueued", "completed", "cut")}, live=0, ring=[])
 
 def turn_cell(dirs, gap, tmp=None):  # C's 4-octant turn 6 -> 2 before its shot, through gp.turn_fails
-    tr = {"seq": 30, "actionId": 5, "unit": gp.C_ID, "fromDir": 6, "toDir": 2, "octants": 4, "durationMs": 120,
-          "seat": gp.COOP_SEAT_1, "endedBy": "natural", "dirsShown": dirs, "poseShown": gp.STATUS_TURNING,
-          "maxGapMs": gap, "endStamp": 8}
-    tv = {"actionId": 5, "hostChain": [(30, "turn"), (31, "shot")], "clientChain": [(30, "turn", 5), (31, "shot", 5)],
+    tr = {"seq": 30, "actionId": 5, "unit": gp.C_ID, "cueSeq": 29, "fromDir": 6, "toDir": 2, "octants": 4,
+          "durationMs": 120, "seat": gp.COOP_SEAT_1, "endedBy": "natural", "dirsShown": dirs,
+          "poseShown": gp.STATUS_TURNING, "maxGapMs": gap, "endStamp": 8}
+    tv = {"actionId": 5, "hostChain": [(29, "turn_start"), (30, "turn"), (31, "shot")],
+          "clientChain": [(29, "turn_start", 5), (30, "turn", 5), (31, "shot", 5)],
+          "cueSeq": 29, "cuePayload": {"actor": gp.C_ID, "fromDir": 6, "toDir": 2, "turret": False},
+          "cueH": {"host": [False], "client": [False]}, "cueDelta": False,
           "turnSeq": 30, "turnPayload": {"unit": gp.C_ID, "fromDir": 6, "toDir": 2, "turretOnly": False, "tuAfter": 56},
           "turnRecords": [tr], "turnCounts": {"host": {}, "client": {}}, "pace": {"host": 30, "client": 30},
           "shotRecords": [{"seq": 31, "afterTurnSeq": 30, "waitMs": 0, "maxGapMs": 3, "startStamp": 9, "ms": 0,

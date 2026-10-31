@@ -179,7 +179,7 @@ V_NORTHWALL = 2                  # src/Mod/MapData.h enum VoxelType
 VOXEL = (16, 16, 24)             # voxels per tile (x, y, z)
 WALL_CHAIN = ["shot", "hit", "bt_action_end"]
 PRIME_CHAIN = ["prime", "bt_action_end"]
-THROW_CHAIN = ["turn", "shot", "bt_action_end"]   # the pre-throw turn
+THROW_CHAIN = ["turn_start", "turn", "shot", "bt_action_end"]   # the pre-throw turn
 # coopEmitCue's host log line (connectionTCP.cpp): one per cue the host sends.
 CUE_RE = re.compile(r"\[coop-cue\] (\S+) seq (\d+) actionId (\d+): (\{.*\})\s*$", re.M)
 

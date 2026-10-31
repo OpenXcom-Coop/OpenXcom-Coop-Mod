@@ -50,7 +50,7 @@ order (the tank_death_spin row below runs on a second boot):
       The CLIENT's test-only
       battle_action death_apply_hold {on: true} before the kill command ({on: false}
       after the row) forces the race order - C's ghost has started when C2's
-      death is enqueued - in every run, and seq 21's record must say so
+      death is enqueued - in every run, and seq 22's record must say so
       (headStartedAtEnqueue true), so death_burst never passes vacuously in the
       other order.
 
@@ -214,9 +214,9 @@ OVERKILL_NONE = 0                # getOverKillDamage() after host_kill, host_stu
 DIRS_4_TO_3 = [4, 5, 6, 7, 0, 1, 2, 3]   # the drawn directions of a 7-octant pirouette from dir 4 (host_kill_death,
                                          # stun_collapse)
 PHASES_ALL = list(range(DEATH_F))        # [0, 1, 2]: every collapse frame drawn
-KILL_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # the death ev (seq 12)
+KILL_DEATH = {"unit": A_ID, "outcome": "dead", "instant": False, "damageType": 1}          # the death ev (seq 13)
 STUN_DEATH = {"unit": A2_ID, "outcome": "unconscious", "instant": False,
-              "damageType": 0}  # the death ev (seq 17)
+              "damageType": 0}  # the death ev (seq 18)
 DEATH_KEYS = ("unit", "outcome", "instant", "damageType")
 DEATH_SETTLE_S = 5.0             # bounded wait for the client's death ghosts to end after the chain settled
 # death_burst (6 runs identical, 26.6 s per boot)
@@ -232,13 +232,14 @@ BURST_C2_TILE, BURST_C2_DIR = (12, 27, 0), 1   # open road
 #   seq 5 sync    equip {ready} seat 0 (host)
 #   seq 6 sync    equip {ready} seat 1 (client)
 #   seq 7 sync    equip {end} + battle.turn 1 (the offer's snapshot is turn 0)
-# so host_kill's staging reveal is seq 8, host_kill runs 9..14, host_stun 15..19.
-BURST_SEQ0 = 19                  # host lastSeqEmitted right before the kill command (after host_kill and host_stun)
+# so host_kill's staging reveal is seq 8, host_kill runs 9..15 (its pre-shot turn's display-only turn_start first),
+# host_stun 16..20.
+BURST_SEQ0 = 20                  # host lastSeqEmitted right before the kill command (after host_kill and host_stun)
 BURST_KILLED = [C_ID, C2_ID]     # kill_unit_real's answer
-BURST_EVS = [(20, "death", 0), (21, "death", 0), (22, "corpse", 0), (23, "corpse", 0)]   # host = client
-BURST_DEATHS = {20: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
-                21: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
-BURST_CORPSES = {22: {"unit": C_ID, "corpses": [101]}, 23: {"unit": C2_ID, "corpses": [102]}}
+BURST_EVS = [(21, "death", 0), (22, "death", 0), (23, "corpse", 0), (24, "corpse", 0)]   # host = client
+BURST_DEATHS = {21: {"unit": C_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": True},
+                22: {"unit": C2_ID, "outcome": "dead", "instant": False, "damageType": 1, "front": False}}
+BURST_CORPSES = {23: {"unit": C_ID, "corpses": [101]}, 24: {"unit": C2_ID, "corpses": [102]}}
 DIR_FACING_3 = 3                 # a collapsed unit's final direction (the corpse ev's DEAD carrier)
 # tank_death_spin, on the second boot (test_ownerless_units.bring_up)
 TANK_ID = 1000000                # the stock STR_TANK_CANNON (turret type 0, deathFrames 3) on seat 0 at that boot;
@@ -270,7 +271,8 @@ CURSOR_AIM = 2                   # battle_state.cursorType CT_AIM: H still targe
 CUE_KINDS = ("shot", "hit", "explosion", "melee", "psi", "death", "corpse", "prime", "sync", "fall",
              "revive", "spawn", "panic", "prox_trigger", "medikit", "scanner")
 COMBAT_CUES = tuple(k for k in CUE_KINDS if k != "sync")
-KILL_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
+KILL_CHAIN = ["turn_start", "turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
+KILL_CUES = ["turn_start", "shot", "hit", "death", "corpse"]   # KILL_CHAIN's cue kinds (cueCounts)
 STUN_CHAIN = ["melee", "death", "corpse", "bt_action_end"]
 LOG_TAIL = 256                   # CoopEventLog::kCapacity
 
@@ -379,8 +381,9 @@ def chain_of(host_evs, first_kind):
 
 def chain_fails(host_evs, client_evs, first_kind, want_kinds, seq0):
     """The action's checks: the host log for the action = exactly `want_kinds`, all
-    with `h`, and the client log holds the same seqs with the same kinds and
-    actionId. Returns (actionId, chain, fails)."""
+    with `h` but the display-only `turn_start` cue (which carries none), and the
+    client log holds the same seqs with the same kinds and actionId. Returns
+    (actionId, chain, fails)."""
     fails = []
     aid, chain = chain_of(host_evs, first_kind)
     if aid is None:
@@ -393,9 +396,12 @@ def chain_fails(host_evs, client_evs, first_kind, want_kinds, seq0):
     kinds = [e["kind"] for e in chain]
     if kinds != want_kinds:
         fails.append(f"host event_log for actionId {aid} = {kinds} (want exactly {want_kinds})")
-    noh = [e["seq"] for e in chain if not e["h"]]
+    noh = [e["seq"] for e in chain if not e["h"] and e["kind"] != "turn_start"]
     if noh:
         fails.append(f"host evs of actionId {aid} without `h`: seqs {noh} (want every one with h)")
+    cue_h = [e["seq"] for e in chain if e["h"] and e["kind"] == "turn_start"]
+    if cue_h:
+        fails.append(f"host `turn_start` evs of actionId {aid} with `h`: seqs {cue_h} (want none: display only)")
     cmap = {e["seq"]: e for e in client_evs}
     bad = [(e["seq"], e["kind"], cmap.get(e["seq"])) for e in chain
            if not cmap.get(e["seq"]) or cmap[e["seq"]]["kind"] != e["kind"]
@@ -1177,8 +1183,8 @@ def row_host_kill(host, client, ctx):
     fails += cfails
     corpse_ids = [i["id"] for i in corpses["host"]]
     fails += last_cue_fails(ca["client"]["lastCue"], aid, seq_of(chain, "corpse"), A_ID, corpse_ids)
-    fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, KILL_CHAIN[1:-1], seq0)
-    fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, KILL_CHAIN[1:-1],
+    fails += cue_count_fails("host", cb["host"]["cueCounts"], ca["host"]["cueCounts"], hev, KILL_CUES, seq0)
+    fails += cue_count_fails("client", cb["client"]["cueCounts"], ca["client"]["cueCounts"], cev, KILL_CUES,
                              seq0)
     # the item / morale / onTile asserts of test_delta_items' kill_drops_items row
     if idiff["hostOnly"] or idiff["clientOnly"] or idiff["differ"]:

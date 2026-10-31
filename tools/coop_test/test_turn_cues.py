@@ -185,11 +185,11 @@ FLEE_DEST = (8, 36, 0)           # the flee's end tile
 SEED_BERSERK = 1                    # host set_seed right before its END TURN press: berserk, 6 random auto shots
 BERSERK_RIFLE_ID, BERSERK_CLIP_ID = 64, 65
 # C2's berserk turns animate (measured, 3 boots identical) - each berserk iteration that must turn (0 -> 7, 7 -> 6,
-# 6 -> 2) emits one `turn` ev in the panic context before its burst; the third turns 4 octants with no TU left and
-# fires nothing.
+# 6 -> 2) emits one display-only `turn_start` cue when it starts and one `turn` ev in the panic context before its
+# burst; the third turns 4 octants with no TU left and fires nothing.
 BERSERK_TURNS = 3
-BERSERK_KINDS = ["panic", "turn", "shot", "hit", "shot", "hit", "shot", "hit", "turn", "shot", "shot", "hit", "shot",
-              "hit", "turn", "bt_action_end"]
+BERSERK_KINDS = ["panic", "turn_start", "turn", "shot", "hit", "shot", "hit", "shot", "hit", "turn_start", "turn",
+              "shot", "shot", "hit", "shot", "hit", "turn_start", "turn", "bt_action_end"]
 MORALE_AFTER_PANIC = 15          # UnitPanicBState: moraleChange(+15) when the panic ends
 # BattleUnit::prepareTimeUnits scales the new turn's TU by strength / carried weight when the
 # weight is over the strength. C2's stats come from SEED_ROSTER (read from saves of two boots: currStats tu 58,

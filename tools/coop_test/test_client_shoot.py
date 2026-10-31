@@ -17,7 +17,7 @@ Eight scenarios, ONE boot, in this order:
          right-hand box, key 50 (SNAP), HOME, host set_seed SEED_SNAP_KILL, one
          left click on A's tile. Pass: host closedContexts gains {origin
          intent, kind shoot, actorId C} (C's seat is 1) whose evs are exactly
-         SNAP_KILL_CHAIN (the pre-shot turn, shot, hit, death, corpse,
+         SNAP_KILL_CHAIN (the pre-shot turn's start cue and turn, shot, hit, death, corpse,
          bt_action_end); A dead and one corpse with the same id and tile on
          both; C TU SNAP_KILL_TU_AFTER and the clip SNAP_KILL_CLIP_AFTER on
          both; the client is back in aim mode (cursorType 2) with
@@ -199,7 +199,7 @@ A_CORPSE = "STR_SECTOID_CORPSE"
 SEED_SNAP_KILL = 1
 SNAP_TU = 16                      # C's rifle snap cost (battle_fire's tuCost for C)
 CLIP_FULL = 20
-SNAP_KILL_CHAIN = ["turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
+SNAP_KILL_CHAIN = ["turn_start", "turn", "shot", "hit", "death", "corpse", "bt_action_end"]   # the pre-shot turn
 SNAP_KILL_TU_AFTER = 47           # 64 - 16 snap - 1 for the one-octant turn
 SNAP_KILL_CLIP_AFTER = 19
 
