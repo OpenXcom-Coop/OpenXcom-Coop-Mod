@@ -2193,11 +2193,11 @@ void GeoscapeState::think()
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
 						jc["shield"] = craft->getShield();
-						// Separate: the airborne status string, as the two-world
-						// snapshot sends it for a peer's craft. The replica holds no
-						// destination, dogfight or fuel simulation to derive it from.
+						// Separate: the airborne status as a text node. The replica holds no
+						// destination, dogfight or fuel simulation to derive it from, and
+						// renders it in its own language.
 						if (separateWorld)
-							jc["geoStatus"] = craft->getGeoscapeStatusString(_game->getLanguage());
+							jc["geoStatusText"] = SharedEcon::craftStatusText(_game, craft);
 						jcrafts.append(jc);
 					}
 				}
