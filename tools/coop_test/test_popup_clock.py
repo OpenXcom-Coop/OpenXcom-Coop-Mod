@@ -10,8 +10,8 @@ game day = 1440 min): a control stretch with no popup, then one client-only popu
 grace), then closed.
   shared: the host's shared_alert UfoLostState (SharedEcon::hostAlert; the host's own copy pops nothing) -> the client's
       alertApply popup (an apply-time popup).
-  separate: a landed detected UFO on the host's base (spawn_ufo, STR_POPUPCLOCK_IDLE), its mirror detected on the
-      client, then the host's ufo_alert (the ctor broadcasts ufo_popup; the host shows nothing) -> the client's
+  separate: a landed detected UFO on the host's base (spawn_ufo, STR_POPUPCLOCK_IDLE), the same UFO detected on the
+      client (one world), then the host's ufo_alert (the ctor broadcasts ufo_popup; the host shows nothing) -> the client's
       think-time UfoDetectedState.
 Rows / cells (every sample reads the host first, then the client: a sampled lead is never larger than the true one):
   <mode>_control (shared, separate): with no popup on either machine for CONTROL_S, each machine's fast time runs at
@@ -248,7 +248,8 @@ def boot_separate():
 
 
 def stage_separate(x):
-    """A landed detected UFO on the host's base; wait for its detected mirror on the client. Returns the host's ufo id."""
+    """A landed detected UFO on the host's base; wait for the same UFO, detected, on the client (one world). Returns the
+    host's ufo id."""
     set_speed(x, 0)
     g = x.host.cmd({"cmd": "geo_state"})
     base = next(b for b in g["bases"] if not b.get("coopBase") and not b.get("coopIcon"))
@@ -257,14 +258,14 @@ def stage_separate(x):
         raise RuntimeError(f"spawn_ufo: {r}")
     t0 = time.time()
     while time.time() - t0 < 15.0:
-        cu = [u for u in x.client.cmd({"cmd": "geo_state"}).get("ufos", []) if u.get("coop") and u.get("detected")]
+        cu = [u for u in x.client.cmd({"cmd": "geo_state"}).get("ufos", []) if u.get("id") == r.get("ufo_id") and u.get("detected")]
         if cu:
             print(f"EVIDENCE separate-stage: "
-                  f"{json.dumps({'hostUfo': r.get('ufo_id'), 'clientMirror': cu[0], 'waitS': round(time.time() - t0, 2)}, default=str)}",
+                  f"{json.dumps({'hostUfo': r.get('ufo_id'), 'clientUfo': cu[0], 'waitS': round(time.time() - t0, 2)}, default=str)}",
                   flush=True)
             return r["ufo_id"]
         time.sleep(0.1)
-    raise RuntimeError("no detected mirror of the host's UFO on the client within 15 s")
+    raise RuntimeError("the host's UFO is not detected on the client within 15 s")
 
 
 def boot(name, up, body, rids, results, walls):
