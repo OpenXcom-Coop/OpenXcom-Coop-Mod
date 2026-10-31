@@ -22,7 +22,9 @@ Option-ON boot (SHARED, 49429 / 49430 / 47928; setup: the option-OFF layouts set
   open_screen_kept (LAST): host on its geoscape, the client's craft screen held HOLD; without the fix reqs +1 or the
   InventoryState gone (closed, or the client crashed); only after a FAILED open_screen_kept does the shutdown tolerate a
   dead client (rc 3, its crash log as EVIDENCE).
-SEPARATE boot (labels 49431 / 49432, lobby 47929, option ON): separate_reaches_host (guard): ClientBase soldier screen on
+SEPARATE boot (labels 49431 / 49432, lobby 47929): separate_ground_to_base (option OFF): the client's craft inventory of its
+  own ClientBase SKY, ground_to_base, close; without the fix the host's SKY == the reply's before after W (the client's
+  move is lost). Then option ON: separate_reaches_host (guard): ClientBase soldier screen on
   top 8 s, PISTOL onto its first soldier, close, craft screen round trip: SKY PISTOL / PISTOL_CLIP +1 on the client,
   the host's ClientBase SKY equal to the client's within W (one world: the host applies the client's edits).
 EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (both machines' base_report, geo_state
@@ -59,7 +61,7 @@ ROWS_OPTION_OFF, ROWS_OPTION_ON, ROWS_SEPARATE = (
     ["loadout_load_syncs", "ground_to_base_syncs", "world_equal_option_off"],
     ["partner_edit_refused", "soldier_screen_load_syncs", "craft_screen_load_syncs", "host_load_no_recopy",
      "world_equal_option_on", "open_screen_kept"],
-    ["separate_reaches_host"])
+    ["separate_ground_to_base", "separate_reaches_host"])
 ORDER = ROWS_OPTION_OFF + ROWS_OPTION_ON + ROWS_SEPARATE
 
 
@@ -475,6 +477,35 @@ def row_open_screen_kept(x, r):
     r.cell("SKY and ST not equal on both within W after the close", bool(eq), s_eq)
 
 
+def row_separate_ground_to_base(x, r):
+    h, c = x.host, x.client
+    so = {g.name: q(g, {"cmd": "set_option", "name": OPT, "value": False}) for g in (h, c)}
+    on = {g.name: opt(g) for g in (h, c)}
+    rep = q(c, {"cmd": "base_report", "base": CB})
+    sid = next((cr.get("id") for cr in rep.get("crafts") or [] if cr.get("type") == SKYR), None)
+    k0 = {g.name: sky(g, sid, CB) for g in (h, c)}
+    r.ev.update({"set_option": so, "option": on, "ClientBase SKY": [sid, k0]})
+    if not (r.cell("guard: option OFF on both", on == {"host": False, "client": False}, [so, on])
+            and r.cell("guard: a ClientBase SKYRANGER with items, equal on both", sid is not None and k0["host"]
+                       and k0["host"] == k0["client"], k0)
+            and open_ces(r, c, CB, sid, inv=True)):
+        r.evidence()
+        return
+    gb = bso(c, op="ground_to_base")
+    k1 = sky(c, sid, CB)
+    close_ces(r, c, inv=True)
+    bef, aft = gb.get("before") or {}, dict(sorted((gb.get("after") or {}).items()))
+    got, s = timed(lambda: sky(h, sid, CB) == aft and sky(c, sid, CB) == aft, W)
+    r.ev.update({"ground_to_base": gb, "client SKY at once": k1,
+                 "host / client SKY within W": [sky(h, sid, CB), sky(c, sid, CB), s]})
+    r.evidence()
+    if not r.cell("non-vacuity: reply after < before for a type, the client's SKY == after at once", gb.get("ok") is True
+                  and gb.get("craftId") == sid and any(aft.get(t, 0) < n for t, n in bef.items()) and k1 == aft, gb):
+        return
+    r.cell("the client's move-ground-to-base never reached the host (the host's SKY != the reply's after within W, "
+           "or the client's SKY moved back)", bool(got), r.ev["host / client SKY within W"])
+
+
 def row_separate_reaches_host(x, r):
     h, c = x.host, x.client
     so = {g.name: q(g, {"cmd": "set_option", "name": OPT, "value": True}) for g in (h, c)}
@@ -598,9 +629,10 @@ def boot_separate(results, walls):
             geo.wait_both_ready(h, c)
             x.seats = {gc.name: q(gc, {"cmd": "get_coop"}).get("localSeat") for gc in (h, c)}
             walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails separate_reaches_host "boot" with ONE CAPTURE line
+        except Exception as e:  # a boot miss fails both Separate rows "boot" with ONE CAPTURE line
             return boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
-        run_rows(x, (("separate_reaches_host", row_separate_reaches_host),), results, walls)
+        run_rows(x, (("separate_ground_to_base", row_separate_ground_to_base),
+                     ("separate_reaches_host", row_separate_reaches_host)), results, walls)
     finally:
         down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 

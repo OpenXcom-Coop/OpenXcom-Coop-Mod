@@ -5,11 +5,14 @@ left-click on the CraftInfoState weapon icon (after its icons are not hidden). T
 oxceRememberDisabledCraftWeapons on): client_shield_off .. dogfight_weapon_remembered (the dogfight last); the
 SEPARATE boot (one world; the client's own base is ClientBase): separate_reaches_host, separate_partner_refused (a weapon
 switch the client sends for the host's interceptor at the host's base is refused), separate_reload (the host saves and
-loads the campaign, the client rejoins: both hold the client's switches).
+loads the campaign, the client rejoins: both hold the client's switches), separate_dogfight_remembered (remembered
+weapons on, last: the client switches off its own interceptor's second weapon in its own dogfight, which the host runs;
+both machines remember it).
 Row baseline (every row): every switch enabled except the row's start values, client first; both probes equal;
 R0 = requests.
 Without the fix every SHARED row fails on its named cell (weapon_on_while_out on bothEnabled); a build where a Separate
-client's switches stay on the client fails separate_reaches_host and separate_reload on their named cell. "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if
+client's switches stay on the client fails separate_reaches_host and separate_reload on their named cell, and one where
+the host keeps a Separate client's dogfight weapon switch to itself fails separate_dogfight_remembered. "guard:" cells are guards (CAPTURE on a miss). EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if
 all pass, else 2."""
 
 import json
@@ -352,6 +355,45 @@ def row_separate_reload(r, x):
     now = r.ev["after"] = {gc.name: sep_flags(tp(gc), x) for gc in (h, c)}
     r.cell("reloaded", now == {"host": [True, True], "client": [True, True]},
            f"after the reload facility A / weapon disabled {now} (want [True, True] on both)")
+def row_separate_dogfight(r, x):
+    """SEPARATE, remembered weapons on: the client switches off its own interceptor's second weapon in its own dogfight
+    window; the host runs the fight and applies the switch: both machines remember it."""
+    h, c = x.host, x.client
+    d = sep_start(r, x)
+    guard(r, x, "own interceptor", getattr(x, "cid", None) is not None and getattr(x, "bi", None) is not None,
+          f"interceptor {getattr(x, 'cid', None)}, base {getattr(x, 'bi', None)}")
+    def w1(gc): return ((craft(tp(gc), INT, x.cid, x.bi).get("weapons") or [{}, {}])[1:2] or [{}])[0].get("disabled")  # noqa: E704
+    so = {gc.name: pick(gc.cmd({"cmd": "set_option", "name": OPT, "value": True}), "ok", "value") for gc in (h, c)}
+    w0 = r.ev["before"] = {gc.name: w1(gc) for gc in (h, c)}
+    guard(r, x, "option on, second weapon enabled on both", all(v.get("value") is True for v in so.values())
+          and w0 == {"host": False, "client": False}, f"set_option {so}, second weapon disabled {w0}")
+    b = next(e for e in h.ok({"cmd": "geo_state"})["bases"] if e["name"] == "ClientBase")
+    uid = h.ok({"cmd": "spawn_ufo", "type": "STR_SMALL_SCOUT", "mission": "STR_ALIEN_RESEARCH", "region": "STR_NORTH_AMERICA",
+                "race": "STR_SECTOID", "trajectory": "P0", "state": "flying", "speed": 1, "lon": b["lon"] + 0.03, "lat": b["lat"]})["ufo_id"]
+    seen = wait_until(lambda: any(u["id"] == uid for u in c.ok({"cmd": "geo_state"}).get("ufos", [])), 30.0, 0.3)[0]
+    st = pick(h.cmd({"cmd": "start_test_dogfight", "base": "ClientBase", "craft_id": x.cid, "craft_type": INT, "ufo_id": uid}), "ok", "error")
+    ok = seen and wait_until(lambda: (df_for(c, x.cid, uid) or {}).get("visible") is True, 60.0, 0.15)[0]
+    r.ev["open"] = {"ufo": uid, "start": st, "host": df_for(h, x.cid, uid), "client": df_for(c, x.cid, uid)}
+    guard(r, x, "the client's own dogfight window", ok, f"{r.ev['open']}")
+    try:
+        r.ev["toggle"] = pick(c.cmd({"cmd": "dogfight_action", "action": "weaponToggle", "arg": 1, "craft_id": x.cid,
+                                     "ufo_id": uid}), "ok", "error")
+        ok = wait_until(lambda: ((df_for(h, x.cid, uid) or {}).get("weaponEnabled") or [None, None])[1:2] == [False], 5.0, 0.1)[0]
+        guard(r, x, "host window state", ok, f"host dogfight {df_for(h, x.cid, uid)}")
+        guard(r, x, "host remembered", wait_until(lambda: w1(h) is True, POLL_S, POLL_I)[0], f"host second weapon disabled {w1(h)}")
+        got = wait_until(lambda: w1(c) is True, POLL_S, POLL_I)[0]
+        now = r.ev["after"] = {gc.name: w1(gc) for gc in (h, c)}
+        r.cell("remembered", got, f"second weapon disabled {now} (want True on both): the client's own dogfight weapon "
+                                  "switch, applied by the host, never reached the client")
+    finally:
+        r.ev["disengage"] = pick(c.cmd({"cmd": "dogfight_action", "action": "disengage", "craft_id": x.cid, "ufo_id": uid}),
+                                 "ok", "error")
+        n = 0
+        while n < 10 and (dfs(h) or dfs(c)):
+            pump(x)
+            n += 1
+        r.ev["after disengage"] = {"pumps": n, "host": len(dfs(h)), "client": len(dfs(c))}
+    r.ev["R0"] = d["R0"]
 def run_one(rid, fn, x, results):
     r = Row(rid)
     try:
@@ -438,7 +480,7 @@ ROWS_SHARED = (
     ("weapon_on_while_out", row_weapon_while_out),
     ("dogfight_weapon_remembered", row_dogfight))
 ROWS_SEPARATE = (("separate_reaches_host", row_separate_reaches), ("separate_partner_refused", row_separate_partner_refused),
-                 ("separate_reload", row_separate_reload))
+                 ("separate_reload", row_separate_reload), ("separate_dogfight_remembered", row_separate_dogfight))
 
 def main():
     t0, results, walls = time.time(), {}, {}

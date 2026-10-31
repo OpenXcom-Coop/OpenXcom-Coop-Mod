@@ -8,7 +8,10 @@ promotes its own soldier, staged squaddie on both machines: both hold sergeant, 
 client's rank screen still shows the one opening its own soldiers leave, and the promotion lands on both);
 separate_nationality (the client's flag change on its own soldier reaches the host); separate_partner_refused (a
 promotion and a flag change the client sends for a host soldier are refused with "Not one of your soldiers"; nothing
-changes); separate_reload (the host saves and loads the campaign, the client rejoins: both hold the client's changes).
+changes); separate_reload (the host saves and loads the campaign, the client rejoins: both hold the client's changes);
+separate_auto_promotions (last: every soldier of both players staged squaddie on both machines, the host's Skyranger
+fights a battle alone and both vote to abort it: the automatic promotions count only the host's own soldiers,
+floor(host's N/5) sergeants, and promote none of the client's soldiers, on both machines).
 S0: S1, S2 (client-owned), S3 (host-owned) -> squaddie, client then host; floor(N/5) - 1 others -> sergeant; one
 sergeant opening on both (guard). A build where a Separate client's promotion and flag change stay on the client fails
 every SEPARATE row on a named cell; with them applied by the host all rows pass.
@@ -23,8 +26,11 @@ from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
+import separate_campaign_fixture as sep_fixture  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
+import test_coop_client_mission_abort as abort_flow  # noqa: E402
+import test_separate_equipment_templates as sep_templates  # noqa: E402  (main-guarded: drain_to_geoscape)
 from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 OPT = "oxceManualPromotions"
@@ -372,6 +378,64 @@ def row_separate_reload(r, x):
     bad = {f"{n} {i}": e for n, m in now.items() for i, e in m.items() if e != x.expect[i]}
     r.cell("reloaded", not bad, f"after the reload {bad} differ from the client's values {r.ev['expect']}")
 
+def battle_to_geoscape(r, x):
+    """The host's Skyranger (only the host's soldiers aboard) lands at a new site beside HostBase, both machines enter
+    the battle, the host OKs its equip screen, the host asks to abort and the client votes yes; both machines close
+    the after-battle screens back to the geoscape."""
+    h, c = x.host, x.client
+    sep_fixture.fly_to_new_site(h, c, h)
+    h.ok({"cmd": "confirm_landing"})
+    for gc in (h, c):
+        gc.wait_for(gc.name + " in battle", lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
+                    timeout=180, interval=1.0)
+    for gc in (h, c):
+        gc.wait_for(gc.name + " briefing", lambda gc=gc: abort_flow.has(gc, "BriefingState") or None, timeout=120, interval=0.5)
+        gc.ok({"cmd": "close_briefing"})
+    h.wait_for("host equip screen", lambda: abort_flow.has(h, "InventoryState") or None, timeout=120, interval=0.5)
+    h.ok({"cmd": "battle_inventory", "action": "ok"})
+    for _ in range(20):
+        if all(abort_flow.top(gc) == "BattlescapeState" for gc in (h, c)):
+            break
+        for gc in (h, c):
+            if abort_flow.top(gc) != "BattlescapeState":
+                gc.cmd({"cmd": "dismiss_popup"})
+        time.sleep(1.0)
+    ok = all(abort_flow.top(gc) == "BattlescapeState" for gc in (h, c))
+    guard(r, x, "both on the battle screen", ok, f"tops {[abort_flow.top(gc) for gc in (h, c)]}")
+    time.sleep(2)
+    abort_flow.vote_abort(h, c, h)
+    for gc in (h, c):
+        sep_templates.drain_to_geoscape(gc)
+
+def row_separate_auto_promotions(r, x):
+    """Automatic promotions after a battle the host's Skyranger fought alone: the sergeant openings count only the host's
+    own soldiers and none of the client's soldiers is promoted; both machines agree."""
+    h, c = x.host, x.client
+    sep_start(r, x)
+    ids = [s["id"] for b in ("HostBase", "ClientBase") for s in h.ok({"cmd": "base_report", "base": b})["soldiers"]]
+    r.ids = tuple(ids)
+    stage_ranks(r, x, [(i, SQUADDIE) for i in ids])
+    hseat = h.cmd({"cmd": "get_coop"}).get("localSeat")
+    owner = {i: sol(h, i).get("owner") for i in ids}
+    n_host = sum(1 for o in owner.values() if o == hseat)
+    want = {"host": n_host // PER_SERGEANT, "client": 0}
+    r.ev.update({"ids": ids, "host seat": hseat, "owners": owner, "want sergeants": want})
+    guard(r, x, "both players' soldiers", 0 < n_host < len(ids), f"owners {owner}")
+
+    def sergeants(gc):
+        out = {"host": 0, "client": 0}
+        for i in ids:
+            s = sol(gc, i)
+            if s.get("rank") == SERGEANT:
+                out["host" if s.get("owner") == hseat else "client"] += 1
+        return out
+    battle_to_geoscape(r, x)
+    same = wait_until(lambda: not rs(c)["pending"] and sergeants(h) == sergeants(c), 60, 0.5)[0]
+    now = r.ev["sergeants"] = {gc.name: sergeants(gc) for gc in (h, c)}
+    r.ev["promoted"] = {gc.name: [i for i in ids if sol(gc, i).get("rank") != SQUADDIE] for gc in (h, c)}
+    r.cell("perOwner", same and now["host"] == want and now["client"] == want,
+           f"sergeants by owner {now} (want {want} on both): the automatic promotions counted every soldier in the one world")
+
 def run_one(rid, fn, x, results):
     r = Row(rid)
     try:
@@ -462,7 +526,8 @@ ROWS_SHARED = (("client_promotes", lambda r, x: reach(r, x, x.client, x.S1, "cli
                ("nationality_change", row_nationality_change))
 ROWS_SEPARATE = (("separate_own_soldier", row_separate_own_soldier), ("separate_openings", row_separate_openings),
                  ("separate_nationality", row_separate_nationality),
-                 ("separate_partner_refused", row_separate_partner_refused), ("separate_reload", row_separate_reload))
+                 ("separate_partner_refused", row_separate_partner_refused), ("separate_reload", row_separate_reload),
+                 ("separate_auto_promotions", row_separate_auto_promotions))
 
 def main():
     t0, results, walls = time.time(), {}, {}

@@ -26,6 +26,11 @@ Armor boot (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_PO
   base_write_9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. Nothing changes on
         either machine within 5 s. Without the read-only partner rule H takes the personal's grenades on the client's
         screen.
+SEPARATE boot (labels 49693 / 49694, lobby 47693; one world, the client's soldiers at ClientBase, STR_PERSONAL_ARMOR 2
+  there on both):
+  separate_template_armor the client's first own soldier S: its screen saves global layout 0 with S's armor (A0),
+        S staged A1 on both machines, then its screen loads layout 0 (key 1): S wears A0 again and ClientBase takes
+        STR_PERSONAL_ARMOR back. Without the fix the host's S still wears A1 after W (the change stays on the client).
 EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (soldier_layouts, get_soldiers, geo_state
 items, shared_stats, equip_layouts {index: 0}, read {index: 0}, stacks; both machines). A boot miss fails its rows
 "boot" with one CAPTURE line. Every row runs after a failure. ONE run; exit 0 iff every row passes, else 2.
@@ -37,21 +42,25 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
+from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen  # noqa: E402
 
 TAG_SHARED, PORTS_SHARED = "base_writes_shared", (49421, 49422, 47924)
 TAG_ARMOR, PORTS_ARMOR = "base_writes_armor", (49425, 49426, 47926)
-HB, GEO = "HostBase", "GeoscapeState"
+TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "base_writes_separate", (49693, 49694), "47693"
+HB, CB, GEO = "HostBase", "ClientBase", "GeoscapeState"
 A0, A1, A2 = "STR_NONE_UC", "STR_PERSONAL_ARMOR_UC", "STR_POWER_SUIT_UC"
 I1, I2, GREN = "STR_PERSONAL_ARMOR", "STR_POWER_SUIT", "STR_GRENADE"
 W, KEY_W, SETTLE, KEY_SETTLE, SDLK_1 = 10.0, 5.0, 1.0, 0.3, 49
 NOT_YOURS = "not your soldier"
 ROWS_SHARED = ["base_write_%d" % n for n in range(1, 8)]
 ROWS_ARMOR = ["base_write_8", "base_write_9"]
-ORDER = ROWS_SHARED + ROWS_ARMOR
+ROWS_SEPARATE = ["separate_template_armor"]
+ORDER = ROWS_SHARED + ROWS_ARMOR + ROWS_SEPARATE
 
 
 def converge(pred, timeout=W):
@@ -439,6 +448,69 @@ def row_partner_personal_readonly(x, r):
     r.cell("the host's H is not PERSONAL", ah == A1, ah)
 
 
+def row_separate_template_armor(x, r):
+    h, c = x.host, x.client
+    sid, name = next(((i, s.get("name")) for i, s in roster(c, CB).items() if s.get("owner") == x.seats.get("client")),
+                     (None, None))
+    arm = lambda g: (roster(g, CB).get(sid) or {}).get("armor")  # noqa: E731
+    pa = lambda g: items(g, CB).get(I1, 0)  # noqa: E731
+    given = [q(g, {"cmd": "give_items", "item": I1, "count": 2, "base": CB}).get("stored") for g in (c, h)]
+    r.ev["S"] = [sid, name]
+    r.ev["start"] = s0 = {g.name: [arm(g), pa(g)] for g in (h, c)}
+    if not (r.cell("guard: the client's own soldier at ClientBase, wearing A0, stores equal on both", sid is not None
+                   and None not in given and s0["host"] == s0["client"] and s0["host"][0] == A0, [given, s0])
+            and open_soldier_screen(r, c, CB)):
+        r.evidence()
+        return
+    sel = bso(c, op="select", name=name)
+    ts = q(c, {"cmd": "template_save", "kind": "layout", "index": 0, "name": "Bare", "unit": name, "armor": True})
+    close_soldier_screen(r, c)
+    st = [q(g, {"cmd": "seed_soldier_armor", "soldier_id": sid, "armor": A1}).get("armor") for g in (c, h)]
+    r.ev["staged"] = s1 = {g.name: [arm(g), pa(g)] for g in (h, c)}
+    r.ev["save"] = {"select": sel, "template_save": ts, "seed_soldier_armor": st}
+    if not (r.cell("guard: layout 0 saved with S's armor, S wears A1 on both", sel.get("ok") is True and ts.get("ok") is True
+                   and s1["host"] == s1["client"] and s1["host"][0] == A1, [sel, ts, s1])
+            and open_soldier_screen(r, c, CB)):
+        r.evidence()
+        return
+    sel = bso(c, op="select", name=name)
+    k = key(c, SDLK_1)
+    local, s = converge(lambda: arm(c) == A0, KEY_W)
+    r.ev["load"] = {"select": sel, "key 1": k, "client S at once": [arm(c), pa(c)], "s": s}
+    close_soldier_screen(r, c)
+    want = [A0, s1["client"][1] + 1]
+    got, s = converge(lambda: [arm(h), pa(h)] == want and [arm(c), pa(c)] == want)
+    r.ev["end"] = {"want": want, "host / client within W": [[arm(h), pa(h)], [arm(c), pa(c)], s]}
+    r.evidence()
+    if not r.cell("non-vacuity: the client's S wears A0 at once after key 1", local, r.ev["load"]):
+        return
+    r.cell("the client's template armor change never reached the host (the host's S / ClientBase armor stores != "
+           "[A0, +1] within W, or the client's S moved back)", got, r.ev["end"])
+
+
+def boot_separate(results, walls):
+    t0 = time.time()
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
+    x = X(h, c, base=CB)
+    try:
+        try:
+            h.spawn(), c.spawn(), h.connect(), c.connect()
+            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
+            geo.wait_both_ready(h, c)
+            x.seats = {g.name: q(g, {"cmd": "get_coop"}).get("localSeat") for g in (h, c)}
+            walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
+        except Exception as e:  # a boot miss fails the row "boot" with ONE CAPTURE line
+            return boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
+        run_rows(x, (("separate_template_armor", row_separate_template_armor),), results, walls)
+    finally:
+        try:
+            shutdown_clients(h, c)
+        except Exception as e:
+            results["shutdown " + TAG_SEPARATE] = False
+            print(f"FAIL shutdown {TAG_SEPARATE}: {sbe.short(e, 800)}", flush=True)
+
+
 def boot_miss(tag, e, rids, results, x=None):
     cap = {"error": sbe.short(e, 1500)}
     if x is not None:
@@ -504,7 +576,8 @@ def main():
     shared_boot(TAG_ARMOR, PORTS_ARMOR, [I1, I2], ROWS_ARMOR,
                 (("base_write_8", row_personal_armor_syncs), ("base_write_9", row_partner_personal_readonly)),
                 results, walls)
-    failed = [rid for rid in ORDER if not results.get(rid)]
+    boot_separate(results, walls)
+    failed = [rid for rid in ORDER if not results.get(rid)] + sorted(k for k, v in results.items() if k.startswith("shutdown") and not v)
     print(f"\ntest_shared_base_writes: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) "
           f"walls {json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)
     return 2 if failed else 0
