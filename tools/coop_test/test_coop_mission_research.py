@@ -157,24 +157,10 @@ def abort_battle(host, client, shared):
         gc.wait_for(gc.name + " in battle",
                     lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
                     timeout=180, interval=1.0)
-    for gc in (host, client):
-        gc.wait_for(gc.name + " briefing", lambda gc=gc: has(gc, "BriefingState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "close_briefing"})
-    for gc in (host, client):
-        gc.wait_for(gc.name + " inventory", lambda gc=gc: has(gc, "InventoryState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "battle_inventory", "action": "ok"})
-    for _ in range(15):
-        if all(top(gc) == "BattlescapeState" for gc in (host, client)):
-            break
-        for gc in (host, client):
-            if top(gc) != "BattlescapeState":
-                gc.cmd({"cmd": "dismiss_popup"})
-        time.sleep(1.0)
-    host.wait_for("coop turn", lambda: (host.cmd({"cmd": "battle_state"}).get("coopTurn") == 2) or None,
-                  timeout=90, interval=1.0)
-    time.sleep(2)
+    # both briefings, both pre-battle equip screens, then turn 1 on both machines
+    if not session.drive_both_to_tactical(host, client):
+        raise Inconclusive(f"the battle never reached turn 1: host {states(host)}, client {states(client)}")
+    before = {gc.name: known(gc) for gc in (host, client)}
     session.coop_abort_battle(host, client)
     time.sleep(3)
     for gc in (host, client):
