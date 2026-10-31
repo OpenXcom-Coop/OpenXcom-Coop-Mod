@@ -71,6 +71,10 @@ research:
     cost: 1
     points: 0
     spawnedEvent: STR_GEOEV_EV_INSTANT
+  - name: STR_GEOEV_TRG_INSTANT2     # a second topic spawning the same event (one test fires it twice)
+    cost: 1
+    points: 0
+    spawnedEvent: STR_GEOEV_EV_INSTANT
   - name: STR_GEOEV_RES_A
     cost: 50
     points: 5
