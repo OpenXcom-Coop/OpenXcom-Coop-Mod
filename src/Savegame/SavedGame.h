@@ -500,6 +500,8 @@ private:
 	const std::map<std::string, bool> &getHiddenPurchaseItems();
 	/// Gets the list of player-defined save-specific RuleCraft '_deployment' overrides
 	std::map<std::string, RuleCraftDeployment>& getCustomRuleCraftDeployments() { return _customRuleCraftDeployments; }
+	/// Gets the RuleCraft '_deployment' overrides that apply to @a craft: its owner's in a Separate campaign.
+	const std::map<std::string, RuleCraftDeployment>& getCraftDeploymentsOf(const Craft* craft) const;
 	/// Gets the preview base.
 	Base* getPreviewBase() { return _previewBase; }
 	/// Sets the preview base.

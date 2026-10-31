@@ -690,10 +690,10 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 		}
 	}
 
-	// Separate: every player keeps their own saved templates. The world's
-	// template slots are the host's own set; a client takes its set from its
-	// player profile (LoadGameState carries a client's set over instead when it
-	// already holds a campaign world).
+	// Separate: every player keeps their own saved templates and craft type
+	// deployments. The world's template slots and deployment map are the host's
+	// own; a client takes its set from its player profile (LoadGameState carries
+	// a client's set over instead when it already holds a campaign world).
 	if (isSeparateCoopCampaign() && !connectionTCP::getServerOwner())
 	{
 		const int seat = connectionTCP::localSeat();
@@ -701,6 +701,7 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 			(seat >= 0 && static_cast<size_t>(seat) < _coopPlayers.size())
 			? _separateCampaign.getPlayer(_coopPlayers[seat]) : nullptr;
 		setTemplates(profile ? profile->equipmentTemplates : SeparateEcon::EquipmentTemplates(), mod);
+		_customRuleCraftDeployments = profile ? profile->craftDeployments : std::map<std::string, RuleCraftDeployment>();
 	}
 	else
 	{
@@ -1462,6 +1463,20 @@ void SavedGame::setTemplates(const SeparateEcon::EquipmentTemplates& templates, 
 	templates.save(writer);
 	const YAML::YamlRootNodeReader reader(writer.emit(), "(player templates)", false);
 	loadTemplates(reader, mod);
+}
+
+const std::map<std::string, RuleCraftDeployment>& SavedGame::getCraftDeploymentsOf(const Craft* craft) const
+{
+	// Separate: the world's own map is this machine's player's; another
+	// player's craft uses the deployments kept in that player's profile.
+	if (craft && craft->getBase() && craft->getBase()->_isForeignBase && isSeparateCoopCampaign())
+	{
+		static const std::map<std::string, RuleCraftDeployment> none;
+		const SeparateEcon::CampaignData::PlayerState* profile =
+			_separateCampaign.getPlayer(craft->getBase()->getOwnerPlayerName());
+		return profile ? profile->craftDeployments : none;
+	}
+	return _customRuleCraftDeployments;
 }
 
 void SavedGame::loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader)

@@ -1547,10 +1547,16 @@ void SavedBattleGame::saveCustomCraftDeployment()
 void SavedBattleGame::saveDummyCraftDeployment()
 {
 	auto* save = getGeoscapeSave();
+	// coop Separate: the deployment is this player's own, so only this player's crafts lose theirs
+	const bool ownCraftsOnly = save->isSeparateCoopCampaign();
 
 	// don't forget to invalidate custom deployments of all real craft of this type
 	for (auto* xbase : *save->getBases())
 	{
+		if (ownCraftsOnly && xbase->_isForeignBase)
+		{
+			continue;
+		}
 		for (auto* xcraft : *xbase->getCrafts())
 		{
 			if (xcraft->getRules() == _craftForPreview->getRules())
@@ -1594,7 +1600,7 @@ void SavedBattleGame::saveDummyCraftDeployment()
 /**
  * Does the given craft type have a custom deployment?
  */
-bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule) const
+bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule, const Craft* craft) const
 {
 	// first check the fallback
 	if (!rule->getDeployment().empty())
@@ -1603,7 +1609,7 @@ bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule) const
 	}
 	// then the override
 	auto* save = getGeoscapeSave();
-	auto& data = save->getCustomRuleCraftDeployments();
+	auto& data = save->getCraftDeploymentsOf(craft);
 	if (!data.empty())
 	{
 		auto find = data.find(rule->getType());
@@ -1618,11 +1624,11 @@ bool SavedBattleGame::hasCustomDeployment(const RuleCraft* rule) const
 /**
  * Gets a custom deployment for the given craft type.
  */
-const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft* rule) const
+const RuleCraftDeployment& SavedBattleGame::getCustomDeployment(const RuleCraft* rule, const Craft* craft) const
 {
 	// first try the override
 	auto* save = getGeoscapeSave();
-	auto& data = save->getCustomRuleCraftDeployments();
+	auto& data = save->getCraftDeploymentsOf(craft);
 	if (!data.empty())
 	{
 		auto find = data.find(rule->getType());

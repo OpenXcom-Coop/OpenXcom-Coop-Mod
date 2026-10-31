@@ -1593,6 +1593,7 @@ void CampaignData::load(const YAML::YamlNodeReader& reader)
 		playerReader["missionMarkers"].tryReadVal(player.missionMarkers);
 		playerReader["ufopediaRuleStatus"].tryReadVal(player.ufopediaRuleStatus);
 		player.equipmentTemplates.load(playerReader["equipmentTemplates"]);
+		playerReader.tryRead("customRuleCraftDeployments", player.craftDeployments);
 	}
 }
 
@@ -1648,6 +1649,8 @@ void CampaignData::save(YAML::YamlNodeWriter writer) const
 			playerWriter.write("ufopediaRuleStatus", entry.second.ufopediaRuleStatus);
 		if (!entry.second.equipmentTemplates.empty())
 			entry.second.equipmentTemplates.save(playerWriter["equipmentTemplates"]);
+		if (!entry.second.craftDeployments.empty())
+			playerWriter.write("customRuleCraftDeployments", entry.second.craftDeployments);
 	}
 }
 

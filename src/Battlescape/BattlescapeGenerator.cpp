@@ -1670,11 +1670,11 @@ BattleUnit *BattlescapeGenerator::addXCOMUnit(BattleUnit *unit)
 				}
 			}
 		}
-		else if (_craft && _save->hasCustomDeployment(_craftRules))
+		else if (_craft && _save->hasCustomDeployment(_craftRules, _craft))
 		{
 			setCustomCraftInventoryTile();
 
-			auto& deploy = _save->getCustomDeployment(_craftRules);
+			auto& deploy = _save->getCustomDeployment(_craftRules, _craft);
 			for (auto& vec : deploy)
 			{
 				Position pos = Position(vec[0] + (_craftPos.x * 10), vec[1] + (_craftPos.y * 10), vec[2] + _craftZ);

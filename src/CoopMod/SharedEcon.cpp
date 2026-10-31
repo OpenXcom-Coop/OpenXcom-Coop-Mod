@@ -3379,40 +3379,59 @@ void baseEquipMarkName(Soldier* s)
 	if (g_baseEquipMark["soldiers"].isMember(key)) g_baseEquipMark["soldiers"][key]["name"] = s->getName();
 }
 
-// ---- craft_deployment - a SHARED craft type's generic deployment (the Ufopaedia craft preview's save) ----------
+// ---- craft_deployment - a craft type's generic deployment (the Ufopaedia craft preview's save) ----------
 // payload: { craftType, saved, positions [[x, y, z, dir], ...] (saved only) }, baseId -1 (no base; base_new's precedent). Player-origin from
 // either seat right after vanilla's own local save or delete (SavedBattleGame::saveDummyCraftDeployment); both roles repeat vanilla's write:
-// every craft of that type loses its own custom deployment, then the type's entry is written or erased. Last write wins.
-bool craftDeploymentValidate(Game* game, const Json::Value& payload, Base* /*base*/, int /*seat*/,
-                             int64_t& cost, std::string& /*failReason*/)
+// the crafts of that type lose their own custom deployment, then the type's entry is written or erased.
+// SHARED: one entry per type for both players, every craft of the type is reset, last write wins.
+// Separate: the entry is the sending player's own. Only that player's crafts are reset; the machine of that player writes it in the
+// world's own map, and a non-host player's entry is also kept in its profile (both machines hold the profile, the host's save keeps it).
+bool craftDeploymentValidate(Game* game, const Json::Value& payload, Base* /*base*/, int seat,
+                             int64_t& cost, std::string& failReason)
 {
 	cost = 0;
+	if (game->getSavedGame() && game->getSavedGame()->isSeparateCoopCampaign() && connectionTCP::seatName(seat).empty())
+	{
+		failReason = "Craft deployment from an unknown player.";
+		return false;
+	}
 	return game->getMod()->getCraft(payload.get("craftType", "").asString(), false) != nullptr; // a refusal reads "rejected"
 }
 
-void craftDeploymentApply(Game* game, Json::Value& payload, Base* /*base*/, int /*seat*/)
+void craftDeploymentApply(Game* game, Json::Value& payload, Base* /*base*/, int seat)
 {
 	SavedGame* sg = game ? game->getSavedGame() : nullptr;
 	const RuleCraft* rule = sg ? game->getMod()->getCraft(payload.get("craftType", "").asString(), false) : nullptr;
 	if (!rule) return;
+	const bool separate = sg->isSeparateCoopCampaign();
+	const std::string owner = separate ? connectionTCP::seatName(seat) : std::string();
 	for (auto* xbase : *sg->getBases())
-		for (auto* xcraft : *xbase->getCrafts())
-			if (xcraft->getRules() == rule) xcraft->resetCustomDeployment(); // vanilla: a type deployment invalidates every craft's own one
-	auto& data = sg->getCustomRuleCraftDeployments();
+		if (!separate || xbase->isOwnedByPlayer(owner))
+			for (auto* xcraft : *xbase->getCrafts())
+				if (xcraft->getRules() == rule) xcraft->resetCustomDeployment(); // vanilla: a type deployment invalidates every craft's own one
 	const bool saved = payload.get("saved", false).asBool();
 	const Json::Value positions = payload.get("positions", Json::Value(Json::arrayValue));
-	if (!saved)
+	RuleCraftDeployment deploy;
+	for (const auto& p : positions)
+		if (p.isArray() && p.size() == 4) deploy.push_back({ p[0].asInt(), p[1].asInt(), p[2].asInt(), p[3].asInt() });
+	auto write = [&](std::map<std::string, RuleCraftDeployment>& data)
 	{
-		data.erase(rule->getType());
-	}
-	else
+		if (!saved)
+			data.erase(rule->getType());
+		else
+			data[rule->getType()] = deploy;
+	};
+	if (!separate || seat == connectionTCP::localSeat())
+		write(sg->getCustomRuleCraftDeployments());
+	if (separate && seat > 0)
 	{
-		RuleCraftDeployment deploy;
-		for (const auto& p : positions)
-			if (p.isArray() && p.size() == 4) deploy.push_back({ p[0].asInt(), p[1].asInt(), p[2].asInt(), p[3].asInt() });
-		data[rule->getType()] = deploy;
+		SeparateEcon::CampaignData& campaign = sg->getSeparateCampaign();
+		campaign.ensurePlayers(std::vector<std::string>{ owner });
+		if (SeparateEcon::CampaignData::PlayerState* profile = campaign.getPlayer(owner))
+			write(profile->craftDeployments);
 	}
-	Log(LOG_INFO) << "[SHARED] craft_deployment: " << rule->getType() << (saved ? " saved, " : " deleted, ") << positions.size() << " position(s)";
+	Log(LOG_INFO) << "[SHARED] craft_deployment: " << rule->getType() << (saved ? " saved, " : " deleted, ") << positions.size() << " position(s)"
+		<< (separate ? ", player " + owner : std::string());
 }
 
 // soldier_training payload: { kind: "martial" | "psi", soldiers: [{ id, training,
@@ -7280,8 +7299,8 @@ void submitLoadoutTemplate(Game* game, Base* base, int index)
 // see SharedEcon.h.
 void craftDeploymentSaved(Game* game, const std::string& craftType)
 {
-	if (!game || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1
-		|| !game->getCoopMod() || !game->getCoopMod()->isSharedCampaign()) return;
+	if (!game || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1 || !game->getCoopMod()
+		|| (!game->getCoopMod()->isSharedCampaign() && !game->getSavedGame()->isSeparateCoopCampaign())) return;
 	const auto& data = game->getSavedGame()->getCustomRuleCraftDeployments();
 	const auto it = data.find(craftType);
 	Json::Value p(Json::objectValue);

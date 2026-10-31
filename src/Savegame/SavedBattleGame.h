@@ -445,10 +445,10 @@ public:
 	void saveCustomCraftDeployment();
 	/// Saves the custom RuleCraft deployment. Invalidates corresponding custom craft deployments.
 	void saveDummyCraftDeployment();
-	/// Does the given craft type have a custom deployment?
-	bool hasCustomDeployment(const RuleCraft* rule) const;
-	/// Gets a custom deployment for the given craft type.
-	const RuleCraftDeployment& getCustomDeployment(const RuleCraft* rule) const;
+	/// Does the given craft type have a custom deployment (@a craft's owner's, see SavedGame::getCraftDeploymentsOf)?
+	bool hasCustomDeployment(const RuleCraft* rule, const Craft* craft = nullptr) const;
+	/// Gets a custom deployment for the given craft type (@a craft's owner's).
+	const RuleCraftDeployment& getCustomDeployment(const RuleCraft* rule, const Craft* craft = nullptr) const;
 	/// Ends the turn.
 	void endTurn();
 	/// Gets animation frame.
