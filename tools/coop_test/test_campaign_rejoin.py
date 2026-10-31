@@ -13,7 +13,14 @@ a live pause: REFUSED +1, resumeAck never true, the host waits on dialog 62 and 
   told_connection_lost GUARD the client on 21 "Server connection lost", backVisible, top CoopState within 120 s;
   no_solo_play GUARD still CoopState 8 s later; back_to_menu GUARD OK -> MainMenuState within 60 s, has_save false;
   host_leaves_clean GUARD CRASH 0 and client zero-disk.
-Definitions: POLL 0.25 s; W_ACK = WATCH_CAP_S; PAUSE(host) within 30 s of the leave: phase Active, peerAbsent true,
+  Boot campaign_rejoin_popup (key "48599", as campaign_rejoin_shared): row popup_during_download, SHARED, the client
+  leaves as in client_leaves and a fresh client2 rejoins while the host holds its world stream (hold_world_stream)
+  for HOLD_S. Cells: popup_during_download-1 GUARD PAUSE; -2 GUARD the stream held and client2's join popup the top
+  state over the world download dialog 72; -3 FIX client2's OK on that popup asks for no second world (the top
+  dialog is still 72 right after the press and after HOLD_S, no load-wait 52 stacked over it, no "load progress
+  retry" in client2's log); -4 GUARD after the release SHARED_STREAM +1, a client2 poll on 68, the host's resumeAck
+  true and peerAbsent false within W_ACK; -5 GUARD CRASH 0 and client2 zero-disk.
+Definitions: POLL 0.25 s; HOLD_S 3 s; W_ACK = WATCH_CAP_S; PAUSE(host) within 30 s of the leave: phase Active, peerAbsent true,
 battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState]; SPLIT = sorted (unit
 id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both; REJOIN =
 a fresh client2 on its own dir, join_tcp from the main menu, wait <= W_ACK for the host's resumeAck true AND peerAbsent
@@ -26,6 +33,8 @@ A WAIT that times out ends the row (later cells "not reached"), except REJOIN's 
 are evaluated with the values at the timeout. EVIDENCE before each verdict; a failed row prints ONE CAPTURE line; every
 row runs after a failure; ONE run; exit 0 iff every cell passes, else 2.
 Without the offer, client_leaves FAILs on -3, -4 and -5 .. -8 "not reached" (-1, -2, -9 PASS); host_leaves PASSes.
+Without the join popup's check for the world download dialog 72, popup_during_download FAILs on -3 (the OK stacks a
+load-wait 52 and client2 asks for the world again).
 """
 import json
 import os
@@ -38,13 +47,14 @@ import shared_fixture  # noqa: E402
 from harness import GameClient, make_user_dir  # noqa: E402
 
 WATCH_CAP_S = 135  # REJOIN's wait ends at resumeAck; >= max(120, 2.5 x the loaded rejoin)
-POLL, W_ACK, W_PAUSE = 0.25, WATCH_CAP_S, 30.0
-KEY_SHARED, KEY_HOST_LEAVES = "48597", "48598"
+POLL, W_ACK, W_PAUSE, HOLD_S = 0.25, WATCH_CAP_S, 30.0, 3.0
+KEY_SHARED, KEY_HOST_LEAVES, KEY_POPUP = "48597", "48598", "48599"
 BS, CS, MENU, PROFILE = "BattlescapeState", "CoopState", "MainMenuState", "Profile"
 OFFER, REFUSED = "rejoin battle_offer sent (battleId=", "offerResumedBattle() called outside a disk resume"
 GUARD, RELEASE = "offerRejoinBattle() called while the battle is not ", "restream adopted; released the client hold"
 RESTASH = "F3 battle resume: stashed geoscape-only coop_geoscape_return"
 SHARED_STREAM, CLIENT_ACTIVE = "[coop-shared] streaming authoritative world to client (", "CLIENT phase Active (battleId="
+RETRY = "[coop] load progress retry "
 NEEDLES = {"OFFER": OFFER, "REFUSED": REFUSED, "GUARD": GUARD, "RELEASE": RELEASE, "RESTASH": RESTASH, "SHARED_STREAM": SHARED_STREAM}
 
 class Stop(Exception):
@@ -367,6 +377,72 @@ def row_host_leaves(x, results, walls):
         r.stop(e)
     r.end("host_leaves_clean", c.user_dir, results, walls)
 
+def row_popup_during_download(x, results, walls):
+    r = Row("popup_during_download", ["popup_during_download-%d" % i for i in range(1, 5)], x)
+    if x.err:
+        return r.boot_miss(results, walls)
+    h, c, held = x.host, x.client, False
+    try:
+        baseline(r, x, c)
+        r.n_h = len(log(h))
+        print("EVIDENCE popup_during_download leave: %s" % json.dumps(q(c, {"cmd": "disconnect_to_menu"}), default=str),
+              flush=True)
+        wait("client top MainMenuState", lambda: top(c) == MENU, 60.0)
+        ok, pv = pause(x)
+        r.cell("popup_during_download-1", "GUARD", "PAUSE(host)", ok, pv)
+        if not ok:
+            raise Stop("PAUSE(host) not reached within %.0f s" % W_PAUSE)
+        ev = {"hold": q(h, {"cmd": "hold_world_stream", "on": True})}
+        held = True
+        x.client2 = c2 = GameClient("client2", 3, make_user_dir(x.tag + "_client2"))
+        c2.spawn(); c2.connect()
+        ev["join_tcp"] = q(c2, {"cmd": "join_tcp", "ip": "127.0.0.1", "port": KEY_POPUP, "player": "ClientPlayer"})
+        try:
+            ev["popup s"] = wait("client2's join popup on top", lambda: top(c2) == PROFILE, 60.0, 0.02)
+        except Stop as e:
+            ev["wait"] = str(e)
+        ev.update(stack=stack(c2), dialog=dlg(c2))
+        on_popup = ev["stack"][-2:] == [CS, PROFILE] and ev["dialog"].get("code") == 72
+        r.cell("popup_during_download-2", "GUARD", "the host holds its world stream (hold_world_stream armed) and client2's join "
+               "popup is the top state over the world download dialog 72", ev["hold"].get("armed") is True and on_popup, ev)
+        if not on_popup:
+            raise Stop("client2's join popup not on top of dialog 72")
+        n_c2, pr = len(log(c2)), {"press": q(c2, {"cmd": "profile_ok", "top": True})}
+        pr["closed s"] = wait("client2's join popup closed", lambda: PROFILE not in stack(c2), 10.0, 0.02)
+        pr["after"] = {"stack": stack(c2), "dialog": dlg(c2)}
+        time.sleep(HOLD_S)
+        pr["retries"] = since(c2, n_c2, RETRY)
+        pr["end of hold"] = {"stack": stack(c2), "dialog": dlg(c2), "SHARED_STREAM": since(h, r.n_h, SHARED_STREAM)}
+        r.cell("popup_during_download-3", "FIX", "client2's OK on its join popup asks for no second world: the top dialog is still 72 "
+               "(no load-wait 52 stacked over it) after the press and after HOLD_S %.0f s, and client2 logs no load progress retry"
+               % HOLD_S, pr["press"].get("ok") is True and pr["after"]["dialog"].get("code") == 72
+               and pr["end of hold"]["dialog"].get("code") == 72 and not pr["retries"], pr)
+        rel, t0 = {"release": q(h, {"cmd": "hold_world_stream", "on": False}), "c2 on 68 s": None}, time.time()
+        held = False
+
+        def acked():
+            for gc in (h, c2):
+                if top(gc) == PROFILE:
+                    rel.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2),
+                                                             q(gc, {"cmd": "profile_ok", "top": True}).get("ok")])
+            if rel["c2 on 68 s"] is None and dlg(c2).get("code") == 68:
+                rel["c2 on 68 s"] = round(time.time() - t0, 2)
+            return coop(h).get("resumeAck") is True and auth(h).get("peerAbsent") is False
+        try:
+            rel["ack s"] = wait("host resumeAck true and peerAbsent false", acked, W_ACK)
+        except Stop as e:
+            rel["ack wait"] = str(e)
+        rel["SHARED_STREAM"] = since(h, r.n_h, SHARED_STREAM)
+        r.cell("popup_during_download-4", "GUARD", "after the release the rejoin goes on with one world: SHARED_STREAM +1, a client2 "
+               "poll on dialog 68, the host's resumeAck true and peerAbsent false within W_ACK", len(rel["SHARED_STREAM"]) == 1
+               and rel["c2 on 68 s"] is not None and "ack s" in rel, rel)
+    except Exception as e:  # Stop, or a probe / spawn that raised: the row ends here
+        r.stop(e)
+    finally:
+        if held:
+            q(h, {"cmd": "hold_world_stream", "on": False})
+    r.end("popup_during_download-5", x.client2.user_dir if x.client2 is not None else None, results, walls)
+
 def new_x(tag):
     return SimpleNamespace(tag=tag, js=None, host=None, client=None, client2=None, err=None, squad=None, b0=None, t0=None, split0=None)
 
@@ -426,7 +502,9 @@ def main():
     return run((("campaign_rejoin_shared", lambda tag: boot_shared(tag, KEY_SHARED),
                  (("client_leaves", row_client_leaves),)),
                 ("campaign_rejoin_host_leaves", lambda tag: boot_separate(tag, KEY_HOST_LEAVES),
-                 (("host_leaves", row_host_leaves),))), "test_campaign_rejoin")
+                 (("host_leaves", row_host_leaves),)),
+                ("campaign_rejoin_popup", lambda tag: boot_shared(tag, KEY_POPUP),
+                 (("popup_during_download", row_popup_during_download),))), "test_campaign_rejoin")
 
 if __name__ == "__main__":
     sys.exit(main())
