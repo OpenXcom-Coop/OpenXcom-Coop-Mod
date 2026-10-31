@@ -438,6 +438,16 @@ void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType);
 /// {unit, pos, corpses:[item ids linked to the unit]}, only when >= 1.
 void coopCueCorpse(const BattleUnit* unit);
 
+/// Hook (UnitDieBState::think, after its turn / fall step): HOST - adds the dying unit's pose after this think to
+/// its deathSteps record (coopDeathSteps()). A no-op off the host and for a death that skips the animation.
+void coopDeathThink(const BattleUnit* unit);
+
+/// [deathSteps] HOST: the last 16 animated deaths this battle, oldest first, as [{seq (its `death` cue), unit, front,
+/// fromDir, firstStepTimerMs (ms since the battle's state timer last ticked when the death's first think ran),
+/// steps: [[ms from the first think, direction, status, fall phase], ...] (one entry per change)}]. An empty array on
+/// a client. Main thread only; battle-scoped like coopShotTrajectories(). Probe only.
+Json::Value coopDeathSteps();
+
 /// Hook (BattlescapeGame::handleNonTargetAction, the last statement of
 /// the BA_PRIME and BA_UNPRIME spendTU blocks): prime/unprime as an INSTANT
 /// host action - mint, push {id,"host"}, emit the `prime` cue ({actor, unit

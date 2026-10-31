@@ -2770,6 +2770,11 @@ void BattlescapeState::coopStepCovered() // coop: coopThinkCoveredBattle's step 
 	if (_gameTimer->isRunning()) _gameTimer->think(this, 0);
 }
 
+Uint32 BattlescapeState::coopStateTimerElapsed() const // coop: the death display's timer phase (CoopDelta.h coopDeathThink())
+{
+	return _gameTimer->getTime();
+}
+
 /**
  * Gets pointer to the game. Some states need this info.
  * @return Pointer to game.

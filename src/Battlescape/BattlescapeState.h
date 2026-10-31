@@ -247,6 +247,7 @@ public:
 	/// Sets the state timer interval.
 	void setStateInterval(Uint32 interval);
 	void coopStepCovered(); // coop: one step of the battle's timer while another screen covers this state
+	Uint32 coopStateTimerElapsed() const; // coop: ms since the state timer last ticked (the death display's timer phase)
 	/// Gets game.
 	Game *getGame() const;
 	/// Gets map.

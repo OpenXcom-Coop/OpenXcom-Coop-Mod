@@ -5337,6 +5337,141 @@ Json::Value coopShotTrajectories()
 }
 
 // ---------------------------------------------------------------------------
+// HOST: the deathSteps probe storage (CoopDelta.h coopDeathSteps()) - one record per animated `death` cue
+// (coopCueDeath()), its poses added by coopDeathThink() after each UnitDieBState think. Main thread only;
+// battle-scoped like the shotTrajectories ring above. Outside every REPLAY-REGION.
+// ---------------------------------------------------------------------------
+namespace
+{
+
+struct CoopDeathStepPose
+{
+	std::uint32_t ms = 0;   // from the death's first think
+	int direction = 0;
+	int status = 0;
+	int phase = 0;
+};
+
+struct CoopDeathStepRecord
+{
+	std::uint32_t seq = 0;
+	int unit = -1;
+	bool front = false;
+	int fromDir = 0;
+	int thinks = 0;
+	std::uint32_t firstThinkMs = 0;   // SDL ticks at the first think
+	int firstStepTimerMs = -1;
+	std::vector<CoopDeathStepPose> steps;
+};
+
+struct CoopDeathStepStore
+{
+	unsigned int gen = 0;
+	std::deque<CoopDeathStepRecord> ring;
+};
+CoopDeathStepStore g_coopDeathSteps;
+const std::size_t kCoopDeathStepCap = 16;
+
+void coopDeathStepsSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	if (g_coopDeathSteps.gen != g)
+	{
+		g_coopDeathSteps.ring.clear();
+		g_coopDeathSteps.gen = g;
+	}
+}
+
+/// The newest record of @a unitId, or null.
+CoopDeathStepRecord* coopDeathStepRecord(int unitId)
+{
+	for (auto it = g_coopDeathSteps.ring.rbegin(); it != g_coopDeathSteps.ring.rend(); ++it)
+	{
+		if (it->unit == unitId)
+			return &*it;
+	}
+	return nullptr;
+}
+
+/// HOST: a new record for an animated death whose `death` cue went out as @a seq.
+void coopDeathStepsOpen(std::uint32_t seq, const BattleUnit* unit, bool front)
+{
+	coopDeathStepsSync();
+	CoopDeathStepRecord r;
+	r.seq = seq;
+	r.unit = unit->getId();
+	r.front = front;
+	r.fromDir = unit->getDirection();
+	g_coopDeathSteps.ring.push_back(r);
+	while (g_coopDeathSteps.ring.size() > kCoopDeathStepCap)
+		g_coopDeathSteps.ring.pop_front();
+}
+
+} // namespace
+
+/// The live battle's state timer: ms since it last ticked, or -1 with no live BattlescapeState.
+int coopStateTimerMs()
+{
+	SavedBattleGame* battle = connectionTCP::getStaticBattle();
+	BattlescapeState* bs = battle ? battle->getBattleState() : nullptr;
+	if (!connectionTCP::isBattlescapeStateLive(bs))
+		return -1;
+	return (int)bs->coopStateTimerElapsed();
+}
+
+void coopDeathThink(const BattleUnit* unit)
+{
+	if (!coopCueAuthoring() || !unit)
+		return;
+	coopDeathStepsSync();
+	CoopDeathStepRecord* r = coopDeathStepRecord(unit->getId());
+	if (!r)
+		return; // a death that skips the animation has no record
+	const std::uint32_t now = SDL_GetTicks();
+	if (++r->thinks == 1)
+	{
+		r->firstThinkMs = now;
+		r->firstStepTimerMs = coopStateTimerMs();
+	}
+	CoopDeathStepPose pose;
+	pose.ms = now - r->firstThinkMs;
+	pose.direction = unit->getDirection();
+	pose.status = (int)unit->getStatus();
+	pose.phase = unit->getFallingPhase();
+	if (r->steps.empty() || r->steps.back().direction != pose.direction || r->steps.back().status != pose.status
+		|| r->steps.back().phase != pose.phase)
+		r->steps.push_back(pose);
+}
+
+Json::Value coopDeathSteps()
+{
+	coopDeathStepsSync();
+	Json::Value out(Json::arrayValue);
+	for (const CoopDeathStepRecord& r : g_coopDeathSteps.ring)
+	{
+		Json::Value j(Json::objectValue);
+		j["seq"] = r.seq;
+		j["unit"] = r.unit;
+		j["front"] = r.front;
+		j["fromDir"] = r.fromDir;
+		j["firstStepTimerMs"] = r.firstStepTimerMs;
+		Json::Value steps(Json::arrayValue);
+		for (const CoopDeathStepPose& s : r.steps)
+		{
+			Json::Value e(Json::arrayValue);
+			e.append(s.ms);
+			e.append(s.direction);
+			e.append(s.status);
+			e.append(s.phase);
+			steps.append(e);
+		}
+		j["steps"] = steps;
+		out.append(j);
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
 // The hit-log mirror probe storage (CoopDelta.h coopHitLogMirrorProbe(), event_state
 // `hitLogMirror`). The HOST mirrors each hit-log entry that passes vanilla's player-side check as {t, f, k?} into a
 // pending list that rides its next outermost emit (the envelope field `hitLog`); the CLIENT appends what it applies,
@@ -5811,6 +5946,8 @@ void coopCueDeath(const BattleUnit* unit, const RuleDamageType* damageType)
 	}
 	p["damageType"] = coopCueDamageType(damageType);
 	coopEmitCue("death", p);
+	if (!p["instant"].asBool())
+		coopDeathStepsOpen(CoopEmit::lastSeqEmitted(), unit, p["front"].asBool());
 }
 
 void coopCueCorpse(const BattleUnit* unit)

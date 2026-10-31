@@ -9108,6 +9108,8 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["derivedPaths"] = CoopGhost::derivedPaths();
 		resp["rngSeed"] = Json::Value::Int64((int64_t)RNG::getSeed());
 		resp["shotTrajectories"] = coopShotTrajectories();
+		// The HOST's own death steps, each animated death's poses in ms from its first think (CoopDelta.h).
+		resp["deathSteps"] = coopDeathSteps();
 		// The HOST's skipped projectile flights (CoopDelta.h).
 		resp["projectileSkips"] = coopProjectileSkips();
 		// The TEST-ONLY draw probe (CoopDelta.h).
@@ -16043,6 +16045,18 @@ std::string TestServer::execute(const std::string& line)
 				int killFaction = req.get("faction", -1).asInt();
 				const bool stun = req.get("stun", false).asBool(); // vanilla's debug stun (BattlescapeState :3423)
 				const RuleDamageType* dt = _game->getMod()->getDamageType(stun ? DT_STUN : DT_AP);
+				// TEST-ONLY: {afterTickMs} holds the kill (a bounded wait on the main thread, at most 250 ms) until the
+				// battle's state timer has run that many ms since its last tick, so the deaths are pushed at a known
+				// timer phase; the answer's `tickMs` is the phase at the kill.
+				const int afterTickMs = req.get("afterTickMs", -1).asInt();
+				if (afterTickMs >= 0)
+				{
+					const Uint32 until = SDL_GetTicks() + 250;
+					while ((int)bstate->coopStateTimerElapsed() < afterTickMs && SDL_GetTicks() < until)
+					{
+					}
+					resp["tickMs"] = (int)bstate->coopStateTimerElapsed();
+				}
 				Json::Value killed(Json::arrayValue);
 				for (auto* u : *sbg->getUnits())
 				{
