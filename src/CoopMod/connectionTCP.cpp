@@ -24153,6 +24153,10 @@ struct GhostReplay
 	bool hasTurret = false;
 	int turretFrom = 0; // the turret facing at the turn's start (the ev's turretFrom)
 	std::vector<int> turretsShown;
+	// A turn of the turret alone (the `turn` ev's turretOnly, the `turn_start` cue's turret; a unit with a turret
+	// only): the body stays on fromDir and the turret turns from turretFrom to turretTo, one octant per step.
+	bool turretOnly = false;
+	int turretTo = 0;
 };
 
 // Battle-scoped: one live slot per unit id. Cleared by reset() (called from
@@ -24617,6 +24621,13 @@ int turnOctants(int fromDir, int toDir, bool* clockwiseOut)
 	return clockwise ? cw : ccw;
 }
 
+/// The octants a `turn` ghost draws (turnOctants()): the turret's for a turret-only turn, the body's otherwise.
+int turnGhostOctants(const GhostReplay& g, bool* clockwiseOut)
+{
+	return g.turretOnly ? turnOctants(g.turretFrom, g.turretTo, clockwiseOut)
+		: turnOctants(g.fromDir, g.toDir, clockwiseOut);
+}
+
 /// the acting unit's per-frame pace - its OWNING
 /// seat's dial when owned and valid, otherwise the floor fallback
 /// (CoopSpeed::speedFor()'s own rule). Resolved fresh from @a unitId every
@@ -24647,7 +24658,7 @@ std::uint32_t ghostDurationMs(const GhostReplay& g)
 	if (g.kind == "kneel")
 		return kKneelHoldMs;
 	if (g.kind == "turn")
-		return (std::uint32_t)turnOctants(g.fromDir, g.toDir, nullptr) * paceMsFor(g.unitId);
+		return (std::uint32_t)turnGhostOctants(g, nullptr) * paceMsFor(g.unitId);
 	return (std::uint32_t)framesForStep(g) * paceMsFor(g.unitId); // walk_step
 }
 
@@ -24660,13 +24671,14 @@ bool combatClient(); // defined with the combat ghosts below
 /// canonical status the caller's view carries; out, the drawn status -
 /// STATUS_TURNING, vanilla's pose while a unit turns (its lookAt), never the aiming pose a held
 /// shot's delta already wrote. @a turretDirection (optional): in, the canonical turret facing; out, for a
-/// unit with a turret whose body turns, the drawn turret - vanilla turns it one octant with each body
-/// octant, the same way, from the turn's turretFrom. Reads only.
+/// unit with a turret, the drawn turret - vanilla turns it one octant with each body octant, the same way,
+/// from the turn's turretFrom, and in a turret-only turn it turns alone toward turretTo while the body
+/// stays on fromDir. Reads only.
 void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int* status,
 	int* turretDirection = nullptr)
 {
 	bool clockwise = false;
-	const int octants = turnOctants(g.fromDir, g.toDir, &clockwise);
+	const int octants = turnGhostOctants(g, &clockwise);
 	// per-octant pace derived from the FIXED total duration, not a
 	// wall-clock constant - g.durationMs already baked in paceMsFor() at
 	// enqueue.
@@ -24675,9 +24687,8 @@ void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int
 		? octants
 		: std::min(octants, (int)(elapsed / perOctant));
 	if (direction)
-		*direction = clockwise
-			? (g.fromDir + stepsElapsed) % 8
-			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
+		*direction = g.turretOnly ? g.fromDir // the body stays
+			: clockwise ? (g.fromDir + stepsElapsed) % 8 : ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
 	if (status)
 		*status = (int)STATUS_TURNING; // the turning pose
 	if (turretDirection && g.hasTurret && octants > 0)
@@ -26880,13 +26891,17 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	BattleUnit* unit = CoopIdMaps::unit(payload[unitKey].asInt());
 	if (!unit)
 		return;
-	// A `turn_start` whose body does not turn (only the turret turns) has nothing for this ghost to draw: its
-	// `turn` ev plays as it does without the cue.
-	if (kind == "turn_start" && payload.get("fromDir", 0).asInt() == payload.get("toDir", 0).asInt())
+	// A turn of the turret alone (a unit with a turret): the cue's `turret`, the `turn` ev's `turretOnly`.
+	const bool turretOnly = unit->getTurretType() > -1
+		&& payload.get(kind == "turn_start" ? "turret" : "turretOnly", false).asBool();
+	// A `turn_start` that turns neither the body nor the turret has nothing for this ghost to draw.
+	if (kind == "turn_start" && (turretOnly
+			? payload.get("turretFrom", 0).asInt() == payload.get("turretTo", 0).asInt()
+			: payload.get("fromDir", 0).asInt() == payload.get("toDir", 0).asInt()))
 		return;
 	// The `turn` ev of a turn its `turn_start` cue already started: the running ghost goes on from where it
-	// is (no restart) under the ev's seq, toward the ev's facing (the host's final one, an aborted turn's
-	// too). A ghost that has drawn its whole turn by now ends here.
+	// is (no restart) under the ev's seq, toward the ev's facing, the turret's in a turret-only turn (the
+	// host's final one, an aborted turn's too). A ghost that has drawn its whole turn by now ends here.
 	const std::uint32_t evActionId = ev.get("actionId", 0u).asUInt();
 	if (kind == "turn" && evActionId != 0)
 	{
@@ -26897,10 +26912,13 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 			g.seq = ev.get("seq", 0u).asUInt();
 			g.awaitingTurn = false;
 			const int toDir = payload.get("toDir", g.toDir).asInt();
-			if (toDir != g.toDir)
+			const int turretTo = payload.get("turretTo", g.turretTo).asInt();
+			if (toDir != g.toDir || (g.turretOnly && turretTo != g.turretTo))
 			{
 				g.toDir = toDir;
-				g.frames = turnOctants(g.fromDir, g.toDir, nullptr);
+				if (g.turretOnly)
+					g.turretTo = turretTo;
+				g.frames = turnGhostOctants(g, nullptr);
 				g.durationMs = ghostDurationMs(g);
 			}
 			const std::uint32_t nowMs = SDL_GetTicks();
@@ -26932,6 +26950,8 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.fromPos = rec.toPos = unit->getPosition();
 		rec.hasTurret = unit->getTurretType() > -1;
 		rec.turretFrom = payload.get("turretFrom", unit->getTurretDirection()).asInt();
+		rec.turretOnly = turretOnly;
+		rec.turretTo = payload.get("turretTo", rec.turretFrom).asInt();
 		if (kind == "turn_start")
 		{
 			rec.cueSeq = rec.seq;
@@ -26976,7 +26996,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 	// in-flight ghost keeps this value even if the per-seat table changes
 	// mid-flight (advance()/view() below read it back, never recompute it).
 	rec.frames = (rec.kind == "turn")
-		? turnOctants(rec.fromDir, rec.toDir, nullptr)
+		? turnGhostOctants(rec, nullptr)
 		: (rec.kind == "walk_step" ? framesForStep(rec) : 0);
 	rec.durationMs = ghostDurationMs(rec);
 	rec.seat = unit ? (int)unit->getCoopSeat() : -1;
