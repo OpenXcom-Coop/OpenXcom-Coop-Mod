@@ -17,7 +17,8 @@ Definitions: POLL 0.25 s; W_ACK = WATCH_CAP_S; PAUSE(host) within 30 s of the le
 battleId B0, inBattle true, dialog 62 backVisible false, stack [..., BattlescapeState, CoopState]; SPLIT = sorted (unit
 id, coop) of faction 0, not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both; REJOIN =
 a fresh client2 on its own dir, join_tcp from the main menu, wait <= W_ACK for the host's resumeAck true AND peerAbsent
-false (profile_ok only on a top-state Profile; client2's only once its load wait 52 is gone),
+false (profile_ok only on a top-state Profile, sent with top: true so a Profile covered in the meantime is refused, as
+a player's click could not reach it; client2's only once its load wait 52 is gone),
 press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s. battle_state is probed only with a
 BattlescapeState on the stack or no battle in the world (otherwise the probe would dereference a stale _battleState
 after a BattlescapeState pop and kill the process). Needles = host log since the row's baseline (client2: its own log).
@@ -209,7 +210,7 @@ def rejoin(x, key, ev):
     def acked():
         for gc in (h, c2):  # a press while client2's world loads pops the LoadGameState pushed over its Profile
             if top(gc) == PROFILE and (gc is h or dlg(c2).get("code") != 52):
-                ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok"}).get("ok")])
+                ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok", "top": True}).get("ok")])
         if ev["c2 on 68 s"] is None and dlg(c2).get("code") == 68:
             ev["c2 on 68 s"] = round(time.time() - t0, 2)
         return coop(h).get("resumeAck") is True and auth(h).get("peerAbsent") is False
@@ -227,7 +228,7 @@ def resume(x, ev):
 
     def shown():
         if top(h) == PROFILE:
-            ev.setdefault("profile_ok", []).append([h.name, "resume", q(h, {"cmd": "profile_ok"}).get("ok")])
+            ev.setdefault("profile_ok", []).append([h.name, "resume", q(h, {"cmd": "profile_ok", "top": True}).get("ok")])
         d = dlg(h)
         if top(h) == CS and d.get("code") == 62 and d.get("backVisible") is True:
             ev["RESUME dialog"] = d

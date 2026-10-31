@@ -17400,8 +17400,14 @@ std::string TestServer::execute(const std::string& line)
 		}
 		else if (cmd == "profile_ok")
 		{
+			// {top: true} presses only a Profile that is the top state, the one a player's click can reach. Without it a
+			// state pushed over the Profile in the same frame (the arriving world's LoadGameState) would be the one popped.
 			Profile* profile = findState<Profile>(_game);
-			if (profile)
+			if (profile && req.get("top", false).asBool() && _game->getStates().back() != profile)
+			{
+				resp["error"] = "the Profile is not the top state";
+			}
+			else if (profile)
 			{
 				profile->buttonOK(nullptr);
 				resp["ok"] = true;
