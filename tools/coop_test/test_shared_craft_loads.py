@@ -9,7 +9,8 @@ shared_reset_resync_stats. (item, slot) = STR_PISTOL into the actor's left hand,
 soldier / craft screen SKY delta is {PISTOL +1, PISTOL_CLIP +1}. A row whose main cell (the one that fails without the
 fix) fails evaluates no later cell.
 Option-OFF boot (SHARED, 49427 / 49428 / 47927): loadout_load_syncs: template slot 1 = the SKY's items, two pistols off,
-  park, client CES loadout_load 1, OK; without the fix SKY(host) is unchanged after W. ground_to_base_syncs: park,
+  park, client CES loadout_load 1 (the host applies the load and the client's screen follows it: its SKY PISTOL +2
+  within W), OK; without the fix SKY(host) is unchanged after W. ground_to_base_syncs: park,
   client craft inventory ground_to_base, close; without the fix SKY(host) == the reply's before after W.
   world_equal_option_off: js.finish().
 Option-ON boot (SHARED, 49429 / 49430 / 47928; setup: the option-OFF layouts settle, option ON on both, a host
@@ -21,9 +22,9 @@ Option-ON boot (SHARED, 49429 / 49430 / 47928; setup: the option-OFF layouts set
   open_screen_kept (LAST): host on its geoscape, the client's craft screen held HOLD; without the fix reqs +1 or the
   InventoryState gone (closed, or the client crashed); only after a FAILED open_screen_kept does the shutdown tolerate a
   dead client (rc 3, its crash log as EVIDENCE).
-SEPARATE boot (labels 49431 / 49432, lobby 47929, option ON): separate_stays_local (guard): ClientBase soldier screen on
-  top 8 s, PISTOL onto its first soldier, close, craft screen round trip: SKY PISTOL / PISTOL_CLIP +1 locally,
-  shared_stats unchanged 1 s after.
+SEPARATE boot (labels 49431 / 49432, lobby 47929, option ON): separate_reaches_host (guard): ClientBase soldier screen on
+  top 8 s, PISTOL onto its first soldier, close, craft screen round trip: SKY PISTOL / PISTOL_CLIP +1 on the client,
+  the host's ClientBase SKY equal to the client's within W (one world: the host applies the client's edits).
 EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (both machines' base_report, geo_state
 items, soldier_layouts, shared_resync_stats, shared_stats, option_values, stacks); a boot miss fails its rows
 "boot" with ONE CAPTURE line; a failed shutdown is a FAIL line. Every row runs after a failure. ONE run; exit 0 iff
@@ -58,7 +59,7 @@ ROWS_OPTION_OFF, ROWS_OPTION_ON, ROWS_SEPARATE = (
     ["loadout_load_syncs", "ground_to_base_syncs", "world_equal_option_off"],
     ["partner_edit_refused", "soldier_screen_load_syncs", "craft_screen_load_syncs", "host_load_no_recopy",
      "world_equal_option_on", "open_screen_kept"],
-    ["separate_stays_local"])
+    ["separate_reaches_host"])
 ORDER = ROWS_OPTION_OFF + ROWS_OPTION_ON + ROWS_SEPARATE
 
 
@@ -271,17 +272,19 @@ def row_loadout_load(x, r):
             return None
         c0 = sky(c, x.sky)
         load = bso(c, op="loadout_load", index=1)
+        # the host applies the load; the client's screen follows when the apply lands
+        got, s = timed(lambda: diff(c0, sky(c, x.sky)).get(PISTOL) == 2, W)
         c1 = sky(c, x.sky)
         close_ces(r, c)
-        return {"loadout_load": load, "client sky before": c0, "client SKY diff at once": diff(c0, c1),
-                "client SKY diff after OK": diff(c0, sky(c, x.sky))}
+        return {"loadout_load": load, "client sky before": c0, "client SKY +2 within (s)": s if got else None,
+                "client SKY diff before OK": diff(c0, c1), "client SKY diff after OK": diff(c0, sky(c, x.sky))}
     a, w, rel = parked(r, x, act)
     r.ev.update({"load": a, "host over W": w})
     r.evidence()
     if not (rel["ok"] and a and w):
         return
-    if not r.cell("non-vacuity: the client's SKY PISTOL +2 at once", a["loadout_load"].get("ok") is True
-                  and a["client SKY diff at once"].get(PISTOL) == 2, a):
+    if not r.cell("non-vacuity: the client's SKY PISTOL +2 within W", a["loadout_load"].get("ok") is True
+                  and a["client SKY +2 within (s)"] is not None, a):
         return
     check_sync(r, w, rel, "the client's craft loadout load never reached the host", w["host sky"] != w["host before"])
 
@@ -472,7 +475,7 @@ def row_open_screen_kept(x, r):
     r.cell("SKY and ST not equal on both within W after the close", bool(eq), s_eq)
 
 
-def row_separate_stays_local(x, r):
+def row_separate_reaches_host(x, r):
     h, c = x.host, x.client
     so = {g.name: q(g, {"cmd": "set_option", "name": OPT, "value": True}) for g in (h, c)}
     on = {g.name: opt(g) for g in (h, c)}
@@ -496,13 +499,15 @@ def row_separate_stays_local(x, r):
     time.sleep(SETTLE)
     s1 = {g.name: sbe.stats3(g) for g in (h, c)}
     d = diff(k0, k1)
+    eq, s_eq = timed(lambda: sky(h, sid, CB) == sky(c, sid, CB), W)
     r.ev.update({"top each second": held, "SKY diff (soldier screen)": d, "SKY diff (craft round trip)": diff(k1, k2),
-                 "shared_stats before": s0, "shared_stats 1 s after": s1})
+                 "shared_stats before": s0, "shared_stats 1 s after": s1,
+                 "host / client SKY within W": [sky(h, sid, CB), sky(c, sid, CB), s_eq]})
     r.evidence()
     r.cell("guard: STR_PISTOL moved onto the first soldier", e, r.ev.get("client edit"))
     r.cell("the InventoryState left the top within 8 s", held == [INV] * 8, held)
-    r.cell("the client's ClientBase SKY PISTOL / PISTOL_CLIP not +1 locally", d.get(PISTOL) == 1 and d.get(CLIP) == 1, d)
-    r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
+    r.cell("the client's ClientBase SKY PISTOL / PISTOL_CLIP not +1", d.get(PISTOL) == 1 and d.get(CLIP) == 1, d)
+    r.cell("the host's ClientBase SKY not equal to the client's within W", bool(eq), r.ev["host / client SKY within W"])
 
 
 def boot_miss(tag, e, rids, results, x=None):
@@ -593,9 +598,9 @@ def boot_separate(results, walls):
             geo.wait_both_ready(h, c)
             x.seats = {gc.name: q(gc, {"cmd": "get_coop"}).get("localSeat") for gc in (h, c)}
             walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails separate_stays_local "boot" with ONE CAPTURE line
+        except Exception as e:  # a boot miss fails separate_reaches_host "boot" with ONE CAPTURE line
             return boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
-        run_rows(x, (("separate_stays_local", row_separate_stays_local),), results, walls)
+        run_rows(x, (("separate_reaches_host", row_separate_reaches_host),), results, walls)
     finally:
         down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 
