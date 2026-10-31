@@ -19,9 +19,11 @@ Boot shared (SHARED, 49441 / 49442 / 47935; stock TC 2, shells 60, TLC 1 on both
   hwp_load_6 client raw craft_equip {TC, 2}; main cell: "vehicles not routed" within W (cleanup: ONE close_screens on
   the client).
   hwp_load_7 js.finish().
-Boot separate (SEPARATE, tag hwp_loads_separate, labels 49443 / 49444, lobby 47936): hwp_load_8 (guard): 4 of the
-  client's SKY crew off by craft_assign to make room for a tank (spaceAvailable >= 4, EVIDENCE), client TC +1 -> its
-  V {TC: 1}, stores TC -1 / shells -AP; both shared_stats unchanged 1 s later.
+Boot separate (SEPARATE, tag hwp_loads_separate, labels 49443 / 49444, lobby 47936): hwp_load_8 (guard): TC 1 and
+  shells AP given at ClientBase on both (client first; ST equal within W), 4 of the
+  client's SKY crew off by craft_assign to make room for a tank (the host applies it: spaceAvailable >= 4 within W,
+  EVIDENCE), client TC +1 -> its V {TC: 1}, stores TC -1 / shells -AP, and the host's base_report of that craft carries
+  the same vehicles within W (one world: the host applies the client's load).
 A row whose main cell fails evaluates no later cell. EVIDENCE line per row before its verdict; a failed row prints ONE
 CAPTURE line (both machines' V, SKYI, ST, shared_stats, shared_resync_stats, stacks); a boot miss fails its rows
 "boot". Every row runs after a failure. ONE run; exit 0 iff everything passes, else 2.
@@ -294,34 +296,50 @@ def row_raw_command(x, r):
     r.cell("the client asked for a world re-copy over RW", over["reqs"] == 0, over)
 
 
-def row_separate_stays_local(x, r):
-    """SEPARATE (guard): 4 of the client's SKY crew off by craft_assign to make room, then its TC load stays local and
-    sends nothing."""
+def craft_vehicles_report(gc, sid):
+    """base_report ClientBase {sid, STR_SKYRANGER} vehicles on gc (the host holds the client's base as a foreign base,
+    which base_screen_op's craft_vehicles skips)."""
+    rep = q(gc, {"cmd": "base_report", "base": CB})
+    e = next((e for e in rep.get("crafts") or [] if e.get("id") == sid and e.get("type") == SKYR), None)
+    return None if e is None else e.get("vehicles")
+
+
+def row_separate_reaches_host(x, r):
+    """SEPARATE (guard): 4 of the client's SKY crew off by craft_assign to make room, then its TC load reaches the host
+    (one world: the host applies both)."""
     h, c = x.host, x.client
     rep = q(c, {"cmd": "base_report", "base": CB})
     x.sky_s = sid = next((e.get("id") for e in rep.get("crafts") or [] if e.get("type") == SKYR), None)
     crew = [s.get("id") for s in rep.get("soldiers") or [] if s.get("craft") == sid]
-    gv = [q(c, {"cmd": "give_items", "item": it, "count": n, "base": CB}) for it, n in ((TC, 1), (SH, AP))]
+    gv = [q(g, {"cmd": "give_items", "item": it, "count": n, "base": CB}) for g in (c, h) for it, n in ((TC, 1), (SH, AP))]
+    stocked, s_st = cl.timed(lambda: cl.st(h, CB) == cl.st(c, CB), W)
     off = [q(c, {"cmd": "craft_assign", "soldier_id": i, "craft_id": sid, "base": CB, "on": False}) for i in crew[:4]]
+    room, s_room = cl.timed(lambda: (V(c, x, CB, sid).get("spaceAvailable") or 0) >= 4, W)
     v0 = V(c, x, CB, sid)
-    stg = {"ClientBase SKY": sid, "crew": crew, "give_items": gv, "craft_assign off": off, "client V after the staging": v0}
+    stg = {"ClientBase SKY": sid, "crew": crew, "give_items": gv, "ST equal within (s)": s_st if stocked else None,
+           "craft_assign off": off, "client V after the staging": v0, "spaceAvailable >= 4 within (s)": s_room if room else None}
     print(f"EVIDENCE hwp_load_8 (staging): {json.dumps(stg, sort_keys=True, default=str)}", flush=True)
     r.ev["staging"] = stg
-    if not (r.cell("guard: a ClientBase SKYRANGER with >= 4 crew, stock given", sid is not None and len(crew) >= 4 and all(g.get("ok") for g in gv), stg)
-            and r.cell("guard: craft_assign took 4 crew off (spaceAvailable >= 4)", all(o.get("seated") is False for o in off) and len(off) == 4
-                       and (v0.get("spaceAvailable") or 0) >= 4 and v0.get("vehicles") == {}, stg)):
+    if not (r.cell("guard: a ClientBase SKYRANGER with >= 4 crew, stock given on both", sid is not None and len(crew) >= 4
+                   and all(g.get("ok") for g in gv) and stocked, stg)
+            and r.cell("guard: craft_assign took 4 crew off within W (spaceAvailable >= 4)", all(o.get("ok") for o in off) and len(off) == 4
+                       and room and v0.get("vehicles") == {}, stg)):
         return r.evidence()
     s0, st0, k0 = {g.name: sbe.stats3(g) for g in (h, c)}, cl.st(c, CB), cl.sky(c, sid, CB)
     mv = move(c, x, TC, 1, CB, sid)
+    loaded, s_v = cl.timed(lambda: V(c, x, CB, sid).get("vehicles") == {TC: 1}, W)
+    eq, s_eq = cl.timed(lambda: craft_vehicles_report(h, sid) == craft_vehicles_report(c, sid) == {TC: 1}, W)
     v1, d = V(c, x, CB, sid), cl.diff(st0, cl.st(c, CB))
-    time.sleep(SETTLE)
     s1 = {g.name: sbe.stats3(g) for g in (h, c)}
-    r.ev.update({"move": mv, "client V": v1, "client ST diff": d, "client SKYI unchanged": cl.sky(c, sid, CB) == k0,
-                 "shared_stats before / 1 s after": [s0, s1]})
+    r.ev.update({"move": mv, "client V": v1, "client V {TC: 1} within (s)": s_v if loaded else None, "client ST diff": d,
+                 "client SKYI unchanged": cl.sky(c, sid, CB) == k0, "shared_stats before / after": [s0, s1],
+                 "host / client base_report vehicles": [craft_vehicles_report(h, sid), craft_vehicles_report(c, sid), s_eq]})
     r.evidence()
-    r.cell("the client's own SKY V != {TC: 1} after its load", v1.get("vehicles") == {TC: 1} and v1.get("vehicleAmmo") == [AP], v1)
+    r.cell("the client's own SKY V != {TC: 1} within W after its load", loaded and v1.get("vehicles") == {TC: 1}
+           and v1.get("vehicleAmmo") == [AP], v1)
     r.cell("the client's ClientBase stores not TC -1 / shells -AP", d == {TC: -1, SH: -AP}, d)
-    r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
+    r.cell("the host's ClientBase SKY vehicles != the client's {TC: 1} within W", bool(eq),
+           r.ev["host / client base_report vehicles"])
 
 
 def finish(x, r):
@@ -403,7 +421,7 @@ def boot_separate(results, walls):
             walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails hwp_load_8 "boot" with ONE CAPTURE line
             return cl.boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
-        run_rows(x, (("hwp_load_8", row_separate_stays_local),), results, walls)
+        run_rows(x, (("hwp_load_8", row_separate_reaches_host),), results, walls)
     finally:
         cl.down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 
