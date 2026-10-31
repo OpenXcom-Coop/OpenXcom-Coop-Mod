@@ -24151,6 +24151,7 @@ struct GhostReplay
 	// A unit with a turret (vanilla turns that turret one octant with each body octant) and, probe only, the
 	// turret facings a `turn` ghost's view draws while it runs (turretsShown: a unit with a turret only).
 	bool hasTurret = false;
+	int turretFrom = 0; // the turret facing at the turn's start (the ev's turretFrom)
 	std::vector<int> turretsShown;
 };
 
@@ -24658,8 +24659,11 @@ bool combatClient(); // defined with the combat ghosts below
 /// advance()'s dirsShown / poseShown probe, so the probe records what view() draws. @a status: in, the
 /// canonical status the caller's view carries; out, the drawn status -
 /// STATUS_TURNING, vanilla's pose while a unit turns (its lookAt), never the aiming pose a held
-/// shot's delta already wrote. Reads only.
-void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int* status)
+/// shot's delta already wrote. @a turretDirection (optional): in, the canonical turret facing; out, for a
+/// unit with a turret whose body turns, the drawn turret - vanilla turns it one octant with each body
+/// octant, the same way, from the turn's turretFrom. Reads only.
+void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int* status,
+	int* turretDirection = nullptr)
 {
 	bool clockwise = false;
 	const int octants = turnOctants(g.fromDir, g.toDir, &clockwise);
@@ -24676,6 +24680,10 @@ void turnPoseAt(const GhostReplay& g, std::uint32_t elapsed, int* direction, int
 			: ((g.fromDir - stepsElapsed) % 8 + 8) % 8;
 	if (status)
 		*status = (int)STATUS_TURNING; // the turning pose
+	if (turretDirection && g.hasTurret && octants > 0)
+		*turretDirection = clockwise
+			? (g.turretFrom + stepsElapsed) % 8
+			: ((g.turretFrom - stepsElapsed) % 8 + 8) % 8;
 }
 
 /// Probe only: one turn-end record for a ghost-stepper `turn`
@@ -26923,6 +26931,7 @@ void onEvApplied(SavedBattleGame* save, const Json::Value& ev)
 		rec.kneeledBefore = rec.kneeledAfter = unit->isKneeled();
 		rec.fromPos = rec.toPos = unit->getPosition();
 		rec.hasTurret = unit->getTurretType() > -1;
+		rec.turretFrom = payload.get("turretFrom", unit->getTurretDirection()).asInt();
 		if (kind == "turn_start")
 		{
 			rec.cueSeq = rec.seq;
@@ -27094,7 +27103,7 @@ void advance(SavedBattleGame* save, std::uint32_t nowMs)
 				int dir = tg.fromDir;
 				int status = tu ? (int)tu->getStatus() : -1;
 				int turret = tu ? tu->getTurretDirection() : -1; // the turret the view draws
-				turnPoseAt(tg, elapsed, &dir, &status);
+				turnPoseAt(tg, elapsed, &dir, &status, &turret);
 				if (tg.dirsShown.empty() || tg.dirsShown.back() != dir)
 					tg.dirsShown.push_back(dir);
 				if (tg.hasTurret && (tg.turretsShown.empty() || tg.turretsShown.back() != turret))
@@ -27164,7 +27173,7 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 	{
 		// the pose helper advance()'s dirsShown / poseShown probe shares (the
 		// same arithmetic this branch always ran); it draws the turning pose.
-		turnPoseAt(g, elapsed, &io->direction, &io->status);
+		turnPoseAt(g, elapsed, &io->direction, &io->status, &io->turretDirection);
 		return true;
 	}
 
