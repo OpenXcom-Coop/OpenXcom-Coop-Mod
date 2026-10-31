@@ -1,10 +1,14 @@
 """In a SHARED campaign both players play one world, so a reorder control either changes a shared list on both
 machines through the host or leaves it alone (issue #65; SHARED commands address a base by its index). Boot shared
-(SHARED; 49331/49332, lobby 47310): the setup (SharedBase2 built, research P1 / P2 started, both machines' four orders
-equal), then craft_list, soldier_sort, crew_armor_sort, martial_training, psi_training, research_arrows and base_strip
-(last: it reorders and renames bases). The craft list, the training screens and the research arrows leave the shared
-order alone. The soldier-list sort and the crew-armor sort reorder the clicking player's own soldiers among the places
-they already hold, through the host, on both machines; the partner's soldiers keep their places. The base strip moves
+(SHARED; 49331/49332, lobby 47310, changeValueByMouseWheel 1 on both machines so the wheel over the list arrows moves
+a soldier): the setup (SharedBase2 built, research P1 / P2 started, both machines' four orders equal), then craft_list,
+soldier_sort, crew_armor_sort, soldier_arrows, martial_training, psi_training, research_arrows and base_strip (last: it
+reorders and renames bases). The craft list, the training screens and the research arrows leave the shared order
+alone. The soldier-list sort and the crew-armor sort reorder the clicking player's own soldiers among the places they
+already hold, through the host, on both machines; the partner's soldiers keep their places. soldier_arrows: on the
+Soldiers, crew and crew-armor screens the up and down arrows, the wheel over the arrows and a right-click on the up
+arrow (to the top) move one of the clicking player's own soldiers the same way (each screen lists only that player's
+soldiers), and a soldier_order the client sends naming the host's soldiers moves nothing. The base strip moves
 the selected base one place left on both machines, so a later command that names a base by its index reaches the same
 base on both. There is no ORIGINAL ORDER row after an arrival: the host clock stops while the client sits in a base
 screen, so the test cannot stage one. Boot separate (SEPARATE; 49333/49334, lobby 47312): separate_reorders (guard row:
@@ -23,7 +27,8 @@ crew-armor screen) plus shift: a sort that runs keeps the order and shift revers
 clicker's own soldiers, whatever an earlier row left behind.
 Pixels: window = int(base x 2.0), bands 0 (checked against the EQUIP CRAFT click_widget reply), from the unrounded
 centre; list row r: y = rect.y + 8r + 4; arrow buttons 11x8 at rect.x + arrowPos (up) / + 12 (down), centre + 5.5,
-arrowPos 238 (training) / 192 (research); ComboBox: the box centre, then dropdown row r at (x + 2 + (w - 17) / 2,
+arrowPos 238 (training) / 192 (research) / 188 (Soldiers, crew) / 160 (crew-armor, shown once a stat sort shows its
+column); ComboBox: the box centre, then dropdown row r at (x + 2 + (w - 17) / 2,
 popupY + 3 + 8r + 4), popupY = y + h (below) or y - 86 (above: 10 rows x 8 + 6).
 ONE run; exit 0 iff every row passes, else 2.
 """
@@ -45,11 +50,14 @@ H, C, GEO = "host", "client", "GeoscapeState"
 SEAT = {H: 0, C: 1}                                       # the owner seat a soldier carries (base_report "owner")
 SCALE, POLL_S, POLL_I, POPUP_H, OWN_ROWS = 2.0, 2.0, 0.25, 10 * 8 + 3 * 2, 4
 ROW_SS_TYPE, ROW_CAS_CRAFT, ROW_ALLOC_TYPE = 4, 3, 3      # dropdown rows: SOLDIER TYPE / CRAFT / SOLDIER TYPE
+ROW_CAS_ID = 1                                            # crew-armor dropdown row ID (a stat sort: its column, no reorder)
 ARROW_TRAINING, ARROW_RESEARCH = 238, 192                 # setArrowColumn: ATS :187, APS :175 / RS :104
+ARROW_SOLDIERS, ARROW_CREW, ARROW_CREW_ARMOR = 188, 188, 160   # SoldiersState / CraftSoldiersState / CraftArmorState
+WHEEL = {"changeValueByMouseWheel": 1}                     # boot shared, both machines: the wheel over the arrows moves
 ALLOC = {"martial": "AllocateTrainingState", "psi": "AllocatePsiTrainingState"}
 SS_KEYS = ("cmd", "okCount", "failCount", "applyCount", "applyQueued", "lastFail")
-ORDER = ["craft_list", "soldier_sort", "crew_armor_sort", "martial_training", "psi_training", "research_arrows",
-         "base_strip", "separate_reorders"]
+ORDER = ["craft_list", "soldier_sort", "crew_armor_sort", "soldier_arrows", "martial_training", "psi_training",
+         "research_arrows", "base_strip", "separate_reorders"]
 short = lambda e, n=600: (lambda s: s if len(s) <= n else s[:n] + "...")(f"{type(e).__name__}: {e}")  # noqa: E731
 class Miss(Exception):  # a blocking guard missed: the row stops
     pass
@@ -109,6 +117,19 @@ def reversed_own(order, seat):
     return out
 def partner_places(order, seat):
     return [[i] + s for i, s in enumerate(order) if s[1] != seat] if isinstance(order, list) else order
+def moved_own(order, seat, row, up, top=False):
+    """`order` after row `row` of `seat`'s own list moves one place up / down (or to the top): the own soldiers stay in
+    the places they hold, every other soldier keeps its place."""
+    places = [i for i, s in enumerate(order) if s[1] == seat]
+    own = [order[i] for i in places]
+    s = own.pop(row)
+    own.insert(0 if top else row - 1 if up else row + 1, s)
+    out = list(order)
+    for i, s in zip(places, own):
+        out[i] = s
+    return out
+def displayed(gc):
+    return q(gc, {"cmd": "screen_state"}).get("displayed")
 def widgets(gc):
     r = q(gc, {"cmd": "list_widgets"})
     return r.get("state"), [{"t": (w.get("type") or "").split("::")[-1], "rect": [w["x"], w["y"], w["w"], w["h"]],
@@ -269,6 +290,37 @@ def sort_cell(x, r, name, gc, row, above, key, reorder_msg, expect_change=False,
 def arrow(x, r, name, gc, L, pos, row, down, reorder_msg, probe=None):
     p = (L[0] + pos + (12 if down else 0) + 5.5, L[1] + 8 * row + 4)
     return cell(x, r, name, gc, probe or x.roster, lambda: click(gc, *p), reorder_msg)
+def own_list(x, r, name, gc):
+    """The top screen lists exactly the clicker's own soldiers in roster order (the partner's cannot be picked)."""
+    seat, base = SEAT[gc.name], x.base[gc.name]
+    o = owned(gc, base)
+    own = [s[0] for s in o if s[1] == seat] if isinstance(o, list) else o
+    shown = wait_until(lambda: (lambda d: d if d == own else None)(displayed(gc)), 3.0)
+    r.ev[f"{name} [displayed, own]"] = [displayed(gc), own]
+    return r.cell(name, shown == own, f"the {gc.name}'s screen lists {displayed(gc)}, its own soldiers are {own}")
+def move_cell(x, r, name, gc, L, pos, row, how, msg):
+    """ONE input on the arrow column, row `row` of the clicker's own list: how = "up" / "down" (left-click the arrow),
+    "top" (right-click the up arrow), "wheelup" / "wheeldown" (the wheel over the arrows). Both machines must hold the
+    clicker's soldier moved among the clicker's places; the partner's soldiers keep theirs at every poll."""
+    seat, base = SEAT[gc.name], x.base[gc.name]
+    b = {m.name: owned(m, base) for m in (x.host, x.client)}
+    own = [s[0] for s in b[gc.name] if s[1] == seat] if isinstance(b[gc.name], list) else b[gc.name]
+    r.need(f"guard:{name}: one roster on both machines, the {gc.name}'s screen lists its own soldiers in roster order",
+           b[H] == b[C] and wait_until(lambda: displayed(gc) == own, 3.0), {"orders": b, "displayed": displayed(gc)})
+    down = how in ("down", "wheeldown")
+    p = (L[0] + pos + (12 if down else 0) + 5.5, L[1] + 8 * row + 4)
+    button = {"top": "right", "wheelup": "wheelup", "wheeldown": "wheeldown"}.get(how, "left")
+    return both_cell(x, r, name, gc, lambda m: owned(m, base), lambda: click(gc, *p, button=button),
+                     moved_own(b[gc.name], seat, row, not down, top=how == "top"), msg,
+                     keep=lambda o: partner_places(o, seat))
+def pick_sort(r, gc, row, above, tag):
+    """The top state's ONE ComboBox: the box, 0.3 s, then dropdown row `row` (no shift)."""
+    bx, by, bw, bh = one(r, gc, "ComboBox", tag)
+    py = by - POPUP_H if above else by + bh
+    k = click(gc, bx + bw / 2.0, by + bh / 2.0)
+    time.sleep(0.3)
+    r.ev[f"{tag} pick [box, row]"] = [k, click(gc, bx + 2 + (bw - 17) / 2.0, py + 3 + 8 * row + 4)]
+    time.sleep(0.3)
 
 # --------------------------------------------------------------------------- boot shared rows
 def row_craft_list(x, r):   # craft list: right-click (client, row 1) and shift+right-click (host, row 0)
@@ -295,6 +347,39 @@ def row_crew_armor_sort(x, r):   # crew-armor sort box, CRAFT (selIdx 3; a stat 
     sort_cell(x, r, "crew_armor_sort host crew-armor CRAFT + shift", h, ROW_CAS_CRAFT, True, "craft",
               "the host's crew-armor CRAFT sort did not reverse its own soldiers on both machines", own=True)
     close(r, h, "crew_armor_sort")
+def row_soldier_arrows(x, r):   # Soldiers (client), crew (host), crew-armor (client): arrows, wheel, right-click top
+    h, c = x.host, x.client
+    ov = {g.name: q(g, {"cmd": "option_values", "ids": list(WHEEL)}).get("values") for g in (h, c)}
+    r.need("guard:soldier_arrows changeValueByMouseWheel 1 on both", all(v == WHEEL for v in ov.values()), ov)
+    screens = (
+        (c, "arrows_soldiers", "soldiers", "SoldiersState", {}, ARROW_SOLDIERS, "the client's Soldiers screen",
+         (("up", 1), ("down", 1), ("wheelup", 2), ("top", 3))),
+        (h, "arrows_crew", "craft_soldiers", "CraftSoldiersState", {"craft_id": 1}, ARROW_CREW, "the host's crew screen",
+         (("up", 2), ("down", 0), ("wheeldown", 1), ("top", 3))),
+        (c, "arrows_crew_armor", "craft_armor", "CraftArmorState", {"craft_id": 1}, ARROW_CREW_ARMOR,
+         "the client's crew-armor screen", (("up", 1), ("down", 2), ("wheelup", 3), ("top", 2))))
+    words = {"up": "UP arrow", "down": "DOWN arrow", "wheelup": "wheel up", "wheeldown": "wheel down",
+             "top": "right-click UP arrow (top)"}
+    for gc, tag, screen, state, kv, pos, where, moves in screens:
+        open_screen(r, gc, tag, screen, state, **kv)
+        if screen == "craft_armor":   # the crew-armor arrows show with a stat column: the ID sort shows one, no reorder
+            before = {m.name: owned(m, x.base[gc.name]) for m in (h, c)}
+            pick_sort(r, gc, ROW_CAS_ID, True, tag)
+            after = {m.name: owned(m, x.base[gc.name]) for m in (h, c)}
+            r.need(f"guard:{tag} the ID sort leaves the order alone", after == before, [before, after])
+        L = one(r, gc, "TextList", tag)
+        own_list(x, r, f"{tag} {where} lists only the {gc.name}'s own soldiers", gc)
+        for how, row in moves:
+            move_cell(x, r, f"{tag} {gc.name} own row {row} {words[how]}", gc, L, pos, row, how,
+                      f"{where}: the {words[how]} did not move the {gc.name}'s own soldier on both machines")
+        close(r, gc, tag)
+    base = x.base[C]
+    b = owned(c, base)
+    names = [s[0] for s in reversed(b) if s[1] == SEAT[H]] if isinstance(b, list) else []
+    r.need("guard:arrows_partner the host owns >= 2 soldiers", len(names) >= 2, b)
+    both_cell(x, r, "arrows_partner client soldier_order naming the host's soldiers", c, lambda m: owned(m, base),
+              lambda: q(c, {"cmd": "shared_cmd", "jcmd": "soldier_order", "baseId": 0, "payload": {"order": names}}),
+              b, "a soldier_order from the client moved the host's soldiers", keep=lambda o: o)
 def row_martial_training(x, r):   # martial training: arrows (client), sort box (host)
     h, c = x.host, x.client
     L = open_alloc(r, c, "martial", "martial_client_down")
@@ -399,7 +484,7 @@ def shared_setup(x):
     if o[H] != o[C]:
         raise RuntimeError("setup orders differ (guard)")
 def up_shared():
-    js = shared_fixture.bring_up(*BOOT_SHARED)
+    js = shared_fixture.bring_up(*BOOT_SHARED, host_options=WHEEL, client_options=WHEEL)
     return X(js.host, js.client, {H: HB, C: HB}), js.shutdown
 def up_separate():
     host = GameClient(H, BOOT_SEPARATE[1][0], make_user_dir(BOOT_SEPARATE[0] + "_host"))
@@ -463,7 +548,8 @@ def main():
     t0, results, walls = time.time(), {}, {}
     boot(results, walls, "shared",
          [("craft_list", row_craft_list), ("soldier_sort", row_soldier_sort), ("crew_armor_sort", row_crew_armor_sort),
-          ("martial_training", row_martial_training), ("psi_training", row_psi_training),
+          ("soldier_arrows", row_soldier_arrows), ("martial_training", row_martial_training),
+          ("psi_training", row_psi_training),
           ("research_arrows", row_research_arrows), ("base_strip", row_base_strip)], up_shared, shared_setup)
     boot(results, walls, "separate", [("separate_reorders", row_separate_reorders)], up_separate)
     failed = [rid for rid in ORDER if not results.get(rid)]

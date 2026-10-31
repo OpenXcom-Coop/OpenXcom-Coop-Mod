@@ -16361,9 +16361,14 @@ std::string TestServer::execute(const std::string& line)
 				// SavedBattleGame::selectNextPlayerUnitByDistance) is bound to
 				// SDL_BUTTON_MIDDLE, and it is one of the three selection paths
 				// a test must drive through real input.
+				// "wheelup" / "wheeldown" turn the mouse wheel: SDL 1.2 reports a
+				// wheel step as a press and release of button 4 / 5 at the
+				// pointer, which is the event pair pushed below.
 				std::string buttonName = req.get("button", "left").asString();
 				Uint8 button = (buttonName == "right") ? SDL_BUTTON_RIGHT
-					: (buttonName == "middle") ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
+					: (buttonName == "middle") ? SDL_BUTTON_MIDDLE
+					: (buttonName == "wheelup") ? SDL_BUTTON_WHEELUP
+					: (buttonName == "wheeldown") ? SDL_BUTTON_WHEELDOWN : SDL_BUTTON_LEFT;
 				ev.type = SDL_MOUSEBUTTONDOWN;
 				ev.button.button = button;
 				ev.button.state = SDL_PRESSED;
