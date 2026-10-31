@@ -579,13 +579,12 @@ void CraftSoldiersState::moveSoldierUp(Action *action, unsigned int row, bool ma
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
 	// roster locally, and the row is an index into the owner-filtered list, not
-	// into _base->getSoldiers(). Separate sends the player's new order at their
-	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED does not reorder at all, and a visitor never reorders
-	// another player's roster.
+	// into _base->getSoldiers(). The player's new order of their own soldiers
+	// goes to the host (soldier_order); the list refreshes when it lands. A
+	// visitor never reorders another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
-		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+		if (_base->_isForeignBase
 			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, true, max))
 			return;
 		if (!max && action)
@@ -656,13 +655,12 @@ void CraftSoldiersState::moveSoldierDown(Action *action, unsigned int row, bool 
 {
 	// One-world campaigns (SHARED and Separate) never reorder the host-owned
 	// roster locally, and the row is an index into the owner-filtered list, not
-	// into _base->getSoldiers(). Separate sends the player's new order at their
-	// own base to the host (soldier_order); the list refreshes when it lands.
-	// SHARED does not reorder at all, and a visitor never reorders
-	// another player's roster.
+	// into _base->getSoldiers(). The player's new order of their own soldiers
+	// goes to the host (soldier_order); the list refreshes when it lands. A
+	// visitor never reorders another player's roster.
 	if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 	{
-		if (_game->getCoopMod()->isSharedCampaign() || _base->_isForeignBase
+		if (_base->_isForeignBase
 			|| !SharedEcon::submitSoldierMove(_game, _base, _viewSoldiers, row, false, max))
 			return;
 		if (!max && action)
