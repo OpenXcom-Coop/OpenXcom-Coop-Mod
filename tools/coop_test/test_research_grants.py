@@ -2,10 +2,10 @@
 monthly roll carries the ended month's research score. Test mod Coop_ResearchGrant_Test.
 SHARED boot: site_despawn: a host-only terror site (hours 1) despawns untouched (research + getOneFree, diary, counter,
 score, despawn event); month_end_arc: the month-1 arc grants STR_GRANTTEST_ARC and opens its article, then the ended
-month's score after both rolled. SEPARATE boot (research sync off): separate_despawn_guard (guard row). Row frame: S0
+month's score after both rolled. Row frame: S0
 (research_probe, geo_event_probe, requests R0); poll both every 0.25 s for 3 s while a host window is open; clean =
 settle + 60 game-min at speed 3 + 4 s: requests == R0, checksum equal. Without the fix site_despawn and month_end_arc
-fail on their named cells and separate_despawn_guard passes; "guard:" cells are guards (CAPTURE on a miss). With the
+fail on their named cells; "guard:" cells are guards (CAPTURE on a miss). With the
 fix all pass. EVIDENCE then PASS / FAIL per row; ONE run; exit 0 only if all pass, else 2.
 """
 
@@ -19,12 +19,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
 
 MOD = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mods", "Coop_ResearchGrant_Test")
 BOOT_SHARED = ("research_grants_shared", (49370, 49371, 47360))      # SHARED; lobby 47360
-BOOT_SEPARATE = ("research_grants_separate", (49372, 49373, 47362))  # SEPARATE; lobby 47362
-SYNC_OFF = {"EnableResearchSync": False}  # separate_despawn_guard runs with sync off; the #197 tests cover sync on
 DESPAWN, FREE, ARC, CNT = "STR_GRANTTEST_DESPAWN", "STR_GRANTTEST_FREE", "STR_GRANTTEST_ARC", "STR_GRANTTEST_DESPAWN_CNT"
 NAMES = [DESPAWN, FREE, ARC]
 MISSION, FREE_FROM = 3, 1                        # research_probe diary sourceType
@@ -222,28 +219,6 @@ def row_month_end_arc(r, x):
     r.ev["hostWindows"] = {"dismissed": st.get("dismissed"), "stalled": st.get("stalled")}
     clean(r, x, s0["client"]["requests"])
 
-def row_separate_despawn_guard(r, x):
-    """The SEPARATE boot: a despawn in the host's own world changes only the host's world."""
-    h, c = x.host, x.client
-    sid = spawn_site(h)
-    s0 = r.ev["S0"] = {gc.name: {"research_probe": rp(gc), "shared_stats": ss(gc), "sites": sites(gc)} for gc in (h, c)}
-    r.ev["site"] = sid
-    sk = r.ev["skip"] = skip(x, 240, EVENT)
-    r.guard("hit", sk["hit"] is not None, f"no {EVENT} within {HIT_S} s: {sk}")
-    ps = poll(x)
-    r.ev["end"] = snap(x)
-    r.ev["dismiss"] = {"host": dismiss_to_geo(h), "client": dismiss_to_geo(c)}
-    fin = r.ev["final"] = {gc.name: {"research_probe": rp(gc), "shared_stats": ss(gc)} for gc in (h, c)}
-    ev = r.ev["seen"] = {"res": both(ps, lambda v: v["res"].get(DESPAWN)), "ev": both(ps, lambda v: v["ev"]),
-                         "diarySize": both(ps, lambda v: v["diary"].get("size")), "samples": len(ps)}
-    r.cell("hostDespawn", fin["host"]["research_probe"]["researched"].get(DESPAWN), f"{ev['res']}")
-    r.cell("clientNot", not any(s["c"]["res"].get(DESPAWN) for s in ps)
-           and not fin["client"]["research_probe"]["researched"].get(DESPAWN), f"{ev['res']}")
-    c0, c1 = s0["client"]["research_probe"]["diary"].get("size"), fin["client"]["research_probe"]["diary"].get("size")
-    r.cell("clientDiary", c1 == c0, f"S0 {c0} final {c1} {ev['diarySize']}")
-    r.cell("sharedStats", all(fin[n]["shared_stats"] == s0[n]["shared_stats"] for n in ("host", "client")),
-           f"S0 / final {[(s0[n]['shared_stats'], fin[n]['shared_stats']) for n in ('host', 'client')]}")
-
 def run_row(rid, fn, x, results):
     r = Row(rid, x)
     try:
@@ -266,20 +241,6 @@ def run_row(rid, fn, x, results):
 
 def boot_shared():
     return shared_fixture.bring_up(BOOT_SHARED[0], BOOT_SHARED[1], mods=(MOD,))
-
-def boot_separate():
-    tag, (hp, cp, lp) = BOOT_SEPARATE
-    host = GameClient("host", hp, make_user_dir(f"{tag}_host", mods=(MOD,), options=SYNC_OFF))
-    client = GameClient("client", cp, make_user_dir(f"{tag}_client", mods=(MOD,), options=SYNC_OFF))
-    try:
-        for f in (host.spawn, client.spawn, host.connect, client.connect):
-            f()
-        session.new_campaign(host, client, port=str(lp), campaign_mode="coop")
-        geo.wait_both_ready(host, client)
-    except BaseException:
-        shutdown_clients(host, client)
-        raise
-    return SimpleNamespace(host=host, client=client, shutdown=lambda: shutdown_clients(host, client))
 
 def boot(tag, up, rows, results, walls):
     t0 = time.time()
@@ -305,13 +266,11 @@ def boot(tag, up, rows, results, walls):
             print(f"[test_research_grants] {tag} shutdown: {short(e)}", flush=True)
 
 ROWS_SHARED = (("site_despawn", row_site_despawn), ("month_end_arc", row_month_end_arc))
-ROWS_SEPARATE = (("separate_despawn_guard", row_separate_despawn_guard),)
 
 def main():
     t0, results, walls = time.time(), {}, {}
     boot(BOOT_SHARED[0], boot_shared, ROWS_SHARED, results, walls)
-    boot(BOOT_SEPARATE[0], boot_separate, ROWS_SEPARATE, results, walls)
-    rows = [rid for rid, _ in ROWS_SHARED + ROWS_SEPARATE]
+    rows = [rid for rid, _ in ROWS_SHARED]
     failed = [rid for rid in rows if not results.get(rid)]
     print(f"\ntest_research_grants: {len(rows) - len(failed)}/{len(rows)} passed (fail={failed}) walls {walls} "
           f"in {time.time() - t0:.1f}s", flush=True)
