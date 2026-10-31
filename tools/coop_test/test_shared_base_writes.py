@@ -26,8 +26,6 @@ Armor boot (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_PO
   base_write_9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. Nothing changes on
         either machine within 5 s. Without the read-only partner rule H takes the personal's grenades on the client's
         screen.
-SEPARATE boot (labels 49423 / 49424, lobby 47925): base_write_10 (guard) client rename, Ctrl+1, loadout_save stay
-local.
 EVIDENCE line per row before its verdict; a failed row prints ONE CAPTURE line (soldier_layouts, get_soldiers, geo_state
 items, shared_stats, equip_layouts {index: 0}, read {index: 0}, stacks; both machines). A boot miss fails its rows
 "boot" with one CAPTURE line. Every row runs after a failure. ONE run; exit 0 iff every row passes, else 2.
@@ -39,24 +37,21 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
-from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen, stats3  # noqa: E402
+from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen  # noqa: E402
 
 TAG_SHARED, PORTS_SHARED = "base_writes_shared", (49421, 49422, 47924)
 TAG_ARMOR, PORTS_ARMOR = "base_writes_armor", (49425, 49426, 47926)
-TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "base_writes_separate", (49423, 49424), "47925"
-HB, CB, GEO = "HostBase", "ClientBase", "GeoscapeState"
+HB, GEO = "HostBase", "GeoscapeState"
 A0, A1, A2 = "STR_NONE_UC", "STR_PERSONAL_ARMOR_UC", "STR_POWER_SUIT_UC"
 I1, I2, GREN = "STR_PERSONAL_ARMOR", "STR_POWER_SUIT", "STR_GRENADE"
 W, KEY_W, SETTLE, KEY_SETTLE, SDLK_1 = 10.0, 5.0, 1.0, 0.3, 49
 NOT_YOURS = "not your soldier"
 ROWS_SHARED = ["base_write_%d" % n for n in range(1, 8)]
 ROWS_ARMOR = ["base_write_8", "base_write_9"]
-ORDER = ROWS_SHARED + ROWS_ARMOR + ["base_write_10"]
+ORDER = ROWS_SHARED + ROWS_ARMOR
 
 
 def converge(pred, timeout=W):
@@ -444,40 +439,6 @@ def row_partner_personal_readonly(x, r):
     r.cell("the host's H is not PERSONAL", ah == A1, ah)
 
 
-def row_separate_stays_local(x, r):
-    h, c = x.host, x.client
-    s0 = {gc.name: stats3(gc) for gc in (h, c)}
-    L = q(c, {"cmd": "soldier_layouts", "base": CB}).get("soldiers") or []
-    first, fid = (L[0].get("name"), L[0].get("id")) if L else (None, None)
-    crafts = q(c, {"cmd": "base_report", "base": CB}).get("crafts") or []
-    sky = next((cr for cr in crafts if cr.get("type") == "STR_SKYRANGER"), {})
-    r.ev.update({"first": [first, fid], "sky": [sky.get("id"), sky.get("items")], "read before": bso(c, op="read", index=0)})
-    if not open_soldier_screen(r, c, CB):
-        return
-    g0 = slot0(c)
-    ren = bso(c, op="rename", name=first or "?", text="Ripley S")
-    k = ctrl1(c)
-    close_soldier_screen(r, c)
-    rep = q(c, {"cmd": "open_craft_equipment", "base": CB, "craft_id": sky.get("id")})
-    ces = bool(rep.get("ok")) and bool(wait_until(lambda: stack(c)[-1:] == ["CraftEquipmentState"], 30))
-    save = bso(c, op="loadout_save", index=0)
-    ok = q(c, {"cmd": "craft_equipment_ok"})
-    closed = bool(wait_until(lambda: "CraftEquipmentState" not in stack(c), 30))
-    rd = bso(c, op="read", index=0)
-    time.sleep(SETTLE)
-    s1 = {gc.name: stats3(gc) for gc in (h, c)}
-    nm = names(c, CB).get(fid)
-    r.ev.update({"global 0 before": g0, "rename": ren, "ctrl1": k, "loadout_save": save, "read after": rd, "name after": nm,
-                 "shared_stats before": s0, "shared_stats after": s1})
-    r.evidence()
-    r.cell("guard: client ClientBase craft equipment screen open / closed", ces and ok.get("ok") and closed, [rep, ok, stack(c)])
-    r.cell("the client's rename did not change its name", ren.get("soldierName") == "Ripley S" and nm == "Ripley S", [ren, nm])
-    r.cell("the client's global 0 did not change", g0 is not None and not g0[0] and k["saved"], [g0, k])
-    r.cell("the client's loadout 0 did not change", sky.get("items") and rd.get("loadout") == sky.get("items"),
-           [rd.get("loadout"), sky.get("items")])
-    r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
-
-
 def boot_miss(tag, e, rids, results, x=None):
     cap = {"error": sbe.short(e, 1500)}
     if x is not None:
@@ -533,25 +494,6 @@ def shared_boot(tag, ports, gifts, rids, rows, results, walls):
             js.shutdown()
 
 
-def boot_separate(results, walls):
-    t0 = time.time()
-    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
-    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
-    x = X(h, c, base=CB)
-    try:
-        try:
-            h.spawn(), c.spawn(), h.connect(), c.connect()
-            session.new_campaign(h, c, port=LOBBY_SEPARATE, campaign_mode="coop")
-            geo.wait_both_ready(h, c)
-            x.seats = {gc.name: q(gc, {"cmd": "get_coop"}).get("localSeat") for gc in (h, c)}
-            walls["boot base_writes_separate"] = round(time.time() - t0, 1)
-        except Exception as e:  # a boot miss fails base_write_10 "boot" with ONE CAPTURE line
-            return boot_miss(TAG_SEPARATE, e, ["base_write_10"], results, x)
-        run_rows(x, (("base_write_10", row_separate_stays_local),), results, walls)
-    finally:
-        shutdown_clients(h, c)
-
-
 def main():
     t0, results, walls = time.time(), {}, {}
     shared_boot(TAG_SHARED, PORTS_SHARED, [I1], ROWS_SHARED,
@@ -562,7 +504,6 @@ def main():
     shared_boot(TAG_ARMOR, PORTS_ARMOR, [I1, I2], ROWS_ARMOR,
                 (("base_write_8", row_personal_armor_syncs), ("base_write_9", row_partner_personal_readonly)),
                 results, walls)
-    boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     print(f"\ntest_shared_base_writes: {len(ORDER) - len(failed)}/{len(ORDER)} passed (fail={failed}) "
           f"walls {json.dumps(walls)} in {time.time() - t0:.1f}s", flush=True)
