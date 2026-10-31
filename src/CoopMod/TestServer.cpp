@@ -8590,17 +8590,19 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		resp["ok"] = true;
 		return;
 	}
-	if (op == "craft_vehicles" || op == "deploy_mark") // one craft's HWPs on THIS machine (deploy_mark: test-only write first)
+	if (op == "craft_vehicles" || op == "deploy_mark" || op == "deploy_unmark") // one craft's HWPs on THIS machine (deploy_mark / deploy_unmark: test-only write first)
 	{
 		const std::string bname = req.get("base", "").asString(), ctype = req.get("craft_type", "").asString();
 		const int cid = req.get("craft_id", -1).asInt();
+		const bool mark = op == "deploy_mark" || op == "deploy_unmark";
 		Craft* craft = nullptr;
-		for (auto* b : *sg->getBases())
-			if (!b->_isForeignBase && (bname.empty() || b->getName() == bname))
+		for (auto* b : *sg->getBases()) // the marks: another player's base too (a Separate world holds both players' crafts)
+			if ((mark || !b->_isForeignBase) && (bname.empty() || b->getName() == bname))
 				for (auto* c : *b->getCrafts())
 					if (!craft && c->getId() == cid && (ctype.empty() || c->getRules()->getType() == ctype)) craft = c;
 		if (!craft) { resp["error"] = "base_screen_op: craft not found"; return; }
 		if (op == "deploy_mark") craft->getCustomSoldierDeployment()[-1] = std::make_pair(Position(0, 0, 0), 0); // test-only: no soldier has id -1
+		if (op == "deploy_unmark") craft->resetCustomDeployment(); // test-only: a real battle cannot place a crew by the mark
 		Json::Value vehicles(Json::objectValue), order(Json::arrayValue), ammo(Json::arrayValue), vcoop(Json::arrayValue); // + vcoop: the co-op parking tags
 		for (auto* v : *craft->getVehicles())
 		{
@@ -8629,7 +8631,26 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 		const std::string ctype = req.get("craft_type", "").asString();
 		const RuleCraft* rule = game->getMod()->getCraft(ctype, false);
 		if (!rule) { resp["error"] = "base_screen_op: craft type not found"; return; }
-		const auto& data = sg->getCustomRuleCraftDeployments();
+		// <player>: read that player's profile instead, from the Separate campaign's saved form (what a save holds)
+		const std::string player = req.get("player", "").asString();
+		std::map<std::string, std::vector<std::vector<int> > > stored;
+		if (!player.empty())
+		{
+			bool found = false;
+			YAML::YamlRootNodeWriter writer;
+			sg->getSeparateCampaign().save(writer);
+			YAML::YamlString yaml = writer.emit();
+			YAML::YamlRootNodeReader reader(yaml, "craftDeploymentHarness", false);
+			for (const auto& p : reader["players"].children())
+				if (p["name"].readVal<std::string>("") == player)
+				{
+					found = true;
+					p.tryRead("customRuleCraftDeployments", stored);
+				}
+			resp["player"] = player;
+			resp["playerFound"] = found;
+		}
+		const auto& data = player.empty() ? sg->getCustomRuleCraftDeployments() : stored;
 		const auto it = data.find(ctype);
 		Json::Value positions(Json::arrayValue), crafts(Json::arrayValue);
 		if (it != data.end())
@@ -8646,6 +8667,8 @@ static void coopTestBaseScreenOp(Game* game, const Json::Value& req, Json::Value
 					Json::Value e(Json::objectValue);
 					e["id"] = c->getId();
 					e["customDeployment"] = c->hasCustomDeployment();
+					e["base"] = b->getName();
+					e["owner"] = b->getOwnerPlayerName();
 					crafts.append(e);
 				}
 		resp["saved"] = it != data.end();

@@ -30,8 +30,26 @@ W = 6 s at 0.25 s polls; N = 14 positions.
         the client). With it: both D saved [[1, 2, 0, 3]] within W, fails unchanged 1 s later; negative control
         STR_NO_SUCH_CRAFT: fails +1, "rejected", D unchanged, ONE close_screens.
     craft_deploy_6 (guard, last in the SHARED boot) js.finish(): world equality, the replica's zero disk.
-  SEPARATE boot (labels 49505 / 49506, lobby "47958"): craft_deploy_separate (guard) client PV(save): the client's D
-    saved, the host's not; both shared_stats cmd / applyCount / failCount unchanged 1 s later.
+  SEPARATE boot (labels 49505 / 49506, lobby "47958"; bases HostBase / ClientBase, players HostPlayer / ClientPlayer):
+    craft_deploy_separate: each player's deployment for one craft type is its own. PR = base_screen_op craft_deployment
+    {player: ClientPlayer} on the host (the host's stored ClientPlayer profile, read from its saved form); L(d) = [saved,
+    positions]; Dsky[gc][base] = that base's Skyranger's customDeployment on gc; MARKS = deploy_mark on both Skyrangers on
+    both machines, then Dsky true everywhere (guard). Each step waits <= W for all its cells, then checks each:
+      1 MARKS; client PV(save). Non-vacuity: the client's D saved, N positions at once (P1 = its positions). PR ==
+        L(client's D); the host's D unsaved; Dsky[*][ClientBase] false and Dsky[*][HostBase] true on both.
+      2 client shared_cmd craft_deployment C = P1 reversed, facing (3i + 1) % 8: L(client's D) == L(PR) == [true, C];
+        the host's D unsaved.
+      3 MARKS; host PV(save). Non-vacuity: the host's D saved, N positions at once. Dsky[*][HostBase] false and
+        Dsky[*][ClientBase] true on both; L(client's D) == L(PR) == [true, C].
+      4 host shared_cmd craft_deployment H = P1, facing (2i + 3) % 8: L(host's D) == [true, H]; 1 s later
+        L(client's D) == L(PR) == [true, C].
+      5 the host saves, both machines leave to the main menu, the host loads the save and the client rejoins (lobby
+        "47959"): L(host's D) == [true, H], L(client's D) == L(PR) == [true, C]; the client's failCount unchanged
+        since the row began.
+      6 deploy_unmark on the client's Skyranger on both machines (the mark is no real crew deployment, so a battle
+        cannot place a crew by it), Dsky[*][ClientBase] false (guard); the client's Skyranger lands at a new site beside
+        ClientBase and both machines reach the battle: on each machine the client's soldiers, by unit id, stand at C's
+        first positions plus one common offset and face C's facings.
 A row whose main cell (the one that fails without the fix) fails evaluates no later cell. EVIDENCE line per row before
 its verdict; a failed row prints ONE CAPTURE line (both machines' D, stacks, pedia_state, shared_stats,
 shared_resync_stats); a boot miss fails its rows "boot". Every row runs after a failure. ONE run; exit 0 iff everything
@@ -45,6 +63,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import geo  # noqa: E402
+import separate_campaign_fixture as sfx  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: X, Row, setup, boot_miss, q / stack / wait_until / short)
@@ -58,6 +77,7 @@ BS, SFN, BRF, AMS = "BattlescapeState", "StatsForNerdsState", "BriefingState", "
 W, POLL, STEP, SETTLE, CONV, N = 6.0, 0.25, 2.0, 0.3, 30.0, 14  # N = the Skyranger's 14 stand-in soldiers
 RAW, UNKNOWN, NO_SUCH = [[1, 2, 0, 3]], "unknown command: craft_deployment", "STR_NO_SUCH_CRAFT"
 ROWS_SHARED, ROWS_SEPARATE = ["craft_deploy_%d" % n for n in range(7)], ["craft_deploy_separate"]
+CP, SEP_SAVE, SEP_RESUME = "ClientPlayer", "craft_deployment_separate.sav", 47959  # session.new_campaign's client name
 ORDER = ROWS_SHARED + ROWS_SEPARATE
 q, stack, wait_until, short = sbe.q, sbe.stack, sbe.wait_until, sbe.short
 
@@ -90,11 +110,6 @@ def reqs(x):
 def fails(x):
     r = q(x.client, {"cmd": "shared_stats"})
     return r.get("failCount"), r.get("lastFail")
-
-
-def stats3(gc):
-    r = q(gc, {"cmd": "shared_stats"})
-    return {k: r.get(k) for k in ("cmd", "applyCount", "failCount")}
 
 
 def timed(pred, timeout=W):
@@ -365,23 +380,148 @@ def row_world_equal(x, r):
         r.cell("js.finish", False, short(e, 1500))
 
 
-def row_separate_stays_local(x, r):
+def L(d):
+    return [d.get("saved"), d.get("positions")]
+
+
+def pr(x):
+    r = q(x.host, {"cmd": "base_screen_op", "op": "craft_deployment", "craft_type": SKYR, "player": CP})
+    return {k: r.get(k) for k in ("saved", "positions", "playerFound", "error")}
+
+
+def snap(x):
+    """both D, PR and Dsky in one read"""
+    d = both(x)
+    return {"D": d, "PR": pr(x), "Dsky": {n: {b: dsky(e, sid) for b, sid in x.skies.items()} for n, e in d.items()}}
+
+
+def settle(r, x, step, ok, timeout=W):
+    """waits <= timeout until ok(snap); the last snap is the step's end (EVIDENCE)"""
+    t0, last = time.time(), {}
+
+    def pred():
+        last["s"] = s = snap(x)
+        return ok(s)
+    got = wait_until(pred, timeout, POLL)
+    r.ev[step + " end"] = dict(last["s"], s=round(time.time() - t0, 2), all=bool(got))
+    return last["s"]
+
+
+def marks(r, x, step):
+    m = {g.name: {b: q(g, {"cmd": "base_screen_op", "op": "deploy_mark", "base": b, "craft_id": sid, "craft_type": SKYR})
+                  .get("customDeployment") for b, sid in x.skies.items()} for g in (x.host, x.client)}
+    s = snap(x)
+    r.ev[step + " MARKS"] = [m, s["Dsky"]]
+    return r.cell(f"guard: {step} MARKS -> Dsky true on both machines", all(v is True for e in s["Dsky"].values()
+                  for v in e.values()), [m, s["Dsky"]])
+
+
+def raw_layout(gc, positions):
+    return q(gc, {"cmd": "shared_cmd", "jcmd": "craft_deployment", "baseId": -1,
+                  "payload": {"craftType": SKYR, "saved": True, "positions": positions}})
+
+
+def placed(gc, layout):
+    """the client's soldiers in gc's battle, by unit id: [x, y, z, facing] and the offsets to layout's positions"""
+    us = sorted((u for u in session.battle_state(gc).get("units") or [] if u.get("isPlayerSoldier") and u.get("coop") == 1),
+                key=lambda u: u.get("id"))
+    at = [[u.get("x"), u.get("y"), u.get("z"), u.get("direction")] for u in us]
+    offs = [[a[k] - p[k] for k in range(3)] for a, p in zip(at, layout)]
+    return {"units": at, "offsets": offs}
+
+
+def row_separate_own(x, r):
     h, c = x.host, x.client
     d0 = both(x)
-    if not r.cell("guard: D unsaved on both at boot (SEPARATE)", all(e.get("saved") is False for e in d0.values()), d0):
+    if not (r.cell("guard: D unsaved on both at boot (SEPARATE)", all(e.get("saved") is False for e in d0.values()), d0)
+            and r.cell("guard: a Skyranger at HostBase and at ClientBase", all(v is not None for v in x.skies.values()), x.skies)):
         return r.evidence()
-    s0 = {g.name: stats3(g) for g in (h, c)}
-    m, r.ev["PV client"] = pv(c, x.keys["client"])
+    f0 = fails(x)[0]
+    # 1 the client saves its own from the preview
+    if not marks(r, x, "1"):
+        return r.evidence()
+    m, r.ev["1 PV client"] = pv(c, x.keys["client"])
+    r.ev["1 client D at once"] = me = D(c)
+    if not (r.cell("preview drive %s (client)" % m, m is None, r.ev["1 PV client"])
+            and r.cell(f"non-vacuity: the client's D saved, {N} positions at once", me.get("saved") is True
+                       and len(me.get("positions") or []) == N, me)):
+        return r.evidence()
+    p1 = me["positions"]
+    s = settle(r, x, "1", lambda s: L(s["PR"]) == L(s["D"]["client"]) and s["D"]["host"].get("saved") is False
+               and all(s["Dsky"][n] == {HB: True, CB: False} for n in ("host", "client")))
+    r.cell("the host keeps no copy of the client's saved deployment (PR != the client's D)",
+           L(s["PR"]) == L(s["D"]["client"]), [s["PR"], s["D"]["client"]])
+    r.cell("the client's save changed the host's own D", s["D"]["host"].get("saved") is False, s["D"]["host"])
+    for n in ("host", "client"):
+        r.cell(f"the client's save left its own Skyranger's deployment on the {n}", s["Dsky"][n][CB] is False, s["Dsky"])
+        r.cell(f"the client's save cleared the host's Skyranger's deployment on the {n}", s["Dsky"][n][HB] is True, s["Dsky"])
+    # 2 the client's own layout, set apart from every other one
+    cl = [[p[0], p[1], p[2], (3 * i + 1) % 8] for i, p in enumerate(reversed(p1))]
+    hl = [[p[0], p[1], p[2], (2 * i + 3) % 8] for i, p in enumerate(p1)]
+    r.ev.update({"P1": p1, "C": cl, "H": hl})
+    if not r.cell("guard: C, H and P1 differ", len({str(cl), str(hl), str(p1)}) == 3, [cl, hl]):
+        return r.evidence()
+    r.ev["2 shared_cmd"] = raw_layout(c, cl)
+    s = settle(r, x, "2", lambda s: L(s["D"]["client"]) == L(s["PR"]) == [True, cl] and s["D"]["host"].get("saved") is False)
+    r.cell("the client's D is not C", L(s["D"]["client"]) == [True, cl], s["D"]["client"])
+    r.cell("PR is not C", L(s["PR"]) == [True, cl], s["PR"])
+    r.cell("the client's layout changed the host's own D", s["D"]["host"].get("saved") is False, s["D"]["host"])
+    # 3 the host saves its own from the preview
+    if not marks(r, x, "3"):
+        return r.evidence()
+    m, r.ev["3 PV host"] = pv(h, x.keys["host"])
+    r.ev["3 host D at once"] = mh = D(h)
+    if not (r.cell("preview drive %s (host)" % m, m is None, r.ev["3 PV host"])
+            and r.cell(f"non-vacuity: the host's D saved, {N} positions at once", mh.get("saved") is True
+                       and len(mh.get("positions") or []) == N, mh)):
+        return r.evidence()
+    s = settle(r, x, "3", lambda s: all(s["Dsky"][n] == {HB: False, CB: True} for n in ("host", "client"))
+               and L(s["D"]["client"]) == L(s["PR"]) == [True, cl])
+    for n in ("host", "client"):
+        r.cell(f"the host's save left its own Skyranger's deployment on the {n}", s["Dsky"][n][HB] is False, s["Dsky"])
+        r.cell(f"the host's save cleared the client's Skyranger's deployment on the {n}", s["Dsky"][n][CB] is True, s["Dsky"])
+    r.cell("the host's save replaced the client's D", L(s["D"]["client"]) == [True, cl], s["D"]["client"])
+    r.cell("the host's save replaced PR", L(s["PR"]) == [True, cl], s["PR"])
+    # 4 the host's own layout, set apart from the client's
+    r.ev["4 shared_cmd"] = raw_layout(h, hl)
+    settle(r, x, "4", lambda s: L(s["D"]["host"]) == [True, hl])
     time.sleep(1.0)
-    s1, d1 = {g.name: stats3(g) for g in (h, c)}, both(x)
-    r.ev.update({"D before": d0, "D 1 s after": d1, "shared_stats before / 1 s after": [s0, s1]})
+    r.ev["4 end 1 s later"] = s = snap(x)
+    r.cell("the host's D is not H", L(s["D"]["host"]) == [True, hl], s["D"]["host"])
+    r.cell("the host's layout replaced the client's D", L(s["D"]["client"]) == [True, cl], s["D"]["client"])
+    r.cell("the host's layout replaced PR", L(s["PR"]) == [True, cl], s["PR"])
+    # 5 the host's save file holds both
+    session.save_and_resume(h, c, SEP_SAVE, SEP_RESUME)
+    ok = wait_until(lambda: stack(h) == [GEO] and stack(c) == [GEO], CONV, POLL)
+    r.ev["5 after the reload"] = s = snap(x)
+    r.ev["5 fails"] = [f0, fails(x)]
+    if not r.cell("guard: both machines back on the geoscape after the reload", ok, [stack(h), stack(c)]):
+        return r.evidence()
+    r.cell("after the reload the host's D is not H", L(s["D"]["host"]) == [True, hl], s["D"]["host"])
+    r.cell("after the reload the client's D is not C", L(s["D"]["client"]) == [True, cl], s["D"]["client"])
+    r.cell("after the reload PR is not C", L(s["PR"]) == [True, cl], s["PR"])
+    r.cell("the client's failCount changed", r.ev["5 fails"][1][0] == f0, r.ev["5 fails"])
+    # 6 a battle with the client's Skyranger places the client's soldiers by C
+    r.ev["6 unmark"] = [q(g, {"cmd": "base_screen_op", "op": "deploy_unmark", "base": CB, "craft_id": x.skies[CB],
+                              "craft_type": SKYR}).get("customDeployment") for g in (h, c)]
+    s = snap(x)
+    if not r.cell("guard: 6 deploy_unmark -> Dsky[*][ClientBase] false", all(s["Dsky"][n][CB] is False for n in ("host", "client")),
+                  [r.ev["6 unmark"], s["Dsky"]]):
+        return r.evidence()
+    x.battle = True  # the row ends in the battle: no screen cleanup
+    geo.slow_clock(h, c)
+    sfx.fly_to_new_site(h, c, c)
+    c.ok({"cmd": "confirm_landing"})
+    inb = all(wait_until(lambda gc=gc: session.battle_state(gc).get("inBattle"), 180, 1.0) for gc in (h, c))
+    tac = inb and session.drive_both_to_tactical(h, c)
+    r.ev["6 battle"] = got = {gc.name: placed(gc, cl) for gc in (h, c)} if tac else None
     r.evidence()
-    if not r.cell("preview drive %s (client)" % m, m is None, r.ev["PV client"]):
+    if not r.cell("guard: both machines in the battle of the client's Skyranger", tac, [inb, session.states(h), session.states(c)]):
         return
-    r.cell(f"the client's own save is not on the client ({N} positions)", d1["client"].get("saved") is True
-           and len(d1["client"].get("positions") or []) == N, d1["client"])
-    r.cell("the host's D changed (SEPARATE stays local)", d1["host"].get("saved") is False, d1["host"])
-    r.cell("shared_stats cmd / applyCount / failCount changed", s0 == s1, [s0, s1])
+    for n, e in got.items():
+        if r.cell(f"guard: two or more of the client's soldiers in the battle on the {n}", len(e["units"]) >= 2, e):
+            r.cell(f"the client's soldiers do not stand at C's positions (one offset) facing C's facings on the {n}",
+                   len({str(o) for o in e["offsets"]}) == 1 and [u[3] for u in e["units"]] == [p[3] for p in cl[:len(e["units"])]], e)
 
 
 class Row(sbe.Row):
@@ -410,7 +550,7 @@ def run_rows(x, rows, results, walls):
             r.cell(f"guard: {rid} exception", False, short(e))
         for g in (x.host, x.client):  # a stopped row leaves no screen behind (an open preview ends through its own buttons)
             before = stack(g)
-            if not is_dead(before) and before != [GEO]:
+            if not is_dead(before) and before != [GEO] and not getattr(x, "battle", False):
                 r.cap[f"{g.name} cleanup"] = {"before": before, "pedia_state": pd(g).get("kind"), "after": leave(g)}
         walls[rid] = round(time.time() - t1, 1)
         r.report(results)
@@ -468,10 +608,12 @@ def boot_separate(results, walls):
             geo.wait_both_ready(h, c)
             x.seats = {g.name: q(g, {"cmd": "get_coop"}).get("localSeat") for g in (h, c)}
             x.keys = keys(x)
+            x.skies = {b["name"]: next((k["id"] for k in b["crafts"] if k["type"] == SKYR), None)
+                       for b in sfx.geo(h)["bases"] if b["name"] in (HB, CB)}
             walls["boot " + TAG_SEPARATE] = round(time.time() - t0, 1)
         except Exception as e:  # a boot miss fails craft_deploy_separate "boot" with ONE CAPTURE line
             return sbe.boot_miss(TAG_SEPARATE, e, ROWS_SEPARATE, results, x)
-        run_rows(x, (("craft_deploy_separate", row_separate_stays_local),), results, walls)
+        run_rows(x, (("craft_deploy_separate", row_separate_own),), results, walls)
     finally:
         down(TAG_SEPARATE, results, lambda: shutdown_clients(h, c))
 
