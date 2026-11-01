@@ -104,14 +104,12 @@ def sp_ground_click_walks(gc):
                 continue
             gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
             time.sleep(0.2)
-            pr = gc.cmd({"cmd": "map_tile_click_pos",
-                         "x": tile[0], "y": tile[1], "z": tile[2]})
-            if not (pr.get("ok") and pr.get("verified")):
-                continue
             before = unit_by_id(gc, uid)
             before_pos, before_tu = pos_of(before), before["tu"]
-            gc.ok({"cmd": "inject_input", "kind": "click",
-                   "x": pr["winX"], "y": pr["winY"], "button": "left"})
+            pr = gc.cmd({"cmd": "map_tile_click",
+                         "x": tile[0], "y": tile[1], "z": tile[2]})
+            if not (pr.get("ok") and pr.get("verified") and pr.get("clicked")):
+                continue
             # Poll for the walk to complete: position changes and TU drops.
             deadline = time.time() + 12
             while time.time() < deadline:

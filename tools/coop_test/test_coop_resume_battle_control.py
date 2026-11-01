@@ -544,12 +544,12 @@ def stage_alien_and_walk(host, client, walker_id):
     # (4) camera on the roof centre, no HOME; (5) click the opposite corner
     _roof_camera(host, centre)
     prev = session.walk_action_id(host)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": dest[0], "y": dest[1], "z": dest[2]})
+    pr = host.cmd({"cmd": "map_tile_click", "x": dest[0], "y": dest[1], "z": dest[2]})
     print(f"[stage] click {dest}: centered={pr.get('centered')} verified={pr.get('verified')} "
-          f"base=({pr.get('baseX')},{pr.get('baseY')}) win=({pr.get('winX')},{pr.get('winY')})")
-    assert pr.get("verified") is True and pr.get("centered") is False, (
+          f"clicked={pr.get('clicked')} base=({pr.get('baseX')},{pr.get('baseY')}) "
+          f"win=({pr.get('winX')},{pr.get('winY')})")
+    assert pr.get("verified") is True and pr.get("clicked") is True and pr.get("centered") is False, (
         f"PRECONDITION: the destination corner {dest} is not clickable on the roof view: {pr}")
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
     lw, pending = pause_on_leave._poll_walk_until_pending(host, prev, min_pending=2, timeout=25)
     if lw is None:
         # on-timeout diagnostic ONLY. The mid-walk-pending poll

@@ -168,20 +168,19 @@ class Boot:
         return self.bst().get("selectedId") == uid
 
     def walk(self, uid, tile, timeout=15):
-        """The real-UI walk: TAB select, HOME, map_tile_click_pos (verified), a left click. -> (ok, record)."""
+        """The real-UI walk: TAB select, HOME, one verified map_tile_click left click. -> (ok, record)."""
         rec = {"unit": uid, "to": list(tile)}
         if not self.select(uid):
             rec["fail"] = "select"
             return False, rec
         self.gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
         time.sleep(0.2)
-        pr = self.gc.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-        if not (pr.get("ok") and pr.get("verified")):
-            rec["fail"] = "click_pos %s" % pr.get("error")
-            return False, rec
         u = self.units()[uid]
         rec["from"], rec["tu0"] = [u["x"], u["y"], u["z"]], u["tu"]
-        self.gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        pr = self.gc.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+        if not (pr.get("ok") and pr.get("verified") and pr.get("clicked")):
+            rec["fail"] = "map_tile_click %s" % (pr.get("error") or pr.get("reason"))
+            return False, rec
         end = time.time() + timeout
         while time.time() < end:
             b = self.bst()

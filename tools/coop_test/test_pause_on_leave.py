@@ -332,17 +332,14 @@ def _select_by_tab(gc, unit_id, max_presses=16):
 
 def _click_walk(host, dest, max_rounds=4):
     """The proven real-UI recipe (a host walk is NOT a wire intent):
-    HOME to center the camera, map_tile_click_pos to get a verified window
-    pixel for @a dest, inject_input to click it."""
+    HOME to center the camera, then map_tile_click: a verified window pixel
+    for @a dest, clicked in the same pump pass."""
     for _ in range(max_rounds):
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
         time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": dest[0], "y": dest[1], "z": dest[2]})
-        if not pr.get("verified"):
-            continue
-        host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-                 "button": "left"})
-        return True
+        pr = host.cmd({"cmd": "map_tile_click", "x": dest[0], "y": dest[1], "z": dest[2]})
+        if pr.get("verified") and pr.get("clicked"):
+            return True
     return False
 
 
@@ -440,7 +437,7 @@ def _run_scenario(tag, run_idx, drop, seed):
 
         prev = session.walk_action_id(host)
         started = _click_walk(host, dest)
-        assert started, "map_tile_click_pos never verified (tile off-view or occluded)"
+        assert started, "map_tile_click never verified (tile off-view or occluded)"
 
         lw, pending = _poll_walk_until_pending(host, prev, min_pending=2, timeout=20)
         assert lw is not None, "walk never reached a >=2-pending mid-flight state"

@@ -243,7 +243,7 @@ def pick_target(r):
         time.sleep(0.15)
         pr = c.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
         if pr.get("verified"):
-            return {"d0": d0, "toDir": to_dir, "tile": tile, "pos": pos, "click": pr}
+            return {"d0": d0, "toDir": to_dir, "tile": tile, "pos": pos}
     r.fail("pre", f"no verified target tile two steps from C {C_ID} at {pos} (d0 {d0})")
     return None
 
@@ -264,8 +264,11 @@ def client_orders(r):
         return None
     r.ev["order"] = {k: tg[k] for k in ("d0", "toDir", "tile", "pos")}
     r.ev["beforeClick"] = {"host": probe(r.host), "client": probe(c)}
-    c.ok({"cmd": "inject_input", "kind": "click", "x": tg["click"]["winX"], "y": tg["click"]["winY"],
-          "button": "right"})
+    clk = c.cmd({"cmd": "map_tile_click", "x": tg["tile"][0], "y": tg["tile"][1], "z": tg["tile"][2],
+                 "button": "right"})
+    if not (clk.get("verified") and clk.get("clicked")):
+        r.fail("pre", f"map_tile_click on the target tile {tg['tile']} did not verify and click: {clk}")
+        return None
     r.mark("client right-click")
     return tg
 
