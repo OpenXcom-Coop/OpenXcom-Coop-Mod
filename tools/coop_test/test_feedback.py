@@ -72,8 +72,6 @@ COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 FACTION_PLAYER = 0
 
-SDLK_HOME = 278  # Options::keyBattleCenterUnit default
-
 # Direction -> (dx, dy), 0 = North clockwise (repro_atom_turn.py's own table).
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
 DIR_DY = [-1, -1, 0, 1, 1, 1, 0, -1]
@@ -304,25 +302,6 @@ def wait_banner(gc, want, what, timeout=25):
             "STR_ key here means bin/x64/Release/common/Language/*.yml is stale "
             "relative to bin/common/ (the robocopy of bin/common was skipped).")
     return got["v"]
-
-
-def center_on_selection(gc):
-    gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
-    time.sleep(0.15)
-
-
-def tile_click(gc, tx, ty, tz, button="right"):
-    """The `map_tile_click_pos` recipe of test_input_gating.py: the probe
-    resolves mapClick's selector-position read, inject_input's WINDOW pixels and
-    the icons-panel swallow, and re-verifies the round trip - so a click that
-    misses fails LOUDLY instead of making an assertion vacuous."""
-    center_on_selection(gc)
-    pr = gc.ok({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
-    if not pr.get("verified"):
-        return None
-    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-           "button": button})
-    return pr
 
 
 def both_ok(host, client, req, keys):

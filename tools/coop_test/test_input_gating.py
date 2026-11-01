@@ -304,8 +304,8 @@ def center_on_selection(gc):
 
 
 def tile_click(gc, tx, ty, tz, button="left"):
-    """Centre on the selected unit, ask the `map_tile_click_pos` probe for a
-    VERIFIED window pixel for (tx,ty,tz), and push a real SDL click there.
+    """Centre on the selected unit, then `map_tile_click`: find a VERIFIED window
+    pixel for (tx,ty,tz) and push a real SDL click there in the same pump pass.
 
     Why not repro_atom_turn.py's `map_tile_screen_pos` + raw click: three real
     offsets sit between the projected point and the point that actually selects
@@ -315,68 +315,38 @@ def tile_click(gc, tx, ty, tz, button="left"):
     itself; inject_input pushes WINDOW pixels while the camera works in base
     coordinates (Screen::getXScale() is 2 in the harness's 640x400 window); and
     a point over the icons panel is swallowed by mapClick's `_mouseOverIcons`
-    early return. The probe solves all three and re-verifies the round trip, so
+    early return. The command solves all three and re-verifies the round trip, so
     a click that misses fails LOUDLY here instead of turning a gate assertion
     vacuous."""
     center_on_selection(gc)
-    pr = gc.ok({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
-    assert pr.get("verified"), (
+    pr = gc.ok({"cmd": "map_tile_click", "x": tx, "y": ty, "z": tz, "button": button})
+    assert pr.get("verified") and pr.get("clicked"), (
         f"tile ({tx},{ty},{tz}) is not clickable right now: {pr} - the fixture "
         f"cannot place this click, which is a FIXTURE failure, never a gate result")
-    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-           "button": button})
     return pr
 
 
-def tile_click_until(gc, tx, ty, tz, ok_fn, what, button="left", tries=5, settle=0.6,
-                     alt_tiles=()):
-    """tile_click() with a bounded retry on the residual harness effects the
-    probe cannot remove. Each attempt is independently verified by the probe,
-    and the loop stops the moment @a ok_fn observes the intended effect.
-
-    TWO effects, not one:
-      * the battlescape camera can shift between the probe's round-trip check
-        and the injected click arriving, so a click occasionally lands one tile
-        off - a re-CLICK fixes that, because the shift is transient; and
-      * a particular target tile can be systematically unproductive on a given
-        map roll - it verifies every time and still never reaches the arm under
-        test. Re-clicking THE SAME TILE five times then fails five times
-        identically, as this helper once did ("5 verified clicks on tile
-        (40,9,1) never produced the expected effect", every pre-gate healthy).
-        A re-AIM is what fixes that.
-
-    @a alt_tiles are further (x, y, z) candidates; attempts rotate through
-    [(tx,ty,tz)] + alt_tiles. A caller that passes none re-clicks its one
-    tile. NOTHING about what the caller asserts changes - a re-aimed click
-    still has to produce the same observed effect."""
-    targets = [(tx, ty, tz)] + [tuple(a) for a in alt_tiles]
-    last = None
-    for attempt in range(1, tries + 1):
-        ax, ay, az = targets[(attempt - 1) % len(targets)]
-        if (ax, ay, az) != (tx, ty, tz):
-            print(f"    [{what}] attempt {attempt}: re-aiming at tile "
-                  f"({ax},{ay},{az}) - the primary target has not produced the "
-                  "expected effect yet")
-        pre_ev = event_state(gc)
-        pre_blocked = pre_ev.get("coopLocalExecBlocked")
-        pre_arm = pre_ev.get("coopWalkArmEntered")
-        last = tile_click(gc, ax, ay, az, button)
-        time.sleep(settle)
+def tile_click_effect(gc, tx, ty, tz, ok_fn, what, button="left", timeout=5.0):
+    """ONE tile_click(), then a bounded wait (timeout s) for @a ok_fn to observe
+    the intended effect. Returns the click's response plus the counters as they
+    stood immediately BEFORE the click (blockedBeforeThisClick,
+    armBeforeThisClick), so a caller can assert "this click did not go through a
+    commanding arm"."""
+    pre_ev = event_state(gc)
+    pr = dict(tile_click(gc, tx, ty, tz, button))
+    pr["blockedBeforeThisClick"] = pre_ev.get("coopLocalExecBlocked")
+    pr["armBeforeThisClick"] = pre_ev.get("coopWalkArmEntered")
+    deadline = time.time() + timeout
+    while True:
         if ok_fn():
-            last = dict(last)
-            last["attempts"] = attempt
-            # The counters as they stood immediately BEFORE the click that worked
-            # - so a caller can still assert "this click did not go through a
-            # commanding arm" without an earlier, MISSED attempt (which lands on
-            # a neighbouring ground tile, i.e. legitimately in the walk arm)
-            # poisoning the comparison.
-            last["blockedBeforeThisClick"] = pre_blocked
-            last["armBeforeThisClick"] = pre_arm
-            return last
+            return pr
+        if time.time() >= deadline:
+            break
+        time.sleep(0.05)
     st = battle_state(gc)
     raise AssertionError(
-        f"{what}: {tries} verified clicks across tiles {targets} never produced the "
-        f"expected effect (last probe={last}; mapClick's own pre-gates: "
+        f"{what}: the verified click on tile ({tx},{ty},{tz}) did not produce the "
+        f"expected effect within {timeout}s (click={pr}; mapClick's own pre-gates: "
         f"mouseOverIcons={st.get('mouseOverIcons')} cursorType={st.get('cursorType')} "
         f"isBusy={st.get('isBusy')} selectedId={st.get('selectedId')} "
         f"banner={st.get('coopWaitText')!r})")
@@ -394,8 +364,7 @@ def select_via_tab(gc, want_ids, tries=10):
                          f"(last selectedId={sel})")
 
 
-def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
-                                      alt_tiles=()):
+def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label):
     """A client ground-click must mint NOTHING LOCALLY - and the click must be
     PROVEN to have arrived.
 
@@ -434,12 +403,10 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
     c_before = units_by_id(cb0)[actor_id]
     h_before = units_by_id(hb0)[actor_id]
 
-    # The retry predicate IS the delivery proof: keep clicking (each click
-    # independently verified by the probe) until primaryAction's walk arm has
-    # actually been entered. A click that lands one tile off - the residual
-    # camera-shift effect tile_click_until() exists for - would land in the
-    # SELECT branch instead and leave the counter alone, so this can never
-    # "pass" by never arriving.
+    # The effect predicate IS the delivery proof: the click must enter
+    # primaryAction's walk arm. A click that landed on another (occupied) tile
+    # would go to the SELECT branch instead and leave the counter alone, so this
+    # can never "pass" by never arriving.
     busy_seen = [False]
 
     def arm_entered():
@@ -448,13 +415,8 @@ def assert_ground_click_mints_nothing(host, client, actor_id, tx, ty, tz, label,
             return True
         return event_state(client).get("coopWalkArmEntered", arm0) > arm0
 
-    # Two full passes over the rotation, so a target still gets the re-CLICK
-    # benefit for the transient camera shift as well as the re-AIM benefit for
-    # an unproductive tile. Five tries for a caller with no alternates.
-    pr = tile_click_until(client, tx, ty, tz, arm_entered,
-                          f"client ground click [{label}]", settle=0.35,
-                          tries=max(5, 2 * (1 + len(alt_tiles))),
-                          alt_tiles=alt_tiles)
+    pr = tile_click_effect(client, tx, ty, tz, arm_entered,
+                           f"client ground click [{label}]")
     sx, sy = pr["winX"], pr["winY"]
 
     # Sample isBusy hard for a second: a locally-minted UnitWalkBState is
@@ -630,11 +592,11 @@ def test_classic_selection_gating():
         assert others, f"client owns only {sorted(client_own_ids)} - see the non-vacuity gate"
         target_id = others[0]
         t = units_by_id(battle_state(client))[target_id]
-        own_click = tile_click_until(client, t["x"], t["y"], t["z"],
-                                     lambda: battle_state(client).get("selectedId") == target_id,
-                                     f"client click-select of its OWN soldier {target_id} "
-                                     f"(if this never lands, either the entry guard is still "
-                                     f"swallowing primaryAction or the click missed the tile)")
+        own_click = tile_click_effect(client, t["x"], t["y"], t["z"],
+                                      lambda: battle_state(client).get("selectedId") == target_id,
+                                      f"client click-select of its OWN soldier {target_id} "
+                                      f"(if this never lands, either the entry guard is still "
+                                      f"swallowing primaryAction or the click missed the tile)")
         after_sel = battle_state(client).get("selectedId")
         assert event_state(client)["coopLocalExecBlocked"] == own_click["blockedBeforeThisClick"], (
             "click-selecting an OWN unit went through a COMMANDING arm "
@@ -662,10 +624,10 @@ def test_classic_selection_gating():
         hid = near_host[0][1]
         hu = units_by_id(battle_state(client))[hid]
         before_sel = battle_state(client).get("selectedId")
-        peer_click = tile_click_until(client, hu["x"], hu["y"], hu["z"],
-                                      lambda: banner(client) == TXT_NOT_YOUR_UNIT,
-                                      f"client click on HOST soldier {hid} must raise the "
-                                      f"ownership refusal")
+        peer_click = tile_click_effect(client, hu["x"], hu["y"], hu["z"],
+                                       lambda: banner(client) == TXT_NOT_YOUR_UNIT,
+                                       f"client click on HOST soldier {hid} must raise the "
+                                       f"ownership refusal")
         assert battle_state(client).get("selectedId") == before_sel, (
             f"client SELECTED the host's soldier {hid} - "
             f"CoopBattleUi::refuseSelectUnitClick() did not fire")
@@ -705,20 +667,8 @@ def test_classic_selection_gating():
         assert walk_tile is not None, (
             "no EMPTY, clickable adjacent tile for the client's actor - the "
             "ground-click gate cannot be exercised")
-        # Hand the OTHER clickable adjacent tiles over as re-aim
-        # candidates. Which single tile is productive on a given map roll is a
-        # camera/geometry fact; the gate under test is the same for all of them.
-        walk_alts = []
-        for dx2, dy2 in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)):
-            tx2, ty2 = au["x"] + dx2, au["y"] + dy2
-            if (tx2, ty2) == walk_tile or (tx2, ty2, au["z"]) in occupied:
-                continue
-            pr2 = client.cmd({"cmd": "map_tile_click_pos", "x": tx2, "y": ty2, "z": au["z"]})
-            if pr2.get("ok") and pr2.get("verified"):
-                walk_alts.append((tx2, ty2, au["z"]))
         assert_ground_click_mints_nothing(host, client, actor, walk_tile[0], walk_tile[1],
-                                          au["z"], "walkable adjacent tile",
-                                          alt_tiles=walk_alts)
+                                          au["z"], "walkable adjacent tile")
 
         # NO ROUTE: the actor's OWN tile. selectUnit(pos) returns the
         # already-selected unit, so the select branch's `unit != selected` test
@@ -730,11 +680,7 @@ def test_classic_selection_gating():
 
         # DISTANT: a far tile on the same level. Whether the pathfinder can
         # reach it or not, nothing may happen on the client.
-        # Collect EVERY verified distant candidate, not just the first: a run
-        # once failed here because the first one happened to be unproductive
-        # on that map roll and all five retries re-clicked it.
         far = None
-        far_alts = []
         for step in (5, 4, 3):
             for dxs, dys in ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)):
                 tx, ty = au["x"] + dxs * step, au["y"] + dys * step
@@ -742,15 +688,14 @@ def test_classic_selection_gating():
                     continue
                 pr = client.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": au["z"]})
                 if pr.get("ok") and pr.get("verified"):
-                    if far is None:
-                        far = (tx, ty)
-                    else:
-                        far_alts.append((tx, ty, au["z"]))
+                    far = (tx, ty)
+                    break
+            if far:
+                break
         assert far, "no distant clickable empty tile found for the third ground-click variant"
-        print(f"  distant ground-click candidates: primary {far}, "
-              f"{len(far_alts)} re-aim alternate(s)")
+        print(f"  distant ground-click target {far}")
         assert_ground_click_mints_nothing(host, client, actor, far[0], far[1], au["z"],
-                                          f"distant tile {far}", alt_tiles=far_alts)
+                                          f"distant tile {far}")
 
         assert not battle_state(client)["authority"]["desyncFrozen"], \
             "client desync-frozen after the ground-click phase"
@@ -921,11 +866,9 @@ def test_classic_selection_gating():
             tx, ty = hu2["x"] + DIR_DX[d], hu2["y"] + DIR_DY[d]
             if (tx, ty, hu2["z"]) in h_occupied:
                 continue
-            pr = host.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": hu2["z"]})
-            if not (pr.get("ok") and pr.get("verified")):
+            pr = host.cmd({"cmd": "map_tile_click", "x": tx, "y": ty, "z": hu2["z"]})
+            if not (pr.get("ok") and pr.get("clicked")):
                 continue
-            host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"],
-                     "y": pr["winY"], "button": "left"})
             time.sleep(1.5)
             if host_unit_acted():
                 moved = True

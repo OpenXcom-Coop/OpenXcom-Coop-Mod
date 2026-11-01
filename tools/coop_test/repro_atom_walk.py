@@ -1271,8 +1271,8 @@ def phase_host_origin(host, client, host_ids):
     """step evs are ORIGIN-INDEPENDENT - a HOST-origin walk emits them
     too, which is what the observing machine's ghost will animate.
 
-    Driven through the REAL UI (the self-verifying `map_tile_click_pos`
-    probe), because the host has no `battle_intent`: host-local player input
+    Driven through the REAL UI (the self-verifying `map_tile_click`
+    command), because the host has no `battle_intent`: host-local player input
     never enters the intent path.
 
     FIXTURE RECIPE. A host unit is already SELECTED at this phase's entry
@@ -1281,8 +1281,8 @@ def phase_host_origin(host, client, host_ids):
     immediately - there is no two-click preview->confirm here. So "select it
     first" must NEVER be a ground click on the eventual target tile: with a
     unit already selected and no preview, that click IS the walk, and the
-    measured loop below then clicks the tile the unit is already standing on
-    (no path, no walk, `wait_walk_settled` times out on every attempt). So
+    measured click below then clicks the tile the unit is already standing on
+    (no path, no walk, `wait_walk_settled` times out). So
     this phase selects by TAB-cycling only - the same idiom `phase_hud`
     uses, a pure selection hotkey that cannot itself move anyone - and only
     computes the candidate destination tile AFTER selection is confirmed, from
@@ -1308,26 +1308,18 @@ def phase_host_origin(host, client, host_ids):
     prev = walk_action_id(host)
     arm0 = event_state(host)["coopWalkArmEntered"]
 
-    landed = False
-    for _ in range(4):
-        host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
-        time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1],
-                       "z": tile[2]})
-        if not pr.get("verified"):
-            break
-        host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"],
-                 "y": pr["winY"], "button": "left"})
-        try:
-            wait_walk_settled(host, client, prev, timeout=12)
-            landed = True
-            break
-        except Exception:
-            continue
-    assert landed, (
-        "HOST-ORIGIN PHASE: the host's own ground click never produced a walk - the walk arm "
-        f"was entered {event_state(host)['coopWalkArmEntered'] - arm0} time(s) since "
-        "the click, so this is the click recipe or the fixture, not the atom")
+    host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
+    time.sleep(0.15)
+    pr = host.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"HOST-ORIGIN PHASE: map_tile_click on {tile} did not click (want verified and clicked): {pr}")
+    try:
+        wait_walk_settled(host, client, prev, timeout=12)
+    except Exception as e:
+        raise AssertionError(
+            "HOST-ORIGIN PHASE: the host's own ground click never produced a walk - the walk arm "
+            f"was entered {event_state(host)['coopWalkArmEntered'] - arm0} time(s) since "
+            f"the click, so this is the click recipe or the fixture, not the atom ({e})") from e
 
     settle_reveal(host, client)
     hw = last_walk(host)

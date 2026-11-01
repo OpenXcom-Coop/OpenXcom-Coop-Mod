@@ -53,12 +53,6 @@ SDLK_HOME = 278  # Options::keyBattleCenterUnit default
 # (session.actor_is_contact_free / session.MAX_VIEW_DISTANCE), one copy shared
 # by every file that uses the rule.
 
-# run_ui_variant's bounded retry: "the battlescape camera can shift between the
-# probe's round-trip check and the injected click arriving, so a click
-# occasionally lands one tile off".
-# Each attempt costs the actor one turn's TU (4), which is why this is small.
-UI_CLICK_TRIES = 4
-
 # Direction -> (dx, dy) step table, 0=North clockwise (the same table
 # TestServer.cpp's own "battle_action act==\"turn\"/\"door\"" debug helpers use).
 DIR_DX = [0, 1, 1, 1, 0, -1, -1, -1]
@@ -305,8 +299,8 @@ def center_on_selection(gc):
 
 
 def tile_click(gc, tx, ty, tz, button="right"):
-    """The `map_tile_click_pos` recipe, the same shape as test_input_gating.py
-    (and test_feedback.py).
+    """One real click on tile (tx, ty, tz) through `map_tile_click`, the same
+    shape as test_input_gating.py.
 
     A plain `map_tile_screen_pos` + raw click is NOT A WORKING RECIPE: three
     real offsets sit between the projected point and the point that actually
@@ -315,20 +309,18 @@ def tile_click(gc, tx, ty, tz, button="right"):
     click itself; `inject_input` pushes WINDOW pixels while the camera works in
     base coordinates (Screen::getXScale() is 2 in the harness's 640x400
     window); and a point over the icons panel is swallowed by mapClick's
-    `_mouseOverIcons` early return. The probe resolves all three AND
-    re-verifies the round trip, so a click that would have missed is reported
-    as `verified: false` HERE instead of surfacing minutes later as "the host
-    received no bt_intent at all".
+    `_mouseOverIcons` early return. The command resolves all three, re-verifies
+    the round trip and clicks in the same pump pass, so a click that would have
+    missed is reported as `verified: false` HERE instead of surfacing minutes
+    later as "the host received no bt_intent at all".
 
-    Returns the probe response, or None when the tile is not clickable right
+    Returns the command's response, or None when the tile is not clickable right
     now (a FIXTURE condition - the caller re-rolls the target, it is never a
     result about the feature under test)."""
     center_on_selection(gc)
-    pr = gc.ok({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
-    if not pr.get("verified"):
+    pr = gc.ok({"cmd": "map_tile_click", "x": tx, "y": ty, "z": tz, "button": button})
+    if not pr.get("clicked"):
         return None
-    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-           "button": button})
     return pr
 
 
@@ -340,23 +332,14 @@ def run_ui_variant(host, client, actor_id, current_dir):
     real map-click code path this time.
 
     The right-click itself goes through the self-verifying
-    `map_tile_click_pos` probe (see tile_click above), inside a bounded
-    RETRY loop that stops the moment the INTENDED EFFECT is observed. Two
-    distinct camera/viewport facts
-    make that necessary, and neither says anything about the intercept:
-      * a particular neighbour tile may not be clickable from where the camera
-        sits at all (the probe reports `verified: false`); and
-      * "the battlescape camera can shift between the probe's round-trip check
-        and the injected click arriving, so a click occasionally lands one tile
-        off" - which is a turn to a NEIGHBOURING facing, not
-        a failure to turn.
-    Each attempt therefore re-reads the unit's CURRENT facing, picks a fresh
-    90-degree target from it, and re-probes. (`current_dir` is consequently only
-    the caller's view of the starting facing and is no longer read here - the
-    loop must use the live one, because a mis-landed attempt has already moved
-    it.) Every assertion below applies to the attempt that landed: the unit
-    must end on exactly
-    the intended facing on BOTH machines, and its TU must have dropped."""
+    `map_tile_click` command (see tile_click above). A particular neighbour
+    tile may not be clickable from where the camera sits at all (the command
+    reports `verified: false` and clicks nothing), so the target falls back
+    through the other non-current facings. The click reads the unit's CURRENT
+    facing and picks a 90-degree target from it (`current_dir` is only the
+    caller's view of the starting facing and is not read here). The unit must
+    end on exactly the intended facing on BOTH machines, and its TU must have
+    dropped."""
     selected = None
     for _ in range(12):
         st = client.cmd({"cmd": "battle_state"})
@@ -373,40 +356,30 @@ def run_ui_variant(host, client, actor_id, current_dir):
     before_tu = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["tu"]
 
     ui_to_dir = None
-    landed = False
-    for attempt in range(1, UI_CLICK_TRIES + 1):
-        unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
-        here = unit["direction"]
-        # Prefer 90 degrees on (the original recipe); fall back through the
-        # other non-current facings when a neighbour tile is not clickable.
-        placed = False
-        for cand in [(here + off) % 8 for off in (2, 6, 3, 5, 1, 7, 4)]:
-            baseline = event_seq_baseline(client)
-            if tile_click(client, unit["x"] + DIR_DX[cand], unit["y"] + DIR_DY[cand],
-                          unit["z"], button="right") is not None:
-                ui_to_dir = cand
-                placed = True
-                break
-        assert placed, (
-            "no neighbour tile of the actor was clickable in any direction - FIXTURE "
-            "failure (camera/viewport), not a result about the secondaryAction intercept")
-
-        wait_settled(host, client, baseline)
-        if units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"] == ui_to_dir:
-            landed = True
+    unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
+    here = unit["direction"]
+    # Prefer 90 degrees on (the original recipe); fall back through the
+    # other non-current facings when a neighbour tile is not clickable.
+    placed = False
+    for cand in [(here + off) % 8 for off in (2, 6, 3, 5, 1, 7, 4)]:
+        baseline = event_seq_baseline(client)
+        if tile_click(client, unit["x"] + DIR_DX[cand], unit["y"] + DIR_DY[cand],
+                      unit["z"], button="right") is not None:
+            ui_to_dir = cand
+            placed = True
             break
-        got = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]["direction"]
-        print(f"[repro_atom_turn] run_ui_variant attempt {attempt}/{UI_CLICK_TRIES}: the "
-              f"click turned unit {actor_id} to dir {got}, intended {ui_to_dir} - the "
-              "camera shifted between the probe and the injected click (the known "
-              "one-tile-off effect); re-aiming from the new facing")
+    assert placed, (
+        "no neighbour tile of the actor was clickable in any direction - FIXTURE "
+        "failure (camera/viewport), not a result about the secondaryAction intercept")
+
+    wait_settled(host, client, baseline)
 
     host_unit = units_by_id(host.cmd({"cmd": "battle_state"}))[actor_id]
     client_unit = units_by_id(client.cmd({"cmd": "battle_state"}))[actor_id]
 
-    assert landed and client_unit["direction"] == ui_to_dir, (
+    assert client_unit["direction"] == ui_to_dir, (
         f"faithful-UI right-click did not turn unit {actor_id} to dir {ui_to_dir} "
-        f"(client direction={client_unit['direction']}) in {UI_CLICK_TRIES} attempts - "
+        f"(client direction={client_unit['direction']}) - "
         "the secondaryAction intercept did not fire end-to-end")
     assert host_unit["direction"] == ui_to_dir, (
         f"host unit {actor_id} direction={host_unit['direction']}, expected {ui_to_dir}")
