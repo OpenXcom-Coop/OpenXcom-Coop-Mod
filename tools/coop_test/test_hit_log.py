@@ -370,10 +370,10 @@ def row_host_snap(host, client, ctx):
                       timeout=5)
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
         time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": KILL_A_TILE[0], "y": KILL_A_TILE[1], "z": KILL_A_TILE[2]})
-        assert pr.get("verified"), f"map_tile_click_pos did not verify A's tile {KILL_A_TILE}: {pr}"
         host.ok({"cmd": "set_seed", "seed": KILL_SEED})
-        host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        pr = host.cmd({"cmd": "map_tile_click", "x": KILL_A_TILE[0], "y": KILL_A_TILE[1], "z": KILL_A_TILE[2]})
+        assert pr.get("verified") and pr.get("clicked"), (
+            f"map_tile_click did not verify and click A's tile {KILL_A_TILE}: {pr}")
         host.wait_for("host shot chain finished (A DEAD, no BState)",
                       lambda: host_chain_done(host, A_ID, STATUS_DEAD), timeout=30)
     except Exception as e:
@@ -487,7 +487,7 @@ def row_ctrl_h_box(host, client, ctx):
     client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
     u = units(client).get(sel0) or {}
-    pr = client.cmd({"cmd": "map_tile_click_pos", "x": u.get("x"), "y": u.get("y"), "z": u.get("z")})
+    pr = {}
     box = {"seen": False}
     t_key = time.time()
     client.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_H, "mod": "ctrl"})
@@ -500,8 +500,8 @@ def row_ctrl_h_box(host, client, ctx):
         time.sleep(0.02)
     box["modClear"] = client.cmd({"cmd": "inject_input", "kind": "modstate", "mod": "none"}).get("modState")
     t_seen = time.time()
-    if box["seen"] and pr.get("verified"):
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    if box["seen"]:
+        pr = client.cmd({"cmd": "map_tile_click", "x": u.get("x"), "y": u.get("y"), "z": u.get("z")})
         box["clickAfterSeenS"] = round(time.time() - t_seen, 3)
         try:
             client.wait_for("client BattlescapeState on top after the click",
@@ -512,12 +512,12 @@ def row_ctrl_h_box(host, client, ctx):
     ec = event_state(client)
     print("EVIDENCE ctrl_h_box: " + json.dumps({
         "top0": top0, "aimCancel": aim0, "selectedId": (sel0, battle_state(client).get("selectedId")),
-        "clickPos": {k: pr.get(k) for k in ("verified", "winX", "winY")}, "clientLog": log0, "box": box,
+        "clickPos": {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY")}, "clientLog": log0, "box": box,
         "intentsSent": (sent0, ec.get("coopIntentsSent")), "notes": notes}, sort_keys=True, default=str), flush=True)
     fails = list(notes)
-    if top0 != "BattlescapeState" or not pr.get("verified"):
+    if top0 != "BattlescapeState" or (box["seen"] and not (pr.get("verified") and pr.get("clicked"))):
         fails.append(f"ctrl_h_box: precondition: client top {top0!r}, the click spot {pr} "
-                     f"(want BattlescapeState, verified)")
+                     f"(want BattlescapeState, verified and clicked)")
     if not box["seen"]:
         fails.append(f"ctrl_h_box: no InfoboxState on the client within {BOX_OPEN_S}s of Ctrl-H "
                      f"(top {box['topAfter']!r}; want vanilla's hit-log box)")

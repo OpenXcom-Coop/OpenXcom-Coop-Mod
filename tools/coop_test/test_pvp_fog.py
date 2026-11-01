@@ -285,12 +285,11 @@ def press_panic(client, host, ev):
     ev["cursorAfterKey"] = battle_state(client).get("cursorType")
     assert ev["cursorAfterKey"] == CT_PSI, f"key {KEY_PANIC}: cursorType {ev['cursorAfterKey']} (want {CT_PSI})"
     ev["cam"] = HC.cam_offset(HC.stage_camera(client, W_IN))
-    pr = client.cmd({"cmd": "map_tile_click_pos", "x": W_IN[0], "y": W_IN[1], "z": W_IN[2]})
-    ev["clickPos"] = (pr.get("winX"), pr.get("winY"), pr.get("verified"))
-    assert pr.get("verified"), f"map_tile_click_pos {W_IN} on the client not verified: {pr}"
     ev["selAtClick"] = battle_state(client).get("selectedId")
     host.ok({"cmd": "set_seed", "seed": PSI_SEED})
-    client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = client.cmd({"cmd": "map_tile_click", "x": W_IN[0], "y": W_IN[1], "z": W_IN[2]})
+    ev["clickPos"] = (pr.get("winX"), pr.get("winY"), pr.get("verified"), pr.get("clicked"))
+    assert pr.get("verified") and pr.get("clicked"), f"map_tile_click {W_IN} on the client not verified and clicked: {pr}"
 
 
 def row_psi_other_alien(host, client, crash0, sb):

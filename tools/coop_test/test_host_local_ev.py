@@ -297,10 +297,8 @@ def row_mind_probe(ev, res, host, client, st):
         ev["cursor"] = battle_state(host).get("cursorType")
         press(host, SDLK_HOME)
         time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": A_TILE[0], "y": A_TILE[1], "z": A_TILE[2]})
-        ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY")}
-        if ev["cursor"] != CURSOR_PSI or not pr.get("verified"):
-            miss = f"cursorType {ev['cursor']} after key {KEY_ITEM1} (want {CURSOR_PSI}), click pos {ev['clickPos']}"
+        if ev["cursor"] != CURSOR_PSI:
+            miss = f"cursorType {ev['cursor']} after key {KEY_ITEM1} (want {CURSOR_PSI})"
     if miss:
         capture(host, client, "mind_probe")
         res.update({c: f"construction: {miss}" for c in CELLS["mind_probe"]})
@@ -309,7 +307,13 @@ def row_mind_probe(ev, res, host, client, st):
     if vis is not True:
         pre.append(f"visible(host, A) {vis} (want true)")
     t0 = time.time()
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": A_TILE[0], "y": A_TILE[1], "z": A_TILE[2]})
+    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY")}
+    if not (pr.get("verified") and pr.get("clicked")):
+        capture(host, client, "mind_probe")
+        res.update({c: f"construction: click on {A_TILE} {ev['clickPos']} (want verified and clicked)"
+                    for c in CELLS["mind_probe"]})
+        return
     if not wait_top(host, "UnitInfoState"):
         pre.append(f"host top {top(host)} {MENU_S} s after the click (want UnitInfoState)")
     want = H_TU_FULL - PROBE_TU

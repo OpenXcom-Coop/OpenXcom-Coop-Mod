@@ -253,10 +253,9 @@ def row_host_turn(host, client, crash0):
     assert tab_select(host, h1), f"the host's TAB never selected {h1}"
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": HOST_TURN_NEIGHBOUR[0], "y": HOST_TURN_NEIGHBOUR[1],
-                   "z": HOST_TURN_NEIGHBOUR[2]})
-    assert pr.get("verified"), f"map_tile_click_pos {HOST_TURN_NEIGHBOUR} not verified: {pr}"
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "right"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": HOST_TURN_NEIGHBOUR[0], "y": HOST_TURN_NEIGHBOUR[1],
+                   "z": HOST_TURN_NEIGHBOUR[2], "button": "right"})
+    assert pr.get("verified") and pr.get("clicked"), f"map_tile_click {HOST_TURN_NEIGHBOUR} not verified and clicked: {pr}"
     t = time.time()
     while time.time() - t < 15 and units(host)[h1].get("direction") == u0[0].get("direction"):
         time.sleep(0.1)

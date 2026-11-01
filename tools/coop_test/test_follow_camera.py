@@ -403,11 +403,11 @@ def row_client_follows_host_shot(host, client, crash0):
                   or None, timeout=5)
     host.ok({"cmd": "inject_input", "kind": "key", "key": SPC.SDLK_HOME})
     time.sleep(0.15)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": HOST_SHOT_TARGET[0], "y": HOST_SHOT_TARGET[1],
-                   "z": HOST_SHOT_TARGET[2]})
-    assert pr.get("verified"), f"map_tile_click_pos did not verify HOST_SHOT_TARGET {HOST_SHOT_TARGET}: {pr}"
     host.ok({"cmd": "set_seed", "seed": HOST_SHOT_SEED})
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": HOST_SHOT_TARGET[0], "y": HOST_SHOT_TARGET[1],
+                   "z": HOST_SHOT_TARGET[2]})
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"map_tile_click did not verify and click HOST_SHOT_TARGET {HOST_SHOT_TARGET}: {pr}")
     ok, ev["settleS"] = wait_until(lambda: bool(CSH.mine(new_ctx(host, ctx0), "host", "shoot", H_ID))
                                    and es(host, "busyOwnerSeat") == -1, STEP_S)
     idle(host, client, ev)

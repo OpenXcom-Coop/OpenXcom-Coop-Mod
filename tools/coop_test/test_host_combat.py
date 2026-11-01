@@ -1282,10 +1282,10 @@ def row_host_kill(host, client, ctx):
                       timeout=5)
         host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
         time.sleep(0.15)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": KILL_A_TILE[0], "y": KILL_A_TILE[1], "z": KILL_A_TILE[2]})
-        assert pr.get("verified"), f"map_tile_click_pos did not verify A's tile {KILL_A_TILE}: {pr}"
         host.ok({"cmd": "set_seed", "seed": KILL_SEED})
-        host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        pr = host.cmd({"cmd": "map_tile_click", "x": KILL_A_TILE[0], "y": KILL_A_TILE[1], "z": KILL_A_TILE[2]})
+        assert pr.get("verified") and pr.get("clicked"), (
+            f"map_tile_click did not verify and click A's tile {KILL_A_TILE}: {pr}")
         host.wait_for("host shot chain finished (A DEAD, no BState)",
                       lambda: host_chain_done(host, A_ID, STATUS_DEAD), timeout=30)
     except Exception as e:

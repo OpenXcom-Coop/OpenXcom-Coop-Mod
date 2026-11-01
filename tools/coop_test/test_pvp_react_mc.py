@@ -267,10 +267,9 @@ def psi_press(gc, host, tile, seed, ev):
     assert ev["cursorAfterKey"] == CT_PSI, f"key {KEY_MC}: cursorType {ev['cursorAfterKey']} (want {CT_PSI})"
     gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
-    pr = gc.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-    assert pr.get("verified"), f"map_tile_click_pos {tile} on {gc.name} not verified: {pr}"
     host.ok({"cmd": "set_seed", "seed": seed})
-    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = gc.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+    assert pr.get("verified") and pr.get("clicked"), f"map_tile_click {tile} on {gc.name} not verified and clicked: {pr}"
 
 
 def mc_order(host, client, ctx0, target, ev, timeout=ORDER_S):

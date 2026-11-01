@@ -174,10 +174,9 @@ def tab_then_click(host, uid, ev):
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
     t = pos(host, uid)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": t[0], "y": t[1], "z": t[2]})
-    if not pr.get("verified"):
-        return False, f"map_tile_click_pos {t} did not verify: {pr}"
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": t[0], "y": t[1], "z": t[2]})
+    if not (pr.get("verified") and pr.get("clicked")):
+        return False, f"map_tile_click {t} did not verify and click: {pr}"
     ok, ev["selS"] = wait_until(lambda: battle_state(host).get("selectedId") == uid, STEP_S, 0.1)
     sel = battle_state(host).get("selectedId")
     return ok, (f"TAB selected {ev['tabSel']} (cursorType {ev['cursor0']} -> {ev['tabCursor']}); after the click "

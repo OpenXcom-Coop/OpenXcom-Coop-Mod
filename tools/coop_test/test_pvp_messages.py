@@ -31,8 +31,8 @@ the fix.
        opponent_death-client      RING(client) holds no entry for S (without the fix: {S, the same key, other, okbox})
   xcom_panic_attack  the X-COM host's psi PANIC on the alien gives the alien player no attacker's message (side 0
        turn 3): the amp on PP (8), PP psiSkill 100, A psiStrength 0, PP's TU; tab_select(host, PP); while A is not in
-       PP's host visibleUnits, the host's real-UI turn (HOME, map_tile_click_pos on A's tile verified, ONE right
-       click); the host's real-UI PANIC by PP on A (host set_seed XCOM_PSI_SEED).
+       PP's host visibleUnits, the host's real-UI turn (HOME, ONE verified map_tile_click right click on A's
+       tile); the host's real-UI PANIC by PP on A (host set_seed XCOM_PSI_SEED).
        xcom_panic_attack-seen     A in PP's host visibleUnits before the press (precondition)
        xcom_panic_attack-psi      one new host context {host, psi, PP}; its psi cue {actor PP, unit A, action panic,
                                   success true}
@@ -228,10 +228,9 @@ def psi_press(gc, host, tile, seed, ev, key=KEY_PANIC, cursor=CT_PSI, rows=PSI_R
     assert ev["cursorAfterKey"] == cursor, f"key {key}: cursorType {ev['cursorAfterKey']} (want {cursor})"
     gc.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
-    pr = gc.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-    assert pr.get("verified"), f"map_tile_click_pos {tile} on {gc.name} not verified: {pr}"
     host.ok({"cmd": "set_seed", "seed": seed})
-    gc.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = gc.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+    assert pr.get("verified") and pr.get("clicked"), f"map_tile_click {tile} on {gc.name} not verified and clicked: {pr}"
 
 
 def cancel_aim(gc, ev):
@@ -481,9 +480,8 @@ def row_xcom_panic_attack(host, client, crash0):
             at, d0, ctx0 = G3F.pos(host, A_ID), uv(host, PP_ID)["direction"], ctxs(host)
             host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
             time.sleep(0.15)
-            pr = host.cmd({"cmd": "map_tile_click_pos", "x": at[0], "y": at[1], "z": at[2]})
-            assert pr.get("verified"), f"turn target {at} not verified: {pr}"
-            host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "right"})
+            pr = host.cmd({"cmd": "map_tile_click", "x": at[0], "y": at[1], "z": at[2], "button": "right"})
+            assert pr.get("verified") and pr.get("clicked"), f"turn target {at} not verified and clicked: {pr}"
             turn["wait"] = RM.wait_until(lambda: uv(host, PP_ID)["direction"] != d0, 10, 0.1)
             RM.settle(host, client, turn)
             turn.update(newCtx=[cv(c) for c in new_contexts(ctx0, ctxs(host))], pp=uv(host, PP_ID))

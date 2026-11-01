@@ -659,11 +659,11 @@ def host_ui_snap(host, pv, target, seed):
                   timeout=5)
     press(host, SDLK_HOME)
     time.sleep(0.15)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": target[0], "y": target[1], "z": target[2]})
-    pv["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY")}
-    assert pr.get("verified"), f"map_tile_click_pos did not verify {target} on the host: {pr}"
     host.ok({"cmd": "set_seed", "seed": seed})
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": target[0], "y": target[1], "z": target[2]})
+    pv["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY")}
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"map_tile_click did not verify and click {target} on the host: {pr}")
 
 
 def row_host_snap(host, client, ctx):
