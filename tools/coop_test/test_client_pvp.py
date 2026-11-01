@@ -249,11 +249,11 @@ def alien_snap(client, ev, before_click):
         f"key {KEY_SNAP} did not start targeting on the client (cursorType {ev['cursorAfterKey']}, want {CURSOR_AIM})")
     press(client, SDLK_HOME)
     time.sleep(0.15)
-    pr = client.cmd({"cmd": "map_tile_click_pos", "x": S_TILE[0], "y": S_TILE[1], "z": S_TILE[2]})
-    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
-    assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {S_TILE} on the client: {pr}"
     before_click()
-    client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = client.cmd({"cmd": "map_tile_click", "x": S_TILE[0], "y": S_TILE[1], "z": S_TILE[2]})
+    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"precondition: map_tile_click did not verify and click {S_TILE} on the client: {pr}")
 
 
 # ===================== the scenario =====================

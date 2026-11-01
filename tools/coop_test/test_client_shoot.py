@@ -427,13 +427,13 @@ def aim_click(client, key, tile, before_click=None):
         f"row key {key} did not start targeting on the client (cursorType {ev['cursorAfterKey']}, want {CURSOR_AIM})")
     press(client, SDLK_HOME)
     time.sleep(0.15)
-    pr = client.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
-    assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {tile} on the client: {pr}"
     if before_click:
         before_click()
-    client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = client.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
     ev["clickAt"] = time.time()
+    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"precondition: map_tile_click did not verify and click {tile} on the client: {pr}")
     return ev
 
 
@@ -871,7 +871,11 @@ def auto_three_shots(host, client, ctx):
     cam_click = {}
 
     def before_click():
-        cam_click["client"] = camera_of(client)   # camera_follow: the client offset right before the click
+        # camera_follow: the client offset the click is made under. map_tile_click centres the camera on the target
+        # when the target cannot be clicked from the HOME view; the probe makes that same camera move first (camera
+        # only), so the offset read here is the one the click then resolves against.
+        client.cmd({"cmd": "map_tile_click_pos", "x": AUTO_TARGET[0], "y": AUTO_TARGET[1], "z": AUTO_TARGET[2]})
+        cam_click["client"] = camera_of(client)
         host.ok({"cmd": "set_seed", "seed": SEED_AUTO})
     before = snap(host, client)
     seq0 = before["host"]["lastSeqEmitted"] or 0

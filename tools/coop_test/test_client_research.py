@@ -389,12 +389,12 @@ def ui_press(host, client, ctx, key, tile=None, before_click=None):
     if ev["cursorAfterKey"] == CURSOR_AIM and tile is not None:
         press(client, SDLK_HOME)
         time.sleep(0.15)
-        pr = client.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-        ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY")}
-        assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {tile} on the client: {pr}"
         if before_click:
             before_click()
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        pr = client.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+        ev["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY")}
+        assert pr.get("verified") and pr.get("clicked"), (
+            f"precondition: map_tile_click did not verify and click {tile} on the client: {pr}")
         ev["clicked"] = True
     return ev
 

@@ -475,19 +475,21 @@ def act_spray(host, client, ctx, ev, before, st):
         f"key {KEY_AUTO} did not start targeting on the client (cursorType {ev['cursorAfterKey']})")
     press(client, SDLK_HOME)
     time.sleep(0.15)
-    pos = {n: client.cmd({"cmd": "map_tile_click_pos", "x": t[0], "y": t[1], "z": t[2]})
-           for n, t in (("sprayStart", SPRAY_START), ("sprayEnd", SPRAY_END))}
-    ev["clickPos"] = {n: {k: p.get(k) for k in ("verified", "winX", "winY", "centered")} for n, p in pos.items()}
-    assert pos["sprayStart"].get("verified") and pos["sprayEnd"].get("verified"), (
-        f"precondition: map_tile_click_pos did not verify both spray waypoints on the client: {ev['clickPos']}")
+    ev["clickPos"] = {}
+
+    def waypoint_click(name, t):
+        p = client.cmd({"cmd": "map_tile_click", "x": t[0], "y": t[1], "z": t[2]})
+        ev["clickPos"][name] = {k: p.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+        assert p.get("verified") and p.get("clicked"), (
+            f"precondition: map_tile_click did not verify and click the spray waypoint {name} {t} on the client: "
+            f"{ev['clickPos']}")
+
     try:
         ev["clientMods"] = touch(client, ctrl=True, shift=True)
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["sprayStart"]["winX"],
-                   "y": pos["sprayStart"]["winY"], "button": "left"})
+        waypoint_click("sprayStart", SPRAY_START)
         ev["sprayStart"] = click_state(host, client, before)
         ev["sprayStartBlocked"] = event_state(client).get("coopLocalExecBlocked")
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["sprayEnd"]["winX"], "y": pos["sprayEnd"]["winY"],
-                   "button": "left"})
+        waypoint_click("sprayEnd", SPRAY_END)
     finally:
         ev["clientModsAfter"] = touch(client, ctrl=False, shift=False)
     if ev["sprayStart"]["state"] != "quiet" or ev["sprayStartBlocked"] != before["client"]["coopLocalExecBlocked"]:

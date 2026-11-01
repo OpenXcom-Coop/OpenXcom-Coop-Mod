@@ -420,21 +420,21 @@ def spray_order(host, client, ctx):
             f"key {KEY_AUTO} did not start targeting on the client (cursorType {ev['cursorAfterKey']})")
         press(client, SDLK_HOME)
         time.sleep(0.15)
-        pos = {}
-        for name, t in (("W0", SPRAY_W0), ("W1", SPRAY_W1)):
-            pr = client.cmd({"cmd": "map_tile_click_pos", "x": t[0], "y": t[1], "z": t[2]})
-            pos[name] = pr
-        ev["clickPos"] = {n: {k: p.get(k) for k in ("verified", "winX", "winY", "centered")} for n, p in pos.items()}
-        assert pos["W0"].get("verified") and pos["W1"].get("verified"), (
-            f"precondition: map_tile_click_pos did not verify both spray waypoints on the client: {ev['clickPos']}")
+        ev["clickPos"] = {}
+
+        def waypoint_click(name, t):
+            p = client.cmd({"cmd": "map_tile_click", "x": t[0], "y": t[1], "z": t[2]})
+            ev["clickPos"][name] = {k: p.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+            assert p.get("verified") and p.get("clicked"), (
+                f"precondition: map_tile_click did not verify and click the spray waypoint {name} {t} on the "
+                f"client: {ev['clickPos']}")
+
         ev["clientMods"] = touch(client, ctrl=True, shift=True)
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["W0"]["winX"], "y": pos["W0"]["winY"],
-                   "button": "left"})
+        waypoint_click("W0", SPRAY_W0)
         out0 = click_state(host, client, before)
         mid = snap(host, client)
         host.ok({"cmd": "set_seed", "seed": SEED_SPRAY})
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pos["W1"]["winX"], "y": pos["W1"]["winY"],
-                   "button": "left"})
+        waypoint_click("W1", SPRAY_W1)
         out1 = await_press(host, client, mid, notes)
     except Exception as e:
         notes.append(f"real-UI spray: {short(e)}")
@@ -737,11 +737,11 @@ def follow_click(host, client, tile, seed, ev, notes):
     try:
         press(client, SDLK_HOME)
         time.sleep(0.15)
-        pr = client.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-        ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
-        assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {tile} on the client: {pr}"
         host.ok({"cmd": "set_seed", "seed": seed})
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        pr = client.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+        ev["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+        assert pr.get("verified") and pr.get("clicked"), (
+            f"precondition: map_tile_click did not verify and click {tile} on the client: {pr}")
         out = await_press(host, client, before, notes)
     except Exception as e:
         notes.append(f"real-UI follow-up click on {tile}: {short(e)}")
@@ -1113,11 +1113,11 @@ def plain_snap_leg(host, client, log_prev, notes):
             f"right-click then is a turn order, not a cancel)")
         press(client, SDLK_HOME)
         time.sleep(0.15)
-        pr = client.cmd({"cmd": "map_tile_click_pos", "x": SKILL_TARGET[0], "y": SKILL_TARGET[1],
-                         "z": SKILL_TARGET[2]})
-        ev["rightClickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
-        assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {SKILL_TARGET} on the client: {pr}"
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "right"})
+        pr = client.cmd({"cmd": "map_tile_click", "x": SKILL_TARGET[0], "y": SKILL_TARGET[1],
+                         "z": SKILL_TARGET[2], "button": "right"})
+        ev["rightClickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+        assert pr.get("verified") and pr.get("clicked"), (
+            f"precondition: map_tile_click did not verify and click {SKILL_TARGET} on the client: {pr}")
         ev["cursorAfterRightClick"] = wait_cursor(client, CURSOR_NORMAL)
         assert ev["cursorAfterRightClick"] == CURSOR_NORMAL, (
             f"the right-click did not cancel the client's targeting (cursorType {ev['cursorAfterRightClick']}, want "

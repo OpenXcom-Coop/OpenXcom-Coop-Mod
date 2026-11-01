@@ -642,13 +642,12 @@ def trad_snap_actor(host, client, ctx):
         else:
             press(client, SDLK_HOME)
             time.sleep(0.15)
-            r = client.cmd({"cmd": "map_tile_click_pos", "x": SNAP_TARGET[0], "y": SNAP_TARGET[1], "z": SNAP_TARGET[2]})
-            pr = {k: r.get(k) for k in ("verified", "winX", "winY", "centered")}
-            if not r.get("verified"):
-                notes.append(f"precondition: map_tile_click_pos did not verify {SNAP_TARGET}: {r}")
+            host.ok({"cmd": "set_seed", "seed": SEED_SHOT})
+            r = client.cmd({"cmd": "map_tile_click", "x": SNAP_TARGET[0], "y": SNAP_TARGET[1], "z": SNAP_TARGET[2]})
+            pr = {k: r.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+            if not (r.get("verified") and r.get("clicked")):
+                notes.append(f"precondition: map_tile_click did not verify and click {SNAP_TARGET}: {r}")
             else:
-                host.ok({"cmd": "set_seed", "seed": SEED_SHOT})
-                client.ok({"cmd": "inject_input", "kind": "click", "x": r["winX"], "y": r["winY"], "button": "left"})
                 out = await_press(host, client, before, notes)
     except Exception as e:
         notes.append(f"real-UI snap: {short(e)}")

@@ -350,13 +350,13 @@ def target_order(client, ev, key, want_cursor, tile_, before_click=None):
         f"row key {key} did not start targeting on the client (cursorType {ev['cursorAfterKey']}, want {want_cursor})")
     press(client, SDLK_HOME)
     time.sleep(0.15)
-    pr = client.cmd({"cmd": "map_tile_click_pos", "x": tile_[0], "y": tile_[1], "z": tile_[2]})
-    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
-    assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {tile_} on the client: {pr}"
     if before_click:
         before_click()
-    client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+    pr = client.cmd({"cmd": "map_tile_click", "x": tile_[0], "y": tile_[1], "z": tile_[2]})
     ev["clickAt"] = time.time()
+    ev["clickPos"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"precondition: map_tile_click did not verify and click {tile_} on the client: {pr}")
 
 
 def launch_order(client, ev, before_launch=None):
@@ -378,11 +378,11 @@ def launch_order(client, ev, before_launch=None):
     time.sleep(0.4)
     ev["buttonBefore"] = launch_button_nth(client)
     for n in (1, 2):
-        pr = client.cmd({"cmd": "map_tile_click_pos", "x": LAUNCH_W[0], "y": LAUNCH_W[1], "z": LAUNCH_W[2]})
-        ev[f"clickPos{n}"] = {k: pr.get(k) for k in ("verified", "winX", "winY", "centered")}
-        assert pr.get("verified"), f"precondition: map_tile_click_pos did not verify {LAUNCH_W} on the client: {pr}"
-        client.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"], "button": "left"})
+        pr = client.cmd({"cmd": "map_tile_click", "x": LAUNCH_W[0], "y": LAUNCH_W[1], "z": LAUNCH_W[2]})
         ev[f"click{n}At"] = time.time()
+        ev[f"clickPos{n}"] = {k: pr.get(k) for k in ("verified", "clicked", "winX", "winY", "centered")}
+        assert pr.get("verified") and pr.get("clicked"), (
+            f"precondition: map_tile_click did not verify and click {LAUNCH_W} on the client: {pr}")
         if n == 1:
             try:
                 client.wait_for("the launch button shown after the first waypoint",
