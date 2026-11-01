@@ -14,17 +14,6 @@ POLARITY (read twice): `battle_state.hiddenMovementShown` is
 on (vanilla's test plus the co-op edits). TRUE means the terrain IS drawn
 (the HIDDEN MOVEMENT banner is NOT shown); FALSE means the banner IS up.
 
-THE CLICK-SELECT PHASE's CAMERA-SETTLE RACE: `map_tile_click_pos` re-centres
-the camera to verify a click (`centered: true`), and a camera that is still
-moving when the SEPARATE `inject_input` call is handled can resolve the click
-to a different tile than the one the probe verified (seen as `unit=-1`, an
-empty-ground miss). The fix is a FIXED TWO-PASS sequence, never a loop: a
-first ("settling") click lets the camera come to rest, and a second probe on
-the now-stationary camera reports `centered: false` - the signal that this
-run's geometry is sound. The CLICK-SELECT PHASE below asserts
-`centered is False` on its measured passes; a True there is a fixture
-problem to report, not a case to re-roll.
-
 PHASES, fixed order (the order matters - the PLAYER-SIDE BANNER PHASE reads
 the player-side value BEFORE anything selects a unit, and the CORRUPT-BUCKET
 PHASE is last because its divergence is permanent):
@@ -41,8 +30,8 @@ PHASE is last because its divergence is permanent):
       OWN-SIDE FOG CHECK - per-side fog census, both sets EQUAL across
          machines and NOT equal to each other (non-degeneracy);
       OWN-SIDE BUCKET CHECK - all hash buckets EQUAL (assert_hash_clean).
-  CLICK-SELECT PHASE - the client SEES and can click-SELECT its own alien: a
-      settling click (camera-settle race above), then the same-boot control
+  CLICK-SELECT PHASE - the client SEES and can click-SELECT its own alien:
+      the same-boot control
       - rule OFF the click is refused (falls through to the commanding arm
       and bumps coopLocalExecBlocked), rule ON the SAME click selects the
       alien and does not bump the counter.
@@ -315,23 +304,15 @@ def phase_cross_to_hostile_side(host, client):
 def phase_client_click_selects_own_alien(host, client, alien_id, alien_pos, soldier_id):
     """CLICK-SELECT PHASE - the client SEES and can click-SELECT its own alien.
 
-    CAMERA-SETTLE RACE (module docstring): `map_tile_click_pos` re-centres
-    the camera to verify a click, and a camera that is still moving makes
-    the SEPARATE `inject_input` call that follows land on a DIFFERENT tile
-    than the one just verified (seen as unit=-1, an empty-ground miss - a
-    harness recipe defect, not an engine one). The fix is a FIXED TWO-PASS
-    sequence, never a loop: a first ("settling") click lets the camera come
-    to rest; the SECOND probe, on a now-stationary camera, reports
-    `centered: false` - this file asserts that explicitly, so a fixture
-    problem (camera still moving) reports itself as a named failure rather
-    than a silent miss.
+    Each click is ONE `map_tile_click` (the tile's pixel found and clicked in
+    the same pump pass).
 
     THE SAME-BOOT CONTROL needs no second build: with the rule OFF the
-    settled click is REFUSED (coopUnitVisibleHere false -> the select arm's
+    click is REFUSED (coopUnitVisibleHere false -> the select arm's
     condition fails -> falls through to the commanding arm ->
     coopBlockWalkArm refuses it, bumping coopLocalExecBlocked,
     BattlescapeGame.cpp's walk-confirm arm); with the rule ON the SAME
-    settled click SELECTS the alien and does not bump the counter. One boot,
+    click SELECTS the alien and does not bump the counter. One boot,
     one build, one fixture, differing in exactly one term.
     """
     cs = battle_state(client)
@@ -371,62 +352,17 @@ def phase_client_click_selects_own_alien(host, client, alien_id, alien_pos, sold
     print(f"CLICK-SELECT PHASE: mapClick pre-gates OK: mouseOverIcons=False "
           f"cursorType={cs.get('cursorType')} isBusy=False")
 
-    # SETTLING PASS (one fixed extra pass, see module docstring): ONE probe,
-    # ONE click, to let the camera finish moving. Its job is only to settle
-    # the camera; what it does to selection is NOT asserted.
-    pr_settle = client.ok({"cmd": "map_tile_click_pos",
-                            "x": alien_pos[0], "y": alien_pos[1], "z": alien_pos[2]})
-    assert pr_settle.get("verified"), (
-        f"CLICK-SELECT PHASE: settling map_tile_click_pos not verified for the "
-        f"alien's tile {alien_pos}: {pr_settle}")
-    client.ok({"cmd": "inject_input", "kind": "click",
-               "x": pr_settle["winX"], "y": pr_settle["winY"], "button": "left"})
-    time.sleep(0.8)
-    print("CLICK-SELECT PHASE: settling pass done (camera-settle race, module docstring)")
-
-    # with the harness's battleEdgeScroll: 0 the camera does not drift after
-    # the probe centres it, so the settling click lands ON the alien's tile
-    # and, rule still ON, SELECTS the alien without touching
-    # coopLocalExecBlocked (seen: selectedId 8 -> 1000000, counter 0 -> 0;
-    # a drifting camera made it an empty-ground miss). Undo that with the
-    # same one-sided select command as above - setSelectedUnit only, the
-    # camera and so the settled geometry are untouched - so the rule-OFF click
-    # again starts from "soldier selected, alien not selected".
-    settle_sel = battle_state(client).get("selectedId")
-    r = client.cmd({"cmd": "battle_action", "action": "select", "unit": soldier_id})
-    assert r.get("ok"), (
-        f"CLICK-SELECT PHASE: client re-select of seat-0 soldier {soldier_id} after the "
-        f"settling pass failed: {r}")
-    cs = battle_state(client)
-    assert cs.get("selectedId") == soldier_id, (
-        f"CLICK-SELECT PHASE: client selectedId did not move back to the seat-0 soldier "
-        f"{soldier_id} after the settling pass: {cs.get('selectedId')}")
-    print(f"CLICK-SELECT PHASE: settling click left selectedId={settle_sel}; selection "
-          f"pointed back at soldier {soldier_id}")
-
-    # the baseline is taken AFTER the settling pass and the re-point: what the
-    # settling click did to coopLocalExecBlocked is not part of what this
-    # phase measures.
-    blocked_before = event_state(client).get("coopLocalExecBlocked")
-    print(f"CLICK-SELECT PHASE: client coopLocalExecBlocked after the settling pass = {blocked_before}")
-
-    # CONTROL, rule OFF: the same settled click must be REFUSED.
+    # CONTROL, rule OFF: the click must be REFUSED.
     for gc in (host, client):
         r = gc.cmd({"cmd": "battle_visibility_rule", "on": False})
         assert r.get("ok") and r.get("on") is False, (
             f"CLICK-SELECT PHASE: rule OFF failed on {gc.name}: {r}")
 
-    pr_off = client.ok({"cmd": "map_tile_click_pos",
+    pr_off = client.ok({"cmd": "map_tile_click",
                          "x": alien_pos[0], "y": alien_pos[1], "z": alien_pos[2]})
-    assert pr_off.get("verified"), (
-        f"CLICK-SELECT PHASE: map_tile_click_pos (rule OFF) not verified for "
+    assert pr_off.get("verified") and pr_off.get("clicked"), (
+        f"CLICK-SELECT PHASE: map_tile_click (rule OFF) did not verify and click "
         f"the alien's tile {alien_pos}: {pr_off}")
-    assert pr_off.get("centered") is False, (
-        f"CLICK-SELECT PHASE: map_tile_click_pos (rule OFF) reports centered=True - the "
-        f"camera is STILL MOVING after the settling pass. This is a fixture "
-        f"problem to report, not a case to re-roll: {pr_off}")
-    client.ok({"cmd": "inject_input", "kind": "click",
-               "x": pr_off["winX"], "y": pr_off["winY"], "button": "left"})
     time.sleep(0.8)
 
     cs = battle_state(client)
@@ -434,10 +370,10 @@ def phase_client_click_selects_own_alien(host, client, alien_id, alien_pos, sold
         f"CLICK-SELECT PHASE CONTROL (rule OFF): the click selected something other "
         f"than the still-armed soldier {soldier_id}: selectedId="
         f"{cs.get('selectedId')} - the rule-OFF click should be REFUSED")
-    print(f"CLICK-SELECT PHASE CONTROL (rule OFF): the settled click on the alien's "
+    print(f"CLICK-SELECT PHASE CONTROL (rule OFF): the click on the alien's "
           f"own tile was REFUSED - selectedId stayed {soldier_id}")
 
-    # rule ON: the SAME settled click now SELECTS the alien.
+    # rule ON: the SAME click now SELECTS the alien.
     for gc in (host, client):
         r = gc.cmd({"cmd": "battle_visibility_rule", "on": True})
         assert r.get("ok") and r.get("on") is True, (
@@ -445,24 +381,18 @@ def phase_client_click_selects_own_alien(host, client, alien_id, alien_pos, sold
 
     blocked_before_rule_on = event_state(client).get("coopLocalExecBlocked")
 
-    pr_on = client.ok({"cmd": "map_tile_click_pos",
+    pr_on = client.ok({"cmd": "map_tile_click",
                         "x": alien_pos[0], "y": alien_pos[1], "z": alien_pos[2]})
-    assert pr_on.get("verified"), (
-        f"CLICK-SELECT PHASE: map_tile_click_pos (rule ON) not verified for "
+    assert pr_on.get("verified") and pr_on.get("clicked"), (
+        f"CLICK-SELECT PHASE: map_tile_click (rule ON) did not verify and click "
         f"the alien's tile {alien_pos}: {pr_on}")
-    assert pr_on.get("centered") is False, (
-        f"CLICK-SELECT PHASE: map_tile_click_pos (rule ON) reports centered=True - the "
-        f"camera is STILL MOVING - a fixture problem to report, not a case "
-        f"to re-roll: {pr_on}")
-    client.ok({"cmd": "inject_input", "kind": "click",
-               "x": pr_on["winX"], "y": pr_on["winY"], "button": "left"})
     time.sleep(0.8)
 
     cs = battle_state(client)
     assert cs.get("selectedId") == alien_id, (
         f"CLICK-SELECT PHASE (rule ON): the click did NOT select its own alien: "
         f"selectedId={cs.get('selectedId')} expected {alien_id}")
-    print(f"CLICK-SELECT PHASE (rule ON): the settled click selected its own "
+    print(f"CLICK-SELECT PHASE (rule ON): the click selected its own "
           f"alien {alien_id}")
 
     blocked_after_rule_on = event_state(client).get("coopLocalExecBlocked")
@@ -473,7 +403,7 @@ def phase_client_click_selects_own_alien(host, client, alien_id, alien_pos, sold
     print(f"CLICK-SELECT PHASE (rule ON): coopLocalExecBlocked unchanged "
           f"({blocked_before_rule_on} -> {blocked_after_rule_on}) - the click "
           "was ACCEPTED")
-    print("PASS: CLICK-SELECT PHASE (settle + same-boot control: OFF refuses, "
+    print("PASS: CLICK-SELECT PHASE (same-boot control: OFF refuses, "
           "ON selects the client's own alien)")
 
 
