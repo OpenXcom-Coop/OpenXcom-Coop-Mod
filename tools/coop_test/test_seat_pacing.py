@@ -26,7 +26,7 @@ re-derived here):
      CoopSpeed::lastRead() (speed.lastRead) instead - the dial/seat the
      most recent speedFor() call actually used.
   4. A host-owned unit's walk/turn goes through the REAL UI (TAB-select +
-     map_tile_click_pos + inject_input click): host-local input never
+     map_tile_click): host-local input never
      enters the intent path (repro_atom_walk.py phase_host_origin
      precedent). A client-owned unit walks via battle_intent/send_walk.
   5. The raw drive_to_battlescape spawn has no walkable, contact-free
@@ -124,16 +124,14 @@ def tab_select(gc, uid, cycles=16):
 def real_click_walk(host, tile):
     """ONE real-UI left-click walk order for the host's currently-selected
     unit, onto `tile` (guaranteed open by the caller's own staging). The
-    map_tile_click_pos probe self-verifies before the injected click; a
-    verified:false result is a FIXTURE precondition failure, reported once,
-    never retried."""
+    map_tile_click command self-verifies before it clicks (in the same pump
+    pass); a verified:false result is a FIXTURE precondition failure, reported
+    once, never retried."""
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": tile[0], "y": tile[1], "z": tile[2]})
-    assert pr.get("verified"), (
-        f"FIXTURE: real_click_walk: map_tile_click_pos did not verify tile {tile}: {pr}")
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-             "button": "left"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": tile[0], "y": tile[1], "z": tile[2]})
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"FIXTURE: real_click_walk: map_tile_click did not verify and click tile {tile}: {pr}")
 
 
 def unit_of(gc, uid):
@@ -212,9 +210,7 @@ def host_turn_leg(host, client, soldier_id, tag):
     `soldier_id`, staged in place (run_length=0: the field is cleared of
     contact, no movement needed). The click target is the OPPOSITE octant
     from the unit's current facing (4 octants away) - the maximum possible
-    turn distance, so even a one-tile-off camera landing (a known quirk
-    of a different click shape) still lands >= 3
-    octants, comfortably over this leg's >= 2 bar. The ACTUAL landed
+    turn distance, comfortably over this leg's >= 2 bar. The ACTUAL landed
     octant count is read back and returned, never assumed."""
     unit, tile, _ = stage_open_ground_actor(host, client, [soldier_id], tag, run_length=0)
     ok = tab_select(host, unit["id"])
@@ -226,14 +222,13 @@ def host_turn_leg(host, client, soldier_id, tag):
 
     host.ok({"cmd": "inject_input", "kind": "key", "key": SDLK_HOME})
     time.sleep(0.15)
-    pr = host.cmd({"cmd": "map_tile_click_pos", "x": ttile[0], "y": ttile[1], "z": ttile[2]})
-    assert pr.get("verified"), (
-        f"FIXTURE: {tag}: turn target tile {ttile} (opposite octant {target_dir}) "
-        f"not verified: {pr}")
 
     ge0 = event_state(client)["ghostEnqueued"]
-    host.ok({"cmd": "inject_input", "kind": "click", "x": pr["winX"], "y": pr["winY"],
-             "button": "right"})
+    pr = host.cmd({"cmd": "map_tile_click", "x": ttile[0], "y": ttile[1], "z": ttile[2],
+                   "button": "right"})
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"FIXTURE: {tag}: turn target tile {ttile} (opposite octant {target_dir}) "
+        f"not verified and clicked: {pr}")
 
     def turned():
         u2 = unit_of(host, unit["id"])

@@ -3221,41 +3221,33 @@ def _wait_click_ready(host, tx, ty, tz, actor_id, timeout=8.0):
     """render/hit-test readiness SYNC for a host map click.
 
     NOT a masking retry - it re-runs NO assertion; it establishes the precondition
-    the SINGLE click that follows needs. inject_input pushes a bare SDL
-    button event (no motion), so BattlescapeState::mapClick reads the stored
-    selector that map_tile_click_pos left on the target tile - the tile resolution
-    is deterministic. The intermittent (~1/6; masked by ANY added delay, a
-    Heisenbug) miss was the click landing while the post-walk settle still had the
-    map in a NON-clickable state, so mapClick SWALLOWED it at its own
-    pre-primaryAction gate (BattlescapeState.cpp:1146/1150: `_mouseOverIcons` OR
-    `cursorType == CT_NONE` OR `_battleGame->isBusy()`) - primaryAction never ran
-    and no unit-select refusal fired. This polls those EXACT engine gate
-    conditions (cursorType CT_NONE == 0, Map.h:45), plus a fresh map_tile_click_pos
-    round-trip (so the stored selector is freshly on the tile and the actor is
-    still there), and returns only once the map is genuinely clickable - held
-    STABLE across two consecutive polls so a still-settling frame cannot slip
-    through. Returns the freshly-verified (winX, winY) to click ONCE."""
+    the SINGLE click that follows needs. The intermittent (~1/6; masked by ANY
+    added delay, a Heisenbug) miss was the click landing while the post-walk
+    settle still had the map in a NON-clickable state, so mapClick SWALLOWED it at
+    its own pre-primaryAction gate (BattlescapeState.cpp:1146/1150:
+    `_mouseOverIcons` OR `cursorType == CT_NONE` OR `_battleGame->isBusy()`) -
+    primaryAction never ran and no unit-select refusal fired. This polls those
+    EXACT engine gate conditions (cursorType CT_NONE == 0, Map.h:45), plus the
+    actor still on the target tile, and returns only once the map is genuinely
+    clickable - held STABLE across two consecutive polls so a still-settling frame
+    cannot slip through."""
     deadline = time.time() + timeout
-    prev = None            # (winX, winY) from the previous READY poll, else None
+    was_ready = False
     last = {}
     while time.time() < deadline:
         bs = battle_state(host)
         u = unit_of(host, actor_id)
-        pr = host.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
         last = {"pendingStates": bs.get("pendingStates"), "isBusy": bs.get("isBusy"),
                 "mouseOverIcons": bs.get("mouseOverIcons"),
-                "cursorType": bs.get("cursorType"), "verified": pr.get("verified"),
-                "pos": pos_of(u)}
+                "cursorType": bs.get("cursorType"), "pos": pos_of(u)}
         ready = (bs.get("pendingStates", 1) == 0
                  and not bs.get("isBusy", True)
                  and not bs.get("mouseOverIcons", True)
                  and bs.get("cursorType", 0) != 0
-                 and pr.get("verified")
                  and pos_of(u) == (tx, ty, tz))
-        win = (pr.get("winX"), pr.get("winY")) if ready else None
-        if ready and prev is not None and win == prev:
-            return pr["winX"], pr["winY"]
-        prev = win
+        if ready and was_ready:
+            return
+        was_ready = ready
         time.sleep(0.1)
     raise AssertionError(
         f"seat_commands host click target {(tx, ty, tz)} never became render-clickable "
@@ -3276,10 +3268,9 @@ def assert_seat_commands(host, client, seat1_actor_id, seat0_actor_id=None, host
        SEAT-0 unit it does not own -> lastDeny.reason == "not_your_unit" on
        the client, no pos change on either machine.
     3. (host_check True) The HOST's click-select on the seat-1 unit's tile is
-       refused: the two-pass camera settle (test_feedback's
-       pattern - a first settling pass, then a second pass
-       asserted `centered is False`) verifies the click lands on the right
-       tile; the refusal shows up in `battle_state.coopWaitText` (the
+       refused: ONE `map_tile_click` (the tile's pixel found and clicked in the
+       same pump pass) lands the click on the right tile; the refusal shows up
+       in `battle_state.coopWaitText` (the
        STR_COOP_DENY_NOT_YOUR_UNIT, "Not one of your soldiers" -
        CoopBattleUi.h:322 / connectionTCP.cpp:8196 route EVERY coop message,
        including this one, through `_txtCoopWait` - never through vanilla
@@ -3380,27 +3371,14 @@ def assert_seat_commands(host, client, seat1_actor_id, seat0_actor_id=None, host
     # ---- 3. host click-select refusal on the seat-1 unit's tile ------------
     target = unit_of(host, seat1_actor_id)
     tx, ty, tz = pos_of(target)
-    pr1 = host.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
-    assert pr1.get("verified"), (
-        f"seat_commands{tag}: map_tile_click_pos (settling pass) not verified for "
-        f"{(tx, ty, tz)}: {pr1}")
-    pr2 = host.cmd({"cmd": "map_tile_click_pos", "x": tx, "y": ty, "z": tz})
-    assert pr2.get("verified"), (
-        f"seat_commands{tag}: map_tile_click_pos (settled pass) not verified for "
-        f"{(tx, ty, tz)}: {pr2}")
-    assert pr2.get("centered") is False, (
-        f"seat_commands{tag}: map_tile_click_pos reports centered=True after the "
-        f"settling pass - the camera is still moving (fixture problem, not a "
-        f"case to re-roll): {pr2}")
-    # render-readiness SYNC before the SINGLE click. pr1/pr2
-    # keep the two-pass camera settle (and the centered==False fixture check);
-    # _wait_click_ready then blocks until BattlescapeState::mapClick's own
-    # pre-primaryAction swallow gates are clear and the click pixel round-trips
-    # STABLY, so the injected click cannot land in the post-walk settle window
-    # that otherwise swallows it (~1 in 6). ONE click, no retry.
-    cx, cy = _wait_click_ready(host, tx, ty, tz, seat1_actor_id)
-    host.ok({"cmd": "inject_input", "kind": "click", "x": cx, "y": cy,
-             "button": "left"})
+    # render-readiness SYNC before the SINGLE click: _wait_click_ready blocks
+    # until BattlescapeState::mapClick's own pre-primaryAction swallow gates are
+    # clear STABLY, so the click cannot land in the post-walk settle window that
+    # otherwise swallows it (~1 in 6). ONE click, no retry.
+    _wait_click_ready(host, tx, ty, tz, seat1_actor_id)
+    pr = host.cmd({"cmd": "map_tile_click", "x": tx, "y": ty, "z": tz})
+    assert pr.get("verified") and pr.get("clicked"), (
+        f"seat_commands{tag}: map_tile_click did not verify and click {(tx, ty, tz)}: {pr}")
     time.sleep(0.6)
     hb = battle_state(host)
     # Print the whole dict this assertion reads, not a guessed
