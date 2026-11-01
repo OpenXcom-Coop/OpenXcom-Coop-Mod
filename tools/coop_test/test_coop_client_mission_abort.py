@@ -7,21 +7,20 @@ battle with no way out, and a second ABORT opened the vote on the host, which wa
 already on the geoscape.
 
 Each row starts a fresh campaign, enters one coop battle, has one player press
-ABORT, the other vote YES, and requires both machines to reach the geoscape.
+ABORT and OK its confirm, the other vote YES, and requires both machines to reach
+the geoscape.
 
-SEPARATE is one host-authoritative world: the host spawns the mission site and
-simulates the flight, so each SEPARATE row spawns the site on the host and forces
-the starter's craft en route on both machines (the starter is the craft owner,
-who alone gets the landing prompt).
-
-  S1 SEPARATE, the CLIENT starts the mission, the CLIENT asks for the abort.
-  S2 SEPARATE, the CLIENT starts the mission, the HOST asks for the abort.
   S3 SEPARATE, the HOST starts the mission, the CLIENT asks for the abort (guard).
   H1 SHARED, the CLIENT commands the landing, the CLIENT asks for the abort (guard).
   H2 SHARED, the CLIENT commands the landing, the HOST asks for the abort (guard).
 
-  * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 3: a precondition never held).
+ABORT opens vanilla's AbortMissionState and its OK opens the vote. The battle
+entry is session.drive_both_to_tactical. No row has the CLIENT's own craft start a
+SEPARATE mission: test_separate_battle_owner.py's client_craft row covers that
+battle (the host machine runs it for the client).
+
+  * PASS (exit 0) / FAIL (exit 2: a row failed, a process crashed or a precondition
+    never held).
 
 Env: OXC_TEST_CRAFT - the starting craft type to fly (default STR_SKYRANGER).
 With X-Com Files loaded through the harness's OXC_TEST_EXTRA_MOD, use
@@ -35,6 +34,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 sys.path.insert(0, HERE)
+import session  # noqa: E402
 import geo  # noqa: E402
 import shared_fixture  # noqa: E402
 import separate_campaign_fixture  # noqa: E402
@@ -82,45 +82,28 @@ def spawn_site(gc):
 
 
 def enter_tactical(host, client):
-    for gc in (host, client):
-        gc.wait_for(gc.name + " in battle",
-                    lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
-                    timeout=180, interval=1.0)
-    for gc in (host, client):
-        gc.wait_for(gc.name + " briefing", lambda gc=gc: has(gc, "BriefingState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "close_briefing"})
-    for gc in (host, client):
-        gc.wait_for(gc.name + " inventory", lambda gc=gc: has(gc, "InventoryState") or None,
-                    timeout=120, interval=0.5)
-        gc.ok({"cmd": "battle_inventory", "action": "ok"})
-    for _ in range(20):
-        if all(top(gc) == "BattlescapeState" for gc in (host, client)):
-            break
-        for gc in (host, client):
-            if top(gc) != "BattlescapeState":
-                gc.cmd({"cmd": "dismiss_popup"})
-        time.sleep(1.0)
-    if not all(top(gc) == "BattlescapeState" for gc in (host, client)):
+    # The host enters, then session.drive_both_to_tactical takes both machines through the briefings and the
+    # pre-battle equip screens together (a machine with nothing to equip shows none). There is no coop-turn wait:
+    # battle_state.coopTurn is a stub that always reads -1.
+    host.wait_for("host in battle", lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
+                  timeout=180, interval=1.0)
+    if not session.drive_both_to_tactical(host, client):
         raise Inconclusive(f"not both on the tactical map: host={top(host)} client={top(client)}")
-    # Let the coop turn handshake settle before the abort: both machines report
-    # a turn, and one side holds it - the acting side (2) or, when the craft
-    # carries only client soldiers, the host as spectator (4) whose end turn
-    # hands control on. Waiting for a 2 alone ran out its 90 s in every
-    # client-started single-world row, where the pair settles at host 4 /
-    # client 1.
-    deadline = time.time() + 90
-    while time.time() < deadline:
-        turns = [gc.cmd({"cmd": "battle_state"}).get("coopTurn") for gc in (host, client)]
-        if all(turns) and (2 in turns or 4 in turns):
-            break
-        time.sleep(0.5)
     time.sleep(2)
 
 
-def vote_abort(asker, voter):
-    """ABORT on `asker`, YES on `voter`; returns once both saw the vote pass."""
+def vote_abort(asker, voter, host):
+    """ABORT on `asker` and OK on its confirm, YES on `voter`; returns once the host saw
+    the vote pass. The vote that AbortMissionState's OK opens counts the asker's YES.
+    The pass is read off the host's records (session.abort_vote_yes): the vote screens
+    and the vote record close with the battle, so a wait for `finished` on both
+    machines races the battle end."""
     asker.ok({"cmd": "battle_action", "action": "abort"})
+    asker.wait_for(asker.name + " abort confirm (AbortMissionState)",
+                   lambda: has(asker, "AbortMissionState") or None, timeout=30, interval=0.25)
+    r = asker.cmd({"cmd": "dismiss_popup"})
+    if r.get("handled") != "AbortMissionState":
+        raise Inconclusive(f"{asker.name}: the abort confirm was not AbortMissionState: {r}")
 
     def vote(gc, want):
         return gc.wait_for(
@@ -133,13 +116,10 @@ def vote_abort(asker, voter):
         v = vote(gc, "active")
         if v["action"] != "abandon_mission":
             raise Inconclusive(f"{gc.name}: ABORT opened the wrong vote: {v}")
-    cast = voter.ok({"cmd": "vote_cast", "yes": True})
-    if not cast.get("accepted"):
-        raise Inconclusive(f"{voter.name}: vote_cast rejected: {cast}")
-    for gc in (asker, voter):
-        v = vote(gc, "finished")
-        if not v.get("passed"):
-            raise Inconclusive(f"{gc.name}: the abandon-mission vote did not pass: {v}")
+    try:
+        session.abort_vote_yes(host, voter)
+    except (TimeoutError, AssertionError) as e:
+        raise Inconclusive(f"{voter.name}: the abandon-mission vote did not pass: {e}")
 
 
 def drain(gc, deadline):
@@ -203,7 +183,7 @@ def separate_row(results, row, tag, ports, starter_is_client, asker_is_client):
         starter.ok({"cmd": "confirm_landing"})
         enter_tactical(host, client)
         asker, voter = (client, host) if asker_is_client else (host, client)
-        vote_abort(asker, voter)
+        vote_abort(asker, voter, host)
         ok, detail = both_reach_geoscape(host, client)
         results[row] = (ok, detail)
         print(("PASS " if ok else "FAIL ") + row + ": " + detail)
@@ -247,7 +227,7 @@ def shared_row(results, row, tag, ports, asker_is_client):
         client.ok({"cmd": "confirm_landing"})
         enter_tactical(host, client)
         asker, voter = (client, host) if asker_is_client else (host, client)
-        vote_abort(asker, voter)
+        vote_abort(asker, voter, host)
         ok, detail = both_reach_geoscape(host, client)
         results[row] = (ok, detail)
         print(("PASS " if ok else "FAIL ") + row + ": " + detail)
@@ -260,10 +240,6 @@ def shared_row(results, row, tag, ports, asker_is_client):
 
 
 ROWS = {
-    "S1": lambda r, sfx: separate_row(r, "S1 SEPARATE, client-started mission, client asks to abort",
-                                 "cabs1" + sfx, (48941, 48942, 47981), True, True),
-    "S2": lambda r, sfx: separate_row(r, "S2 SEPARATE, client-started mission, host asks to abort",
-                                 "cabs2" + sfx, (48943, 48944, 47982), True, False),
     "S3": lambda r, sfx: separate_row(r, "S3 SEPARATE, host-started mission, client asks to abort",
                                  "cabs3" + sfx, (48945, 48946, 47983), False, True),
     "H1": lambda r, sfx: shared_row(r, "H1 SHARED, client-commanded landing, client asks to abort",
@@ -301,7 +277,7 @@ def main():
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     if notes:
-        sys.exit(3)
+        sys.exit(2)  # a precondition miss fails the run
     print("PASS: the abandon-mission vote ends the battle on both machines in every row")
     sys.exit(0)
 

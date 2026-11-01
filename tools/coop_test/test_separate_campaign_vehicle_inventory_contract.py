@@ -66,16 +66,21 @@ def main():
     tcp = read("src/CoopMod/connectionTCP.cpp")
     refresh = tcp.split("void connectionTCP::refreshSeparateBaseOwnership", 1)[1]
     assert "SeparateEcon::synchronizeVehicleOwners(_game)" in refresh
-    vehicle_entry = landing.split("for (auto* v : *_craft->getVehicles())", 1)[1]
-    vehicle_entry = vehicle_entry.split("startCoopMission", 1)[0]
-    assert "isSharedCampaign()" in vehicle_entry
-    assert "v->setCoop(0)" in vehicle_entry
+    # The landing stamps the craft's seats before the battle is generated: a Shared campaign's
+    # vehicles go to the first seat, a Separate campaign's keep their owners' seats.
+    assert "coopStampCraftSeats(_craft);" in landing
+    stamp = read("src/CoopMod/CoopState.cpp").split("void coopStampCraftSeats(Craft* craft)", 1)[1]
+    stamp = stamp.split("CoopDesyncNoticeState", 1)[0]
+    separate_return = stamp.index("if (connectionTCP::isSeparateCampaignStatic())")
+    assert "vehicle->setCoop(0);" in stamp[separate_return:]
+    assert "unit->setCoopSeat((CoopSeat)v->getCoop());" in generator
     assert 'payload["count"] = vehicleSelectionCount' in apply
     # SharedEcon owns the common command registry only. Separate-specific
     # vehicle behavior must be delegated, while Shared keeps its old rejection.
     assert "SeparateEcon::validateCraftEquip" in shared
     assert "SeparateEcon::applyVehicleEquip" in shared
-    assert 'failReason = "vehicles not routed"' in shared
+    # A Shared campaign routes a vehicle move through the same command; the host resolves the count.
+    assert "void craftEquipVehicles(Json::Value& payload, Base* base, Craft* craft, const RuleItem* item)" in shared
     vehicle_capacity = craft.split("int Craft::validateAddingVehicles", 1)[1]
     assert "getSpaceUsedByOwner(ownerSeat)" in vehicle_capacity
     assert "vehicle->getOwnerPlayerName() == ownerPlayerName" in craft

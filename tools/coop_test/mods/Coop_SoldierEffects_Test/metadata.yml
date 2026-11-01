@@ -1,0 +1,8 @@
+name: "Coop soldier effects probe"
+version: 1.0
+description: "Test-only fixture (soldier effects). Data only. A sick bay STR_EFFECTTEST_SICKBAY (+0.5 hp/day),
+  the Avenger with one pilot seat, 100 % dogfight experience for STR_SOLDIER, pilots never survive an evacuation.
+  Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

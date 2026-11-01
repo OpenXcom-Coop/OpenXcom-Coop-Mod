@@ -37,6 +37,7 @@ class TransfersState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 
 	TextButton *_btnOk;
 	Window *_window;

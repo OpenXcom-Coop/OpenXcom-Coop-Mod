@@ -42,6 +42,7 @@ class NewResearchListState : public TouchState
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	bool _sortByCost;
 	TextButton *_btnOK;
 	ComboBox *_cbxSort;

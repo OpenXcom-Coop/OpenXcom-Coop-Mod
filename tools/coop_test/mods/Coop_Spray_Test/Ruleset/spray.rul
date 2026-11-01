@@ -1,0 +1,129 @@
+# Test-only mod for the client combat intents (spray autoshot, UNPRIME, one-click and
+# one-charge medikits, soldier skills).
+# Data only. Each entry is the smallest change that makes one client combat path
+# reachable with stock xcom1 data:
+#   1. STR_RIFLE gains sprayWaypoints: 2 - the OXCE spray autoshot
+#      (Ctrl+Shift+click on the AUTO aim, BattlescapeGame::primaryAction), which no
+#      stock item enables. With battleConfirmFireMode off, the second waypoint click
+#      fires; the 3 auto shots are spread over the two waypoints.
+#   2. STR_GRENADE gains unprimeActionName: ActionMenuState adds the UNPRIME row
+#      only when that name is set and the unprime cost is > 0 (costUnprime defaults
+#      to 25 %); stock grenades set no name, so they have no UNPRIME row.
+#   3. STR_MEDI_KIT_ONE_CLICK: the stock medi-kit's data plus medikitType: 1 (heal),
+#      so ActionMenuState heals at once instead of opening MedikitState.
+#      recover: false keeps it out of NEW BATTLE's generated base/craft stores
+#      (NewBattleState adds only recoverable items), so starting loadouts, item ids
+#      and the map are unchanged; tests hand it out with battle_give.
+#   4. STR_MEDI_KIT_ONE_CHARGE: the stock medi-kit's
+#      data with ONE heal charge (painKiller 0, stimulant 0) and isConsumable:
+#      true, no medikitType - the full MedikitState screen. After its one heal
+#      every charge is 0, so vanilla's TileEngine::medikitRemoveIfEmpty removes
+#      it. recover: false, as in 3, so NEW BATTLE's loadouts stay unchanged.
+#   5. Soldier skills: three skills on
+#      every STR_SOLDIER, so the SKILLS button shows and SkillMenuState lists
+#      them in this order (keys 49, 50, 51). Each costs 10 % of the unit's
+#      base TU (costUse, percent). Their skillUseUnit scripts decide:
+#        STR_COOP_TEST_SKILL_GO      snap (targetMode 8) with a firearm
+#                                    (battleType 1): continue, spend nothing -
+#                                    the follow-up snap pays the skill's cost.
+#        STR_COOP_TEST_SKILL_STOP    no follow-up (targetMode 0): stop, spend
+#                                    the cost, and set the unit tag
+#                                    COOP_SKILL_STOP_RAN to 1 (a non-TU script
+#                                    effect).
+#        STR_COOP_TEST_SKILL_GRENADE throw (targetMode 6) with a grenade
+#                                    (battleType 4): continue, spend nothing -
+#                                    vanilla's instant grenade (fuse 0, enabled)
+#                                    before the throw targeting.
+extended:
+  tags:
+    BattleUnit:
+      COOP_SKILL_STOP_RAN: int
+skills:
+  - type: STR_COOP_TEST_SKILL_GO
+    targetMode: 8
+    battleType: 1
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        set continue_action 1;
+        set spend_tu 0;
+        return;
+  - type: STR_COOP_TEST_SKILL_STOP
+    targetMode: 0
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        actor.setTag Tag.COOP_SKILL_STOP_RAN 1;
+        set continue_action 0;
+        set spend_tu 1;
+        return;
+  - type: STR_COOP_TEST_SKILL_GRENADE
+    targetMode: 6
+    battleType: 4
+    costUse:
+      time: 10
+    scripts:
+      skillUseUnit: |
+        set continue_action 1;
+        set spend_tu 0;
+        return;
+soldiers:
+  - type: STR_SOLDIER
+    skills:
+      - STR_COOP_TEST_SKILL_GO
+      - STR_COOP_TEST_SKILL_STOP
+      - STR_COOP_TEST_SKILL_GRENADE
+items:
+  - type: STR_RIFLE
+    sprayWaypoints: 2
+  - type: STR_GRENADE
+    unprimeActionName: STR_UNPRIME_GRENADE
+  - type: STR_MEDI_KIT_ONE_CLICK
+    size: 0.1
+    weight: 5
+    bigSprite: 24
+    floorSprite: 24
+    battleType: 6
+    invWidth: 1
+    invHeight: 2
+    painKiller: 10
+    heal: 10
+    stimulant: 10
+    woundRecovery: 1
+    healthRecovery: 3
+    stunRecovery: 4
+    energyRecovery: 10
+    tuUse: 10
+    flatRate: true
+    medikitType: 1
+    recover: false
+  - type: STR_MEDI_KIT_ONE_CHARGE
+    size: 0.1
+    weight: 5
+    bigSprite: 24
+    floorSprite: 24
+    battleType: 6
+    invWidth: 1
+    invHeight: 2
+    painKiller: 0
+    heal: 1
+    stimulant: 0
+    woundRecovery: 1
+    healthRecovery: 3
+    stunRecovery: 4
+    energyRecovery: 10
+    tuUse: 10
+    flatRate: true
+    isConsumable: true
+    recover: false
+extraStrings:
+  - type: en-US
+    strings:
+      STR_UNPRIME_GRENADE: "Unprime Grenade"
+      STR_MEDI_KIT_ONE_CLICK: "One-click Medi-kit"
+      STR_MEDI_KIT_ONE_CHARGE: "One-charge Medi-kit"
+      STR_COOP_TEST_SKILL_GO: "Skill: snap (continue)"
+      STR_COOP_TEST_SKILL_STOP: "Skill: stop"
+      STR_COOP_TEST_SKILL_GRENADE: "Skill: instant grenade"

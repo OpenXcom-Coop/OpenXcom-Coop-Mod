@@ -41,6 +41,7 @@
 #include "../CoopMod/CoopState.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopBattleUi.h"
 #include "../Savegame/Upgrade/SaveUpgrade.h"
 #include "SaveUpgradeDialogState.h"
 #include "SaveUpgradeMessageState.h"
@@ -165,6 +166,14 @@ void LoadGameState::init()
 	// the plain local load.
 	if (!_game->getCoopMod()->localLoadsAllowed() && _coopKey.empty() && !_loadCoopProgress)
 	{
+		// One guarded coop call gives this refusal a face (without it the state
+		// pops and the player sees nothing at all), on the same _txtCoopWait
+		// surface every other coop message uses. Presenter only: the
+		// decision was already taken by the line above, and this call takes none.
+		// It no-ops when no battle is live, so a GEOSCAPE-side local load stays
+		// log-only for now (that surface does not exist there) - stated as a
+		// known limit rather than papered over.
+		CoopBattleUi::showControlRefused(CoopBattleUi::Control::QuickLoad);
 		Log(LOG_INFO) << "[coop] local load refused: no local loads during a live coop session (PRD-08)";
 		_game->popState();
 		return;
@@ -263,16 +272,18 @@ void LoadGameState::think()
 				throw Exception("This is a SHARED co-op campaign save and cannot be opened as a single-player game.");
 			}
 
-			// Separate: a client's saved templates are its own. When the host
-			// replaces the client's campaign world (a restream, a battle, the
-			// world after a battle, a rejoin while the world is still held),
-			// keep the set the client already has. A client without a campaign
-			// world took its set from its player profile in the stream.
+			// Separate: a client's saved templates and craft type deployments
+			// are its own. When the host replaces the client's campaign world
+			// (a restream, a battle, the world after a battle, a rejoin while
+			// the world is still held), keep the set the client already has. A
+			// client without a campaign world took its set from its player
+			// profile in the stream.
 			if (!_coopKey.empty() && !_game->getCoopMod()->getServerOwner()
 				&& s->isSeparateCoopCampaign()
 				&& _game->getSavedGame() && _game->getSavedGame()->isSeparateCoopCampaign())
 			{
 				s->copyTemplatesFrom(*_game->getSavedGame());
+				s->getCustomRuleCraftDeployments() = _game->getSavedGame()->getCustomRuleCraftDeployments();
 			}
 
 			_game->setSavedGame(s);
@@ -319,20 +330,6 @@ void LoadGameState::think()
 			}
 			else
 			{
-				// An authoritative campaign snapshot already contains its live
-				// SavedBattleGame. Resume it directly instead of discarding it and
-				// requesting the same battle in a second transfer.
-				const bool coopBattleResumeWorld = _loadCoopProgress
-					&& _game->getSavedGame()->getSavedBattle() != nullptr;
-				if (coopBattleResumeWorld
-					&& connectionTCP::session.lobbyMode != 0
-					&& _game->getCoopMod()->getServerOwner() == false)
-				{
-					// This is an already-running saved battle, not a newly dispatched
-					// mission. The removed phase-two transfer used to clear this flag;
-					// keep the combined path from reopening Briefing and Inventory.
-					_game->getCoopMod()->inventory_battle_window = false;
-				}
 				Options::baseXResolution = Options::baseXGeoscape;
 				Options::baseYResolution = Options::baseYGeoscape;
 				_game->getScreen()->resetDisplay(false);
@@ -346,11 +343,10 @@ void LoadGameState::think()
 				// coop fix
 				if (_loadCoopProgress == true)
 				{
-					// A geoscape-only resume must not retain a stale tactical save.
-					// A combined battle resume deliberately keeps the battle embedded
-					// in this same authoritative snapshot.
-					if (!coopBattleResumeWorld)
-						_game->getSavedGame()->setBattleGame(0);
+					// A streamed world never resumes its embedded battle here: the
+					// host offers that battle through the battle handshake once this
+					// client acknowledges the world.
+					_game->getSavedGame()->setBattleGame(0);
 
 					// resume/rejoin: report the loaded world to the host and
 					// hold with frozen time until it resumes (F3/F4/D5)
@@ -366,291 +362,33 @@ void LoadGameState::think()
 						// (base naming, battle phase two), which hold nothing and must not
 						// be answered with a campaign_begun.
 						root["adoptedWorld"] = true;
-						root["combinedBattle"] = coopBattleResumeWorld;
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
-						// A normal world resume waits for the host's release. A combined
-						// battle resume enters its Battlescape below without a second hold.
-						if (!coopBattleResumeWorld)
-							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
+						// (in a battle resume the host's battle offer replaces the
+						// whole state stack, dialog included)
+						_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 					}
 				}
 
 				if (_game->getSavedGame()->getSavedBattle() != 0)
 				{
+					// The vanilla push below is unconditional, byte-identical to SP
+					// mid-battle resume: the host always loads BEFORE hosting, so
+					// getCoopStatic() is false at this menu load, a connected client can
+					// never reach LoadGameState at all (localLoadsAllowed()), and a coop
+					// mid-battle save is served to a rejoining peer by the disk-resume flow
+					// (CoopHandshake::offerResumedBattle(), connectionTCP.cpp).
 					_game->getSavedGame()->getSavedBattle()->loadMapResources(_game->getMod());
 					Options::baseXResolution = Options::baseXBattlescape;
 					Options::baseYResolution = Options::baseYBattlescape;
 					_game->getScreen()->resetDisplay(false);
 					BattlescapeState *bs = new BattlescapeState;
-	
-					// COOP
-					if ((_game->getCoopMod()->getCoopStatic() == true
-						&& _game->getCoopMod()->inventory_battle_window == true
-						&& !connectionTCP::nextStageBriefing))
-					{
-		
-						Base *selected_base = _game->getSavedGame()->getSelectedBase();
-						const std::string& battleOwner = _game->getSavedGame()->getSavedBattle()
-							->getBattleOwnerPlayerName();
-						if ((_game->getCoopMod()->isSharedCampaign()
-								|| _game->getCoopMod()->isSeparateCampaign())
-							&& !battleOwner.empty())
-						{
-							auto* bases = _game->getSavedGame()->getBases();
-							for (size_t i = 0; i < bases->size(); ++i)
-								if ((*bases)[i] && (*bases)[i]->isOwnedByPlayer(battleOwner))
-								{
-									selected_base = (*bases)[i];
-									_game->getSavedGame()->setSelectedBase(i);
-									break;
-								}
-						}
 
-						if (!selected_base)
-						{
-							selected_base = _game->getSavedGame()->getBases()->front();
-						}
-						// A streamed craft mission already carries the exact craft/base label
-						// written by the authoritative BriefingState. Passing a base here
-						// overwrote it with the loader's default base (normally HostBase).
-						// Base defense still needs the real base argument for its side effects.
-						Base* briefingBase = _game->getSavedGame()->getSavedBattle()->getMissionType()
-							== "STR_BASE_DEFENSE" ? selected_base : nullptr;
-						BriefingState *bri = new BriefingState(0, briefingBase);
-
-						bri->loadCoop();
-
-						_game->pushState(bri);
-			
-					}
-					else
-					{
-
-						// coop
-						// if pvp gamemode
-						if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-						{
-
-							if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
-							{
-
-								for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-								{
-
-									if (unit->getCoop() == 1)
-									{
-										unit->convertToFaction(FACTION_PLAYER);
-										unit->setOriginalFaction(FACTION_PLAYER);
-									}
-									else if (unit->getFaction() != FACTION_NEUTRAL)
-									{
-										unit->convertToFaction(FACTION_HOSTILE);
-										unit->setOriginalFaction(FACTION_HOSTILE);
-
-										std::string alienName = "MALE_CIVILIAN";
-
-										if (unit->getGeoscapeSoldier())
-										{
-
-											if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-											{
-												alienName = "FEMALE_CIVILIAN";
-											}
-										}
-
-										Unit* rule = _game->getMod()->getUnit(alienName, true);
-										unit->setUnitRulesCoop(rule);
-									}
-								}
-							}
-						}
-						// HOST PVP2
-						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && connectionTCP::getCoopGamemode() == 3)
-						{
-
-							for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-							{
-
-								if (unit->getCoop() == 1)
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-
-									std::string alienName = "MALE_CIVILIAN";
-
-									if (unit->getGeoscapeSoldier())
-									{
-
-										if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-										{
-											alienName = "FEMALE_CIVILIAN";
-										}
-									}
-
-									Unit* rule = _game->getMod()->getUnit(alienName, true);
-									unit->setUnitRulesCoop(rule);
-								}
-								else if (unit->getCoop() == 0)
-								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-							}
-						}
-						// CLIENT PVP2
-						else if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false && connectionTCP::getCoopGamemode() == 3)
-						{
-
-							for (auto* unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-							{
-
-								if (unit->getCoop() == 1)
-								{
-
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-								else if (unit->getCoop() == 0)
-								{
-
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-
-									std::string alienName = "MALE_CIVILIAN";
-
-									if (unit->getGeoscapeSoldier())
-									{
-
-										if (unit->getGeoscapeSoldier()->getGender() == GENDER_FEMALE)
-										{
-											alienName = "FEMALE_CIVILIAN";
-										}
-									}
-
-									Unit* rule = _game->getMod()->getUnit(alienName, true);
-									unit->setUnitRulesCoop(rule);
-								}
-							}
-						}
-
-						// coop
-						// reset tiles (PVP)
-						if (_game->getCoopMod()->getCoopStatic() == true)
-						{
-
-							if ((_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true) || (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false))
-							{
-
-								_game->getSavedGame()->getSavedBattle()->resetCoopTiles();
-							}
-						}
-
-						_game->pushState(bs);
-
-					}
+					_game->pushState(bs);
 
 					_game->getSavedGame()->getSavedBattle()->setBattleState(bs);
 					// Try to reactivate the touch buttons
 					bs->toggleTouchButtons(false, true);
-
-					// The campaign world and its live battle arrived in one snapshot.
-					// Complete the ready handshake here because GeoscapeState::init is
-					// not the final destination and must not send a later duplicate.
-					if (coopBattleResumeWorld
-						&& connectionTCP::session.lobbyMode != 0
-						&& _game->getCoopMod()->getServerOwner() == false)
-					{
-						_game->getCoopMod()->_isLoadProgress = false;
-						Json::Value done;
-						done["state"] = "close_load_progress";
-						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
-					}
-
-					// The host has already generated and started this next stage. Show
-					// only its ruleset briefing; OK reveals the loaded BattlescapeState
-					// underneath and must not create another battle or inventory screen.
-					if (connectionTCP::nextStageBriefing)
-					{
-						connectionTCP::nextStageBriefing = false;
-						_game->pushState(new BriefingState(0, 0, true));
-					}
-
-					// battle-save resume / mid-battle rejoin, phase two
-					// complete: report the loaded battle to the host (F3/F4).
-					//
-					// issue #93: a SKIRMISH (lobbyMode 0) rejoin arrives here too,
-					// but only when session.skirmishRejoinPending says this blob is
-					// a rejoin - the FIRST battle of a skirmish loads the same
-					// "battleclient" key through its own handshake and must not ack.
-					const bool skirmishRejoin = connectionTCP::session.lobbyMode == 0
-						&& connectionTCP::session.skirmishRejoinPending;
-					const bool customBattleResume = connectionTCP::session.lobbyMode == 0
-						&& connectionTCP::session.customBattleResumeLoading;
-					if ((connectionTCP::session.lobbyMode != 0 || skirmishRejoin || customBattleResume)
-						&& _game->getCoopMod()->getServerOwner() == false && _coopKey == "battleclient")
-					{
-						if (skirmishRejoin)
-						{
-							connectionTCP::session.skirmishRejoinPending = false;
-
-							// The host is still frozen behind its reconnect dialog and
-							// only its RESUME releases the battle. Hold BEFORE acking:
-							// the ack is what makes RESUME appear, and the release flag
-							// it broadcasts is one-shot (issue #91) - a hold pushed
-							// after the ack can miss its own release and strand the
-							// client on a live battle it may not touch.
-							connectionTCP::session.consumeCampaignBegun();
-							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
-						}
-
-						Json::Value root;
-						root["state"] = "resume_ack";
-						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-						// P2/F1: a battle resume lands straight in the battlescape, so
-						// GeoscapeState::init (which normally fires close_load_progress
-						// on a geoscape resume) never runs - the COOP_READY handshake
-						// that sets coopSession never completes, and the battlescape
-						// coop-init block (BattlescapeState:1284, which sets _battleInit
-						// and re-arms role/turn) never fires: both machines fall through
-						// to the vanilla "all units selectable" split. Complete the
-						// handshake here, where the "battleclient" load just finished:
-						// close_load_progress -> host COOP_READY_CLIENT_REQUEST -> chain
-						// -> coopSession true on both. Clear the load-progress latch so
-						// GeoscapeState::init cannot emit a second, spurious one when the
-						// client later returns to the geoscape (mission end).
-						_game->getCoopMod()->_isLoadProgress = false;
-						Json::Value done;
-						done["state"] = "close_load_progress";
-						_game->getCoopMod()->sendTCPPacketData(done.toStyledString());
-						if (customBattleResume)
-						{
-							// The streamed save is an already-running battle.  Do not let
-							// PVE2's one-time NEW-battle initialization hand it straight
-							// back to the AI when BattlescapeState begins thinking.
-							if (_game->getCoopMod()->getCoopGamemode() == 4)
-							{
-								_game->getCoopMod()->pve2_init = true;
-							}
-							if (_game->getCoopMod()->parallelTurnActive())
-							{
-								connectionTCP::resetActionArbiter(true);
-								_game->getCoopMod()->setPlayerTurn(2);
-								bs->setCurrentTurn(2);
-							}
-							else if (_game->getCoopMod()->getCoopGamemode() == 2
-								|| _game->getCoopMod()->getCoopGamemode() == 3)
-							{
-								// Campaign-PvP role model: gm2 client=Alien (waiting),
-								// gm3 client=XCOM (YOUR TURN).
-								const int turn = _game->getCoopMod()->getCoopGamemode() == 2 ? 1 : 2;
-								_game->getCoopMod()->setPlayerTurn(turn);
-								bs->setCurrentTurn(turn);
-							}
-							connectionTCP::session.completeCustomBattleResumeLoad();
-						}
-					}
 				}
 
 				// flow-redesign F3: a co-op campaign save loaded from the

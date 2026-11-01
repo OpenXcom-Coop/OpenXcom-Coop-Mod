@@ -45,10 +45,10 @@ def main():
 
     yes = landing.split("void ConfirmLandingState::btnYesClick", 1)[1]
     yes = yes.split("void ConfirmLandingState::startCoopMission", 1)[0]
-    single = yes.split("if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))", 1)[1]
-    single = single.split("if (_game->getCoopMod()->getHost()", 1)[0]
-    assert "startCoopMission();" in single
-    assert 'root["state"] = "changeHost"' not in single
+    # The host generates every co-op campaign battle where the craft landed and offers it to the
+    # partner; no machine hands the battle to the other.
+    assert "CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);" in yes
+    assert 'root["state"] = "changeHost"' not in yes
 
     broker = geo.split("bool GeoscapeState::brokerSharedLanding", 1)[1]
     broker = broker.split("void GeoscapeState::sharedLandingReply", 1)[0]
@@ -152,7 +152,7 @@ def main():
         "std::vector<Ufo*> *SavedGame::getUfos", 1)[0]
     assert "xbase->getOwnerPlayerName().empty()" in maintenance
     memory_save = saved_game.split("void SavedGame::saveCoopToMemory", 1)[1].split(
-        "buildCoopStub", 1)[0]
+        "std::string SavedGame::buildCoopStub", 1)[0]
     # Separate-only rules exclude PvP (stored with the same type).
     assert "isSeparateCoopCampaign()" in memory_save
     server_role = tcp.split("void connectionTCP::setServerOwner", 1)[1].split(

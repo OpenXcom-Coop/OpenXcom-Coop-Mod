@@ -29,10 +29,11 @@ Exit 0 = pass; 2 = failure.
 import os
 import sys
 
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir
 import shared_fixture
-import test_coop_alien_launcher_item_loss as I74
+import session
 
 PORTS = (47821, 47822, 47966)
 SAVE = "exit82_battle.sav"
@@ -136,7 +137,7 @@ def main():
     js = shared_fixture.bring_up("exit82", PORTS)
     host_dir = js.host_dir
     try:
-        I74.enter_battle(js)
+        session.bring_up_shared_mixed_battle(js, {0: 0, 1: 1})
         print("both machines are in the battlescape")
 
         # A mid-battle save for T1. The host save embeds the client world, so the

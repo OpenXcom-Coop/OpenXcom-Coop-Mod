@@ -33,6 +33,8 @@
 #include "ActionMenuItem.h"
 #include "Pathfinding.h"
 #include "TileEngine.h"
+#include "../CoopMod/CoopArbiter.h"
+#include "../CoopMod/CoopDelta.h" // coop: coopHostPrime()
 
 namespace OpenXcom
 {
@@ -186,7 +188,9 @@ void SkillMenuState::btnActionMenuItemClick(Action *action)
 		chooseWeaponForSkill(_action, selectedSkill);
 		_action->updateTU();
 
+		if (coopInterceptSkillUse(_action, selectedSkill)) { _game->popState(); return; }
 		bool continueAction = tileEngine->skillUse(_action, selectedSkill);
+		coopHostSkill(_action, selectedSkill); // coop: the host's own use rides a `host` context's ev
 
 		if (!continueAction || _action->type == BA_NONE)
 		{
@@ -215,6 +219,7 @@ void SkillMenuState::btnActionMenuItemClick(Action *action)
 			// instant grenades
 			_action->weapon->setFuseTimer(0);
 			_action->weapon->setFuseEnabled(true);
+			coopHostPrime(_action->actor, _action->weapon, false); // coop: the fuse rides a `host` prime context
 		}
 		else if (_action->type == BA_PRIME || _action->type == BA_UNPRIME)
 		{

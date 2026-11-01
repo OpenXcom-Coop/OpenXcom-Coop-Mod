@@ -126,8 +126,8 @@ jobs:
           exit 1
 
   # Splits the suite into 4 runtime-balanced shards, ONCE, from the previous run's
-  # measured durations (Actions cache, falling back to main's cache and then to the
-  # checked-in tools/ci/test_weights.json). Every shard consumes this one plan, so a
+  # measured durations (Actions cache, falling back to main's cache) laid over the
+  # checked-in tools/ci/test_weights.json. Every shard consumes this one plan, so a
   # cache refresh mid-run cannot make two shards disagree about who runs what.
   # No secrets here, so it needs no author gating - it only reads the PR's test list.
   shard-plan:
@@ -206,15 +206,25 @@ jobs:
         env:
           SDL_VIDEODRIVER: dummy
           SDL_AUDIODRIVER: dummy
+        # -LogDir: the same logged launch path local runs take (tools/ci/run_local_suite.ps1).
         run: >-
           ./tools/ci/run_coop_suite.ps1 -PlanFile shard-plan.json
           -Shard ${{ matrix.shard }} -TimingsOut timings-${{ matrix.shard }}.json
+          -LogDir coop-logs
 
       - uses: actions/upload-artifact@v4
         if: always()               # a failed shard still measured everything before it
         with:
           name: timings-${{ matrix.shard }}
           path: timings-${{ matrix.shard }}.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        if: always()               # one <test>.log per test run, a failed shard's included
+        with:
+          name: coop-logs-${{ matrix.shard }}
+          path: coop-logs
           if-no-files-found: ignore
           retention-days: 7
 

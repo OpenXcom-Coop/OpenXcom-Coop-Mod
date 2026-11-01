@@ -217,13 +217,24 @@ def main():
                       timeout=30, interval=0.5)
 
         client.ok({"cmd": "confirm_landing"})
-        for gc, tag in ((host, "host"), (client, "client")):
-            gc.wait_for(f"{tag} entered the brokered battle",
-                        lambda gc=gc: gc.cmd({"cmd": "battle_state"}).get("inBattle") or None,
-                        timeout=180, interval=1.0)
+        # Waiting for the CLIENT's inBattle here hangs forever:
+        # CoopHandshake::emitPreparedOffer() (the call that actually SENDS the
+        # client's offer) runs from BriefingState::btnOkClick/close_briefing on
+        # the HOST, not from confirm_landing itself. Wait for the host to enter
+        # + reach its own briefing, then drain BOTH machines (host briefing
+        # closed FIRST) to BattlescapeState via session.drive_both_to_tactical.
+        host.wait_for("host entered the brokered battle",
+                      lambda: host.cmd({"cmd": "battle_state"}).get("inBattle") or None,
+                      timeout=180, interval=1.0)
+        host.wait_for("host briefing", lambda: _has(host, "BriefingState") or None,
+                      timeout=60, interval=0.5)
+        if not session.drive_both_to_tactical(host, client):
+            raise TimeoutError(
+                "drive_both_to_tactical timed out (host=%s client=%s)"
+                % (_states(host)[-3:], _states(client)[-3:]))
         assert not _pending(host), "pending landing not cleared after the confirm"
         print("PASS confirm: the client's YES reached the host, which generated the "
-              "authoritative battle - BOTH machines entered it")
+              "authoritative battle - BOTH machines entered it (host briefing closed first)")
 
         # PRD-J11: the shared final-state assertions (world equality +
         # the replica's zero-disk invariant).

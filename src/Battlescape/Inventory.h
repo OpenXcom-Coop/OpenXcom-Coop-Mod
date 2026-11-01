@@ -58,6 +58,7 @@ private:
 	int _depth, _groundSlotsX, _groundSlotsY;
 	int _xMax;
 	RuleInventory *_inventorySlotRightHand = nullptr;
+	std::vector<int> _coopDrawnItems; // coop: TEST-ONLY - the soldier items the last drawItems() pass drew
 	RuleInventory *_inventorySlotLeftHand = nullptr;
 	RuleInventory *_inventorySlotBackPack = nullptr;
 	RuleInventory *_inventorySlotBelt = nullptr;
@@ -66,12 +67,12 @@ private:
 	/// Clear all occupied slots markers.
 	std::vector<std::vector<char>>* clearOccupiedSlotsCache();
 	/// Moves an item to a specified slot.
-	void moveItem(BattleItem *item, const RuleInventory *slot, int x, int y, bool unloadWeaponCoop = false);
+	void moveItem(BattleItem *item, const RuleInventory *slot, int x, int y);
 	/// Gets the slot in the specified position.
 	RuleInventory *getSlotInPosition(int *x, int *y) const;
 	/// Play a sound.
 	void playSound(int sound);
-  public:
+public:
 	/// Creates a new inventory view at the specified position and size.
 	Inventory(Game *game, int width, int height, int x = 0, int y = 0, bool base = false);
 	/// Cleans up the inventory.
@@ -122,26 +123,20 @@ private:
 	void arrangeGround(int alterOffset = 0);
 	/// Attempts to place an item in an inventory slot.
 	bool fitItem(const RuleInventory *newSlot, BattleItem *item, std::string &warning);
-	/// Test-harness hook: drop an item into a slot through the same (private)
-	/// moveItem a mouse drop calls. fitItem cannot express a ground drop - the
-	/// ground has no slot list, so its overlap check refuses (0,0) whenever the
-	/// tile already holds anything.
-	void harnessMoveItem(BattleItem *item, const RuleInventory *slot, int x = 0, int y = 0);
 	/// Checks if two items can be stacked on one another.
 	bool canBeStacked(BattleItem *itemA, BattleItem *itemB);
 	/// Checks for item overlap.
 	static bool overlapItems(BattleUnit *unit, BattleItem *item, const RuleInventory *slot, int x = 0, int y = 0);
 	/// Shows a warning message.
 	void showWarning(const std::string &msg);
+	WarningMessage* getWarning() const { return _warning; } // read-only, the message line
+	/// coop: TEST-ONLY, read-only - the ids of the soldier items the last
+	/// drawItems() pass drew on the paperdoll (TestServer inventory_view `drawnSlots`). Never read by game logic.
+	const std::vector<int>& getCoopDrawnItems() const { return _coopDrawnItems; }
 	/// Animate surface.
 	void animate();
 	/// Get current animation frame for inventory.
 	int getAnimFrame() const { return _animFrame; }
-
-	// coop
-	RuleInventory *getInventorySlotGroundCoop();
-	// coop
-	bool hasCoopItem(BattleUnit* unit, const BattleItem* item);
 };
 
 }

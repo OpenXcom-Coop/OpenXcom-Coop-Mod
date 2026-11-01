@@ -1,0 +1,119 @@
+#pragma once
+/*
+ * Copyright 2010-2016 OpenXcom Developers.
+ * Copyright 2023-2026 XComCoopTeam (https://www.moddb.com/mods/openxcom-coop-mod)
+ *
+ * This file is part of OpenXcom.
+ *
+ * OpenXcom is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * OpenXcom is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
+ */
+#include <string>
+#include <json/json.h>
+
+namespace OpenXcom
+{
+class Game;
+class OptionInfo;
+
+/**
+ * One set of battle rules per co-op session. The host's globals are the session table; every machine writes the
+ * shared value into its own in-memory option. Declarations only; bodies in connectionTCP.cpp. Main thread only.
+ */
+namespace CoopSyncedOptions
+{
+/// A row; type/pointer from Options::getOptionInfo() by id; step/min/max = vanilla's Advanced-screen rule.
+struct Row { const char *id; int step; int min; int max; };
+/// THE ONLY LIST - 29 ids = 28 visible rows (20 OXC + 8 OXCE) + the hidden unload option (14 of them are the campaign options).
+static const Row TABLE[] = {
+	{ "battleInstantGrenade", 1, 0, 1 },
+	{ "battleExplosionHeight", 1, 0, 3 },
+	{ "oxceEnableOffCentreShooting", 1, 0, 1 },
+	{ "oxceUniformShootingSpread", 1, 0, 1 },
+	{ "allowPsiStrengthImprovement", 1, 0, 1 },
+	{ "allowPsionicCapture", 1, 0, 1 },
+	{ "weaponSelfDestruction", 1, 0, 1 },
+	{ "alienBleeding", 1, 0, 1 },
+	{ "sneakyAI", 1, 0, 1 },
+	{ "battleAutoEnd", 1, 0, 1 },
+	{ "disableAutoEquip", 1, 0, 1 },
+	{ "includePrimeStateInSavedLayout", 1, 0, 1 },
+	{ "battleUFOExtenderAccuracy", 1, 0, 1 },
+	{ "oxceReactionFireThreshold", 5, 0, 100 },
+	{ "oxceInventoryUnloadFixedWeapons", 1, 0, 1 },
+	// the 14 campaign options.
+	{ "storageLimitsEnforced", 1, 0, 1 },
+	{ "canSellLiveAliens", 1, 0, 1 },
+	{ "fieldPromotions", 1, 0, 1 },
+	{ "oxceAutomaticPromotions", 1, 0, 1 },
+	{ "oxceWoundedDefendBaseIf", 10, 0, 100 },
+	{ "aggressiveRetaliation", 1, 0, 1 },
+	{ "allowBuildingQueue", 1, 0, 1 },
+	{ "craftLaunchAlways", 1, 0, 1 },
+	{ "anytimePsiTraining", 1, 0, 1 },
+	{ "canTransferCraftsWhileAirborne", 1, 0, 1 },
+	{ "retainCorpses", 1, 0, 1 },
+	{ "oxceAlternateCraftEquipmentManagement", 1, 0, 1 },
+	{ "oxceManualPromotions", 1, 0, 1 },
+	{ "oxceGeoscapeEventsInstantDelivery", 1, 0, 1 },
+};
+static const int TABLE_SIZE = (int)(sizeof(TABLE) / sizeof(TABLE[0]));
+
+/// True while the layer holds this machine's own values (session role != None).
+bool active();
+/// The main-thread activation edge; the FIRST statement of connectionTCP::updateCoopTask(). Binds @a game
+/// (submit, the client apply funnel and the chat line need it).
+void tick(Game *game);
+/// Activates now when the session role wants it (every submit / apply path calls it first).
+void ensureActive();
+/// Writes the own values back and drops them (CoopSession::resetSession()).
+void deactivate();
+/// A change request (the Advanced-screen divert and the harness test command); false when inactive.
+bool submit(const std::string &id, int value);
+/// RAII guard, the first statement of Options::save / load / resetDefault; inert unless active().
+struct FileGuard
+{
+	enum Kind { SAVE, LOAD, RESET };
+	explicit FileGuard(Kind kind);
+	~FileGuard();
+	Kind _kind;
+	bool _armed;
+	int _stash[TABLE_SIZE];
+};
+/// The test-only apply hold (test command synced_apply_hold), read by the host latch (coopSyncedOptionsPump()).
+void setHoldArmed(bool on);
+bool holdArmed();
+/// Test-only command shared_update_defer - defer THIS machine's
+/// per-frame SharedEcon drain so the replica ordering window is deterministic; inert unless armed.
+void setTestSharedUpdateDeferred(bool on);
+bool testSharedUpdateDeferred();
+/// The 29 current globals {id: bool|int} (the probe, the join table, battle_offer.hostRules).
+Json::Value currentValues();
+/// The layer's own fields of the synced_options_state probe (active, version, values, own, queue, ...).
+void stateView(Json::Value &out);
+/// The Advanced-screen row name - "[Synced] <desc>" for a table id while active(), else @a desc.
+std::string rowName(Game *game, const std::string &id, const std::string &desc);
+/// A synced-option click goes through the host (compute the new value with the table's step/range,
+/// submit, keep the shared value until it lands); true = diverted, false = vanilla (inactive or no table row).
+bool divertLocalEdit(Game *game, OptionInfo *setting, int button);
+}
+
+/// The host's between-actions apply latch, beside the peer-leave pause latch in updateCoopTask().
+void coopSyncedOptionsPump(Game *game, bool quiescent);
+/// The client apply funnel ("join" table, "offer" hostRules, "set" one id; @a player = a set's requester, for
+/// its chat line).
+void coopSyncedApplyFromHost(const Json::Value &values, int version, const char *source,
+	const std::string &player = std::string());
+/// Redraw every open OptionsAdvancedState, keeping its scroll (vanilla has no method for this).
+void coopSyncedRefreshAdvanced(Game *game);
+}

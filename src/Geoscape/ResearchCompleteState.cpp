@@ -99,7 +99,7 @@ ResearchCompleteState::ResearchCompleteState(const RuleResearch* newResearch, co
 	// world) and with sync off.
 	if (_coop == false)
 	{
-		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base);
+		_game->getCoopMod()->sendResearchSync(newResearch, bonus, research, base, true); // coop: GeoscapeState::time1Day spawns the topics' events here too
 	}
 
 }

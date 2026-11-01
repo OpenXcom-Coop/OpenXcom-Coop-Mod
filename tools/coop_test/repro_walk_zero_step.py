@@ -1,0 +1,331 @@
+"""A walk that executes ZERO steps must still leave the two machines
+identical.
+
+THE CASE THIS GUARDS (found from a surviving desync bundle, then reproduced
+deterministically):
+
+  * `bt_action_end` carries no `unit`, so the CLIENT resolves the action's
+    actor from `g_coopClientActionActor`. A walk emits a `bt_ev` carrying
+    `payload["unit"]` per EXECUTED step, and a walk that executes ZERO steps
+    emits none - while the host still sends the completion restate, because
+    `end["path"] = path` is unconditional inside the `wasWalk` branch and an
+    empty `executed` is still an array.
+  * If the actor came only from such an ev, the client could not resolve it,
+    would silently skip `final`, and every field `final` carries - tu,
+    energy, direction, the kneeled bit - would stay at its pre-action value
+    while the host moved on: `unitsStats` and `saveBlob` diverge and the
+    client desync-freezes. The client therefore registers the actor at
+    admission, when the host's ack arrives (connectionTCP.cpp).
+
+The restate-mismatch log line names the walk chain's actionId: without it a
+STALE chain from a previous action reads as a matching one ("does not match
+the 2 step ev(s) this machine applied" for a walk that applied none of its
+own). The chain is only reset inside the `walk_step` applier, which a
+zero-step walk never reaches.
+
+HOW A ZERO-STEP WALK IS PRODUCED HERE - deterministically, with a test hook,
+and why the hook is needed. `battle_halt_walk` cannot do it: it is consumed in
+`coopOnWalkStepFinished()`, which by definition runs AFTER a step completed, so
+it halts after step 1. `battle_halt_walk_before_step` is its pre-step sibling,
+consumed at a call site vanilla already reaches before `startWalking()`.
+
+  THE SAME CASE IS REACHABLE WITHOUT ANY HOOK, and that is how it was found:
+  vanilla stands a KNEELED walker up before its first step, spending
+  `getKneelChangeCost()` (UnitWalkBState.cpp:104-118 -> BattlescapeGame.cpp:488-495).
+  An admission gate that checked first-step affordability against the actor's
+  CURRENT TU only would ADMIT a kneeled actor with enough TU for its first
+  step but not for stand-up PLUS that step, which then executes zero steps
+  (reproduced by hand at TU 12: `steps=0 halted=True reason=no_tu pathLen=0`,
+  followed immediately by `unitsStats` + `saveBlob` diverging). The ADMISSION
+  PHASE below covers that route, with no hook at all.
+
+Run:  python tools/coop_test/repro_walk_zero_step.py
+      (in its OWN shell invocation - the standing harness rule.)
+"""
+
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness import GameClient, make_user_dir
+import session
+from session import assert_hash_clean
+import repro_atom_walk as W
+
+
+
+def zero_step_walk(host, client, actor_id, dest, tag):
+    """Order one walk and require the host to have executed ZERO steps.
+
+    Returns the host's lastWalk record. Everything here is a PREMISE check, not
+    an assertion about the atom - the assertions live in the caller."""
+    prev = W.walk_action_id(host)
+    resp = None
+    for d in (dest if isinstance(dest, list) else [dest]):
+        resp = W.send_walk(client, actor_id, d)
+        if resp.get("iseq"):
+            break
+        print(f"    [{tag}] no route to {d} ({resp.get('error')}) - next destination")
+    assert resp and resp.get("iseq"), (
+        f"{tag}: no candidate destination produced an ADMITTED walk - the zero-step "
+        "case cannot be reached without one (FIXTURE, not the defect)")
+    W.wait_walk_settled(host, client, prev)
+    W.settle_reveal(host, client)
+    hw = W.last_walk(host)
+    steps = len(hw.get("steps") or [])
+    restate = hw.get("restate") or {}
+    print(f"    [{tag}] actionId {hw.get('actionId')}: {steps} step(s) executed, "
+          f"halted={restate.get('halted')} reason={restate.get('reason')} "
+          f"restate path length {len(restate.get('path') or [])}")
+    assert steps == 0, (
+        f"{tag}: the walk executed {steps} step(s), not zero - this test's whole "
+        "subject is the zero-step case and it did not occur, so nothing below "
+        "would be testing the defect")
+    return hw
+
+
+def assert_final_landed(host, client, actor_id, tag):
+    """THE ASSERTION. The client must hold the host's post-action unit state and
+    every bucket must be EQUAL - which is exactly what a dropped `final` breaks."""
+    h = W.unit_of(host, actor_id)
+    c = W.unit_of(client, actor_id)
+    fields = ("tu", "energy", "kneeled", "direction", "x", "y", "z")
+    mism = {f: (h.get(f), c.get(f)) for f in fields if h.get(f) != c.get(f)}
+    assert not mism, (
+        f"{tag}: after a ZERO-STEP walk the client's actor {actor_id} disagrees with "
+        f"the host on {mism}. No `bt_ev` carried the actor for this action, so the "
+        "client could not resolve bt_action_end's `final` and silently dropped it "
+        "(connectionTCP.cpp:5717-5729)")
+    assert battle_frozen(host) is False, f"{tag}: the HOST is desync-frozen"
+    assert battle_frozen(client) is False, (
+        f"{tag}: the CLIENT is desync-frozen - the post-apply hash compare FAILED "
+        "after the zero-step walk")
+    assert_hash_clean(host, client, full=True, what=f"{tag} after a zero-step walk")
+    print(f"    [{tag}] PASS: actor {actor_id} identical on both machines "
+          f"(tu={h.get('tu')} energy={h.get('energy')} kneeled={h.get('kneeled')} "
+          f"dir={h.get('direction')}), all buckets EQUAL")
+
+
+def battle_frozen(gc):
+    return session.battle_state(gc)["authority"]["desyncFrozen"]
+
+
+def kneel_actor(host, client, actor_id, tag):
+    """Kneel through the SYNCED atom, so both machines agree before the walk."""
+    if W.unit_of(host, actor_id).get("kneeled"):
+        return
+    r = client.cmd({"cmd": "battle_intent", "kind": "kneel", "actor": actor_id,
+                    "kneel": True})
+    assert r.get("iseq"), f"{tag}: the kneel intent did not ship: {r}"
+    client.wait_for("kneel applied on both machines",
+                    lambda: (W.unit_of(host, actor_id).get("kneeled") is True
+                             and session.event_state(client).get("queueDepth") == 0
+                             and session.event_state(client).get("lastSeqApplied", 0)
+                             == session.event_state(host).get("lastSeqEmitted", 0)) or None,
+                    timeout=30)
+    W.settle_reveal(host, client)
+    assert_hash_clean(host, client, full=True, what=f"{tag} after kneeling")
+
+
+def phase_halt_hook(host, client, actor_id):
+    """A zero-step walk that DID change the host's unit state - the case the
+    defect actually bites on.
+
+    THE ACTOR IS KNEELED FIRST, and that is the whole point. Vanilla stands a
+    kneeled walker up BEFORE its first step, spending getKneelChangeCost()
+    (UnitWalkBState.cpp:104-118 -> BattlescapeGame.cpp:488-495), and only then
+    reaches the step-cost block where the pre-step hook aborts. So the host
+    finishes the action with LESS TU and NOT kneeled, having executed zero steps
+    and therefore emitted no `bt_ev` carrying the actor - and the client, unable
+    to resolve bt_action_end's `final`, keeps the pre-action values.
+
+    Measured: with the hook alone and an UPRIGHT actor, nothing diverges,
+    because a pre-step abort changes nothing for `final` to carry. That variant
+    would pass even without the client's admission-time actor record, so it
+    would be a vacuous test."""
+    print("\n== HALT-HOOK PHASE: zero-step walk that CHANGED host state (kneel + test hook) ==")
+    assert_hash_clean(host, client, full=True, what="HALT-HOOK PHASE t=0")
+    kneel_actor(host, client, actor_id, "HALT-HOOK PHASE")
+    before = W.unit_of(host, actor_id)
+    dests = session.walk_candidates(host, actor_id, lengths=(1, 2, 3))
+    assert dests, "FIXTURE: no routable destination for the actor"
+    assert host.cmd({"cmd": "battle_halt_walk_before_step"}).get("ok"),         "HALT-HOOK PHASE: the battle_halt_walk_before_step test command refused"
+    hw = zero_step_walk(host, client, actor_id, dests[:8], "HALT-HOOK PHASE")
+    assert (hw.get("restate") or {}).get("halted") is True,         "HALT-HOOK PHASE: a zero-step walk must still report halted:true"
+    after = W.unit_of(host, actor_id)
+    assert (after.get("tu"), after.get("kneeled")) != (before.get("tu"),
+                                                       before.get("kneeled")), (
+        "HALT-HOOK PHASE NON-VACUITY: the host's actor state did NOT change across the "
+        f"zero-step walk (tu {before.get('tu')}->{after.get('tu')}, kneeled "
+        f"{before.get('kneeled')}->{after.get('kneeled')}) - with nothing for "
+        "`final` to carry, a dropped `final` is a no-op and the assertion below "
+        "would pass whether the defect is present or not")
+    print(f"    [HALT-HOOK PHASE] host actor changed across the zero-step walk: "
+          f"tu {before.get('tu')} -> {after.get('tu')}, "
+          f"kneeled {before.get('kneeled')} -> {after.get('kneeled')}")
+    assert_final_landed(host, client, actor_id, "HALT-HOOK PHASE")
+
+
+def phase_admission(host, client, actor_id):
+    """Admission must count the MANDATORY stand-up before step 1.
+
+    Vanilla stands a kneeled walker up before its first step, spending
+    getKneelChangeCost() (UnitWalkBState.cpp:104-118 -> BattlescapeGame.cpp:
+    488-495). An affordability gate that checks the first step against CURRENT
+    TU only would ADMIT a kneeled actor with enough TU for the step but not for
+    stand-up PLUS the step, which then executes ZERO steps (reproduced by hand
+    at TU 12: `steps=0 halted=True reason=no_tu pathLen=0`, immediately
+    followed by `unitsStats` + `saveBlob` diverging).
+
+    THE ASSERTION: sweeping TU downward, the walk must go from ADMITTED to
+    DENIED `cost_changed`. It must never be admitted and then execute nothing -
+    the host's walk validator allows no silent no-op, and an admission-time
+    shortfall maps to exactly that deny."""
+    print("\n== ADMISSION PHASE: admission counts the stand-up (no test hook) ==")
+    kneel_actor(host, client, actor_id, "ADMISSION PHASE")
+    dests = session.walk_candidates(host, actor_id, lengths=(1, 2, 3))
+    assert dests, "FIXTURE: no routable destination for the kneeled actor"
+
+    denied = []
+    admitted = []
+    for tu in (16, 15, 14, 13, 12, 11, 10, 9, 8):
+        for gc in (client, host):  # client first, then host
+            gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
+                    "stat": "tu", "value": tu, "refill": True})
+        session.wait_seq_barrier(host, client)
+        assert_hash_clean(host, client, full=True,
+                          what=f"ADMISSION PHASE after a symmetric TU set to {tu}")
+        kneel_actor(host, client, actor_id, "ADMISSION PHASE")
+        for gc in (client, host):  # client first, then host
+            gc.cmd({"cmd": "battle_action", "action": "set_stat", "unit": actor_id,
+                    "stat": "tu", "value": tu, "refill": True})
+        session.wait_seq_barrier(host, client)
+        assert_hash_clean(host, client, full=True,
+                          what=f"ADMISSION PHASE after re-kneeling at TU {tu}")
+
+        prev = W.walk_action_id(host)
+        shipped = None
+        for d in dests[:6]:
+            r = W.send_walk(client, actor_id, d)
+            if r.get("iseq"):
+                shipped = r
+                break
+        if not shipped:
+            print(f"    TU {tu}: no route from here - skipped")
+            continue
+        outcome = None
+        for _ in range(200):
+            hw = W.last_walk(host)
+            if (hw.get("actionId", 0) != prev and hw.get("active") is False
+                    and hw.get("restate")):
+                outcome = "walk"
+                break
+            ld = session.event_state(client).get("lastDeny")
+            if ld and ld.get("iseq") == shipped["iseq"]:
+                outcome = "deny:" + str(ld.get("reason"))
+                break
+            time.sleep(0.05)
+        assert outcome, f"ADMISSION PHASE: TU {tu} was neither executed nor denied"
+
+        if outcome.startswith("deny"):
+            denied.append((tu, outcome))
+            print(f"    TU {tu}: {outcome}")
+            assert outcome == "deny:cost_changed", (
+                f"ADMISSION PHASE: TU {tu} was denied {outcome}, but an admission-time "
+                "shortfall must map to cost_changed")
+        else:
+            W.settle_reveal(host, client)
+            hw = W.last_walk(host)
+            steps = len(hw.get("steps") or [])
+            admitted.append((tu, steps))
+            print(f"    TU {tu}: admitted, {steps} step(s)")
+            assert steps > 0, (
+                f"ADMISSION PHASE: at TU {tu} the walk was ADMITTED and then executed ZERO "
+                "steps. Admission did not count the stand-up cost vanilla charges "
+                "before the first step, which is a silent no-op "
+                "and the state loss this file's HALT-HOOK PHASE guards against")
+        assert_hash_clean(host, client, full=True,
+                          what=f"ADMISSION PHASE after the TU {tu} attempt")
+
+    assert admitted, "FIXTURE: no TU value was admitted at all - nothing was proven"
+    assert denied, (
+        "FIXTURE: no TU value was DENIED, so the admission boundary was never "
+        f"crossed and the stand-up case is untested here (admitted: {admitted})")
+    print(f"    [ADMISSION PHASE] PASS: the boundary is real - admitted {admitted}, "
+          f"denied {denied}; no admitted walk executed zero steps")
+
+
+
+DOOR_MISSION = "STR_SMALL_SCOUT"
+
+
+def bring_up(tag, mission, qualifies, base_port, base_probe):
+    port = str(base_port + 1)
+    host = GameClient("host", base_probe + 1 * 2,
+                      make_user_dir(f"repro_atom_door_{tag}_host_1"))
+    client = GameClient("client", base_probe + 1 + 1 * 2,
+                        make_user_dir(f"repro_atom_door_{tag}_client_1"))
+    seated = {}
+    try:
+        W.bring_up_lobby(host, client, port)
+        session.drive_to_battlescape(host, client, seated, mission=mission)
+        session.stage_open_ground_actor(host, client, seated["soldierIds"], "zerostep",
+                                        run_length=3)
+        why = qualifies(host, client)
+        if why is None:
+            print(f"[repro_atom_door] {tag} fixture qualifies")
+            return host, client
+        raise AssertionError(f"FIXTURE: zerostep: {why}")
+    except Exception:
+        host.shutdown()
+        client.shutdown()
+        raise
+
+
+def qualifies(host, client):
+    st = session.battle_state(host)
+    if not st.get("inBattle"):
+        return "no battle"
+    seats = session.seat_units(host)
+    if len(seats) < 2:
+        return f"only {len(seats)} seat-1 soldier(s)"
+    rich = [u for u in seats if u.get("tu", 0) > 30]
+    if not rich:
+        return f"no seat-1 soldier with TU to spare: {[(u['id'], u.get('tu')) for u in seats]}"
+    if not session.walk_candidates(host, rich[0]["id"], lengths=(1, 2, 3)):
+        return f"no routable destination for actor {rich[0]['id']}"
+    return None
+
+
+def main():
+    t0 = time.time()
+    print("=== FIXTURE: the default skirmish (a routable actor is all this needs) ===")
+    host, client = bring_up("zerostep", DOOR_MISSION, qualifies, 48780, 49780)
+    try:
+        seats = [u for u in session.seat_units(host) if u.get("tu", 0) > 30]
+        phase_halt_hook(host, client, seats[0]["id"])
+        phase_admission(host, client,
+                         seats[1]["id"] if len(seats) > 1 else seats[0]["id"])
+    finally:
+        host.shutdown()
+        client.shutdown()
+    print(f"\nrepro_walk_zero_step: PASS ({time.time() - t0:.1f}s)")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except session.KnownFlake as e:
+        session.print_known_flake_banner("repro_walk_zero_step", e.tracking, str(e))
+        print(f"\nrepro_walk_zero_step: FAIL (KNOWN FLAKE, evidence recorded)\n{e}")
+        sys.exit(2)
+    except AssertionError as e:
+        if str(e).startswith("FIXTURE:"):
+            print(f"\nrepro_walk_zero_step: FAIL (fixture not constructed) - {e}")
+            sys.exit(2)
+        print(f"\nrepro_walk_zero_step: FAIL\nAssertionError: {e}")
+        sys.exit(2)
+    except TimeoutError as e:
+        print(f"\nrepro_walk_zero_step: FAIL\nTimeoutError: {e}")
+        sys.exit(2)

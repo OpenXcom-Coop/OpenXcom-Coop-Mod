@@ -108,11 +108,12 @@ void Profile::buttonOK(Action *)
 {
 	_game->popState();
 
-	// The popup now also appears over a lobby and over the rejoin load-wait
-	// dialog, where the world is either not wanted yet (the host starts the
-	// session) or already being fetched by the join handshake. Only the classic
-	// bare join still asks for the world from here; asking again in the other
-	// cases would stack a second load-wait and double-request the world.
+	// The popup now also appears over a lobby and over the rejoin's world
+	// download dialog (or a load-wait), where the world is either not wanted yet
+	// (the host starts the session) or already being fetched by the join
+	// handshake. Only the classic bare join still asks for the world from here;
+	// asking again in the other cases would stack a second load-wait and
+	// double-request the world (a host whose first stream just ended streams it twice).
 	bool worldAlreadyHandled = false;
 	for (State* st : _game->getStates())
 	{
@@ -122,7 +123,7 @@ void Profile::buttonOK(Action *)
 			break;
 		}
 		CoopState* cs = dynamic_cast<CoopState*>(st);
-		if (cs && cs->getStateCode() == COOP_DLG_CLIENT_LOAD_WAIT)
+		if (cs && CoopState::isWorldDownloadDialog(cs->getStateCode()))
 		{
 			worldAlreadyHandled = true;
 			break;

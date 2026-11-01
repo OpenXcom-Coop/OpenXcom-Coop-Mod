@@ -40,6 +40,7 @@ class CraftInfoState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _craftId;
 	Craft *_craft;
 	int _weaponNum;

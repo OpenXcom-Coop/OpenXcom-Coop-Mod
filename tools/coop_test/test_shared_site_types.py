@@ -37,8 +37,8 @@ import geo
 try:
     import yaml
 except ImportError:
-    print("SKIP: pyyaml not installed (pip install pyyaml)")
-    sys.exit(0)
+    print("FAIL (fixture not constructed): pyyaml not installed (pip install pyyaml)")
+    sys.exit(2)
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RULESET_DIR = os.path.join(REPO, "bin", "standard", "xcom1")

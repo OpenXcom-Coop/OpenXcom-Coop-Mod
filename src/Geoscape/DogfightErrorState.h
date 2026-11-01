@@ -42,6 +42,7 @@ private:
 public:
 	/// Creates the Craft Error state.
 	DogfightErrorState(Craft *craft, const std::string &msg);
+	Craft* coopHeldCraft() const { return _craft; } // coop: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Craft Error state.
 	~DogfightErrorState();
 	/// Handler for clicking the Continue Interception button.

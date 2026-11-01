@@ -23,6 +23,10 @@
 #include "DebriefingState.h"
 #include "CannotReequipState.h"
 #include "../Geoscape/GeoscapeEventState.h"
+#include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
+#include "../CoopMod/CoopScriptOwner.h" // coop: CoopScriptDebriefOwner around postMissionProcedures
+#include "../CoopMod/CoopBattleSetup.h" // coop: coopGuestTankRecovered
 #include "../CoopMod/SeparateEcon.h"
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
@@ -83,7 +87,8 @@ namespace OpenXcom
  * Initializes all the elements in the Debriefing screen.
  * @param game Pointer to the core game.
  */
-DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _country(0),
+DebriefingState::DebriefingState() :
+	_eventToSpawn(nullptr), _region(0), _country(0),
 	_positiveScore(true), _destroyBase(false), _promotions(false), _showSellButton(true), _initDone(false),
 	_pageNumber(0)
 {
@@ -296,61 +301,17 @@ DebriefingState::DebriefingState() : _eventToSpawn(nullptr), _region(0), _countr
 	_lstRecoveredItems->setAlign(ALIGN_LEFT);
 	_lstRecoveredItems->setDot(true);
 
+	coopHotseatOnDebriefing(); // coop: hotseat is scoped to one skirmish (as in older versions' DebriefingState)
 
-	// COOP
-	// hotseat
-	if (_game->getCoopMod()->_isHotseatActive == true)
-	{
-
-		_game->getCoopMod()->_changeHotseatTurn = false;
-		_game->getCoopMod()->_isHotseatAlienTurn = false;
-		_game->getCoopMod()->_firstAlienInit = false;
-		_game->getCoopMod()->_discoveredTilesAlienTurn = Json::nullValue;
-		_game->getCoopMod()->_discoveredTilesXComTurn = Json::nullValue;
-
-		// hotseat is scoped to a single skirmish: clear the mode so it can't
-		// carry over into the next (possibly campaign) battle.
-		_game->getCoopMod()->_isHotseatActive = false;
-
-	}
-
-	if (_game->getCoopMod()->isCoopSession() == true)
+	// coop: this is the host's battle-end chokepoint (abort/win/lose all
+	// route through here via BattlescapeState::finishBattle before the geoscape
+	// is shown). Mark the mission end so the GeoscapeState post-battle cleanup
+	// (merged-guest deletion + processPendingSoldierGifts) runs. Host-only
+	// and connected-session-only: never fires in single-player or on the client.
+	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
 	{
 		_game->getCoopMod()->coopMissionEnd = true;
-
-		_game->getCoopMod()->coopInventory = false;
-
-		// fix
-		// PRD-P6 pre-task: teardown forces the gate open whatever depth it is at -
-		// a BState that never got to deinit() must not jam the queue for good.
-		_game->getCoopMod()->resetCoopTaskDepth();
-		_game->getCoopMod()->playerInsideCoopBase = false;
-		_game->getCoopMod()->_battleWindow = false;
-		_game->getCoopMod()->_isMainCampaignBaseDefense = false;
-		_game->getCoopMod()->_waitBH = false;
-		_game->getCoopMod()->_waitBC = false;
-		_game->getCoopMod()->_isActiveAISync = false;
-		_game->getCoopMod()->_isActivePlayerSync = false;
-		_game->getCoopMod()->_battleInit = false;
-		_game->getCoopMod()->_clientPanicHandle = false;
-		_game->getCoopMod()->_onClickClose = false;
-
-		_game->getCoopMod()->pve2_init = false;
-
-		_game->getCoopMod()->_hasHitUnit = -1;
-
-		_game->getCoopMod()->clearAllReceivedTCPPackets();
-
 	}
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		_btnSell->setVisible(false);
-		_btnTransfer->setVisible(false);
-
-	}
-
 }
 
 /**
@@ -421,15 +382,6 @@ void DebriefingState::applyVisibility()
 	// Set text on toggle button accordingly
 	_btnSell->setVisible(showItems && _showSellButton);
 	_btnTransfer->setVisible(showItems && _showSellButton && _game->getSavedGame()->getBases()->size() > 1);
-
-	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		_btnSell->setVisible(false);
-		_btnTransfer->setVisible(false);
-	}
-
 	if (showScore)
 	{
 		_btnStats->setText(tr("STR_STATS"));
@@ -446,7 +398,6 @@ void DebriefingState::applyVisibility()
 
 void DebriefingState::init()
 {
-
 	State::init();
 
 	if (_initDone)
@@ -455,48 +406,7 @@ void DebriefingState::init()
 	}
 	_initDone = true;
 
-	prepareDebriefing();
-
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		_soldierStats.clear();
-
-		// stats
-		auto& soldierStats = _game->getCoopMod()->_soldier_stats;
-
-		if (!soldierStats.empty())
-		{
-
-			for (int i = 0; i < soldierStats.size(); i++)
-			{
-
-				std::string name = soldierStats[i]["name"].asString();
-
-				int tu = soldierStats[i]["unit_stats"]["tu"].asInt();
-				int stamina = soldierStats[i]["unit_stats"]["stamina"].asInt();
-				int health = soldierStats[i]["unit_stats"]["health"].asInt();
-				int bravery = soldierStats[i]["unit_stats"]["bravery"].asInt();
-				int reactions = soldierStats[i]["unit_stats"]["reactions"].asInt();
-				int firing = soldierStats[i]["unit_stats"]["firing"].asInt();
-				int throwing = soldierStats[i]["unit_stats"]["throwing"].asInt();
-				int strength = soldierStats[i]["unit_stats"]["strength"].asInt();
-				int psiStrength = soldierStats[i]["unit_stats"]["psiStrength"].asInt();
-				int psiSkill = soldierStats[i]["unit_stats"]["psiSkill"].asInt();
-				int melee = soldierStats[i]["unit_stats"]["melee"].asInt();
-				int mana = soldierStats[i]["unit_stats"]["mana"].asInt();
-
-				UnitStats stats = UnitStats(tu, stamina, health, bravery, reactions, firing, throwing, strength, psiStrength, psiSkill, melee, mana);
-				_soldierStats.push_back(std::pair<std::string, UnitStats>(name, stats));
-
-			}
-
-			soldierStats.clear();
-
-		}
-
-	}
+	if (!_game->getCoopMod()->coopDebriefClientFill(this)) prepareDebriefing(); // coop: a display-only client fills from the host's bt_debrief_result
 
 	for (const auto& sse : _soldierStats)
 	{
@@ -709,6 +619,7 @@ void DebriefingState::init()
 	_missionStatistics->rating = rating;
 	_missionStatistics->score = total;
 	_txtRating->setText(tr("STR_RATING").arg(tr(rating)));
+	if (_game->getCoopMod()->coopDebriefClientFinish(this)) return; // coop: display-only client - no world write, no save; drops the battle as :803 does
 
 	SavedGame *save = _game->getSavedGame();
 	SavedBattleGame *battle = save->getSavedBattle();
@@ -722,179 +633,6 @@ void DebriefingState::init()
 	int bestScore[7] = {0, 0, 0, 0, 0, 0, 0};
 	int bestOverallScorersID = 0;
 	int bestOverallScore = 0;
-
-		
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		// battle stats
-		auto& battleStats = _game->getCoopMod()->_battle_stats;
-
-		if (!battleStats.empty())
-		{
-
-			for (int i = 0; i < battleStats.size(); i++)
-			{
-
-				BattleUnit* current_unit = 0;
-
-				int unit_id = battleStats[i]["unit_id"].asInt();
-
-				for (auto& bu : *_game->getSavedGame()->getSavedBattle()->getUnits())
-				{
-
-					if (bu->getId() == unit_id)
-					{
-						current_unit = bu;
-						break;
-					}
-
-				}
-
-				if (current_unit)
-				{
-
-					// fix
-					int status_int = battleStats[i]["status"].asInt();
-					current_unit->setCoopStatus(_game->getCoopMod()->intToUnitstatus(status_int));
-
-					if (current_unit->getStatistics())
-					{
-
-						int MurdererId = battleStats[i]["MurdererId"].asInt();
-						std::string MurdererWeapon = battleStats[i]["MurdererWeapon"].asString();
-						std::string MurdererWeaponAmmo = battleStats[i]["MurdererWeaponAmmo"].asString();
-
-						current_unit->setMurdererId(MurdererId);
-						current_unit->setMurdererWeapon(MurdererWeapon);
-						current_unit->setMurdererWeaponAmmo(MurdererWeaponAmmo);
-
-						bool wasUnconcious = battleStats[i]["wasUnconcious"].asBool();
-						int shotAtCounter = battleStats[i]["shotAtCounter"].asInt();
-						int hitCounter = battleStats[i]["hitCounter"].asInt();
-						int shotByFriendlyCounter = battleStats[i]["shotByFriendlyCounter"].asInt();
-						int shotFriendlyCounter = battleStats[i]["shotFriendlyCounter"].asInt();
-						bool loneSurvivor = battleStats[i]["loneSurvivor"].asBool();
-						bool ironMan = battleStats[i]["ironMan"].asBool();
-						int longDistanceHitCounter = battleStats[i]["longDistanceHitCounter"].asInt();
-						int lowAccuracyHitCounter = battleStats[i]["lowAccuracyHitCounter"].asInt();
-						int shotsFiredCounter = battleStats[i]["shotsFiredCounter"].asInt();
-						int shotsLandedCounter = battleStats[i]["shotsLandedCounter"].asInt();
-
-						int daysWounded = battleStats[i]["daysWounded"].asInt();
-						bool KIA = battleStats[i]["KIA"].asBool();
-						bool nikeCross = battleStats[i]["nikeCross"].asBool();
-						bool mercyCross = battleStats[i]["mercyCross"].asBool();
-						int woundsHealed = battleStats[i]["woundsHealed"].asInt();
-
-						int delta_tu = battleStats[i]["delta"]["tu"].asInt();
-						int delta_stamina = battleStats[i]["delta"]["stamina"].asInt();
-						int delta_health = battleStats[i]["delta"]["health"].asInt();
-						int delta_bravery = battleStats[i]["delta"]["bravery"].asInt();
-						int delta_reactions = battleStats[i]["delta"]["reactions"].asInt();
-						int delta_firing = battleStats[i]["delta"]["firing"].asInt();
-						int delta_throwing = battleStats[i]["delta"]["throwing"].asInt();
-						int delta_strength = battleStats[i]["delta"]["strength"].asInt();
-						int delta_psiStrength = battleStats[i]["delta"]["psiStrength"].asInt();
-						int delta_psiSkill = battleStats[i]["delta"]["psiSkill"].asInt();
-						int delta_melee = battleStats[i]["delta"]["melee"].asInt();
-						int delta_mana = battleStats[i]["delta"]["mana"].asInt();
-
-						int appliedStimulant = battleStats[i]["appliedStimulant"].asInt();
-						int appliedPainKill = battleStats[i]["appliedPainKill"].asInt();
-						int revivedSoldier = battleStats[i]["revivedSoldier"].asInt();
-						int revivedHostile = battleStats[i]["revivedHostile"].asInt();
-						int revivedNeutral = battleStats[i]["revivedNeutral"].asInt();
-						bool MIA = battleStats[i]["MIA"].asBool();
-						int martyr = battleStats[i]["martyr"].asInt();
-						int slaveKills = battleStats[i]["slaveKills"].asInt();
-
-						auto& battle_unit_kills = battleStats[i]["battle_unit_kills"];
-
-						if (!battle_unit_kills.empty())
-						{
-
-							current_unit->getStatistics()->kills.clear();
-
-							for (int k = 0; k < battle_unit_kills.size(); k++)
-							{
-
-								std::string name = battle_unit_kills[k]["name"].asString();
-								std::string type = battle_unit_kills[k]["type"].asString();
-								std::string rank = battle_unit_kills[k]["rank"].asString();
-								std::string race = battle_unit_kills[k]["race"].asString();
-								std::string weapon = battle_unit_kills[k]["weapon"].asString();
-								std::string weaponAmmo = battle_unit_kills[k]["weaponAmmo"].asString();
-								int faction = battle_unit_kills[k]["faction"].asInt();
-								int status = battle_unit_kills[k]["status"].asInt();
-								int mission = battle_unit_kills[k]["mission"].asInt();
-								int turn = battle_unit_kills[k]["turn"].asInt();
-								int id = battle_unit_kills[k]["id"].asInt();
-								int bodypart = battle_unit_kills[k]["bodypart"].asInt();
-
-								BattleUnitKills killStat;
-								killStat.name = name;
-								killStat.type = type;
-								killStat.rank = rank;
-								killStat.race = race;
-								killStat.weapon = weapon;
-								killStat.weaponAmmo = weaponAmmo;
-								killStat.faction = UnitFaction(faction);
-								killStat.status = _game->getCoopMod()->intToUnitstatus(status);
-								killStat.mission = mission;
-								killStat.turn = turn;
-								killStat.id = id;
-								killStat.side = (UnitSide)battle_unit_kills[k]["side"].asUInt();
-								killStat.bodypart = (UnitBodyPart)bodypart;
-
-								current_unit->getStatistics()->kills.push_back(new BattleUnitKills(killStat));
-							}
-						}
-
-						current_unit->getStatistics()->wasUnconcious = wasUnconcious;
-						current_unit->getStatistics()->shotAtCounter = shotAtCounter;
-						current_unit->getStatistics()->hitCounter = hitCounter;
-						current_unit->getStatistics()->shotByFriendlyCounter = shotByFriendlyCounter;
-						current_unit->getStatistics()->shotFriendlyCounter = shotFriendlyCounter;
-						current_unit->getStatistics()->loneSurvivor = loneSurvivor;
-						current_unit->getStatistics()->ironMan = ironMan;
-						current_unit->getStatistics()->longDistanceHitCounter = longDistanceHitCounter;
-						current_unit->getStatistics()->lowAccuracyHitCounter = lowAccuracyHitCounter;
-						current_unit->getStatistics()->shotsFiredCounter = shotsFiredCounter;
-						current_unit->getStatistics()->shotsLandedCounter = shotsLandedCounter;
-						current_unit->getStatistics()->daysWounded = daysWounded;
-						current_unit->getStatistics()->KIA = KIA;
-						current_unit->getStatistics()->nikeCross = nikeCross;
-						current_unit->getStatistics()->mercyCross = mercyCross;
-						current_unit->getStatistics()->woundsHealed = woundsHealed;
-
-						current_unit->getStatistics()->delta.tu = delta_tu;
-						current_unit->getStatistics()->delta.stamina = delta_stamina;
-						current_unit->getStatistics()->delta.health = delta_health;
-						current_unit->getStatistics()->delta.bravery = delta_bravery;
-						current_unit->getStatistics()->delta.reactions = delta_reactions;
-						current_unit->getStatistics()->delta.firing = delta_firing;
-						current_unit->getStatistics()->delta.throwing = delta_throwing;
-						current_unit->getStatistics()->delta.strength = delta_strength;
-						current_unit->getStatistics()->delta.psiStrength = delta_psiStrength;
-						current_unit->getStatistics()->delta.psiSkill = delta_psiSkill;
-						current_unit->getStatistics()->delta.melee = delta_melee;
-						current_unit->getStatistics()->delta.mana = delta_mana;
-
-						current_unit->getStatistics()->appliedStimulant = appliedStimulant;
-						current_unit->getStatistics()->appliedPainKill = appliedPainKill;
-						current_unit->getStatistics()->revivedSoldier = revivedSoldier;
-						current_unit->getStatistics()->revivedHostile = revivedHostile;
-						current_unit->getStatistics()->revivedNeutral = revivedNeutral;
-						current_unit->getStatistics()->MIA = MIA;
-						current_unit->getStatistics()->martyr = martyr;
-						current_unit->getStatistics()->slaveKills = slaveKills;
-					}
-				}
-			}
-		}
-	}
 
 	// Check to see if any of the dead soldiers were exceptional.
 	for (auto* deadUnit : *battle->getUnits())
@@ -1046,178 +784,8 @@ void DebriefingState::init()
 				}
 			}
 
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-			{
-
-				// battle stats
-				auto& battleStats = _game->getCoopMod()->_battle_stats;
-
-				if (!battleStats.empty())
-				{
-
-					for (int i = 0; i < battleStats.size(); i++)
-					{
-
-						BattleUnit* current_unit = 0;
-
-						int unit_id = battleStats[i]["unit_id"].asInt();
-
-						if (bu->getId() == unit_id)
-						{
-							current_unit = bu;
-						}
-
-						if (current_unit)
-						{
-					
-							// fix
-							int status_int = battleStats[i]["status"].asInt();
-							current_unit->setCoopStatus(_game->getCoopMod()->intToUnitstatus(status_int));
-
-							if (current_unit->getStatistics())
-							{
-
-								int MurdererId = battleStats[i]["MurdererId"].asInt();
-								std::string MurdererWeapon = battleStats[i]["MurdererWeapon"].asString();
-								std::string MurdererWeaponAmmo = battleStats[i]["MurdererWeaponAmmo"].asString();
-
-								current_unit->setMurdererId(MurdererId);
-								current_unit->setMurdererWeapon(MurdererWeapon);
-								current_unit->setMurdererWeaponAmmo(MurdererWeaponAmmo);
-
-								bool wasUnconcious = battleStats[i]["wasUnconcious"].asBool();
-								int shotAtCounter = battleStats[i]["shotAtCounter"].asInt();
-								int hitCounter = battleStats[i]["hitCounter"].asInt();
-								int shotByFriendlyCounter = battleStats[i]["shotByFriendlyCounter"].asInt();
-								int shotFriendlyCounter = battleStats[i]["shotFriendlyCounter"].asInt();
-								bool loneSurvivor = battleStats[i]["loneSurvivor"].asBool();
-								bool ironMan = battleStats[i]["ironMan"].asBool();
-								int longDistanceHitCounter = battleStats[i]["longDistanceHitCounter"].asInt();
-								int lowAccuracyHitCounter = battleStats[i]["lowAccuracyHitCounter"].asInt();
-								int shotsFiredCounter = battleStats[i]["shotsFiredCounter"].asInt();
-								int shotsLandedCounter = battleStats[i]["shotsLandedCounter"].asInt();
-
-								int daysWounded = battleStats[i]["daysWounded"].asInt();
-								bool KIA = battleStats[i]["KIA"].asBool();
-								bool nikeCross = battleStats[i]["nikeCross"].asBool();
-								bool mercyCross = battleStats[i]["mercyCross"].asBool();
-								int woundsHealed = battleStats[i]["woundsHealed"].asInt();
-
-								int delta_tu = battleStats[i]["delta"]["tu"].asInt();
-								int delta_stamina = battleStats[i]["delta"]["stamina"].asInt();
-								int delta_health = battleStats[i]["delta"]["health"].asInt();
-								int delta_bravery = battleStats[i]["delta"]["bravery"].asInt();
-								int delta_reactions = battleStats[i]["delta"]["reactions"].asInt();
-								int delta_firing = battleStats[i]["delta"]["firing"].asInt();
-								int delta_throwing = battleStats[i]["delta"]["throwing"].asInt();
-								int delta_strength = battleStats[i]["delta"]["strength"].asInt();
-								int delta_psiStrength = battleStats[i]["delta"]["psiStrength"].asInt();
-								int delta_psiSkill = battleStats[i]["delta"]["psiSkill"].asInt();
-								int delta_melee = battleStats[i]["delta"]["melee"].asInt();
-								int delta_mana = battleStats[i]["delta"]["mana"].asInt();
-
-								int appliedStimulant = battleStats[i]["appliedStimulant"].asInt();
-								int appliedPainKill = battleStats[i]["appliedPainKill"].asInt();
-								int revivedSoldier = battleStats[i]["revivedSoldier"].asInt();
-								int revivedHostile = battleStats[i]["revivedHostile"].asInt();
-								int revivedNeutral = battleStats[i]["revivedNeutral"].asInt();
-								bool MIA = battleStats[i]["MIA"].asBool();
-								int martyr = battleStats[i]["martyr"].asInt();
-								int slaveKills = battleStats[i]["slaveKills"].asInt();
-
-								auto& battle_unit_kills = battleStats[i]["battle_unit_kills"];
-
-								if (!battle_unit_kills.empty())
-								{
-
-									current_unit->getStatistics()->kills.clear();
-
-									for (int k = 0; k < battle_unit_kills.size(); k++)
-									{
-
-										std::string name = battle_unit_kills[k]["name"].asString();
-										std::string type = battle_unit_kills[k]["type"].asString();
-										std::string rank = battle_unit_kills[k]["rank"].asString();
-										std::string race = battle_unit_kills[k]["race"].asString();
-										std::string weapon = battle_unit_kills[k]["weapon"].asString();
-										std::string weaponAmmo = battle_unit_kills[k]["weaponAmmo"].asString();
-										int faction = battle_unit_kills[k]["faction"].asInt();
-										int status = battle_unit_kills[k]["status"].asInt();
-										int mission = battle_unit_kills[k]["mission"].asInt();
-										int turn = battle_unit_kills[k]["turn"].asInt();
-										int id = battle_unit_kills[k]["id"].asInt();
-										int bodypart = battle_unit_kills[k]["bodypart"].asInt();
-
-										BattleUnitKills killStat;
-										killStat.name = name;
-										killStat.type = type;
-										killStat.rank = rank;
-										killStat.race = race;
-										killStat.weapon = weapon;
-										killStat.weaponAmmo = weaponAmmo;
-										killStat.faction = UnitFaction(faction);
-										killStat.status = _game->getCoopMod()->intToUnitstatus(status);
-										killStat.mission = mission;
-										killStat.turn = turn;
-										killStat.id = id;
-										killStat.side = (UnitSide)battle_unit_kills[k]["side"].asUInt();
-										killStat.bodypart = (UnitBodyPart)bodypart;
-
-										current_unit->getStatistics()->kills.push_back(new BattleUnitKills(killStat));
-									}
-								}
-
-								current_unit->getStatistics()->wasUnconcious = wasUnconcious;
-								current_unit->getStatistics()->shotAtCounter = shotAtCounter;
-								current_unit->getStatistics()->hitCounter = hitCounter;
-								current_unit->getStatistics()->shotByFriendlyCounter = shotByFriendlyCounter;
-								current_unit->getStatistics()->shotFriendlyCounter = shotFriendlyCounter;
-								current_unit->getStatistics()->loneSurvivor = loneSurvivor;
-								current_unit->getStatistics()->ironMan = ironMan;
-								current_unit->getStatistics()->longDistanceHitCounter = longDistanceHitCounter;
-								current_unit->getStatistics()->lowAccuracyHitCounter = lowAccuracyHitCounter;
-								current_unit->getStatistics()->shotsFiredCounter = shotsFiredCounter;
-								current_unit->getStatistics()->shotsLandedCounter = shotsLandedCounter;
-								current_unit->getStatistics()->daysWounded = daysWounded;
-								current_unit->getStatistics()->KIA = KIA;
-								current_unit->getStatistics()->nikeCross = nikeCross;
-								current_unit->getStatistics()->mercyCross = mercyCross;
-								current_unit->getStatistics()->woundsHealed = woundsHealed;
-
-								current_unit->getStatistics()->delta.tu = delta_tu;
-								current_unit->getStatistics()->delta.stamina = delta_stamina;
-								current_unit->getStatistics()->delta.health = delta_health;
-								current_unit->getStatistics()->delta.bravery = delta_bravery;
-								current_unit->getStatistics()->delta.reactions = delta_reactions;
-								current_unit->getStatistics()->delta.firing = delta_firing;
-								current_unit->getStatistics()->delta.throwing = delta_throwing;
-								current_unit->getStatistics()->delta.strength = delta_strength;
-								current_unit->getStatistics()->delta.psiStrength = delta_psiStrength;
-								current_unit->getStatistics()->delta.psiSkill = delta_psiSkill;
-								current_unit->getStatistics()->delta.melee = delta_melee;
-								current_unit->getStatistics()->delta.mana = delta_mana;
-
-								current_unit->getStatistics()->appliedStimulant = appliedStimulant;
-								current_unit->getStatistics()->appliedPainKill = appliedPainKill;
-								current_unit->getStatistics()->revivedSoldier = revivedSoldier;
-								current_unit->getStatistics()->revivedHostile = revivedHostile;
-								current_unit->getStatistics()->revivedNeutral = revivedNeutral;
-								current_unit->getStatistics()->MIA = MIA;
-								current_unit->getStatistics()->martyr = martyr;
-								current_unit->getStatistics()->slaveKills = slaveKills;
-							}
-						}
-					}
-
-				}
-
-			}
-			else
-			{
-				// Set the UnitStats delta
-				bu->getStatistics()->delta = *bu->getGeoscapeSoldier()->getCurrentStats() - *bu->getGeoscapeSoldier()->getInitStats();
-			}
+			// Set the UnitStats delta
+			bu->getStatistics()->delta = *bu->getGeoscapeSoldier()->getCurrentStats() - *bu->getGeoscapeSoldier()->getInitStats();
 
 			bu->getGeoscapeSoldier()->getDiary()->updateDiary(bu->getStatistics(), _game->getSavedGame()->getMissionStatistics(), _game->getMod());
 			if (!bu->getStatistics()->MIA && !bu->getStatistics()->KIA &&
@@ -1249,21 +817,12 @@ void DebriefingState::init()
 		}
 	}
 
-	// coop
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		_promotions = _game->getCoopMod()->_coop_promotions;
-
-		_game->getCoopMod()->_battle_stats.clear();
-
-	}
-
-	// coop
-	if (Options::oxceAutomaticPromotions && ((_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true) || (_game->getCoopMod()->getCoopStatic() == false)))
+	if (Options::oxceAutomaticPromotions)
 	{
 		_promotions = _game->getSavedGame()->handlePromotions(participants, _game->getMod());
 	}
+
+	_game->getSavedGame()->setBattleGame(0);
 
 	if (_positiveScore)
 	{
@@ -1273,234 +832,8 @@ void DebriefingState::init()
 	{
 		_game->getMod()->playMusic(Mod::DEBRIEF_MUSIC_BAD);
 	}
-
-	// COOP
-	// In PvP (gm2/gm3) both machines end the battle independently via their own
-	// finishBattle, so the host must NOT also push the peer a "DebriefingState"
-	// packet - that would double-run EndCoopBattle + pushState(DebriefingState)
-	// on the client (which already ended). Fence the send to non-PvP modes only.
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true
-		&& !(_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3))
-	{
-
-		Json::Value root;
-		root["state"] = "DebriefingState";
-
-		root["abort"] = false;
-		root["title"] = _txtTitle->getText();
-		root["promotions"] = _promotions;
-
-		// missionStatistics
-		root["isMissionStatistics"] = false;
-		if (_missionStatistics && _game->getCoopMod()->getServerOwner() == false && _game->getCoopMod()->getHost() == true)
-		{
-
-			root["isMissionStatistics"] = true;
-
-			root["missionStatistics"]["id"] = _missionStatistics->id;
-			root["missionStatistics"]["markerName"] = _missionStatistics->markerName;
-			root["missionStatistics"]["markerId"] = _missionStatistics->markerId;
-			root["missionStatistics"]["time"]["second"] = _missionStatistics->time.getSecond();
-			root["missionStatistics"]["time"]["minute"] = _missionStatistics->time.getMinute();
-			root["missionStatistics"]["time"]["hour"] = _missionStatistics->time.getHour();
-			root["missionStatistics"]["time"]["weekday"] = _missionStatistics->time.getWeekday();
-			root["missionStatistics"]["time"]["day"] = _missionStatistics->time.getDay();
-			root["missionStatistics"]["time"]["month"] = _missionStatistics->time.getMonth();
-			root["missionStatistics"]["time"]["year"] = _missionStatistics->time.getYear();
-			root["missionStatistics"]["region"] = _missionStatistics->region;
-			root["missionStatistics"]["country"] = _missionStatistics->country;
-			root["missionStatistics"]["type"] = _missionStatistics->type;
-			root["missionStatistics"]["ufo"] = _missionStatistics->ufo;
-			root["missionStatistics"]["success"] = _missionStatistics->success;
-			root["missionStatistics"]["rating"] = _missionStatistics->rating;
-			root["missionStatistics"]["score"] = _missionStatistics->score;
-			root["missionStatistics"]["alienRace"] = _missionStatistics->alienRace;
-			root["missionStatistics"]["daylight"] = _missionStatistics->daylight;
-			root["missionStatistics"]["injuryList"] = _game->getCoopMod()->toJson(_missionStatistics->injuryList); 
-			root["missionStatistics"]["valiantCrux"] = _missionStatistics->valiantCrux;
-			root["missionStatistics"]["lootValue"] = _missionStatistics->lootValue;
-
-		}
-
-		// rank
-		int soldier_index = 0;
-
-		if (_base)
-		{
-
-			for (auto& soldier : *_base->getSoldiers())
-			{
-
-				root["soldiers"][soldier_index]["coopbase"] = soldier->getCoopBase();
-				root["soldiers"][soldier_index]["coopname"] = soldier->getCoopName();
-				root["soldiers"][soldier_index]["name"] = soldier->getName();
-				root["soldiers"][soldier_index]["nationality"] = soldier->getNationality();
-				root["soldiers"][soldier_index]["rank"] = _game->getCoopMod()->SoldierRanktoInt(soldier->getRank());
-				root["soldiers"][soldier_index]["promoted"] = soldier->getRecentlyPromotedCoop();
-
-				if (soldier->getInitStats())
-				{
-
-					root["soldiers"][soldier_index]["init_tu"] = static_cast<int>(soldier->getInitStats()->tu);
-
-				}
-
-				if (soldier->getCurrentStats())
-				{
-
-					root["soldiers"][soldier_index]["unit_stats"]["tu"] = static_cast<int>(soldier->getCurrentStats()->tu);
-					root["soldiers"][soldier_index]["unit_stats"]["stamina"] = static_cast<int>(soldier->getCurrentStats()->stamina);
-					root["soldiers"][soldier_index]["unit_stats"]["health"] = static_cast<int>(soldier->getCurrentStats()->health);
-					root["soldiers"][soldier_index]["unit_stats"]["bravery"] = static_cast<int>(soldier->getCurrentStats()->bravery);
-					root["soldiers"][soldier_index]["unit_stats"]["reactions"] = static_cast<int>(soldier->getCurrentStats()->reactions);
-					root["soldiers"][soldier_index]["unit_stats"]["firing"] = static_cast<int>(soldier->getCurrentStats()->firing);
-					root["soldiers"][soldier_index]["unit_stats"]["throwing"] = static_cast<int>(soldier->getCurrentStats()->throwing);
-					root["soldiers"][soldier_index]["unit_stats"]["strength"] = static_cast<int>(soldier->getCurrentStats()->strength);
-					root["soldiers"][soldier_index]["unit_stats"]["psiStrength"] = static_cast<int>(soldier->getCurrentStats()->psiStrength);
-					root["soldiers"][soldier_index]["unit_stats"]["psiSkill"] = static_cast<int>(soldier->getCurrentStats()->psiSkill);
-					root["soldiers"][soldier_index]["unit_stats"]["melee"] = static_cast<int>(soldier->getCurrentStats()->melee);
-					root["soldiers"][soldier_index]["unit_stats"]["mana"] = static_cast<int>(soldier->getCurrentStats()->mana);
-				}
-
-				soldier_index++;
-			}
-
-		}
-
-		// stats
-		root["soldier_stats"] = Json::nullValue;
-		int stats_index = 0;
-		for (auto& soldier_stats : _soldierStats)
-		{
-
-			root["soldier_stats"][stats_index]["name"] = soldier_stats.first;
-
-			root["soldier_stats"][stats_index]["unit_stats"]["tu"] = static_cast<int>(soldier_stats.second.tu);
-			root["soldier_stats"][stats_index]["unit_stats"]["stamina"] = static_cast<int>(soldier_stats.second.stamina);
-			root["soldier_stats"][stats_index]["unit_stats"]["health"] = static_cast<int>(soldier_stats.second.health);
-			root["soldier_stats"][stats_index]["unit_stats"]["bravery"] = static_cast<int>(soldier_stats.second.bravery);
-			root["soldier_stats"][stats_index]["unit_stats"]["reactions"] = static_cast<int>(soldier_stats.second.reactions);
-			root["soldier_stats"][stats_index]["unit_stats"]["firing"] = static_cast<int>(soldier_stats.second.firing);
-			root["soldier_stats"][stats_index]["unit_stats"]["throwing"] = static_cast<int>(soldier_stats.second.throwing);
-			root["soldier_stats"][stats_index]["unit_stats"]["strength"] = static_cast<int>(soldier_stats.second.strength);
-			root["soldier_stats"][stats_index]["unit_stats"]["psiStrength"] = static_cast<int>(soldier_stats.second.psiStrength);
-			root["soldier_stats"][stats_index]["unit_stats"]["psiSkill"] = static_cast<int>(soldier_stats.second.psiSkill);
-			root["soldier_stats"][stats_index]["unit_stats"]["melee"] = static_cast<int>(soldier_stats.second.melee);
-			root["soldier_stats"][stats_index]["unit_stats"]["mana"] = static_cast<int>(soldier_stats.second.mana);
-
-			stats_index++;
-
-		}
-
-		// battle stats
-		root["battle_stats"] = Json::nullValue;
-		int battle_stats_index = 0;
-		for (auto &bu : *battle->getUnits())
-		{
-		
-				const auto* statistics = bu->getStatistics();
-
-				if (statistics)
-				{
-
-					root["battle_stats"][battle_stats_index]["unit_id"] = bu->getId();
-
-					// fix!
-					root["battle_stats"][battle_stats_index]["status"] = _game->getCoopMod()->unitstatusToInt(bu->getStatus());
-
-					root["battle_stats"][battle_stats_index]["MurdererId"] = bu->getMurdererId();
-					root["battle_stats"][battle_stats_index]["MurdererWeapon"] = bu->getMurdererWeapon();
-					root["battle_stats"][battle_stats_index]["MurdererWeaponAmmo"] = bu->getMurdererWeaponAmmo();
-
-					root["battle_stats"][battle_stats_index]["wasUnconcious"] = statistics->wasUnconcious;
-					root["battle_stats"][battle_stats_index]["shotAtCounter"] = statistics->shotAtCounter;
-					root["battle_stats"][battle_stats_index]["hitCounter"] = statistics->hitCounter;
-					root["battle_stats"][battle_stats_index]["shotByFriendlyCounter"] = statistics->shotByFriendlyCounter;
-					root["battle_stats"][battle_stats_index]["shotFriendlyCounter"] = statistics->shotFriendlyCounter;
-					root["battle_stats"][battle_stats_index]["loneSurvivor"] = statistics->loneSurvivor;
-					root["battle_stats"][battle_stats_index]["ironMan"] = statistics->ironMan;
-					root["battle_stats"][battle_stats_index]["longDistanceHitCounter"] = statistics->longDistanceHitCounter;
-					root["battle_stats"][battle_stats_index]["lowAccuracyHitCounter"] = statistics->lowAccuracyHitCounter;
-					root["battle_stats"][battle_stats_index]["shotsFiredCounter"] = statistics->shotsFiredCounter;
-					root["battle_stats"][battle_stats_index]["shotsLandedCounter"] = statistics->shotsLandedCounter;
-
-					root["battle_stats"][battle_stats_index]["battle_unit_kills"] = Json::nullValue;
-					int battle_kill_index = 0;
-					for (auto& kill : bu->getStatistics()->kills)
-					{
-
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["name"] = kill->name;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["type"] = kill->type;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["rank"] = kill->rank;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["race"] = kill->race;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["weapon"] = kill->weapon;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["weaponAmmo"] = kill->weaponAmmo;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["faction"] = (int)kill->faction;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["status"] = _game->getCoopMod()->unitstatusToInt(kill->status);
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["mission"] = kill->mission;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["turn"] = kill->turn;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["id"] = kill->id;
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["side"] = static_cast<Json::UInt>(kill->side);
-						root["battle_stats"][battle_stats_index]["battle_unit_kills"][battle_kill_index]["bodypart"] = (int)kill->bodypart;
-
-						battle_kill_index++;
-					}
-
-					root["battle_stats"][battle_stats_index]["daysWounded"] = statistics->daysWounded;
-					root["battle_stats"][battle_stats_index]["KIA"] = statistics->KIA;
-					root["battle_stats"][battle_stats_index]["nikeCross"] = statistics->nikeCross;
-					root["battle_stats"][battle_stats_index]["mercyCross"] = statistics->mercyCross;
-					root["battle_stats"][battle_stats_index]["woundsHealed"] = statistics->woundsHealed;
-
-					root["battle_stats"][battle_stats_index]["delta"]["tu"] = static_cast<int>(bu->getStatistics()->delta.tu);
-					root["battle_stats"][battle_stats_index]["delta"]["stamina"] = static_cast<int>(bu->getStatistics()->delta.stamina);
-					root["battle_stats"][battle_stats_index]["delta"]["health"] = static_cast<int>(bu->getStatistics()->delta.health);
-					root["battle_stats"][battle_stats_index]["delta"]["bravery"] = static_cast<int>(bu->getStatistics()->delta.bravery);
-					root["battle_stats"][battle_stats_index]["delta"]["reactions"] = static_cast<int>(bu->getStatistics()->delta.reactions);
-					root["battle_stats"][battle_stats_index]["delta"]["firing"] = static_cast<int>(bu->getStatistics()->delta.firing);
-					root["battle_stats"][battle_stats_index]["delta"]["throwing"] = static_cast<int>(bu->getStatistics()->delta.throwing);
-					root["battle_stats"][battle_stats_index]["delta"]["strength"] = static_cast<int>(bu->getStatistics()->delta.strength);
-					root["battle_stats"][battle_stats_index]["delta"]["psiStrength"] = static_cast<int>(bu->getStatistics()->delta.psiStrength);
-					root["battle_stats"][battle_stats_index]["delta"]["psiSkill"] = static_cast<int>(bu->getStatistics()->delta.psiSkill);
-					root["battle_stats"][battle_stats_index]["delta"]["melee"] = static_cast<int>(bu->getStatistics()->delta.melee);
-					root["battle_stats"][battle_stats_index]["delta"]["mana"] = static_cast<int>(bu->getStatistics()->delta.mana);
-
-					root["battle_stats"][battle_stats_index]["appliedStimulant"] = statistics->appliedStimulant;
-					root["battle_stats"][battle_stats_index]["appliedPainKill"] = statistics->appliedPainKill;
-					root["battle_stats"][battle_stats_index]["revivedSoldier"] = statistics->revivedSoldier;
-					root["battle_stats"][battle_stats_index]["revivedHostile"] = statistics->revivedHostile;
-					root["battle_stats"][battle_stats_index]["revivedNeutral"] = statistics->revivedNeutral;
-					root["battle_stats"][battle_stats_index]["MIA"] = statistics->MIA;
-					root["battle_stats"][battle_stats_index]["martyr"] = statistics->martyr;
-					root["battle_stats"][battle_stats_index]["slaveKills"] = statistics->slaveKills;
-
-					battle_stats_index++;
-
-				}
-
-		}
-
-		if (_game->getSavedGame()->getSavedBattle())
-		{
-			root["abort"] = _game->getSavedGame()->getSavedBattle()->isAborted();
-		}
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-	}
-
-	// COOP
-	if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == false)
-	{
-
-		if (_game->getCoopMod()->_debriefing_coop_title != "")
-		{
-			_txtTitle->setText(_game->getCoopMod()->_debriefing_coop_title);
-		}
-
-	}
-
-	_game->getSavedGame()->setBattleGame(0);
-
+	_game->getCoopMod()->coopSeparateBattleEndRoster(this); // coop
+	_game->getCoopMod()->coopDebriefHostSend(this); // coop: the host sends bt_debrief_result
 }
 
 /**
@@ -1565,27 +898,11 @@ void DebriefingState::btnTransferClick(Action *)
  */
 void DebriefingState::btnOkClick(Action *)
 {
+	if (_game->getCoopMod()->coopDebriefOk(this)) return; // coop: a display-only client leaves via GoToMainMenuState; the host's battle-end debriefing resets its co-op battle scope first
 	_game->popState();
 	if (_game->getSavedGame()->getMonthsPassed() == -1)
 	{
-		// coop (#162 / 056b500db reconciliation): a skirmish OK-exit is a GRACEFUL
-		// leave, not a drop. Tell the peer BEFORE our own teardown closes the socket
-		// so it can suppress the "<player> has left the server" notice over its own
-		// debriefing (056b500db's intent) while still raising it for an ABRUPT drop
-		// (#162). Sent from here - the one clean chokepoint for the skirmish exit;
-		// GoToMainMenuState carries no coop code. Queued ahead of the teardown, and
-		// TCP in-order delivery lands it before the FIN. Additive: an old peer just
-		// ignores the message (and a new peer then shows the notice on this clean
-		// exit too - acceptable version-mixing degradation, see PROTOCOL.md).
-		if (_game->getCoopMod()->getCoopStatic() == true)
-		{
-			Json::Value leaving;
-			leaving["state"] = "coop_leaving";
-			_game->getCoopMod()->sendTCPPacketData(leaving.toStyledString());
-		}
-		// issue #82: a skirmish ends the world - GoToMainMenuState drops the SavedGame
-		// instead of leaving it live (and leaking) for the rest of the process.
-		_game->setState(new GoToMainMenuState(false));
+		_game->setState(new MainMenuState);
 	}
 	else
 	{
@@ -1627,7 +944,9 @@ void DebriefingState::btnOkClick(Action *)
 				_separateMissionOwner);
 			if (canSpawn)
 			{
+				const Json::Value h15Mark = SharedEcon::eventMark(_game);
 				_game->pushState(new GeoscapeEventState(*_eventToSpawn));
+				SharedEcon::hostGeoEvent(_game, *_eventToSpawn, h15Mark, _game->getStates().back()); // the after-battle event reaches the second player
 			}
 		}
 		if (!_deadSoldiersCommended.empty())
@@ -1694,8 +1013,7 @@ void DebriefingState::btnOkClick(Action *)
 				}
 			}
 
-			// coop fix
-			if (Options::storageLimitsEnforced && _base->storesOverfull() && (_game->getCoopMod()->getHost() == true || _game->getCoopMod()->getCoopStatic() == false))
+			if (Options::storageLimitsEnforced && _base->storesOverfull())
 			{
 				_game->pushState(new SellState(_base, 0, OPT_BATTLESCAPE));
 				_game->pushState(new ErrorMessageState(tr("STR_STORAGE_EXCEEDED").arg(_base->getName()), _palette, _game->getMod()->getInterface("debriefing")->getElement("errorMessage")->color, "BACK01.SCR", _game->getMod()->getInterface("debriefing")->getElement("errorPalette")->color));
@@ -2076,6 +1394,7 @@ void DebriefingState::prepareDebriefing()
 				_missionStatistics->alienRace = ufo->getAlienRace();
 			}
 			_txtRecovery->setText(tr("STR_UFO_RECOVERY"));
+			_coopRecoveryKey = "STR_UFO_RECOVERY"; // coop
 			ufo->setInBattlescape(false);
 			// if XCom failed to secure the landing zone, the UFO
 			// takes off immediately and proceeds according to its mission directive
@@ -2140,6 +1459,7 @@ void DebriefingState::prepareDebriefing()
 		if (ab->isInBattlescape())
 		{
 			_txtRecovery->setText(tr("STR_ALIEN_BASE_RECOVERY"));
+			_coopRecoveryKey = "STR_ALIEN_BASE_RECOVERY"; // coop
 			bool destroyAlienBase = true;
 
 			if (aborted || playersSurvived == 0)
@@ -2313,9 +1633,9 @@ void DebriefingState::prepareDebriefing()
 					|| (aborted && bunit->isInExitArea(END_POINT)))
 				{ // so game is not aborted or aborted and unit is on exit area
 					StatAdjustment statIncrease;
-					bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease);
+					{ CoopScriptDebriefOwner coopOwner(_game, bunit); bunit->postMissionProcedures(_game->getMod(), save, battle, statIncrease); } // coop
 					if (bunit->getGeoscapeSoldier())
-						_soldierStats.push_back(std::pair<std::string, UnitStats>(bunit->getGeoscapeSoldier()->getName(), statIncrease.statGrowth));
+						_soldierStats.push_back(std::pair<std::string, UnitStats>(_game->getCoopMod()->coopDebriefSoldierName(this, bunit->getGeoscapeSoldier()), statIncrease.statGrowth)); // coop
 					playersInExitArea2++;
 
 					recoverItems(bunit->getInventory(), base, craft);
@@ -2327,6 +1647,7 @@ void DebriefingState::prepareDebriefing()
 					}
 					else
 					{ // non soldier player = tank
+						if (coopGuestTankRecovered(bunit)) continue; // coop: a SEPARATE partner's tank goes home, not into these stores
 						addItemsToBaseStores(bunit->getType(), base, 1, false);
 
 						auto unloadWeapon = [&](BattleItem *weapon)
@@ -2446,8 +1767,7 @@ void DebriefingState::prepareDebriefing()
 		{
 			// craft was not even on the battlescape (e.g. paratroopers)
 		}
-		// coop fix
-		else if (ruleDeploy && ruleDeploy->keepCraftAfterFailedMission())
+		else if (ruleDeploy->keepCraftAfterFailedMission())
 		{
 			// craft didn't wait for you (e.g. escape/extraction missions)
 		}
@@ -2461,6 +1781,7 @@ void DebriefingState::prepareDebriefing()
 			save->removeAllSoldiersFromXcomCraft(craft); // needed in case some soldiers couldn't spawn
 			base->removeCraft(craft, false);
 			delete craft;
+			save->increaseCraftLostMission();
 			craft = 0; // To avoid a crash down there!!
 			lostCraft = true;
 		}
@@ -2530,18 +1851,22 @@ void DebriefingState::prepareDebriefing()
 		if (target == "STR_BASE")
 		{
 			_txtTitle->setText(tr("STR_BASE_IS_SAVED"));
+			_coopTitleKey = "STR_BASE_IS_SAVED"; // coop
 		}
 		else if (target == "STR_UFO")
 		{
 			_txtTitle->setText(tr("STR_UFO_IS_RECOVERED"));
+			_coopTitleKey = "STR_UFO_IS_RECOVERED"; // coop
 		}
 		else if (target == "STR_ALIEN_BASE")
 		{
 			_txtTitle->setText(tr("STR_ALIEN_BASE_DESTROYED"));
+			_coopTitleKey = "STR_ALIEN_BASE_DESTROYED"; // coop
 		}
 		else
 		{
 			_txtTitle->setText(tr("STR_ALIENS_DEFEATED"));
+			_coopTitleKey = "STR_ALIENS_DEFEATED"; // coop
 			if (!aborted && !savedEnoughVIPs)
 			{
 				// Special case: mission was NOT aborted, all enemies were neutralized, but we couldn't save enough VIPs...
@@ -2582,15 +1907,18 @@ void DebriefingState::prepareDebriefing()
 			if (!missionFailedText.empty())
 			{
 				_txtTitle->setText(tr(missionFailedText));
+				_coopTitleKey = missionFailedText; // coop
 			}
 			else
 			{
 				_txtTitle->setText(tr("STR_TERROR_CONTINUES"));
+				_coopTitleKey = "STR_TERROR_CONTINUES"; // coop
 			}
 		}
 		else if (!missionCompleteText.empty())
 		{
 			_txtTitle->setText(tr(missionCompleteText));
+			_coopTitleKey = missionCompleteText; // coop
 		}
 
 		if (!aborted)
@@ -2636,23 +1964,28 @@ void DebriefingState::prepareDebriefing()
 		if (lostCraft)
 		{
 			_txtTitle->setText(tr("STR_CRAFT_IS_LOST"));
+			_coopTitleKey = "STR_CRAFT_IS_LOST"; // coop
 		}
 		else if (target == "STR_BASE")
 		{
 			_txtTitle->setText(tr("STR_BASE_IS_LOST"));
+			_coopTitleKey = "STR_BASE_IS_LOST"; // coop
 			_destroyBase = true;
 		}
 		else if (target == "STR_UFO")
 		{
 			_txtTitle->setText(tr("STR_UFO_IS_NOT_RECOVERED"));
+			_coopTitleKey = "STR_UFO_IS_NOT_RECOVERED"; // coop
 		}
 		else if (target == "STR_ALIEN_BASE")
 		{
 			_txtTitle->setText(tr("STR_ALIEN_BASE_STILL_INTACT"));
+			_coopTitleKey = "STR_ALIEN_BASE_STILL_INTACT"; // coop
 		}
 		else
 		{
 			_txtTitle->setText(tr("STR_TERROR_CONTINUES"));
+			_coopTitleKey = "STR_TERROR_CONTINUES"; // coop
 			if (!objectiveFailedText.empty())
 			{
 				addStat(objectiveFailedText, 1, objectiveFailedScore);
@@ -2661,6 +1994,7 @@ void DebriefingState::prepareDebriefing()
 		if (!missionFailedText.empty())
 		{
 			_txtTitle->setText(tr(missionFailedText));
+			_coopTitleKey = missionFailedText; // coop
 		}
 
 		if (playersSurvived > 0 && !_destroyBase)
@@ -2924,7 +2258,7 @@ void DebriefingState::prepareDebriefing()
 		{
 			// coop SEPARATE, shared research: only this world ran the mission; the
 			// other player learns the same topic and bonus.
-			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getBases()->front());
+			_game->getCoopMod()->sendResearchSync(research, bonus, research, save->getCoopHqBase()); // coop: the sender's first own base
 		}
 
 		// Increase counters
@@ -2987,8 +2321,9 @@ void DebriefingState::reequipCraft(Base *base, Craft *craft, bool vehicleItemsCa
 	ItemContainer craftVehicles;
 	for (auto* vehicle : *craft->getVehicles())
 	{
-
-		// coop fix
+		// coop: a tank THIS world parked at a co-op
+		// partner's base fought in this battle as the host's and now leaves the craft: it is not re-added, and one tank of its
+		// type leaves this base's stores (the one vanilla's recovery credited, or a spare when it was destroyed).
 		if (vehicle->getCoopCraft() == -1)
 		{
 			craftVehicles.addItem(vehicle->getRules());
@@ -2997,7 +2332,6 @@ void DebriefingState::reequipCraft(Base *base, Craft *craft, bool vehicleItemsCa
 		{
 			base->getStorageItems()->removeItem(vehicle->getRules());
 		}
-
 	}
 
 	// Now we know how many vehicles (separated by types) we have to read
@@ -3155,7 +2489,10 @@ void DebriefingState::recoverItems(std::vector<BattleItem*> *from, Base *base, C
 		if (rule->getBattleType() == BT_AMMO && rule->getClipSize() > 0)
 		{
 			// It's a clip, count any rounds left.
-			_rounds[rule] += clip->getAmmoQuantity();
+			if (rule->isAmmoRechargeable())
+				_rounds[rule] += rule->getClipSize(); // restore 100% of clip capacity (i.e. the clip will be recharged at the base)
+			else
+				_rounds[rule] += clip->getAmmoQuantity();
 		}
 		else
 		{
@@ -3190,38 +2527,31 @@ void DebriefingState::recoverItems(std::vector<BattleItem*> *from, Base *base, C
 		}
 		else
 		{
-
 			if (rule->isRecoverable() && !bi->getXCOMProperty())
 			{
 				if (rule->getBattleType() == BT_CORPSE)
 				{
-
-					// coop fix
-					if (bi->getUnit())
+					BattleUnit *corpseUnit = bi->getUnit();
+					if (corpseUnit->getStatus() == STATUS_DEAD)
 					{
-						BattleUnit* corpseUnit = bi->getUnit();
-						if (corpseUnit->getStatus() == STATUS_DEAD)
+						if (rule->isCorpseRecoverable())
 						{
-							if (rule->isCorpseRecoverable())
-							{
-								addItemsToBaseStores(corpseUnit->getArmor()->getCorpseGeoscape(), base, 1, true);
-								addStat("STR_ALIEN_CORPSES_RECOVERED", 1, bi->getRules()->getRecoveryPoints());
-							}
-						}
-						else if (corpseUnit->getStatus() == STATUS_UNCONSCIOUS ||
-								 // or it's in timeout because it's unconscious from the previous stage
-								 // units can be in timeout and alive, and we assume they flee.
-								 (corpseUnit->isIgnored() &&
-								  corpseUnit->getHealth() > 0 &&
-								  corpseUnit->getHealth() < corpseUnit->getStunlevel()))
-						{
-							if (corpseUnit->getOriginalFaction() == FACTION_HOSTILE)
-							{
-								recoverAlien(corpseUnit, base, craft);
-							}
+							addItemsToBaseStores(corpseUnit->getArmor()->getCorpseGeoscape(), base, 1, true);
+							addStat("STR_ALIEN_CORPSES_RECOVERED", 1, bi->getRules()->getRecoveryPoints());
 						}
 					}
-
+					else if (corpseUnit->getStatus() == STATUS_UNCONSCIOUS ||
+							// or it's in timeout because it's unconscious from the previous stage
+							// units can be in timeout and alive, and we assume they flee.
+							(corpseUnit->isIgnored() &&
+							corpseUnit->getHealth() > 0 &&
+							corpseUnit->getHealth() < corpseUnit->getStunlevel()))
+					{
+						if (corpseUnit->getOriginalFaction() == FACTION_HOSTILE)
+						{
+							recoverAlien(corpseUnit, base, craft);
+						}
+					}
 				}
 				// only add recovery points for unresearched items
 				else if (!_game->getSavedGame()->isResearched(rule->getRequirements()))
@@ -3276,7 +2606,10 @@ void DebriefingState::recoverItems(std::vector<BattleItem*> *from, Base *base, C
 						// Special case: built-in ammo (e.g. throwing knives or bamboo stick)
 						if (!bi->needsAmmoForSlot(0) && rule->getClipSize() > 0)
 						{
-							_rounds[rule] += bi->getAmmoQuantity();
+							if (rule->isAmmoRechargeable())
+								_rounds[rule] += rule->getClipSize(); // restore 100% of clip capacity (i.e. the clip will be recharged at the base)
+							else
+								_rounds[rule] += bi->getAmmoQuantity();
 							recoverWeapon = false;
 						}
 						// It's a weapon, count any rounds left in the clip.

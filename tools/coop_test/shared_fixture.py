@@ -29,6 +29,10 @@ roster (with ownership). All of that is compared exactly, base list IN INDEX
 ORDER - the base index is the protocol's routing key (PRD-J03), so an ordering
 difference is itself a desync.
 
+each soldier's gear too - armor, equipment layout,
+personal layout and its armor; craft loads (the items on a craft) are not
+compared.
+
 Note this is deliberately WIDER than the PRD-J04/J10/GAP-4 world checksum. The
 checksum sums funds + base / tech / item / soldier / transfer / production
 COUNTS, so count drift now trips the auto-repair; but it is only counts, so a
@@ -72,7 +76,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, shutdown_clients
 import session
 import geo
 
@@ -84,14 +88,23 @@ def world_dump(gc):
 
     Sourced from geo_state (world + per-base economy) + get_soldiers (roster with
     ownerPlayerId). Bases stay in INDEX order on purpose - the index is the SHARED
-    command routing key, so a reordering must fail the compare.
+    command routing key, so a reordering must fail the compare. Each soldier's gear
+    comes from soldier_layouts (per base, by name).
     """
     g = gc.ok({"cmd": "geo_state"})
     roster = gc.ok({"cmd": "get_soldiers"})["bases"]
+    # soldier_layouts reads a base by NAME, so a duplicate name would compare the wrong base.
+    names = [b["name"] for b in g["bases"]]
+    if len(set(names)) != len(names):
+        raise AssertionError(f"world_dump: duplicate base names {names} on {gc.name} (soldier_layouts reads a base by name)")
 
     bases = []
     for i, b in enumerate(g["bases"]):
         soldiers = roster[i]["soldiers"] if i < len(roster) else []
+        # each soldier's gear - armor (get_soldiers), equipment layout, personal layout and
+        # its armor (soldier_layouts, items in stored order). Craft items are not compared.
+        armor = {s["id"]: s.get("armor") for s in soldiers}
+        gear = gc.ok({"cmd": "soldier_layouts", "base": b["name"]})["soldiers"]
         bases.append({
             "name": b["name"],
             "lon": b["lon"],
@@ -122,6 +135,9 @@ def world_dump(gc):
             "soldiers": sorted(
                 (s["id"], s["name"], s["owner"], s["craftId"], s["dead"])
                 for s in soldiers),
+            "gear": sorted(({"id": s["id"], "armor": armor.get(s["id"]), "layout": s["layout"],
+                             "personal": s["personal"], "personalArmor": s["personalArmor"]} for s in gear),
+                           key=lambda s: s["id"]),
         })
 
     return {
@@ -208,11 +224,10 @@ class SharedSession:
         self.campaign_mode = campaign_mode
         self.has_extra_mods = bool(mods)
         # Both machines get the SAME mods, or their rulesets diverge.
-        # host_options/client_options are per-instance options.cfg keys (in force
-        # from the very first frame), so a SHARED test can bring the campaign up
-        # with the host on a feature the client must not set itself - e.g.
-        # EnableCoopParallelTurns, whose host option decides the mode for both
-        # (test_shared_parallel_campaign). Both default None = the old behaviour.
+        # `host_options`: boot-time options.cfg overrides
+        # for the HOST instance only (e.g. {"battleXcomSpeed": 200}, which
+        # paces the LOCAL machine only). Default None, nothing changes.
+        # `client_options`: the CLIENT twin of host_options.
         self.host_dir = make_user_dir(f"{tag}_host", mods=mods, options=host_options)
         self.client_dir = make_user_dir(f"{tag}_client", mods=mods, options=client_options)
         self.host = GameClient("host", self.host_port, self.host_dir)
@@ -252,8 +267,7 @@ class SharedSession:
         print("PASS zero-disk: client (replica) user dir clean")
 
     def shutdown(self):
-        self.host.shutdown()
-        self.client.shutdown()
+        shutdown_clients(self.host, self.client)
 
     # context-manager form, for tests that prefer it
     def __enter__(self):
@@ -277,8 +291,9 @@ def bring_up(tag, ports, wait_ready=True,
     transport - "tcp" (default) or "udp". UDP runs the real direct-LAN
                 connectionUDP transport on 127.0.0.1 (host binds coop_port, client
                 binds coop_port+1); opt in only for a repro that needs it.
-    host_options / client_options - per-instance options.cfg overrides (dict), in
-                force from the first frame. Default None = the old behaviour.
+    host_options / client_options - boot-time options.cfg overrides for the
+                HOST / CLIENT instance only; see SharedSession.__init__. Default
+                None, nothing changes.
 
     Cleans up its own processes if bring-up fails, so the caller's try/finally
     only has to cover the body.

@@ -627,6 +627,7 @@ void CraftInfoState::btnWIconClick(Action *action)
 			{
 				// Toggle the weapon status
 				w1->setDisabled(!w1->isDisabled());
+				SharedEcon::submitCraftWeaponDisabled(_game, _craft, i); // coop: the host applies it to the shared world
 
 				// If we just enabled the weapon, we should begin rearming immediately.
 				if (!w1->isDisabled())

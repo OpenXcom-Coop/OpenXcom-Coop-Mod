@@ -41,6 +41,7 @@ private:
 	static const int MAX_BAR_WIDTH = 140;
 
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	BasescapeState *_state;
 
 	Surface *_bg;

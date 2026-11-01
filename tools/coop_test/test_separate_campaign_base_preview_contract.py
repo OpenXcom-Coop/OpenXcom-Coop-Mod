@@ -1,7 +1,9 @@
 """Regression contracts for Separate base-defense previews.
 
 The access-lift preview is local UI, even during a connected campaign. It must
-not inherit the real battlescape's host/client turn arbitration.
+not inherit the real battlescape's host/client turn arbitration: a preview
+never offers a co-op battle, and every co-op battle gate needs an offered,
+active battle.
 """
 
 from pathlib import Path
@@ -15,16 +17,18 @@ def source(path):
 
 
 def main():
-    state = source("src/Battlescape/BattlescapeState.cpp")
-    game = source("src/Battlescape/BattlescapeGame.cpp")
-    walk = source("src/Battlescape/UnitWalkBState.cpp")
+    briefing = source("src/Battlescape/BriefingState.cpp")
+    tcp = source("src/CoopMod/connectionTCP.cpp")
 
-    assert "setPlayerTurn(0);" in state
-    assert "_battleGame->isYourTurn = 0;" in state
-    assert "if (_save->isPreview())\n\t\treturn _save->getSelectedUnit() != 0 && allowButtons();" in state
-    assert state.count("!_save->isPreview() && (_battleGame->isYourTurn == 1") >= 3
-    assert "if (_save->isPreview() || !connectionTCP::parallelTurnActive())" in game
-    assert "bool coopReplayDoor = !_parent->getSave()->isPreview()" in walk
+    ok = briefing.split("void BriefingState::btnOkClick", 1)[1]
+    preview = ok.index("if (isPreview)")
+    offer = ok.index("CoopHandshake::freezePreBattleEquip(_game)")
+    assert preview < offer
+    # The preview starts its first turn locally and returns before the co-op battle offer.
+    assert "startFirstTurn();\n\t\t\treturn;" in ok[preview:offer].replace("\r\n", "\n")
+    # Every co-op battle gate reads isCoopBattle(), which needs the offered battle to be active.
+    assert ("bool isCoopBattle()\n{\n\treturn connectionTCP::getCoopStatic() "
+            "&& coopBattleAuthority().phase == CoopBattlePhase::Active;") in tcp.replace("\r\n", "\n")
 
     print("PASS Separate base preview bypasses network turn and ownership gates")
 

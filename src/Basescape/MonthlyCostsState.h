@@ -36,6 +36,7 @@ class MonthlyCostsState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	int _displayedMaintenance;
 
 	TextButton *_btnOk;

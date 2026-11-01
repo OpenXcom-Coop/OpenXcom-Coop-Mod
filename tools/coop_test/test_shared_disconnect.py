@@ -122,7 +122,7 @@ def main():
         if session.has_state(host, "Profile"):
             host.ok({"cmd": "profile_ok"})
             time.sleep(0.5)
-        host.ok({"cmd": "coop_dialog_back"})   # the host's RESUME releases the hold
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))   # the host's RESUME releases the hold
         client.wait_for(
             "rejoined client live on the geoscape",
             lambda: "GeoscapeState" in session.states(client)[-1]

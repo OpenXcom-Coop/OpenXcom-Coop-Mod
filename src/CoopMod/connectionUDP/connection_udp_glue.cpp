@@ -17,6 +17,8 @@
 #include "connection_udp_glue.h"
 #include "../connectionTCP.h"
 #include "connection_rendezvous_glue.h"
+#include "../BattleAuthority.h"
+#include "../../Engine/Logger.h"
 
 #include <array>
 #include <atomic>
@@ -52,6 +54,15 @@ static std::unique_ptr<connectionUDP> s_connectionUDP;
 static bool s_udpEnabled = false;
 static std::thread s_udpPingThread;
 static std::atomic<bool> s_udpPingStop(false);
+
+// true while this HOST holds a paused battle (peer left mid-Active, the
+// authority spared and peerAbsent latched by handleUdpRemotePeerLost()/disconnectTCP()). Atomics only: safe on
+// the main, ping and relist threads alike.
+static bool udpPausedBattleHeld()
+{
+	const BattleAuthority& a = coopBattleAuthority();
+	return a.hostSim.load() && a.peerAbsent.load() && a.phase.load() == CoopBattlePhase::Active;
+}
 
 static uint64_t nowMsForGlue()
 {
@@ -256,7 +267,9 @@ bool startUdpPeer(const std::string& remoteHost,
 	// Start every UDP session with clean shared packet queues.
 	// This prevents stale packets from a previous host/client session from
 	// being delivered after a new peer joins.
-	clearNetworkSessionQueues();
+	// the relist rejoin still drops the old peer's queues, but a held
+	// paused battle keeps its authority, so offerRejoinBattle() finds it still paused.
+	clearNetworkSessionQueues(!udpPausedBattleHeld());
 
 	s_connectionUDP.reset(new connectionUDP());
 
@@ -295,11 +308,18 @@ bool startUdpPeer(const std::string& remoteHost,
 	cfg.log = [](const std::string& s)
 	{
 		DebugLog(("connectionUDP: " + s + "\n").c_str());
+		// the transport logs only its few state changes (start failures, the authenticated / locked
+		// peer endpoint, a peer timeout) and a stall report; none reached openxcom.log before
+		Log(LOG_INFO) << "[coop-udp] " << s;
 	};
 
 	if (!s_connectionUDP->start(cfg))
 	{
 		DebugLog("connectionUDP: start failed\n");
+		// the transport's own reason goes to DebugLog only; a failed start (e.g. the local port in use)
+		// sets onConnect -3 at once, which reads in openxcom.log as a partner lost with no cause
+		Log(LOG_INFO) << "[coop-udp] transport start failed: role=" << (isHost ? "host" : "client") << " localPort=" << localPort
+			<< " remote=" << remoteHost << ":" << remotePort << " sdl='" << SDLNet_GetError() << "'";
 
 		s_connectionUDP.reset();
 		s_udpEnabled = false;
@@ -308,6 +328,8 @@ bool startUdpPeer(const std::string& remoteHost,
 	}
 
 	DebugLog("connectionUDP: UDP peer object started\n");
+	Log(LOG_INFO) << "[coop-udp] transport started: role=" << (isHost ? "host" : "client") << " localPort=" << localPort
+		<< " remote=" << remoteHost << ":" << remotePort;
 
 	// Reuse existing connectionTCP/global state. Do not create duplicate UDP
 	// lobby variables.
@@ -455,7 +477,9 @@ void stopUdpPeer()
 	}
 
 	// Drop any queued gameplay packets from the old peer.
-	clearNetworkSessionQueues();
+	// the queues still drop, but a held paused battle keeps its
+	// authority (battleId, seat map, baton), as the TCP leave's spared clear does.
+	clearNetworkSessionQueues(!udpPausedBattleHeld());
 
 	// Only stop the UDP transport. Do not change onConnect, coopSession,
 	// server_owner or onTcpHost here. The old connectionTCP::disconnectTCP()

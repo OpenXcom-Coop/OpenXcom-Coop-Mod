@@ -59,7 +59,8 @@ private:
 	int _bulletSprite;
 	bool _reversed;
 	int _vaporColor, _vaporDensity, _vaporProbability;
-  public:
+	void applyAccuracy(Position origin, Position *target, double accuracy, bool keepRange, bool extendLine);
+public:
 	/// Creates a new Projectile.
 	Projectile(Mod *mod, SavedBattleGame *save, BattleAction action, Position origin, Position target, BattleItem *ammo);
 	/// Cleans up the Projectile.
@@ -89,9 +90,16 @@ private:
 	float getDistance() const;
 	/// Is this projectile being drawn back-to-front or front-to-back?
 	bool isReversed() const;
+	/// coop (display ghosts, read-only): the speed and trajectory length this projectile flies with.
+	int coopSpeed() const { return _speed; }
+	size_t coopTrajectorySize() const { return _trajectory.size(); }
+	/// coop (the watching machine's projectile ghost): fly a trajectory it was given, step it to an index
+	/// (clamped to the last point) - never move(), never the RNG; and the host's final (accuracy-modified) target.
+	void coopGhostSetTrajectory(const std::vector<Position>& trajectory) { _trajectory = trajectory; _position = 0; }
+	void coopGhostStepTo(size_t index) { _position = index < _trajectory.size() ? index : (_trajectory.empty() ? 0 : _trajectory.size() - 1); }
+	Position coopFarVoxel() const { return _targetVoxel; }
 	/// adds a cloud of particles at the projectile's location
 	void addVaporCloud();
-	void applyAccuracy(Position origin, Position* target, double accuracy, bool keepRange, bool extendLine, bool accuracyLossCoop = false, double* accuracyLossCoopValue = 0);
 };
 
 }

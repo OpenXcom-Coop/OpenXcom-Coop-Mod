@@ -47,6 +47,7 @@ private:
 	ComboBox *_cbxSortBy, *_cbxScreenActions;
 	TextList *_lstSoldiers;
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	std::vector<Soldier *> _origSoldierOrder, _filteredListOfSoldiers;
 	std::vector<int> _filteredIndicesOfSoldiers;
 	std::vector<SortFunctor *> _sortFunctors;

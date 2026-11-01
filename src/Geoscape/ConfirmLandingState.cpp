@@ -48,6 +48,9 @@
 #include "../Basescape/CraftSoldiersState.h"
 
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopHandshake.h"
+#include "../CoopMod/CoopBattleSetup.h"
 #include "../CoopMod/SeparateEcon.h"
 
 namespace OpenXcom
@@ -271,86 +274,28 @@ void ConfirmLandingState::btnYesClick(Action *)
 	// touch the shared world. Report the answer; the host does the rest.
 	if (_sharedBroker)
 	{
+		// Close this copy first: on a Separate host the answer to its own craft's prompt
+		// starts the battle at once, and the briefing it pushes must stay on top.
+		_game->popState();
 		if (_game->getCoopMod()->isSharedCampaign())
 			SharedEcon::submitLandReply(_game, _craft, true, false);
 		else
 			SeparateEcon::submitLandReply(_game, _craft, true, false);
-		_game->popState();
 		return;
 	}
 
-	if (connectionTCP::getCoopStatic() == true)
+	// Classic/SHARED campaign co-op runs the SAME vanilla generation as SP
+	// below and hands the result to CoopHandshake::offerBattle() (the
+	// battle-start handshake). This is the SINGLE generation+offer point for
+	// SHARED - setClientSoldiers() skips the SEPARATE two-world
+	// startCoopMission() path for a SHARED campaign, so the battle is never
+	// regenerated. The legacy PvP/PvE2 changeHost merge and
+	// BriefingState::setupCoop() dispatch stay quarantined. This guard is
+	// false on every SP click, so the SP battle-generation path below is
+	// byte-for-byte untouched.
+	const bool coopLanding = connectionTCP::getCoopStatic() == true;
+
 	{
-
-		// PRD-J09: SHARED battle entry. The world is shared - the craft already
-		// carries the full mixed-owner squad - and the HOST (which ran the
-		// geoscape sim that popped this dialog) is the battle authority. Stamp the
-		// in-battle control split from soldier ownership (seat 0/unknown -> host
-		// control, any other seat -> client), then generate the battle host-side
-		// and ship "battlehost" to the client via the existing coop path. This
-		// SKIPS the SEPARATE two-world merge (CoopState(88)/sendCraft), which in
-		// SHARED would duplicate the already-shared soldiers.
-		if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
-		{
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setConfirmLandingState(this);
-			_game->getCoopMod()->setHost(true);
-			for (auto* s : *_craft->getBase()->getSoldiers())
-			{
-				if (s->getCraft() != _craft)
-					continue;
-				int owner = s->getOwnerPlayerId();
-				s->setCoop((owner == 0 || owner == 999) ? 0 : 1);
-				s->setCoopBase(-1);
-			}
-			for (auto* v : *_craft->getVehicles())
-			{
-				// SeparateEcon assigns each physical vehicle to a player. Keep
-				// that selection when the shared world becomes a battle.
-				if (_game->getCoopMod()->isSharedCampaign())
-					v->setCoop(0);
-				v->setCoopBase(-1);
-			}
-			startCoopMission();
-			_game->popState();
-			return;
-		}
-
-		if (_game->getCoopMod()->getHost() == true)
-		{
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setConfirmLandingState(this);
-			CoopState *coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-
-		}
-		// The client wants to start a COOP mission!!! Transferring them to HOST!!!
-		else
-		{
-
-			Json::Value root;
-
-			root["state"] = "changeHost";
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-			_game->getCoopMod()->setHost(true);
-
-			_game->getCoopMod()->setSelectedCraft(_craft);
-			_game->getCoopMod()->setConfirmLandingState(this);
-
-			// fix
-			CoopState* coopWindow = new CoopState(88);
-			_game->pushState(coopWindow);
-			
-
-		}
-
-
-	}
-	else
-	{
-
 		std::string message = checkStartingCondition();
 		if (!message.empty())
 		{
@@ -361,11 +306,39 @@ void ConfirmLandingState::btnYesClick(Action *)
 		}
 
 		_game->popState();
+		// coop: a gm3 PvP campaign client (the X-COM side) hands this landing to the alien
+		// host, which runs the battle in this machine's world; this machine generates nothing (false everywhere else).
+		if (coopLanding && CoopHandshake::requestPvpLanding(_game, _craft, _missionTexture, _globeTexture, _shade))
+			return;
 		Ufo *u = dynamic_cast<Ufo *>(_craft->getDestination());
 		MissionSite *m = dynamic_cast<MissionSite *>(_craft->getDestination());
 		AlienBase *b = dynamic_cast<AlienBase *>(_craft->getDestination());
 
 		SavedBattleGame *bgame = new SavedBattleGame(_game->getMod(), _game->getLanguage());
+		if (coopLanding && _craft->getBase())
+		{
+			// The battle belongs to the player whose craft launched it; a faction's mission
+			// keeps scoring for the faction that owns the mission.
+			bgame->setBattleOwnerPlayerName(_craft->getBase()->getOwnerPlayerName());
+			if (_game->getCoopMod()->isSeparateCampaign()
+				&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
+			{
+				std::string factionScoreOwner;
+				if (u && u->getMission()) factionScoreOwner = u->getMission()->getOwnerPlayerName();
+				else if (m) factionScoreOwner = m->getOwnerPlayerName();
+				else if (b) factionScoreOwner = b->getOwnerPlayerName();
+				bgame->setFactionScoreOwnerPlayerName(factionScoreOwner);
+			}
+			// The host generates every single-world battle, including one requested by a
+			// client-owned craft. Bind briefing/equipment/debriefing context to that
+			// craft's real base rather than whichever base the host last viewed.
+			if (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+			{
+				const int missionBase = SeparateEcon::baseIndex(_game, _craft->getBase());
+				if (missionBase >= 0)
+					_game->getSavedGame()->setSelectedBase(static_cast<size_t>(missionBase));
+			}
+		}
 		_game->getSavedGame()->setBattleGame(bgame);
 		BattlescapeGenerator bgen(_game);
 		bgen.setWorldTexture(_missionTexture, _globeTexture);
@@ -412,10 +385,44 @@ void ConfirmLandingState::btnYesClick(Action *)
 			throw Exception("No mission available!");
 		}
 
+		if (coopLanding)
+		{
+			// Merge any
+			// client-contributed SEPARATE guest onto this craft BEFORE the
+			// stamp below reads ownership, and BEFORE vanilla generation
+			// so the generator actually deploys it. A no-op when
+			// nothing was ever contributed for this craft. Body:
+			// CoopBattleSetup.h/CoopState.cpp; no logic here.
+			coopMergeGuestContributions(_game, _craft);
+			// The owner->seat stamp (byte-identical at the three other stamp
+			// sites). Stamp BEFORE generate - the same order Cydonia and both
+			// base-defense arms use. Body: CoopBattleSetup.h/
+			// CoopState.cpp; no logic here.
+			coopStampCraftSeats(_craft);
+		}
+
 		bgen.run();
+
+		// offerBattle() is a pure network side effect - it
+		// never touches the state stack (see CoopHandshake.h's top doc
+		// comment for why a first attempt that deferred this push crashed
+		// Game::run() with an empty state stack). BriefingState is pushed
+		// exactly like vanilla SP, unconditionally; a refused/corrupt
+		// handshake unwinds it via coopUnwindToSafeState() instead
+		// (connectionTCP.cpp) - GeoscapeState is still on the stack
+		// underneath, so that unwind lands the host back on the geoscape.
+		if (coopLanding)
+		{
+			// Labels + deployment BEFORE the offer builds
+			// its blob snapshot (the ORDERING TRAP in CoopHandshake.h - the BriefingState push
+			// two lines below is what mints them in vanilla). One of FOUR identical
+			// call sites; no-op off the coop host.
+			// the partner's tank copies leave the craft now that their units exist (CoopBattleSetup.h)
+			coopDropMergedGuestVehicles(_game);
+			CoopHandshake::mintMissionLabels(_game, _craft, nullptr);
+			CoopHandshake::offerBattle(_game, connectionTCP::_coopGamemode);
+		}
 		_game->pushState(new BriefingState(_craft));
-
-
 	}
 
 }
@@ -429,6 +436,15 @@ void ConfirmLandingState::startCoopMission()
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()) && _game->getSavedGame()
 		&& _game->getSavedGame()->getSavedBattle())
 	{
+		return;
+	}
+
+	// Also reachable asynchronously from
+	// connectionTCP::setClientSoldiers() on the coop host after a changeHost
+	// round-trip - the quarantine covers this entry path too.
+	if (connectionTCP::getCoopStatic())
+	{
+		_game->pushState(new CoopState(COOP_DLG_BATTLE_UNAVAILABLE));
 		return;
 	}
 
@@ -521,11 +537,7 @@ void ConfirmLandingState::startCoopMission()
 		throw Exception("No mission available!");
 	}
 	bgen.run();
-	//_game->pushState(new BriefingState(_craft));
-
-	BriefingState* bri = new BriefingState(_craft);
-	bri->setupCoop();
-
+	_game->pushState(new BriefingState(_craft));
 }
 
 /**

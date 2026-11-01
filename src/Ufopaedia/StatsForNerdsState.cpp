@@ -20,6 +20,7 @@
 #include "Ufopaedia.h"
 #include "../Battlescape/BattlescapeGenerator.h"
 #include "../Battlescape/BriefingState.h"
+#include "../CoopMod/BattleAuthority.h"
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
 #include "../Engine/Language.h"
@@ -383,7 +384,7 @@ void StatsForNerdsState::cbxAmmoSelect(Action *)
 			// perform same checks as in ArticleStateItem.cpp
 			const auto& ammoId = _filterOptions.at(selIdx);
 			auto* ammo_article = _game->getMod()->getUfopaediaArticle(ammoId, true);
-			if (Ufopaedia::isArticleAvailable(_game->getSavedGame(), ammo_article))
+			if (coopViewerArticleAvailable(_game->getSavedGame(), ammo_article))
 			{
 				auto* ammo_rule = _game->getMod()->getItem(ammoId, true);
 				_game->pushState(new StatsForNerdsState(UFOPAEDIA_TYPE_ITEM, ammo_rule->getType(), _btnIncludeDebug->getPressed(), _btnIncludeIds->getPressed(), _btnIncludeDefaults->getPressed()));
@@ -394,7 +395,7 @@ void StatsForNerdsState::cbxAmmoSelect(Action *)
 			// perform similar checks as above, but don't crash if article is not found
 			const auto& builtInItemId = _filterOptions.at(selIdx);
 			auto* builtInItem_article = _game->getMod()->getUfopaediaArticle(builtInItemId, false);
-			if (builtInItem_article && Ufopaedia::isArticleAvailable(_game->getSavedGame(), builtInItem_article))
+			if (builtInItem_article && coopViewerArticleAvailable(_game->getSavedGame(), builtInItem_article))
 			{
 				auto* builtInItem_rule = _game->getMod()->getItem(builtInItemId, true);
 				_game->pushState(new StatsForNerdsState(UFOPAEDIA_TYPE_ITEM, builtInItem_rule->getType(), _btnIncludeDebug->getPressed(), _btnIncludeIds->getPressed(), _btnIncludeDefaults->getPressed()));

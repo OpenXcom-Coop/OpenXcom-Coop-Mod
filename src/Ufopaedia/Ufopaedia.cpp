@@ -46,6 +46,7 @@
 #include "ArticleStateTFTDUso.h"
 #include "StatsForNerdsState.h"
 #include "../Engine/Game.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -393,7 +394,7 @@ namespace OpenXcom
 		for (const auto& articleName : mod->getUfopaediaList())
 		{
 			ArticleDefinition *article = mod->getUfopaediaArticle(articleName);
-			if (isArticleAvailable(save, article) && article->section != UFOPAEDIA_NOT_AVAILABLE && !isCommendationArticleInvisible(save, article))
+			if (coopViewerArticleAvailable(save, article) && article->section != UFOPAEDIA_NOT_AVAILABLE && !isCommendationArticleInvisible(save, article))
 			{
 				shared->articleList.push_back(article);
 				shared->articleStatusList.push_back(save->getUfopediaRuleStatus(articleName) == ArticleDefinition::PEDIA_STATUS_HIDDEN);

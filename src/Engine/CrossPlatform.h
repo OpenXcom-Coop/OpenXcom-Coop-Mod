@@ -234,6 +234,8 @@ namespace CrossPlatform
 	std::pair<std::string, std::string> timeToString(time_t time);
 	/// Move/rename a file between paths.
 	bool moveFile(const std::string &src, const std::string &dest);
+	/// coop: moveFile for a co-op save's final rename, retried while another process holds a file (Windows).
+	bool moveFileRetry(const std::string &src, const std::string &dest, int boundMs = 2000);
 	/// Copy a file between paths.
 	bool copyFile(const std::string &src, const std::string &dest);
 	/// Writes out a file
@@ -257,6 +259,9 @@ namespace CrossPlatform
 	void stackTrace(void *ctx);
 	/// Produces a quick timestamp.
 	std::string now();
+	/// Produces a quick timestamp with milliseconds (log lines only -
+	/// now()'s other callers all build filenames, so now() itself is unchanged).
+	std::string nowMillis();
 	/// Produces a crash dump.
 	void crashDump(void *ex, const std::string &err);
 	/// Opens a URL.

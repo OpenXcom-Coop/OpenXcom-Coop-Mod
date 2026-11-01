@@ -40,8 +40,7 @@ class Timer;
 class Text;
 class Tile;
 class UnitSprite;
-class BattleItem;
-struct CoopDeathGhost;
+struct CoopUnitDrawView; // coop (CoopMod/CoopGhost.h) - pointer-only here, thin
 
 enum CursorType { CT_NONE, CT_NORMAL, CT_AIM, CT_PSI, CT_WAYPOINT, CT_THROW };
 enum TilePart : int;
@@ -107,13 +106,6 @@ private:
 	SurfaceSet *_projectileSet;
 
 	void drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position tileScreenPosition, bool topLayer, BattleUnit* movingUnit = nullptr);
-	/// coop (Phase 2c death ghost): the body of drawUnit after the unit is resolved,
-	/// reused by the ghost draw (which supplies its captured apply-time visibility).
-	void drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer, bool unitFromBelow, bool unitFromAbove, bool useVisibleOverride, bool visibleOverride);
-	/// coop (Phase 2c death ghost): draw a client-side death ghost covering @a unitTile.
-	void coopMaybeDrawGhost(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer);
-	/// coop (Phase 2c death ghost): getTopItem() skipping a ghost's hidden corpse/kit.
-	BattleItem* coopTopItemExcluding(Tile* tile);
 	void drawTerrain(Surface *surface);
 	int getTerrainLevel(const Position& pos, int size) const;
 	int getWallShade(TilePart part, Tile* tileFrot);
@@ -133,6 +125,10 @@ public:
 	void think() override;
 	/// Draws the surface.
 	void draw() override;
+	/// coop: Map::draw's hidden-movement gate, extracted
+	/// verbatim so a test-only probe can read the same predicate draw() uses.
+	/// TRUE => drawTerrain(); FALSE => the HIDDEN MOVEMENT message.
+	bool hiddenMovementShown() const;
 	void refreshAIProgress(int progress);
 	/// Sets the palette.
 	void setPalette(const SDL_Color *colors, int firstcolor = 0, int ncolors = 256) override;
@@ -154,7 +150,9 @@ public:
 	/// Gets the currently selected position.
 	void getSelectorPosition(Position *pos) const;
 	/// Calculates the offset of a soldier, when it is walking in the middle of 2 tiles.
-	UnitWalkingOffset calculateWalkingOffset(const BattleUnit *unit) const;
+	/// `view` is a defaulted presentation read-switch (CoopMod/CoopGhost.h) -
+	/// null (the default) is byte-identical to vanilla.
+	UnitWalkingOffset calculateWalkingOffset(const BattleUnit *unit, const CoopUnitDrawView* view = nullptr) const;
 	/// Sets the 3D cursor type.
 	void setCursorType(CursorType type, int size = 1);
 	/// Gets the 3D cursor type.
