@@ -5158,6 +5158,26 @@ void BattlescapeGame::spawnNewUnit(BattleActionAttack attack, Position position)
 
 	// Create the unit
 	BattleUnit* newUnit = _save->createTempUnit(type, faction);
+	// Player units spawned by a unit-owned item inherit that unit's battle side.
+	// Some mods create a craft's fixed gun from an ownerless map item instead;
+	// in a Separate campaign that gun belongs to the craft/mission owner.
+	if (faction == FACTION_PLAYER && getCoopMod()->getCoopStatic())
+	{
+		if (owner)
+		{
+			newUnit->setCoop(owner->getCoop());
+		}
+		else if (getCoopMod()->isSeparateCampaign())
+		{
+			const std::string& battleOwner = _save->getBattleOwnerPlayerName();
+			for (int seat = 0; seat < connectionTCP::seatCount(); ++seat)
+				if (connectionTCP::seatName(seat) == battleOwner)
+				{
+					newUnit->setCoop(connectionTCP::seatCoop(seat));
+					break;
+				}
+		}
+	}
 
 	// Validate the position for the unit, checking if there's a surrounding tile if necessary
 	int checkDirection = attack.attacker ? (attack.attacker->getDirection() + 4) % 8 : 0;

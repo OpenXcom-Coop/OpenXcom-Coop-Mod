@@ -10881,6 +10881,33 @@ std::string TestServer::execute(const std::string& line)
 				resp["ok"] = true;
 			}
 		}
+		else if (cmd == "open_soldier_info")
+		{
+			std::string baseName = req.get("base", "").asString();
+			int soldierId = req.get("soldierId", -1).asInt();
+			Base* target = nullptr;
+			size_t index = 0;
+			if (_game->getSavedGame())
+				for (Base* base : *_game->getSavedGame()->getBases())
+				{
+					if (!baseName.empty() && base->getName() != baseName) continue;
+					for (size_t i = 0; i < base->getSoldiers()->size(); ++i)
+						if (base->getSoldiers()->at(i)->getId() == soldierId)
+						{
+							target = base;
+							index = i;
+							break;
+						}
+					if (target) break;
+				}
+			if (!target)
+				resp["error"] = "soldier not found";
+			else
+			{
+				_game->pushState(new SoldierInfoState(target, index));
+				resp["ok"] = true;
+			}
+		}
 		else if (executeShared11(cmd, req, resp))
 		{
 			// handled by the second sub-dispatcher (executeShared11), split off to

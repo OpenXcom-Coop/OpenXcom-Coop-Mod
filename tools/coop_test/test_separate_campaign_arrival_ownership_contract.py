@@ -1,4 +1,4 @@
-"""Contracts for owner-only Separate purchase and faction-event arrivals."""
+"""Contracts for typed Separate purchase and faction-event arrivals."""
 
 from pathlib import Path
 
@@ -21,6 +21,8 @@ def main():
     assert 'writer.write("ownerPlayerName"' in transfer_cpp
     assert "showLocally" in arrivals and "getOwnerPlayerName" in arrivals
     assert "transferOwner = xbase->getOwnerPlayerName()" in arrivals
+    assert "notificationOwner = xbase->getOwnerPlayerName()" in arrivals
+    assert "transfer->getType() != TRANSFER_SOLDIER" in arrivals
     assert "showBaseNotification" in separate_h and "showBaseNotification" in separate_cpp
     assert "owner.empty() || owner != connectionTCP::seatName" in arrivals
     assert "SeparateEcon::showBaseNotification(game, base)" in shared

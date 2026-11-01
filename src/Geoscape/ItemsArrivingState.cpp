@@ -135,9 +135,19 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				// the other player.
 				if (transferOwner.empty() && _game->getCoopMod()->isSeparateCampaign())
 					transferOwner = xbase->getOwnerPlayerName();
+				// Everything except a soldier becomes a resource of the receiving base,
+				// so notify its owner even when a visitor placed the order. Soldiers
+				// remain individually player-owned and notify their actual owner.
+				std::string notificationOwner = transferOwner;
+				if (_game->getCoopMod()->isSeparateCampaign()
+					&& transfer->getType() != TRANSFER_SOLDIER
+					&& !xbase->getOwnerPlayerName().empty())
+				{
+					notificationOwner = xbase->getOwnerPlayerName();
+				}
 				const bool showLocally = !_game->getCoopMod()->isSeparateCampaign()
-					|| (!transferOwner.empty()
-						&& transferOwner == connectionTCP::seatName(connectionTCP::localSeat()));
+					|| (!notificationOwner.empty()
+						&& notificationOwner == connectionTCP::seatName(connectionTCP::localSeat()));
 
 				// Check if we have an automated use for an item
 				if (transfer->getType() == TRANSFER_ITEM)
@@ -163,7 +173,7 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				row.baseIdx = baseIdx;
 				row.ownerSeat = (transfer->getType() == TRANSFER_SOLDIER && transfer->getSoldier())
 					? transfer->getSoldier()->getOwnerPlayerId() : -1;
-				row.ownerPlayerName = transferOwner;
+				row.ownerPlayerName = notificationOwner;
 				_allRows.push_back(row);
 				if (showLocally)
 				{

@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <unordered_set>
 
@@ -2586,11 +2587,29 @@ void connectionTCP::pushProgressToHostSilently()
 
 }
 
-void connectionTCP::sendInitialSeparateBaseToHost()
+bool connectionTCP::isInitialSeparateContributionWorld()
 {
 	if (getServerOwner() || !getCoopStatic() || !isSeparateCampaign()
 		|| session.lobbyMode != 1 || !_game->getSavedGame()
-		|| _game->getSavedGame()->getMonthsPassed() != -1
+		|| _game->getSavedGame()->getMonthsPassed() > 0)
+		return false;
+
+	const std::string localPlayer = seatName(localSeat());
+	bool foundLocalBase = false;
+	for (Base* base : *_game->getSavedGame()->getBases())
+	{
+		if (!base || base->_coopIcon)
+			continue;
+		if (!base->isOwnedByPlayer(localPlayer))
+			return false;
+		foundLocalBase = true;
+	}
+	return foundLocalBase;
+}
+
+void connectionTCP::sendInitialSeparateBaseToHost()
+{
+	if (!isInitialSeparateContributionWorld()
 		|| _game->getSavedGame()->getSavedBattle())
 	{
 		return;
@@ -5776,7 +5795,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
 		const bool initialSeparateBootstrap = liveSave
 			&& liveSave->getCampaignType() == CoopCampaignType::Separate
-			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+			&& liveSave->getMonthsPassed() <= 0 && session.lobbyMode == 1;
 		const bool bootstrapProgressPacket = initialSeparateBootstrap
 			&& (stateString == "SEND_FILE_HOST_TRUE_SAVE_PROGRESS"
 				|| stateString == "SEND_FILE_HOST_SAVE_PROGRESS");
@@ -13964,7 +13983,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
 		const bool initialSeparateBootstrap = liveSave
 			&& liveSave->getCampaignType() == CoopCampaignType::Separate
-			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+			&& liveSave->getMonthsPassed() <= 0 && session.lobbyMode == 1;
 		if ((isSharedCampaign() || isSeparateCampaign()) && !initialSeparateBootstrap)
 		{
 			return;
@@ -13982,7 +14001,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
 		const bool initialSeparateBootstrap = liveSave
 			&& liveSave->getCampaignType() == CoopCampaignType::Separate
-			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+			&& liveSave->getMonthsPassed() <= 0 && session.lobbyMode == 1;
 		if ((isSharedCampaign() || isSeparateCampaign()) && !initialSeparateBootstrap)
 		{
 			return;
@@ -17510,15 +17529,25 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		separate.setFactionResearch(connectionTCP::seatName(connectionTCP::localSeat()),
 			hostFactionResearch);
 		separate.setFactionResearch(owner, clientFactionResearch);
-		// The temporary client save already contains the discoveries granted by
-		// its selected faction at new-save creation. Import that private profile;
-		// factionResearch is mission-script metadata and does not drive the actual
-		// New Research list.
-		if (const SeparateEcon::CampaignData::PlayerState* clientProfile =
-			coopFile->getSeparateCampaign().getPlayer(owner))
+		// Faction-start discoveries may exist in the temporary world's global list
+		// or in a profile created before the final network player name was known.
+		// This one-shot world belongs only to the joining client's chosen faction,
+		// so merge every temporary profile into the final owner profile.
+		std::set<std::string> clientCompleted(
+			clientFactionResearch.begin(), clientFactionResearch.end());
+		std::set<std::string> clientDisabled;
+		for (const auto& entry : coopFile->getSeparateCampaign().getPlayers())
 		{
-			separate.replaceCompletedResearch(owner, clientProfile->completedResearch);
+			clientCompleted.insert(entry.second.completedResearch.begin(),
+				entry.second.completedResearch.end());
+			clientDisabled.insert(entry.second.disabledResearch.begin(),
+				entry.second.disabledResearch.end());
 		}
+		separate.replaceCompletedResearch(owner, clientCompleted);
+		separate.setFactionResearch(owner,
+			std::vector<std::string>(clientCompleted.begin(), clientCompleted.end()));
+		for (const std::string& research : clientDisabled)
+			separate.disableResearch(owner, research);
 		bool alreadyMerged = false;
 		for (Base* base : *_game->getSavedGame()->getBases())
 			if (base && base->isOwnedByPlayer(owner)) { alreadyMerged = true; break; }

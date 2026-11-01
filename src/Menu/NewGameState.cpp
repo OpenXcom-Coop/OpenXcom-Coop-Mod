@@ -216,9 +216,13 @@ void NewGameState::btnOkClick(Action *)
 			// world contributes its placed base to the host-authoritative save.
 			save->setSeparateResearchSharingEnabled(
 				_game->getCoopMod()->_enable_research_sync, _game->getMod());
+			const std::string localPlayer =
+				connectionTCP::seatName(connectionTCP::localSeat());
+			save->getSeparateCampaign().setFaction(localPlayer,
+				"difficulty:" + std::to_string(static_cast<int>(diff)));
 			connectionTCP::session.markLobbyClosed();
 			Base* base = save->getBases()->back();
-			base->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+			base->setOwnerPlayerName(localPlayer);
 			_game->getCoopMod()->refreshSeparateBaseOwnership();
 			beginInitialBasePlacement(_game, gs, base);
 			return;

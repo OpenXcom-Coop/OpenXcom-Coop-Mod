@@ -219,7 +219,8 @@ class SharedSession:
         self.client = GameClient("client", self.client_port, self.client_dir)
 
     def _start(self, wait_ready, host_base, client_base,
-               host_difficulty=None, client_difficulty=None):
+               host_difficulty=None, client_difficulty=None,
+               host_name="HostPlayer", client_name="ClientPlayer"):
         self.host.spawn()
         self.client.spawn()
         self.host.connect(timeout=300 if self.has_extra_mods else 60)
@@ -237,6 +238,7 @@ class SharedSession:
                              transport=self.transport,
                              host_difficulty=host_difficulty,
                              client_difficulty=client_difficulty,
+                             host_name=host_name, client_name=client_name,
                              host_settle_seconds=2)
         if wait_ready:
             geo.wait_both_ready(self.host, self.client)
@@ -268,7 +270,8 @@ def bring_up(tag, ports, wait_ready=True,
              host_base="HostBase", client_base="ClientBase", mods=(),
              transport="tcp", host_options=None, client_options=None,
              campaign_mode="shared", host_difficulty=None,
-             client_difficulty=None):
+             client_difficulty=None, host_name="HostPlayer",
+             client_name="ClientPlayer"):
     """Stand up a SHARED campaign: host creates it, client joins, the host streams
     the authoritative world, both settle on the geoscape.
 
@@ -288,7 +291,8 @@ def bring_up(tag, ports, wait_ready=True,
                        campaign_mode=campaign_mode)
     try:
         js._start(wait_ready, host_base, client_base,
-                  host_difficulty, client_difficulty)
+                  host_difficulty, client_difficulty,
+                  host_name, client_name)
     except BaseException:
         js.shutdown()
         raise

@@ -385,6 +385,23 @@ def main(parallel=False):
                             lambda: client_controls_soldier() or None,
                             timeout=60, interval=0.5)
 
+        # A vehicle can be clicked directly instead of going through the
+        # soldier-selection cycle. Prove the real BattleUnit selection gate
+        # still gives the client-owned mission tank only to the client.
+        hb, cb = host.ok({"cmd": "battle_state"}), client.ok({"cmd": "battle_state"})
+        host_tanks = [u for u in hb["units"]
+                      if u.get("weapon") == "STR_TANK_CANNON"
+                      and not u.get("isPlayerSoldier")]
+        client_tanks = [u for u in cb["units"]
+                        if u.get("weapon") == "STR_TANK_CANNON"
+                        and not u.get("isPlayerSoldier")]
+        assert len(host_tanks) == 1 and len(client_tanks) == 1, (host_tanks, client_tanks)
+        assert host_tanks[0]["id"] == client_tanks[0]["id"], (host_tanks, client_tanks)
+        assert host_tanks[0]["selectable"] is False, (
+            "host can command the client-owned craft vehicle", host_tanks[0])
+        assert client_tanks[0]["selectable"] is True, (
+            "client cannot command its own craft vehicle", client_tanks[0])
+
         # Execute one real client-owned walk and require the authoritative host
 		# and replica to settle on the same new tile (the reported symptom was
 		# soldiers snapping/teleporting back while both machines acted as host).

@@ -371,7 +371,10 @@ void LoadGameState::think()
 
 						// A normal world resume waits for the host's release. A combined
 						// battle resume enters its Battlescape below without a second hold.
-						if (!coopBattleResumeWorld)
+						const bool freshSeparateBootstrap =
+							_game->getCoopMod()->isSeparateCampaign()
+							&& connectionTCP::session.lobbyMode == 1;
+						if (!coopBattleResumeWorld && !freshSeparateBootstrap)
 							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 					}
 				}

@@ -5454,13 +5454,14 @@ bool BattleUnit::isSelectable(UnitFaction faction, bool checkReselect, bool chec
 		return false;
 	}
 			
-	// coop (parallel turns): there `_isActivePlayerSync` marks the machine that
-	// runs the battle, and it stays true on the battle host for the whole battle,
-	// so the branch above never shuts the battle host out. When the battle host
-	// commands no soldier of its own (a Separate battle the client's craft
-	// started) it spectates, and ownership has to decide: a soldier another seat
-	// commands is never selectable on this machine.
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true && connectionTCP::parallelTurnActive()
+	// In parallel turns `_isActivePlayerSync` stays true on the battle host, so
+	// the branch above never shuts it out. Classic Separate turns have the same
+	// hole for vehicles: soldier cycling filters foreign soldiers elsewhere, but
+	// a tank can be clicked directly on the map. In both cases permanent player
+	// ownership must decide which machine can command the unit. unitSeat() also
+	// accounts for a client-owned mission changing the temporary battle host.
+	if (connectionTCP::getCoopStatic() == true && connectionTCP::_battleInit == true
+		&& (connectionTCP::parallelTurnActive() || connectionTCP::isSeparateCampaignStatic())
 		&& connectionTCP::coopInventory == true && connectionTCP::show_inactive_player_inventory == false
 		&& _faction == FACTION_PLAYER && connectionTCP::unitSeat(this) != connectionTCP::localSeat())
 	{

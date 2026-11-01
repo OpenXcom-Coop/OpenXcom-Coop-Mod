@@ -1733,6 +1733,7 @@ class connectionTCP
 	// New SEPARATE campaign only: contribute the client's freshly placed first
 	// base to the host world once. The transient transfer is discarded after
 	// merge and is never embedded as a player-world save.
+	bool isInitialSeparateContributionWorld();
 	void sendInitialSeparateBaseToHost();
 	// Legacy multi-world PvP helper. Campaigns never call this path.
 	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);

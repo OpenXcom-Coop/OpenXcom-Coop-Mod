@@ -240,12 +240,22 @@ def new_campaign(host, client, port="47900",
         client.wait_for("client base placement", lambda: _has_state(client, "BuildNewBaseState"))
         client.ok({"cmd": "place_first_base", "lon": LAND_LON, "lat": LAND_LAT, "name": client_base})
 
-        host.wait_for(
-            "all players placed bases",
-            lambda: next((b for b in host.cmd({"cmd": "geo_state"}).get("bases", [])
-                          if b.get("ownerPlayerName") == client_name), None),
-            timeout=120,
-        )
+        def client_startup_complete():
+            merged = next((b for b in host.cmd({"cmd": "geo_state"}).get("bases", [])
+                           if b.get("ownerPlayerName") == client_name), None)
+            if merged:
+                return merged
+            client_states = _states(client)
+            if (client_states
+                    and "GeoscapeState" not in client_states[-1]
+                    and "CoopState" not in client_states[-1]):
+                # Mod factions may require month-zero decisions (for example
+                # ROSIGMA Strategy Selection) before their initialized base can
+                # be contributed to the host.
+                client.cmd({"cmd": "dismiss_popup"})
+            return None
+
+        host.wait_for("all players placed bases", client_startup_complete, timeout=120)
         host.ok({"cmd": "coop_dialog_back"})
 
         # Popping the one visible base-placement gate lets the host finish
@@ -259,8 +269,9 @@ def new_campaign(host, client, port="47900",
         )
         host.wait_for(
             "single Separate wait dialog only",
-            lambda: ("GeoscapeState" in _states(host)[-1]
-                     if _states(host) else None),
+            lambda: (True if any("GeoscapeState" in state for state in _states(host))
+                     and not any("CoopState" in state for state in _states(host))
+                     else None),
             timeout=30,
         )
 

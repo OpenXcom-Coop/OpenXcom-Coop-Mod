@@ -710,10 +710,34 @@ bool SoldierInfoState::coopRecheckSoldier()
 {
 	if (!_list || !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 		return false;
-	if (_soldierId < _list->size() && _list->at(_soldierId) == _soldier) return false;
+	const bool separate = _game->getCoopMod()->isSeparateCampaign();
+	if (_soldierId < _list->size() && _list->at(_soldierId) == _soldier
+		&& (!separate || SharedEcon::ownsSoldier(_game, _list->at(_soldierId))))
+		return false;
 	for (size_t i = 0; i < _list->size(); ++i)
 	{
-		if (_list->at(i)->getId() == _coopShownId) { _soldierId = i; break; }
+		if (_list->at(i)->getId() == _coopShownId
+			&& (!separate || SharedEcon::ownsSoldier(_game, _list->at(i))))
+		{
+			_soldierId = i;
+			init();
+			return true;
+		}
+	}
+	if (separate)
+	{
+		for (size_t i = 0; i < _list->size(); ++i)
+			if (SharedEcon::ownsSoldier(_game, _list->at(i)))
+			{
+				_soldierId = i;
+				init();
+				return true;
+			}
+		// The foreign base still has soldiers, but none belongs to this player.
+		// Returning to the underlying roster is safer than clamping to its owner's
+		// first soldier and briefly exposing controls for the wrong player.
+		_game->popState();
+		return true;
 	}
 	init();
 	return true;

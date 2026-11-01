@@ -18,6 +18,7 @@ def main():
     state = source("src/Battlescape/BattlescapeState.cpp")
     game = source("src/Battlescape/BattlescapeGame.cpp")
     walk = source("src/Battlescape/UnitWalkBState.cpp")
+    briefing = source("src/Battlescape/BriefingState.cpp")
 
     assert "setPlayerTurn(0);" in state
     assert "_battleGame->isYourTurn = 0;" in state
@@ -25,8 +26,9 @@ def main():
     assert state.count("!_save->isPreview() && (_battleGame->isYourTurn == 1") >= 3
     assert "if (_save->isPreview() || !connectionTCP::parallelTurnActive())" in game
     assert "bool coopReplayDoor = !_parent->getSave()->isPreview()" in walk
+    assert "_disableCutsceneAndMusic = _disableCutsceneAndMusic || isPreview" in briefing
 
-    print("PASS Separate base preview bypasses network turn and ownership gates")
+    print("PASS Separate base preview bypasses network gates and never sends a cutscene")
 
 
 if __name__ == "__main__":
