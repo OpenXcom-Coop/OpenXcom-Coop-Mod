@@ -6924,6 +6924,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		alert.ufoId = obj.get("ufo_id", -1).asInt();
 		alert.type = str_type;
 		alert.race = str_race;
+		if (obj.isMember("hyperDetected"))
+			alert.hyperDetected = obj["hyperDetected"].asBool() ? 1 : 0;
 		coopUfoAlerts.push_back(alert);
 		while (coopUfoAlerts.size() > kMaxCoopUfoAlerts)
 			coopUfoAlerts.erase(coopUfoAlerts.begin()); // drop oldest, stay bounded

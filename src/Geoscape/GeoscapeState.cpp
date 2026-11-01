@@ -1669,7 +1669,11 @@ void GeoscapeState::think()
 					}
 					if (match)
 					{
-						popup(new UfoDetectedState(match, this, true, match->getHyperDetected(), true));
+						const bool hyperDetected = it->hyperDetected >= 0
+							? it->hyperDetected != 0 : match->getHyperDetected();
+						if (hyperDetected)
+							match->setHyperDetected(true);
+						popup(new UfoDetectedState(match, this, true, hyperDetected, true));
 						it = alerts.erase(it);
 					}
 					else

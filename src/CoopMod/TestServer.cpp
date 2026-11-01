@@ -1317,6 +1317,11 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 			resp["maintenance"] = mc->harnessDisplayedMaintenance();
 		}
 		else if (dynamic_cast<GeoscapeState*>(top))    resp["top"] = "geoscape";
+		else if (auto* ud = dynamic_cast<UfoDetectedState*>(top))
+		{
+			resp["top"] = "ufo_detected";
+			resp["hyperwave"] = ud->harnessHyperwave();
+		}
 		else if (auto* cd = dynamic_cast<CoopState*>(top))
 		{
 			resp["top"] = "coop";
@@ -3722,11 +3727,14 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["error"] = "no detected ufo (spawn_ufo first)";
 		else
 		{
-			UfoDetectedState* ud = new UfoDetectedState(u, gs, true, false, false);
+			const bool hyperwave = req.get("hyperwave", u->getHyperDetected()).asBool();
+			u->setHyperDetected(hyperwave);
+			UfoDetectedState* ud = new UfoDetectedState(u, gs, true, hyperwave, false);
 			delete ud; // ctor already broadcast ufo_popup {type, race}
 			resp["type"] = u->getRules()->getType();
 			resp["race"] = u->getAlienRace();
 			resp["ufo_id"] = u->getId();
+			resp["hyperDetected"] = hyperwave;
 			resp["ok"] = true;
 		}
 	}
