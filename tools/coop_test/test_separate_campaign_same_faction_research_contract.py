@@ -10,8 +10,11 @@ def main():
     geo = (ROOT / "src/Geoscape/GeoscapeState.cpp").read_text(encoding="utf-8")
     separate_h = (ROOT / "src/CoopMod/SeparateEcon.h").read_text(encoding="utf-8")
     separate_cpp = (ROOT / "src/CoopMod/SeparateEcon.cpp").read_text(encoding="utf-8")
-    assert "coopFile->getSeparateCampaign().getPlayer(owner)" in tcp
-    assert "replaceCompletedResearch(owner, clientProfile->completedResearch)" in tcp
+    # The joining client's starting research comes from every profile in its
+    # one-shot bootstrap world, completed and disabled topics alike.
+    assert "for (const auto& entry : coopFile->getSeparateCampaign().getPlayers())" in tcp
+    assert "separate.replaceCompletedResearch(owner, clientCompleted)" in tcp
+    assert "separate.disableResearch(owner, research)" in tcp
     assert "separate.setFactionResearch(owner, clientFactionResearch)" in tcp
     assert "determineAlienMissions();" in geo
     settled = geo.index("// Private Separate research must still start identically")

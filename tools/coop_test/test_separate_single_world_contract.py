@@ -129,7 +129,11 @@ def main():
     assert '"separate_initial_base_transfer"' in tcp
     assert "if (!base->_coopIcon)" in tcp
     assert "base->_isForeignBase = !base->isOwnedByPlayer(" in tcp
-    assert "sendInitialSeparateBaseToHost();" in source("src/Geoscape/BaseNameState.cpp")
+    # The client's first base is sent once its month-zero setup has finished,
+    # from the geoscape, never straight from base naming.
+    assert "sendInitialSeparateBaseToHost" not in source("src/Geoscape/BaseNameState.cpp")
+    assert "isInitialSeparateContributionWorld()" in geo
+    assert "sendInitialSeparateBaseToHost();" in geo
     assert "!(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())" in save_ui
 
     soldier = source("src/Savegame/Soldier.cpp")
