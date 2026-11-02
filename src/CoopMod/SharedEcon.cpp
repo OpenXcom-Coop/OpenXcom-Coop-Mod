@@ -3256,8 +3256,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 				row.baseIdx = jr[i].get("baseIdx", -1).asInt();
 				row.ownerSeat = jr[i].get("ownerSeat", -1).asInt();
 				row.ownerPlayerName = jr[i].get("ownerPlayerName", "").asString();
-				if (row.ownerPlayerName.empty() || !game->getCoopMod()->isSeparateCampaign()
-					|| row.ownerPlayerName == connectionTCP::seatName(connectionTCP::localSeat()))
+				if (ItemsArrivingState::showsArrivalLocally(row))
 					rows.push_back(row);
 			}
 			if (!rows.empty()) gs->popup(new ItemsArrivingState(gs, rows));
