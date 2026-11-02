@@ -256,9 +256,9 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 		// ambiguous: two scouts of the same race detected close together matched each
 		// other's alert (and the old single pending slot dropped one of them entirely).
 		root["ufo_id"] = ufo->getId();
-		// Keep the alert and the data used to build it in one reliable packet.
-		// The world snapshot can arrive later, which previously made the peer open
-		// a conventional-radar popup for a hyperwave detection.
+		// This detection's hyperwave decode, so the peer's popup matches this one
+		// even if its UFO copy still holds a stale flag (the position snapshot that
+		// updates it, e.g. after a loss and re-detection, may not have applied yet).
 		root["hyperDetected"] = hyperwave;
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
