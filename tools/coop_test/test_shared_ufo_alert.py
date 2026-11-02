@@ -1,4 +1,4 @@
-"""Playtest B5: every player must get a new-UFO alert, not just the host.
+"""Every player must get a new-UFO alert, not just the host.
 
 A SHARED campaign runs ONE host-authoritative geoscape sim, so UFO detection only
 ever happens on the host. The host broadcasts a reliable "ufo_popup" packet
@@ -53,7 +53,7 @@ def main():
                         lambda: ("UfoDetectedState" in top_state(client)) or None,
                         timeout=30, interval=0.5)
         assert "UfoDetectedState" in top_state(client), \
-            f"client never raised the UFO alert (B5); top={top_state(client)}"
+            f"client never raised the UFO alert; top={top_state(client)}"
         assert client.cmd({"cmd": "ping"}).get("pong"), "client unresponsive"
         print("PASS alert: client raised its own UfoDetectedState (all players alerted)")
 

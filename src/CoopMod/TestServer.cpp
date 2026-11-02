@@ -1413,6 +1413,42 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		return true;
 	}
 
+	// coop (TEST-ONLY): change a UFO's radar flags on THIS machine without building
+	// a UFO window or sending anything, as GeoscapeState::ufoDetection does on the
+	// machine that simulates the world: a hyper-wave decoder decoding a UFO radar
+	// already tracks ({"hyperDetected": true}), or the UFO leaving radar cover
+	// ({"detected": false, "hyperDetected": false}). Re-detecting the UFO is
+	// {"detected": true} followed by ufo_alert, which builds the window. Params:
+	// ufo_id (display id, required), detected, hyperDetected (each optional,
+	// omitted = unchanged). Response {ok, ufo_id, detected, hyperDetected} with the
+	// values the UFO holds afterwards. A replica's next position snapshot
+	// overwrites whatever it replicates.
+	if (cmd == "set_ufo_detection")
+	{
+		SavedGame* sgD = _game->getSavedGame();
+		const int wantD = req.get("ufo_id", -1).asInt();
+		Ufo* ufoD = nullptr;
+		if (sgD && req.isMember("ufo_id"))
+			for (auto* u : *sgD->getUfos())
+				if (u->getId() == wantD) { ufoD = u; break; }
+		if (!sgD)
+			resp["error"] = "no saved game";
+		else if (!ufoD)
+			resp["error"] = "ufo id not found";
+		else
+		{
+			if (req.isMember("detected"))
+				ufoD->setDetected(req["detected"].asBool());
+			if (req.isMember("hyperDetected"))
+				ufoD->setHyperDetected(req["hyperDetected"].asBool());
+			resp["ufo_id"] = ufoD->getId();
+			resp["detected"] = ufoD->getDetected();
+			resp["hyperDetected"] = ufoD->getHyperDetected();
+			resp["ok"] = true;
+		}
+		return true;
+	}
+
 	// coop: TEST INTROSPECTION, read-only. The
 	// geoscape globe's view (centre, zoom, rectangle) and, for a lon / lat, its screen point (base coordinates) and whether it is land, so
 	// a test clicks a land point or a base marker as a player does. "centerLon" / "centerLat" move the view only, never the game state.
@@ -1975,6 +2011,16 @@ bool TestServer::executeShared10(const std::string& cmd, const Json::Value& req,
 		{
 			resp["top"] = "ufo_detected";
 			resp["hyperwave"] = ud->harnessHyperwave();
+			// The UFO this window shows, so a test can tell one UFO's window from
+			// another's: its display id and coop id. Found by pointer in this
+			// world's UFO list (the window's pointer is never dereferenced);
+			// -1 / -1 once the UFO has left the world.
+			int shownId = -1, shownCoopId = -1;
+			if (SavedGame* sgU = _game->getSavedGame())
+				for (auto* u : *sgU->getUfos())
+					if (u == ud->coopHeldUfo()) { shownId = u->getId(); shownCoopId = u->getCoopUfoId(); break; }
+			resp["ufoId"] = shownId;
+			resp["ufoCoopId"] = shownCoopId;
 		}
 		else if (auto* cd = dynamic_cast<CoopState*>(top))
 		{
@@ -4650,12 +4696,16 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	}
 	else if (cmd == "ufo_alert")
 	{
-		// Playtest B5: reproduce a native UFO detection on THIS machine. Building a
-		// UfoDetectedState is exactly what the geoscape sim does when a UFO is first
-		// detected, and its ctor broadcasts the reliable "ufo_popup" packet
-		// (type+race) to the peer - the SHARED host's one shared sim detecting a UFO
-		// must alert every player, not just the host. Picks the first detected UFO
-		// (spawn one first). Construct + delete: the ctor's broadcast is the point.
+		// Reproduce a native UFO detection on THIS machine, so every player gets the
+		// new-UFO alert and not just the host. Building a UfoDetectedState is exactly
+		// what the geoscape sim does when a UFO is first detected, and its ctor
+		// broadcasts the reliable "ufo_popup" packet (type, race, ufo_id,
+		// hyperDetected) to the peer - the SHARED host's one shared sim detecting a
+		// UFO must alert every player. Picks the detected UFO with display id
+		// `ufo_id`, or the first detected UFO (spawn one first). `hyperwave` (default:
+		// the UFO's current flag) is stored on the UFO, as the sim does for a
+		// hyper-wave detection, and builds the window with or without the hyper-wave
+		// details. Construct + delete: the ctor's broadcast is the point.
 		GeoscapeState* gs = findState<GeoscapeState>(_game);
 		SavedGame* sg = _game->getSavedGame();
 		Ufo* u = nullptr;
@@ -4672,7 +4722,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			const bool hyperwave = req.get("hyperwave", u->getHyperDetected()).asBool();
 			u->setHyperDetected(hyperwave);
 			UfoDetectedState* ud = new UfoDetectedState(u, gs, true, hyperwave, false);
-			delete ud; // ctor already broadcast ufo_popup {type, race}
+			delete ud; // the ctor already broadcast ufo_popup {type, race, ufo_id, hyperDetected}
 			resp["type"] = u->getRules()->getType();
 			resp["race"] = u->getAlienRace();
 			resp["ufo_id"] = u->getId();
@@ -14705,6 +14755,10 @@ std::string TestServer::execute(const std::string& line)
 					ju["type"] = u->getRules()->getType();
 					ju["altitude"] = u->getAltitude();
 					ju["detected"] = u->getDetected();
+					// whether a hyper-wave decoder decoded this UFO (its UFO window shows
+					// type, race, mission and zone), so a test can compare the flag on a
+					// replica with the host's
+					ju["hyperDetected"] = u->getHyperDetected();
 					ju["status"] = (int)u->getStatus();
 					ju["lon"] = u->getLongitude();
 					ju["lat"] = u->getLatitude();
