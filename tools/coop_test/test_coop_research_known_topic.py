@@ -27,7 +27,7 @@ completion to the replica (research_done).
 
   * PASS (exit 0): every row completes the project with both processes alive.
   * FAIL (exit 2): a game process crashed (the bug).
-  * FAIL (exit 3): a precondition never held (e.g. sync never delivered the
+  * FAIL (exit 2): a precondition never held (e.g. sync never delivered the
     host's completion); the test proved nothing.
 """
 import glob
@@ -60,7 +60,7 @@ class Inconclusive(Exception):
 
 def crash_logs():
     hits = []
-    for root in (harness.TEST_ROOT, RELEASE_DIR):
+    for root in (harness.TEST_ROOT, harness.CRASH_DIR):  # this lane's crash folder only
         hits += glob.glob(os.path.join(root, "**", "crash_*.log"), recursive=True)
     return set(hits)
 
@@ -201,7 +201,7 @@ def main():
         sys.exit(2)
     if inconclusive or note:
         print("INCONCLUSIVE:", inconclusive or note)
-        sys.exit(3)
+        sys.exit(2)  # a precondition miss fails the run
     print("PASS: research on an already-known topic completes without a crash (SEPARATE + SHARED)")
     sys.exit(0)
 

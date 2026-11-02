@@ -48,8 +48,8 @@
 #include "Map.h"
 #include "TileEngine.h"
 #include "Pathfinding.h"
-#include "../CoopMod/SharedEcon.h"
-#include "../CoopMod/connectionTCP.h" // coop (PRD-I0): the side-start boundary marker
+#include "../CoopMod/CoopSideTransition.h"
+#include "../CoopMod/CoopDelta.h"
 
 namespace OpenXcom
 {
@@ -62,26 +62,6 @@ namespace OpenXcom
  */
 NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *state) : _battleGame(battleGame), _state(state), _timer(0), _currentTurn(0), _showBriefing(false)
 {
-
-	// coop
-	/*
-	if (_game->getCoopMod()->getCoopStatic() == true && (_game->getCoopMod()->getCoopGamemode() == 2 || _game->getCoopMod()->getCoopGamemode() == 3) && _battleGame->isPreview() == false && _game->getCoopMod()->_isActiveAISync == true && _battleGame->getSide() == FACTION_HOSTILE)
-	{
-
-		battleGame->setSideCoop(2);
-
-	}
-	*/
-	
-	//coop
-	if (_game->getCoopMod()->getCoopStatic() == true)
-	{
-
-		_game->getCoopMod()->_battleWindow = true;
-		_game->getCoopMod()->_onClickClose = false;
-
-	}
-	
 	if (_battleGame->isPreview())
 	{
 		// skip everything, go straight to init()
@@ -103,6 +83,16 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 		{
 			_battleGame->setRandomHiddenMovementBackground(_game->getMod());
 			state->getMap()->refreshHiddenMovementBackground();
+		}
+	}
+
+	// reset alien/civilian quick mode
+	if (_battleGame->getSide() == FACTION_PLAYER)
+	{
+		if (Options::battleAlienSpeedOrig != -1)
+		{
+			Options::battleAlienSpeed = Options::battleAlienSpeedOrig;
+			Options::battleAlienSpeedOrig = -1;
 		}
 	}
 
@@ -231,7 +221,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 	// environmental effects
 	std::string message;
 
-	if (sc && !_battleGame->getBattleGame()->areAllEnemiesNeutralized())
+	if (sc && !coopSuppressReinforcements(_battleGame) && !_battleGame->getBattleGame()->areAllEnemiesNeutralized())
 	{
 		if (_battleGame->getSide() == FACTION_PLAYER)
 		{
@@ -244,6 +234,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 			{
 				_txtMessage2->setColor(friendly.color);
 				message = tr(friendly.message);
+				coopHitLogMessageKeys(friendly.message, std::string()); // coop
 				_txtMessage2->setText(message);
 			}
 		}
@@ -283,6 +274,7 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 					ss.clear();
 					ss << tr(hostile.message) << tr(neutral.message);
 					message = ss.str();
+					coopHitLogMessageKeys(hostile.message, neutral.message); // coop
 				}
 			}
 		}
@@ -299,20 +291,13 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 
 	if (_battleGame->getSide() == FACTION_PLAYER)
 	{
-
-		// coop
-		if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true && _game->getCoopMod()->_isActiveAISync == true && _game->getCoopMod()->getCoopGamemode() != 3 && _game->getCoopMod()->getCoopGamemode() != 2)
-		{
-
-			Json::Value root;
-			root["state"] = "endPlayerTurn";
-			root["data"] = false;
-
-			_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-		}	
-
-
-		checkBugHuntMode();
+		// checkBugHuntMode() is a hashed write (it can
+		// set _battleGame->setBughuntMode(true), which is serialized and
+		// rides the saveBlob bucket) that reads bu->getVisible() - a
+		// machine-local input - so it must stay strictly host-authoritative.
+		// See coopSuppressBugHuntCheck()'s own comment (CoopSideTransition.h).
+		if (!coopSuppressBugHuntCheck(_battleGame))
+			checkBugHuntMode();
 		_state->bugHuntMessage();
 	}
 
@@ -324,7 +309,8 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
 	}
 	if (allowReinforcements && !_battleGame->getBattleGame()->areAllEnemiesNeutralized())
 	{
-		bool showAlert = determineReinforcements();
+		bool showAlert = coopSuppressReinforcements(_battleGame) ? false : determineReinforcements();
+		coopCueSpawnAdded(_battleGame, "reinforcement");
 		if (showAlert && _battleGame->getTurn() > 0)
 		{
 			messageReinforcements = tr("STR_REINFORCEMENTS_ALERT");
@@ -345,7 +331,6 @@ NextTurnState::NextTurnState(SavedBattleGame *battleGame, BattlescapeState *stat
  */
 NextTurnState::~NextTurnState()
 {
-
 	delete _timer;
 }
 
@@ -492,13 +477,7 @@ bool NextTurnState::applyEnvironmentalConditionToFaction(UnitFaction faction, En
 	if (showMessage)
 	{
 		// now check for new casualties
-		// coop (chain-atomicity Strand A): environmental-condition (fire/EMP/etc.) turn-start
-		// casualties are a side-start boundary pass (the sidestart marker is armed later in
-		// NextTurnState::close), so flag the phase to keep these deaths seq-0 instead of
-		// opening a loose mid-side chain during the next-turn screen.
-		_battleGame->getBattleGame()->coopSetBoundaryCasualty(true);
 		_battleGame->getBattleGame()->checkForCasualties(nullptr, BattleActionAttack{ }, true, false);
-		_battleGame->getBattleGame()->coopSetBoundaryCasualty(false);
 		// revive units if damage could give hp or reduce stun
 		//_battleGame->reviveUnconsciousUnits(true);
 	}
@@ -555,14 +534,6 @@ void NextTurnState::handle(Action *action)
  */
 void NextTurnState::think()
 {
-
-	// coop
-	if (_game->getCoopMod()->_onClickClose == true)
-	{
-		close();
-		_game->getCoopMod()->_onClickClose = false;
-	}
-
 	if (_timer)
 	{
 		_timer->think(this, 0);
@@ -574,28 +545,19 @@ void NextTurnState::think()
  */
 void NextTurnState::close()
 {
-
-	// coop
-	const int pvpScreenGamemode = _game->getCoopMod()->getCoopGamemode();
-	const bool pvpTurnScreen = (pvpScreenGamemode == 2 || pvpScreenGamemode == 3)
-		&& (_battleGame->getSide() == FACTION_NEUTRAL
-			|| _battleGame->getSide() == FACTION_PLAYER);
-	if ((_battleGame->getSide() == FACTION_HOSTILE || pvpTurnScreen)
-		&& _game->getCoopMod()->getCoopStatic() == true
-		&& _battleGame->getTurn() >= 1
-		&& _game->getCoopMod()->getHost() == true
-		&& _battleGame->isPreview() == false)
-	{
-
-		Json::Value root;
-		root["state"] = "click_close";
-		root["data"] = false;
-
-		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-	}	
-
+	if (coopEquipHoldTurnScreen(_battleGame)) return;
 	_battleGame->getBattleGame()->cleanupDeleted();
 	_game->popState();
+
+	// presentation-only dismissal on a coop
+	// CLIENT. Everything above this point (cleanupDeleted + popState) is the
+	// dismissal itself and always runs; everything below is vanilla's own
+	// post-dismissal battle-lifecycle work (tally, the mind-control
+	// conversion, finishBattle(), autosave) - a client's own NextTurnState
+	// push has no local authority to make any of those calls. See
+	// coopSuppressNextTurnLifecycle()'s own comment (CoopSideTransition.h).
+	if (coopSuppressNextTurnLifecycle(_battleGame))
+		return;
 
 	BattlescapeTally tally = _state->getBattleGame()->tallyUnits();
 
@@ -603,11 +565,6 @@ void NextTurnState::close()
 	{
 		// we don't care if someone was revived in the meantime, the decision to end the battle was already made!
 		tally.liveAliens = 0;
-
-		// coop (PRD-I3 Option D-lite): the battle is ending here, so DISCARD any pending
-		// deferred turn advance - there is no player side to advance to and the debriefing
-		// is the authoritative replacement (harmless on the host; the flag is client-only).
-		connectionTCP::_turnAdvanceDeferred = 0;
 
 		// mind control anyone who was revived (needed for correct recovery in the debriefing)
 		for (auto* bu : *_battleGame->getUnits())
@@ -624,37 +581,7 @@ void NextTurnState::close()
 
 	// not "escort the VIPs" missions, not the final mission and all aliens dead.
 	bool killingAllAliensIsNotEnough = _battleGame->getObjectiveType() == MUST_DESTROY || (_battleGame->getVIPSurvivalPercentage() > 0 && _battleGame->getVIPEscapeType() != ESCAPE_NONE);
-
-	// coop (SESSION D): battle end is HOST-AUTHORITATIVE in parallel mode. The
-	// parallel client must not decide the battle is over from its OWN tallyUnits()
-	// - its tally can diverge from the host's whenever a battle-end input is
-	// deferred/host-only (e.g. a mod with surrenderMode>=2 reads the panic
-	// wantsToSurrender the client DEFERS at BattleUnit::prepareNewTurn, so a
-	// surrendered alien still counts as a live alien here). Ending on the local
-	// tally would either quiesce the client early (host still fighting -> the
-	// client waits for a debrief that never comes) or make the two machines
-	// disagree on when the battle ends. The host announces the end with the
-	// "DebriefingState" packet (the single trigger in PVE/SHARED; BattlescapeState::
-	// finishBattle already no-ops on the non-host PVE client), so on the parallel
-	// client never take the local-tally end branch - follow the host's turn
-	// machinery and end only on the host's packet. The host and classic co-op keep
-	// their own tally (the guard is false there), so both stay byte-identical.
-	// Abort is a separate, explicitly host-announced vote (finishBattle(true), which
-	// is NOT gated here and still crosses on the client).
-	const bool coopHostAuthoritativeEnd = connectionTCP::parallelTurnActive() && !_game->getCoopMod()->getHost();
-	// PvP has its own seat-based elimination check in
-	// BattlescapeState::btnEndTurnClick.  The ordinary mission tally cannot be
-	// used here: each PvP process presents its locally controlled side as the
-	// player faction, so after the alien half of a round tallyUnits() may report
-	// zero soldiers or zero aliens even though both network seats still have
-	// living units.  That used to end a resumed gm2/gm3 battle as soon as the
-	// Next Turn screen was closed.  Campaign and Custom Battle PvP now share the
-	// same authoritative seat-based end path.
-	const int coopGamemode = _game->getCoopMod()->getCoopGamemode();
-	const bool coopPvpBattle = _game->getCoopMod()->getCoopStatic()
-		&& (coopGamemode == 2 || coopGamemode == 3);
-	if (!coopHostAuthoritativeEnd && !coopPvpBattle
-		&& ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0))
+	if ((!killingAllAliensIsNotEnough && tally.liveAliens == 0) || tally.liveSoldiers == 0)
 	{
 		_state->finishBattle(false, tally.liveSoldiers);
 	}
@@ -665,261 +592,6 @@ void NextTurnState::close()
 		// Try to reactivate the touch buttons at the start of the player's turn
 		if (_battleGame->getSide() == FACTION_PLAYER)
 		{
-
-			// coop resets
-			if (_game->getCoopMod()->getCoopStatic() == true)
-			{
-
-				_game->getCoopMod()->_battleInit = false;
-
-				_game->getCoopMod()->_isActiveAISync = false;
-
-			}
-
-			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getHost() == true)
-			{
-
-				if (_battleGame->getTurn() >= 1)
-				{
-
-					Json::Value root;
-					root["state"] = "next_turn";
-					int index = 0;
-
-					root["end"] = true;
-
-					// coop (PRD-I3 Option D-lite): the authoritative turn/side for the client's
-					// deferred turn-machine advance. Additive - an old peer ignores them and
-					// keeps the legacy free-run, so classic/old-host posture is unchanged.
-					root["turn"] = _battleGame->getTurn();
-					root["side"] = (int)_battleGame->getSide();
-
-					// coop (parallel battlescape Phase 1 - per-unit state watermark): stamp
-					// this next_turn snapshot with the side that just started (BattlescapeGame::
-					// endTurn already incremented connectionTCP::_sideSeq before sending endTurn,
-					// so it is the new side's token by the time we get here). Rank 0 (snapshot).
-					// Additive - an old peer ignores these fields.
-					if (connectionTCP::parallelTurnActive())
-					{
-						root["side_seq"] = static_cast<Json::UInt>(connectionTCP::_sideSeq);
-						root["action_seq"] = 0;
-					}
-
-					// coop (explosion ordered-replay E0): host->client objective-counter
-					// parity. The client no longer self-counts (LEAK-OBJ gate in
-					// SavedBattleGame::addDestroyedObjective), so it converges to this
-					// absolute on next_turn (applied in connectionTCP's next_turn handler).
-					if (connectionTCP::parallelTurnActive())
-						root["objectivesDestroyed"] = static_cast<Json::UInt>(_battleGame->getObjectivesDestroyed());
-
-					for (auto& unit : *_game->getSavedGame()->getSavedBattle()->getUnits())
-					{
-
-						root["units"][index]["unit_id"] = unit->getId();
-						root["units"][index]["pos_x"] = unit->getPosition().x;
-						root["units"][index]["pos_y"] = unit->getPosition().y;
-						root["units"][index]["pos_z"] = unit->getPosition().z;
-
-						root["units"][index]["time"] = unit->getTimeUnits();
-						root["units"][index]["health"] = unit->getHealth();
-						root["units"][index]["energy"] = unit->getEnergy();
-						root["units"][index]["morale"] = unit->getMorale();
-						root["units"][index]["mana"] = unit->getMana();
-						root["units"][index]["stunlevel"] = unit->getStunlevel();
-
-						root["units"][index]["setDirection"] = unit->getDirection();
-						root["units"][index]["setFaceDirection"] = unit->getFaceDirection();
-
-						root["units"][index]["setTurretDirection"] = unit->getTurretDirection();
-						root["units"][index]["setTurretToDirection"] = unit->getTurretToDirection();
-
-						// motions points (fix)
-						root["units"][index]["motionpoints"] = unit->getMotionPoints();
-
-						// new
-						root["units"][index]["respawn"] = unit->getRespawn();
-
-						root["units"][index]["fire"] = unit->getFire();
-
-						// coop (PRD-I3 Session F saveBlob close): the unit's ABSOLUTE floating
-						// bit. Real kneel-eligibility reader (BattlescapeGame.cpp:1394 /
-						// UnitTurnBState.cpp:220); a unit_fall coverage gap left it diverging on
-						// the parallel client at SIDESTART (saveBlob `floating`). next_turn is the
-						// boundary carrier for the host's post-turn state, so it ships the absolute
-						// here (faction/fire precedent). Additive/present-gated; client applies
-						// PVE-only via setFloatingCoop.
-						root["units"][index]["floating"] = unit->isFloating();
-
-						// coop (PRD-I3 SEAM-10): the unit's ABSOLUTE faction. A mind-controlled
-						// unit reverts to its original faction at the NEUTRAL->PLAYER boundary in
-						// SavedBattleGame::endTurn's prepareNewTurn loop - which the HOST runs but
-						// the parallel client DEFERS to this packet (connectionTCP side==2), so a
-						// dead/MC-expired victim would otherwise keep the player faction forever.
-						// next_turn is built AFTER that revert, so getFaction() is the post-revert
-						// absolute. Additive/present-gated; the client applies it PVE-only.
-						root["units"][index]["faction"] = (int)unit->getFaction();
-
-						// mind control (host)
-						if (unit->_coop_mindcontrolled == true)
-						{
-
-							unit->_coop_mindcontrolled = false;
-
-							if (unit->getCoop() == 0)
-							{
-
-								unit->setCoop(1);
-
-								if (_game->getCoopMod()->getHost() == false)
-								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-								else
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-								}
-							}
-							else if (unit->getCoop() == 1)
-							{
-
-								unit->setCoop(0);
-
-								if (_game->getCoopMod()->getHost() == true)
-								{
-									unit->convertToFaction(FACTION_PLAYER);
-									unit->setOriginalFaction(FACTION_PLAYER);
-								}
-								else
-								{
-									unit->convertToFaction(FACTION_HOSTILE);
-									unit->setOriginalFaction(FACTION_HOSTILE);
-								}
-							}
-						}
-
-						Json::Value fatalArray(Json::arrayValue);
-						for (int i = 0; i < BODYPART_MAX; ++i)
-						{
-							fatalArray.append(unit->getFatalWoundsCoop()[i]);
-						}
-
-						root["units"][index]["fatalWounds"] = fatalArray;
-
-
-						// coop fix
-						// coop (parallel Phase 3, Sub-task B): host send-side tile-less
-						// DEAD-status inference - classic only. In parallel the atomic
-						// unit_casualty already carried each casualty's explicit final
-						// status when it died, so re-inferring DEAD from tile-lessness
-						// here (ahead of building this next_turn snapshot's `isTile`
-						// field below, which stays ungated) is unneeded and could
-						// misfire.
-						if (!connectionTCP::parallelTurnActive() && !unit->getTile() && unit->getStatus() != STATUS_DEAD && unit->getStatus() != STATUS_UNCONSCIOUS)
-						{
-							unit->setCoopStatus(STATUS_DEAD);
-						}
-
-						if (unit->getTile() && (unit->getStatus() == STATUS_DEAD || unit->getStatus() == STATUS_UNCONSCIOUS))
-						{
-
-							unit->setTile(nullptr, _game->getSavedGame()->getSavedBattle());
-						}
-
-						bool isTile = false;
-
-						if (unit->getTile())
-						{
-
-							isTile = true;
-						}
-
-						root["units"][index]["isTile"] = isTile;
-						root["units"][index]["status"] = _game->getCoopMod()->unitstatusToInt(unit->getStatus());
-
-						index++;
-					}
-
-					// tiles
-					int json_index = 0;
-					for (int tile_index = 0; tile_index < _battleGame->getMapSizeXYZ();)
-					{
-
-						// only specific tiles (fire, smoke)
-						if (_battleGame->getTile(tile_index)->getSmoke() != 0 || _battleGame->getTile(tile_index)->getFire() != 0)
-						{
-
-							root["tiles"][json_index]["tile_pos_x"] = _battleGame->getTile(tile_index)->getPosition().x;
-							root["tiles"][json_index]["tile_pos_y"] = _battleGame->getTile(tile_index)->getPosition().y;
-							root["tiles"][json_index]["tile_pos_z"] = _battleGame->getTile(tile_index)->getPosition().z;
-
-							root["tiles"][json_index]["getDangerous"] = _battleGame->getTile(tile_index)->getDangerous();
-							root["tiles"][json_index]["getFire"] = _battleGame->getTile(tile_index)->getFire();
-							root["tiles"][json_index]["getSmoke"] = _battleGame->getTile(tile_index)->getSmoke();
-
-							root["tiles"][json_index]["animation_offset"] = _battleGame->getTile(tile_index)->getAnimationOffset();
-							root["tiles"][json_index]["overlaps"] = _battleGame->getTile(tile_index)->getOverlaps();
-
-							json_index++;
-						}
-
-						++tile_index;
-					}
-
-					// coop (PRD-I3 SEAM-11): every item's ammo absolute. The parallel client
-					// replays shots for DISPLAY and runs its own spendAmmoForAction, which
-					// drifts on a diverging autoshot/abort count (saveBlob ammoqty, e.g. 17 vs
-					// 14); a chain-close absolute is clobbered by the still-running replay's
-					// later spend, so ship it here - next_turn applies AFTER every replay has
-					// drained, and mid-turn drift heals by the SIDESTART where saveBlob compares.
-					// RAW qty (not getAmmoQuantity()'s clipSize==-1 -> 255) so a self-powered
-					// weapon reads -1 on both; only non-zero, matching BattleItem::save's gate.
-					{
-						int ammoIndex = 0;
-						for (BattleItem* bi : *_game->getSavedGame()->getSavedBattle()->getItems())
-						{
-							if (!bi || bi->getAmmoQuantityRaw() == 0) continue;
-							root["itemAmmo"][ammoIndex]["id"] = bi->getId();
-							root["itemAmmo"][ammoIndex]["qty"] = bi->getAmmoQuantityRaw();
-							ammoIndex++;
-						}
-					}
-
-					// PRD-P2 3b: the battle drift tripwire rides the per-turn packet -
-					// the one packet guaranteed to cross once a turn, and already a
-					// full-state stamp. The client compares and REPORTS; it never
-					// repairs (SharedEcon.h explains why).
-					SharedEcon::attachBattleChecksum(_game, root);
-
-					// PRD-P4: the same turn-boundary hygiene the peer does on the
-					// receiving side. A Tier-A record whose carrier packet never went
-					// out - the host replaying a CLIENT-driven death, whose
-					// `after_unit_death` this machine does not send - would otherwise
-					// sit in the store for the rest of the battle.
-					SharedEcon::clearSpawnManifests();
-
-					_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
-
-					// coop (PRD-I0): the SIDE-START boundary pseudo-seq. `next_turn`
-					// is the packet that repairs unit stats and tile hazards from the
-					// host's snapshot, so the state right after it is the common
-					// baseline every action of the new side is measured from - and it
-					// is the only place both machines can be asked "do you agree yet?"
-					// with a defensible answer.
-					//
-					// Armed, so the marker leaves AFTER this packet and the client
-					// consumes it once `next_turn` has been APPLIED. That is the
-					// hash-after-apply half of PRD-I0 §1 - deliberately the opposite
-					// of attachBattleChecksum's compare-before-apply above, which
-					// stays as it is because the tripwire needs the PRE-repair state
-					// or it would be silent by construction.
-					connectionTCP::coopArmSyncBoundary("sidestart");
-
-				}
-
-			}
-
 			_state->toggleTouchButtons(false, true);
 		}
 

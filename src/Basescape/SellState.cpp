@@ -391,9 +391,11 @@ void SellState::init()
 	// rebuild when a peer's shared_apply moves this base. The post-battle
 	// (debriefing) variant is excluded: it belongs to DebriefingState's lifecycle
 	// and the J09 world restream heals it wholesale.
-	if (!_debriefingState)
+	// coop: in SHARED page 3 refreshes too - the rebuild re-reads the debriefing's counts.
+	if (!_debriefingState || _game->getCoopMod()->isSharedCampaign())
 	{
 		_sharedRefresh.bind(_game, this, _base);
+		_sharedSel.open(_game, this, _sharedRefresh.bound()); // coop
 	}
 }
 
@@ -404,6 +406,7 @@ void SellState::think()
 {
 	State::think();
 
+	if (SharedEcon::sellScreenShouldClose(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE)) { _game->popState(); return; } // coop: answered / solved
 	// PRD-J10: same pop-and-rebuild the _reset path above already uses (this screen
 	// treats "construct again" as its refresh).
 	if (_sharedRefresh.consume())
@@ -411,10 +414,12 @@ void SellState::think()
 		_game->popState();
 		if (SharedEcon::baseIndex(_game, _base) >= 0)
 		{
+			_sharedSel.carryOver(); // coop
 			_game->pushState(new SellState(_base, _debriefingState, _origin));
 		}
 		return; // `this` is now queued for deletion - touch nothing else
 	}
+	_sharedSel.think(this); // coop
 
 	_timerInc->think(this, 0);
 	_timerDec->think(this, 0);
@@ -685,6 +690,7 @@ void SellState::btnOkClick(Action *)
 	// OK button). SEPARATE/solo path below is untouched.
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
+		if (SharedEcon::awaiting(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE))) return; // coop: one confirm at a time
 		Json::Value items(Json::arrayValue);
 		Json::Value soldiers(Json::arrayValue);
 		Json::Value crafts(Json::arrayValue);
@@ -719,7 +725,8 @@ void SellState::btnOkClick(Action *)
 			case TRANSFER_ENGINEER:  engineers  += row.amount; break;
 			}
 		}
-		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers)
+		int coopSeq = 0; // coop: the submitted command's seq
+		if (!items.empty() || !soldiers.empty() || !crafts.empty() || scientists || engineers || _debriefingState || _sharedSel.listed()) // coop: the shared list's hidden rows
 		{
 			Json::Value payload;
 			payload["items"] = items;
@@ -727,15 +734,22 @@ void SellState::btnOkClick(Action *)
 			payload["crafts"] = crafts;
 			payload["scientists"] = scientists;
 			payload["engineers"] = engineers;
+			if (_debriefingState) payload["debrief"] = true; // coop: page 3 rides the apply
+			if (_debriefingState == 0 && _origin == OPT_BATTLESCAPE) payload["origin"] = "forced"; // coop: a forced sell from the battle (no debriefing)
+			_sharedSel.stamp(payload); // coop
+			for (const auto& row : _items)
+				if (_debriefingState && row.type == TRANSFER_ITEM)
+					payload["autosell"][((RuleItem*)row.rule)->getType()] = (row.amount == row.qtySrc);
 			int baseId = 0;
 			auto* bases = _game->getSavedGame()->getBases();
 			for (size_t i = 0; i < bases->size(); ++i)
 				if ((*bases)[i] == _base) { baseId = (int)i; break; }
 			if (_game->getCoopMod()->isSharedCampaign())
-				SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
+				coopSeq = SharedEcon::submitLocalCmd(_game, "sell", baseId, payload);
 			else
 				SeparateEcon::submitLocalCmd(_game, "sell", baseId, payload);
 		}
+		if (SharedEcon::keepAfterSubmit(_game, SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE), coopSeq, _sharedRefresh.bound())) return; // coop: wait for the host
 		_game->popState();
 		return;
 	}
@@ -953,6 +967,7 @@ void SellState::btnOkClick(Action *)
  */
 void SellState::btnCancelClick(Action *)
 {
+	SharedEcon::forgetResult(SharedEcon::sellKey(_game, _base, _debriefingState != 0, _origin == OPT_BATTLESCAPE)); // coop
 	_game->popState();
 }
 
@@ -1329,6 +1344,7 @@ void SellState::decrease()
  */
 void SellState::updateItemStrings()
 {
+	_sharedSel.localEdit(this); // coop
 	std::ostringstream ss, ss2, ss3;
 	ss << getRow().amount;
 	_lstItems->setCellText(_sel, 2, ss.str());

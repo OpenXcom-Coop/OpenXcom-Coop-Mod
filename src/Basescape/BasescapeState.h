@@ -120,6 +120,15 @@ public:
 	/// Test automation: the funds header text (a constructor/init-time cache; only
 	/// changes when the screen is rebuilt, so it proves a live SHARED refresh landed).
 	std::string harnessFundsText() const;
+	/// coop (SEPARATE only): hides the peer's mirror bases from the live base
+	/// list into the one process-wide stash; true if any was hidden.
+	static bool coopHideMirrors();
+	/// coop: puts the stashed mirrors back and empties the stash; true if it
+	/// held anything. A no-op in SP and SHARED (nothing is ever hidden there).
+	static bool coopShowMirrors();
+	/// coop (SEPARATE only): deletes every stashed mirror of the partner's base @a coopBaseId (the partner removed that base), so
+	/// leaving the view cannot put it back; returns how many it deleted.
+	static int coopDropStashedMirror(int coopBaseId);
 	int64_t harnessDisplayedFunds() const;
 	/// Test automation: inspect the real Basescape menu after selecting a base.
 	bool harnessButtonVisible(const std::string &button) const;

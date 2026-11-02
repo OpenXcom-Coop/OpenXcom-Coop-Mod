@@ -30,6 +30,7 @@
 #include "../Mod/Armor.h"
 #include "SerializationHelper.h"
 #include "../Battlescape/BattlescapeGame.h"
+#include "../CoopMod/CoopDoor.h"
 #include "../fmath.h"
 #include "SavedBattleGame.h"
 
@@ -359,7 +360,7 @@ int Tile::getFootstepSound(Tile *tileBelow) const
  * @param rClick
  * @return a value: 0(normal door), 1(ufo door) or -1 if no door opened or 3 if ufo door(=animated) is still opening 4 if not enough TUs
  */
-int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bool rClick, bool costFree, bool replayNeutral)
+int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bool rClick)
 {
 	if (!_objects[part]) return -1;
 
@@ -378,45 +379,31 @@ int Tile::openDoor(TilePart part, BattleUnit *unit, BattleActionType reserve, bo
 
 	if (_objectsCache[part].isDoor)
 	{
-		// coop (SEAM-3 door B): the peer's REPLAY walk is door-state-neutral - it never
-		// swaps a hinged door. The executor records the doors it opened and ships them
-		// on abortPath, which the peer applies cost-free. This makes hinged-door state
-		// fully executor-authoritative in BOTH directions (the peer can neither miss a
-		// host open on a TU/reserve/re-path shortfall, nor open one the host never did).
-		if (replayNeutral)
-			return -1;
 		if (unit && unit->isBigUnit()) // don't allow double-wide units to open swinging doors due to engine limitations
 			return -1;
-		// coop (SEAM-3 door): a co-op REPLAY of a host walk (costFree) must not bail on
-		// the replaying unit's transient local TU/reserve - the host already validated
-		// the open; the peer mirrors it. Without this the peer keeps a door the host
-		// walked through CLOSED, permanently (nothing re-opens a hinged door).
-		if (unit && cost.Time && !cost.haveTU() && !costFree)
+		if (unit && cost.Time && !cost.haveTU())
 			return 4;
-		if (_unit && _unit != unit && _unit->getPosition() != getPosition() && !costFree)
+		if (_unit && _unit != unit && _unit->getPosition() != getPosition())
 			return -1;
 		setMapData(_objects[part]->getDataset()->getObject(_objects[part]->getAltMCD()), _objects[part]->getAltMCD(), _mapData->SetID[part],
 				   _objects[part]->getDataset()->getObject(_objects[part]->getAltMCD())->getObjectType());
 		setMapData(0, -1, -1, part);
+		// ONE guarded coop
+		// call, at the point the NORMAL-door mutation has actually happened.
+		// See CoopDoor.h for why the journal sits here and not at
+		// TileEngine::unitOpensDoor's return. No-op outside an armed capture
+		// window, so SP and every non-coop battle are byte-identical.
+		coopNoteDoorOpened(this, part, 0);
 		return 0;
 	}
-	// coop (UFO-door authority): the peer's REPLAY walk is door-state-neutral for UFO
-	// doors too, matching the hinged branch above. The peer re-pathfinds each replayed
-	// walk independently (BattlescapeGame::abortCoopPath -> Pathfinding::calculate), so a
-	// route that crosses a UFO door the host's route never touched used to open it locally;
-	// nothing closes a UFO door until the side boundary, so isUfoDoorOpen diverged (host
-	// closed, peer open) for the rest of the turn. The EXECUTOR now records the UFO doors
-	// it opens (UnitWalkBState) and ships them on the abortPath closer (doors_opened),
-	// applied on the peer with adjacency - so UFO-door state is host-authoritative in both
-	// directions, exactly like hinged doors. replayNeutral is set only by the replay walk.
-	if (replayNeutral && _objectsCache[part].isUfoDoor)
-		return -1;
 	if (_objectsCache[part].isUfoDoor && _objectsCache[part].currentFrame == 0) // ufo door part 0 - door is closed
 	{
 		if (unit && cost.Time && !cost.haveTU())
 			return 4;
 		_objectsCache[part].currentFrame = 1; // start opening door
 		updateSprite((TilePart)part);
+		// the UFO-door half of the same journal hook (CoopDoor.h).
+		coopNoteDoorOpened(this, part, 1);
 		return 1;
 	}
 	if (_objectsCache[part].isUfoDoor && _objectsCache[part].currentFrame != 7) // ufo door != part 7 - door is still opening
@@ -437,6 +424,11 @@ int Tile::closeUfoDoor()
 			_objectsCache[part].currentFrame = 0;
 			retval = 1;
 			updateSprite((TilePart)part);
+			// the CLOSE half of the journal (CoopDoor.h). This
+			// is the turn-boundary mutation TileEngine::closeUfoDoors() drives
+			// (TileEngine.cpp:4315) and whose bits ride binTiles into the
+			// saveBlob bucket (this file, :209-210).
+			coopNoteDoorClosed(this, part);
 		}
 	}
 
@@ -491,11 +483,6 @@ void Tile::resetLightMulti(LightLayers layer)
 	{
 		_light[l] = 0;
 	}
-}
-
-void Tile::setLightCoop(int light, LightLayers layer)
-{
-	_light[layer] = light;
 }
 
 /**
@@ -561,18 +548,6 @@ int Tile::getShade() const
  */
 bool Tile::destroy(TilePart part, SpecialTileType type)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return true;
-	}
-
-	// coop (SEAM-3 b): the destroy_tile packet is built and SENT below, AFTER the
-	// destruction has run, so root["explosive"]/["explosive_type"] carry the
-	// POST-destroy state (the die-MCD explosive property the client must mirror)
-	// instead of the stale pre-destroy value.
-
 	bool _objective = false;
 	if (_objects[part])
 	{
@@ -585,63 +560,6 @@ bool Tile::destroy(TilePart part, SpecialTileType type)
 		if (originalPart->getDieMCD())
 		{
 			MapData *dead = originalPart->getDataset()->getObject(originalPart->getDieMCD());
-			setMapData(dead, originalPart->getDieMCD(), originalMapDataSetID, dead->getObjectType());
-		}
-		if (originalPart->getExplosive())
-		{
-			setExplosive(originalPart->getExplosive(), originalPart->getExplosiveType());
-		}
-	}
-	/* check if the floor on the lowest level is gone */
-	if (part == O_FLOOR && getPosition().z == 0 && _objects[O_FLOOR] == 0)
-	{
-		/* replace with scorched earth */
-		setMapData(MapDataSet::getScorchedEarthTile(), 1, 0, O_FLOOR);
-	}
-
-	// coop (SEAM-3 b): ship destroy_tile AFTER destruction so _explosive/_explosiveType
-	// reflect the POST-destroy state. Emission order is unchanged: nothing between the
-	// old send site and here emits a coop packet (setMapData/setExplosive do not send),
-	// and coopStampChainSeq reads the open-chain seq, which the destruction does not touch.
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-		Json::Value root;
-		root["state"] = "destroy_tile";
-		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
-		// holds this outcome for its own chain's opener instead of contaminating
-		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(root);
-
-		root["tile_pos_x"] = _pos.x;
-		root["tile_pos_y"] = _pos.y;
-		root["tile_pos_z"] = _pos.z;
-
-		root["tile_part"] = (int)part;
-		root["special_tile_type"] = (int)type;
-
-		root["explosive"] = _explosive;
-		root["explosive_type"] = _explosiveType;
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-	}
-
-	return _objective;
-}
-
-bool Tile::destroyCoop(TilePart part, SpecialTileType type)
-{
-	bool _objective = false;
-	if (_objects[part])
-	{
-		if (_objects[part]->isGravLift())
-			return false;
-		_objective = _objects[part]->getSpecialType() == type;
-		MapData* originalPart = _objects[part];
-		int originalMapDataSetID = _mapData->SetID[part];
-		setMapData(0, -1, -1, part);
-		if (originalPart->getDieMCD())
-		{
-			MapData* dead = originalPart->getDataset()->getObject(originalPart->getDieMCD());
 			setMapData(dead, originalPart->getDieMCD(), originalMapDataSetID, dead->getObjectType());
 		}
 		if (originalPart->getExplosive())
@@ -763,17 +681,6 @@ int Tile::getFuel(TilePart part) const
  */
 void Tile::ignite(int power)
 {
-	// coop (PRD-P3 GAP-3): tile fire and smoke are host-authoritative - setFire()
-	// and setSmoke() have carried that guard (and the packet that goes with it) for
-	// a long time, but ignite() wrote _fire/_smoke DIRECTLY, so a burning-floor unit
-	// or a melee attack lit fires on the peer off its own RNG::percent() roll and
-	// told nobody. Same guard, and the writes now go through the two setters so
-	// set_fire_tile / set_smoke_tile carry them.
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return;
-	}
-
 	if (getFlammability() != 255)
 	{
 		power = power - (getFlammability() / 10) + 15;
@@ -785,10 +692,10 @@ void Tile::ignite(int power)
 		{
 			if (_fire == 0)
 			{
-				// set BEFORE setSmoke: the smoke packet ships _overlaps.
+				_smoke = 15 - Clamp(getFlammability() / 10, 1, 12);
 				_overlaps = 1;
-				setSmoke(15 - Clamp(getFlammability() / 10, 1, 12));
-				setFire(getFuel() + 1);
+				_fire = getFuel() + 1;
+				_animationOffset = RNG::generate(0,3);
 			}
 		}
 	}
@@ -866,49 +773,20 @@ BattleUnit *Tile::getOverlappingUnit(const SavedBattleGame *saveBattleGame, Tile
  */
 void Tile::setFire(int fire)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return;
-	}
-
 	_fire = Clamp(fire, 0, 255);
 	_animationOffset = RNG::generate(0,3);
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "set_fire_tile";
-		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
-		// holds this outcome for its own chain's opener instead of contaminating
-		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(root);
-		// coop (PRD-I3 SEAM-2 HALF 2): if this send is the neutral->player boundary
-		// decay, tag `bnd:true` so the client rides it on the ordered gate rather than
-		// the whitelist (no-op outside the decay scope; mid-side explosion fire stays
-		// unflagged and whitelisted).
-		connectionTCP::coopStampBoundaryOrigin(root);
-
-		root["tile_pos_x"] = _pos.x;
-		root["tile_pos_y"] = _pos.y;
-		root["tile_pos_z"] = _pos.z;
-
-		root["fire"] = _fire;
-		root["animation_offset"] = _animationOffset;
-
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-	}
-
 }
 
-void Tile::setFireCoop(int fire, int animationOffset)
+/**
+ * Absolute tile-fire set
+ * for the `side_transition` restate's perTile applier. Same clamp as
+ * setFire() above, but no RNG::generate() roll - _animationOffset is
+ * cosmetic (not serialized) and the restate applier must never call RNG.
+ * @param fire : amount of turns this tile is on fire.
+ */
+void Tile::coopSetTileFireAbsolute(int fire)
 {
 	_fire = Clamp(fire, 0, 255);
-	_animationOffset = animationOffset;
 }
 
 /**
@@ -947,56 +825,35 @@ void Tile::addSmoke(int smoke)
  */
 void Tile::setSmoke(int smoke)
 {
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == false)
-	{
-		return;
-	}
-
 	_smoke = Clamp(smoke, 0, 255);
 	_animationOffset = RNG::generate(0,3);
-
-	// coop
-	if (connectionTCP::getCoopStatic() == true && connectionTCP::getHost() == true)
-	{
-
-		Json::Value root;
-		root["state"] = "set_smoke_tile";
-		// coop (PRD-I1): tag with the open chain's seq+side so a lagging client
-		// holds this outcome for its own chain's opener instead of contaminating
-		// post-N sync-check state (no-op off the parallel host, _openChainSeq==0).
-		connectionTCP::coopStampChainSeq(root);
-		// coop (PRD-I3 SEAM-2 HALF 2): if this send is the neutral->player boundary
-		// decay, tag `bnd:true` so the client rides it on the ordered gate rather than
-		// the whitelist (no-op outside the decay scope; mid-side explosion smoke stays
-		// unflagged and whitelisted).
-		connectionTCP::coopStampBoundaryOrigin(root);
-
-		root["tile_pos_x"] = _pos.x;
-		root["tile_pos_y"] = _pos.y;
-		root["tile_pos_z"] = _pos.z;
-
-		root["smoke"] = _smoke;
-		root["animation_offset"] = _animationOffset;
-		root["overlaps"] = _overlaps;
-		
-		connectionTCP::sendTCPPacketStaticData2(root.toStyledString());
-
-	}
-
 }
 
-void Tile::setSmokeCoop(int smoke, int animationOffset, int overlaps)
+/**
+ * Absolute tile-smoke set
+ * for the `side_transition` restate's perTile applier. Same clamp as
+ * setSmoke() above, but no RNG::generate() roll - see
+ * coopSetTileFireAbsolute()'s comment for why.
+ * @param smoke : amount of turns this tile is smoking.
+ */
+void Tile::coopSetSmokeAbsolute(int smoke)
 {
 	_smoke = Clamp(smoke, 0, 255);
-	_animationOffset = animationOffset;
+}
 
-	if (overlaps != -1)
-	{
-		_overlaps = overlaps;
-	}
-
+/**
+ * absolute UFO-door open state for the delta
+ * applier - the frame openDoor() starts an opening door on (1) or the one
+ * closeUfoDoor() writes (0), plus the sprite refresh both of them do. No RNG.
+ * @param part the tile part
+ * @param open true = open
+ */
+void Tile::coopSetUfoDoorOpen(TilePart part, bool open)
+{
+	if (!_objectsCache[part].isUfoDoor)
+		return;
+	_objectsCache[part].currentFrame = open ? 1 : 0;
+	updateSprite(part);
 }
 
 

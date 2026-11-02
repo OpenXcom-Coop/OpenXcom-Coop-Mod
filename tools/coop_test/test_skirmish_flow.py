@@ -17,8 +17,9 @@ lobby). Desired flow:
      which opens the client's craft screen OVER the lobby (it never leaves it)
   6. the setup screen's COOP button re-opens the lobby, which still offers
      BATTLE SETTINGS, so the host can bounce between the two
-  7. host presses OK on the setup screen -> the client leaves the lobby and
-     both machines reach the battlescape
+  7. host presses OK on the setup screen, then OK on the host briefing ->
+     the battle offer is sent, the client leaves the lobby and both machines
+     reach the battlescape
 
 What used to be wrong:
   - the popup was suppressed entirely for campaign lobbies (a lobbyMode gate),
@@ -248,8 +249,11 @@ def test_skirmish_full_flow():
         host.wait_for("host at battle settings again",
                       lambda: (not session.has_state(host, "LobbyMenu")) or None)
 
-        # 7. OK on the setup screen starts the battle for BOTH machines
+        # 7. the battle offer goes out only after the host's briefing OK.
         host.ok({"cmd": "newbattle_ok"})
+        host.wait_for("host briefing",
+                      lambda: session.has_state(host, "BriefingState"), timeout=120)
+        host.ok({"cmd": "click_widget", "match": "ok"})
 
         def in_battle(gc):
             st = states(gc)
@@ -340,11 +344,20 @@ def test_failed_join_clears_connecting():
         client.shutdown()
 
 
+# Step 7's client check: the client's battle entry follows the host's - it unwinds the client's pre-battle
+# menu stack with the bounded coopUnwindToSafeState() helper and then pushes BattlescapeState + a read-only
+# BriefingState over it, so the client lands on ['MainMenuState', 'BattlescapeState', 'BriefingState'] with
+# no lobby left. Without that unwind the client sits on a dead lobby it cannot dismiss:
+#   ['MainMenuState', 'NewBattleState', 'ServerList', 'LobbyMenu', 'BattlescapeState']
+# in_battle() accepts BriefingState, so the client reaching its own briefing counts as in battle.
+# pvp_fixture.py and other tests import this file: nothing here runs or exits at import time.
+
+
 def main():
     test_skirmish_full_flow()
     test_campaign_join_popup_over_lobby()
     test_failed_join_clears_connecting()
-    print("ALL SKIRMISH FLOW TESTS PASSED")
+    print("SKIRMISH FLOW: 3/3 scenarios PASSED")
 
 
 if __name__ == "__main__":

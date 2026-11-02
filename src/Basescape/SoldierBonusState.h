@@ -38,6 +38,7 @@ class SoldierBonusState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	size_t _soldier;
 	std::vector<std::string> _bonuses;
 

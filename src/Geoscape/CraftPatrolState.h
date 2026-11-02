@@ -44,6 +44,7 @@ private:
 public:
 	/// Creates the Geoscape Craft state.
 	CraftPatrolState(Craft *craft, Globe *globe);
+	Craft* coopHeldCraft() const { return _craft; } // coop: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Geoscape Craft state.
 	~CraftPatrolState();
 	/// Handler for clicking the OK button.

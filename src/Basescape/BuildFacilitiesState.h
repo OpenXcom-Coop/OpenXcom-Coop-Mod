@@ -39,6 +39,7 @@ class BuildFacilitiesState : public State
 {
 protected:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	State *_state;
 	std::vector<RuleBaseFacility*> _facilities, _disabledFacilities;
 	size_t _lstScroll;

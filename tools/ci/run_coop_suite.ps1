@@ -1,6 +1,6 @@
 # Runs the coop test suite headless (set SDL_VIDEODRIVER/SDL_AUDIODRIVER=dummy in the
 # caller's env). Exits nonzero if any non-quarantined test fails. Shared by both CI
-# workflows so the quarantine list and retry policy live in exactly one place.
+# workflows so the quarantine list and the one-attempt rule live in exactly one place.
 # Per-test durations go to the console and, on CI, to the run's Summary page
 # ($GITHUB_STEP_SUMMARY) as a slowest-first table.
 #
@@ -12,10 +12,16 @@
 #   ./tools/ci/run_coop_suite.ps1                                   # whole suite
 #   ./tools/ci/run_coop_suite.ps1 -PlanFile p.json -Shard 2         # one shard
 #   ./tools/ci/run_coop_suite.ps1 -PlanFile p.json -Shard 2 -ListOnly
+#
+# -LogDir <dir> (CI's shard step and tools/ci/run_local_suite.ps1) also writes each test's stdout +
+# stderr to <dir>/<test>.log; without it the child inherits the console exactly as before.
+# -TimingsOut is rewritten after every test, so a shard cancelled mid-run (the CI job cap)
+# still leaves the PASS timings it measured.
 param(
   [string]$PlanFile,
   [int]$Shard,
   [string]$TimingsOut,
+  [string]$LogDir,
   [switch]$ListOnly
 )
 $ErrorActionPreference = "Stop"
@@ -64,51 +70,10 @@ if ($PlanFile) {
 
 if ($ListOnly) { $tests; exit 0 }   # to stdout, so callers can diff the shard split
 
-# Known-broken on main, or not gate-shaped - run but do not gate.
+# Known-broken on main (real failures, not flakes) - run but do not gate.
 # Add entries here if a test regresses; remove them as they are fixed so they gate
 # again. Empty = the whole suite gates (all green as of 2026-07-15).
-$quarantine = @(
-  "test_pvp_campaign_month",       # issue #171: month-roll geoscape assert can't drain MissionDetectedState/SaveGameState
-  "test_crash_reporter",           # issue #172: marker-bundle 60s timeout, intermittent
-  "test_parallel_pve2_turn_screen_gate", # issue #205: host drops to main menu, client connection resets, 7 of 22 runs retried or failed
-  # A REPRO TOOL, not a guard - its own docstring says so, and its exit codes are
-  # the reverse of what a gate assumes: exit 0 = "the heavy-alien-death desync
-  # REPRODUCED", exit 3 = "every alien side stayed in census" (i.e. clean). Gating on
-  # it therefore scores the bug FIRING as success and a clean run as failure - every
-  # green run of it on main (30 Aug, 4 Sep) was green because the drift fired, which
-  # is precisely the signal a green pipeline hides. The fixes from #166 still sit
-  # behind a lever that defaults off (g_wireOrderState) pending the battlescape
-  # rewrite, so it keeps reproducing intermittently (~1 in 3-4 per its docstring).
-  # Run it and print the verdict; do not gate on it. Its rc=0 is worth alerting on
-  # separately - it is currently the only automated thing that notices the drift.
-  "test_parallel_heavy_death_repro",
-  # BATTLESCAPE DRIFT DETECTORS, quarantined for the duration of the battlescape
-  # rewrite. The first two find REAL divergence between the two machines - they are
-  # not flaky and they are not slow - and the third fails intermittently on the same
-  # subsystem (see its note). All three are detectors for the exact subsystem
-  # being replaced, so gating trunk on them blocks every unrelated change while the
-  # rewrite is in flight. Same family as the open reports #168, #178, #179, #182.
-  #   test_sync_check     PRD-I0 per-action sequenced sync-check. Last seen: the
-  #                       `smoke` bucket disagreed after a smoke-heavy alien side
-  #                       (turn 3) - smoke blocks line of sight, so the two machines
-  #                       disagreed about who could see whom.
-  #   test_parallel_soak  PRD-P9 parallel-turns soak, the broadest net in the suite
-  #                       ("the test that would catch an authority seam nobody thought
-  #                       to write a scenario for"). Last seen: the PRD-P2 drift
-  #                       tripwire fired after the alien side of turns 2 and 3.
-  #   test_parallel_loose_death
-  #                       Chain-atomicity death stamping + side barrier. Failed both
-  #                       attempts on main run 37579947711 (GREEN: unitsCombat bucket
-  #                       mismatch; LIVENESS: a forced wedge never closed the side),
-  #                       failed both attempts in 3 earlier runs since 2026-08-25, and
-  #                       needed its retry in about 9 more.
-  # REMOVE ALL THREE once the rewrite lands - between now and then nothing gates on
-  # battlescape drift, which is a deliberate, temporary hole and not a clean bill of
-  # health. Keep reading their output: they still run and still print their verdict.
-  "test_sync_check",
-  "test_parallel_soak",
-  "test_parallel_loose_death"
-)
+$quarantine = @()
 
 # --- Per-test time budgets ------------------------------------------------------
 # There is no shard wall-clock timeout any more (the CI step used to cap the whole
@@ -147,7 +112,7 @@ $pythonExe = (Get-Command $python).Source
 
 # Run one test with a hard-kill ceiling. Returns Rc / Seconds / TimedOut. The child
 # inherits our stdout/stderr (UseShellExecute=$false, no redirection) so test output
-# still streams into the CI log. On the ceiling we kill the whole process tree - on
+# still streams into the console (the path without -LogDir). On the ceiling we kill the whole process tree - on
 # Windows via taskkill /T (the python test spawns the game exe), elsewhere best-effort.
 function Invoke-BudgetedTest {
   param([string]$Exe, [string]$TestPath, [int]$HardKillMs)
@@ -171,6 +136,78 @@ function Invoke-BudgetedTest {
   return [pscustomobject]@{ Rc = 124; Seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1); TimedOut = $true }
 }
 
+# -LogDir only: Invoke-BudgetedTest with the child's stdout / stderr read line by line and
+# written both to this console (stdout / stderr as before) and to $LogPath. Same budget,
+# hard-kill and result shape. After the test exits, a game it left running may still hold
+# the pipes open, so reading stops 10 s after the exit at the latest.
+function Invoke-LoggedTest {
+  param([string]$Exe, [string]$TestPath, [int]$HardKillMs, [string]$LogPath)
+  $psi = New-Object System.Diagnostics.ProcessStartInfo
+  $psi.FileName               = $Exe
+  $psi.Arguments              = '"' + $TestPath + '"'
+  $psi.UseShellExecute        = $false
+  $psi.RedirectStandardOutput = $true
+  $psi.RedirectStandardError  = $true
+  $log = New-Object System.IO.StreamWriter($LogPath, $false, (New-Object System.Text.UTF8Encoding($false)))
+  $log.AutoFlush = $true
+  $sw = [System.Diagnostics.Stopwatch]::StartNew()
+  $p  = [System.Diagnostics.Process]::Start($psi)
+  $readers = @($p.StandardOutput, $p.StandardError)
+  $sinks   = @([Console]::Out, [Console]::Error)
+  $tasks   = @($readers[0].ReadLineAsync(), $readers[1].ReadLineAsync())
+  $exitAt  = $null
+  $killAt  = $null
+  try {
+    while ($true) {
+      $live = @(0, 1 | Where-Object { $null -ne $tasks[$_] })
+      if (-not $live.Count) { break }
+      [void][System.Threading.Tasks.Task]::WaitAny([System.Threading.Tasks.Task[]]@($live | ForEach-Object { $tasks[$_] }), 100)
+      foreach ($i in $live) {
+        if (-not $tasks[$i].IsCompleted) { continue }
+        $line = $tasks[$i].Result
+        if ($null -eq $line) { $tasks[$i] = $null; continue }
+        $sinks[$i].WriteLine($line)
+        $log.WriteLine($line)
+        $tasks[$i] = $readers[$i].ReadLineAsync()
+      }
+      if ($null -eq $exitAt -and $p.HasExited) { $exitAt = $sw.Elapsed }
+      if ($null -eq $exitAt -and $null -eq $killAt -and $sw.ElapsedMilliseconds -ge $HardKillMs) {
+        $killAt = $sw.Elapsed
+        if ($env:OS -eq "Windows_NT") {
+          & taskkill /F /T /PID $p.Id > $null 2>&1
+        } else {
+          try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch {}
+        }
+      }
+      if ($null -ne $exitAt -and ($sw.Elapsed - $exitAt).TotalSeconds -ge 10) { break }
+      if ($null -ne $killAt -and ($sw.Elapsed - $killAt).TotalSeconds -ge 15) { break }
+    }
+  } finally {
+    $log.Close()
+  }
+  if ($null -ne $killAt) {
+    try { $p.WaitForExit(15000) | Out-Null } catch {}
+    return [pscustomobject]@{ Rc = 124; Seconds = [math]::Round($killAt.TotalSeconds, 1); TimedOut = $true }
+  }
+  return [pscustomobject]@{ Rc = $p.ExitCode; Seconds = [math]::Round($exitAt.TotalSeconds, 1); TimedOut = $false }
+}
+
+# Feeds the next run's plan. PASSes only: a failing test bails out early and its
+# duration says nothing about how long the test actually takes. Written through a
+# temp file so a reader never sees half a file.
+function Write-ShardTimings {
+  $timings = [ordered]@{}
+  foreach ($r in ($results | Where-Object { $_.Status -eq "PASS" } | Sort-Object Test)) { $timings[$r.Test] = $r.Seconds }
+  $timings | ConvertTo-Json -Depth 2 | Set-Content "$TimingsOut.tmp" -Encoding utf8
+  Move-Item -LiteralPath "$TimingsOut.tmp" -Destination $TimingsOut -Force
+  return $timings.Count
+}
+if ($LogDir) {
+  # Absolute, so the .NET StreamWriter (process cwd) and New-Item (PowerShell location) agree.
+  $LogDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($LogDir)
+  New-Item -ItemType Directory -Force $LogDir | Out-Null
+}
+
 $results = @()
 $fail = 0
 foreach ($t in $tests) {
@@ -178,14 +215,11 @@ foreach ($t in $tests) {
   $budget   = if ($budgetMap.ContainsKey($t)) { $budgetMap[$t] } else { $defaultBudget }
   $hardMs   = [int][math]::Ceiling($budget * $hardKillMult * 1000.0)
 
-  $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs
-  $attempts = 1
-  if ($r.Rc -ne 0 -and -not $r.TimedOut) {        # retry a real failure once (flake tolerance)
-    $r = Invoke-BudgetedTest $pythonExe $testPath $hardMs   # never retry a hang - it just hangs again
-    $attempts = 2
-  }
-  $rc         = $r.Rc            # the LAST attempt's result/duration (a retry must
-  $secs       = $r.Seconds       # not inflate the weight the next plan uses)
+  $r = if ($LogDir) { Invoke-LoggedTest $pythonExe $testPath $hardMs (Join-Path $LogDir "$t.log") }
+       else         { Invoke-BudgetedTest $pythonExe $testPath $hardMs }
+  $attempts = 1   # one attempt per test, never a retry: a rerun hides a flaky test
+  $rc         = $r.Rc
+  $secs       = $r.Seconds
   $timedOut   = $r.TimedOut
   $overBudget = ($rc -eq 0 -and -not $timedOut -and $secs -gt $budget)
 
@@ -210,7 +244,6 @@ foreach ($t in $tests) {
   else                              { $status = "FAIL"; $fail++ }
 
   $note = @()
-  if ($attempts -gt 1)          { $note += "retried" }
   if ($status -eq "KNOWN-FAIL") { $note += "quarantined" }
   if ($timedOut)                { $note += "HANG rc=124" }
   elseif ($rc -ne 0)            { $note += "rc=$rc" }
@@ -220,15 +253,12 @@ foreach ($t in $tests) {
   if ($reason -and $status -eq "FAIL") { Write-Host "::error::$reason" }
 
   $results += [pscustomobject]@{ Test = $t; Status = $status; Seconds = $secs; Attempts = $attempts; Rc = $rc; Budget = $budget; OverBudget = $overBudget; TimedOut = $timedOut }
+  if ($TimingsOut) { $null = Write-ShardTimings }
 }
 
-# Feeds the next run's plan. PASSes only: a failing test bails out early and its
-# duration says nothing about how long the test actually takes.
 if ($TimingsOut) {
-  $timings = [ordered]@{}
-  foreach ($r in ($results | Where-Object { $_.Status -eq "PASS" } | Sort-Object Test)) { $timings[$r.Test] = $r.Seconds }
-  $timings | ConvertTo-Json -Depth 2 | Set-Content $TimingsOut -Encoding utf8
-  Write-Host "wrote $($timings.Count) timing(s) to $TimingsOut"
+  $n = Write-ShardTimings
+  Write-Host "wrote $n timing(s) to $TimingsOut"
 }
 
 # Duration table on the Actions run Summary page, slowest first, so the tests

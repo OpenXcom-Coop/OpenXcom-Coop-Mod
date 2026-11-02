@@ -87,10 +87,6 @@ public:
 	void resize(int &dX, int &dY) override;
 	/// Handler for clicking the Reinforcements Briefing button.
 	void btnBriefingReinforcementsClick(Action *action);
-	/// Test harness (coop TestServer dismiss_popup): press the real close
-	/// handler a player triggers (any key/click). close() is public and runs
-	/// the full turn-close, not a raw pop.
-	void testConfirm() { close(); }
 };
 
 }

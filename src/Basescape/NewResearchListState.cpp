@@ -169,6 +169,11 @@ void NewResearchListState::think()
 	TouchState::think();
 	if (_sharedRefresh.consume())
 	{
+		if (SharedEcon::baseIndex(_game, _base) < 0)
+		{
+			_game->popState(); // coop: this base is gone, as the eleven other bound base screens do
+			return;
+		}
 		fillProjectList(false);
 		touchComponentsRefresh();
 	}

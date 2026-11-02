@@ -40,6 +40,7 @@ class NewManufactureListState : public TouchState
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	bool _showRequirements, _refreshCategories, _doInit;
 	TextButton *_btnOk;
 	ToggleTextButton *_btnShowOnlyNew;

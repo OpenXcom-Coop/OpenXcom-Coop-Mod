@@ -12,6 +12,10 @@ game modes (0/1) use the single host-authoritative world. PvP (game mode
     - the alien host's mirror of the client's X-COM base detects a UFO right
       above it with X-COM's facilities (the _facilitiesCoop radar data,
       which only the client sends).
+    - the X-COM client's base screen hides the alien side's base copy from
+      the base list while it is open and puts it back, in its place, when the
+      player returns to the geoscape (BasescapeState::coopHideMirrors /
+      coopShowMirrors).
   gm2 (host = X-COM, client = aliens):
     - the alien client's mirror of the X-COM base carries X-COM's radar range,
       so the alien side sees the radar circle (_radar_range_coop).
@@ -156,6 +160,30 @@ def check_gm3_client_world(fails):
             _fail(fails, "gm3 alien host's mirror of the X-COM base has no radar")
         else:
             print("PASS gm3 radar: the X-COM mirror base detects with X-COM's radar")
+
+        # ---- X-COM client: its base screen hides the alien copy, GEOSCAPE puts it back
+        def _bases(gc):
+            return [[b["name"], bool(b.get("coopBase")), bool(b.get("coopIcon"))]
+                    for b in gc.ok({"cmd": "geo_state"})["bases"]]
+
+        def _top(gc):
+            return [s.split("::")[-1] for s in gc.ok({"cmd": "get_state"})["states"]][-1]
+        before = _bases(client)
+        client.ok({"cmd": "click_widget", "match": "BASES"})
+        client.wait_for("client BasescapeState", lambda: _top(client) == "BasescapeState" or None, timeout=10)
+        inside = _bases(client)
+        client.ok({"cmd": "click_widget", "match": "GEOSCAPE"})
+        client.wait_for("client GeoscapeState", lambda: _top(client) == "GeoscapeState" or None, timeout=10)
+        after = _bases(client)
+        print(f"    client bases: before {before}, base screen {inside}, after GEOSCAPE {after}")
+        copies = [b for b in before if b[2]]
+        if not copies or [b for b in before if not b[2]] != [["XcomBase", False, False]]:
+            _fail(fails, f"gm3 client base list {before}: want XcomBase and the alien copy")
+        elif inside != [["XcomBase", False, False]] or after != before:
+            _fail(fails, f"gm3 client base screen: list {inside} while open (want only XcomBase), "
+                         f"{after} after GEOSCAPE (want {before})")
+        else:
+            print("PASS gm3 base screen: the alien copy is hidden while open and back after GEOSCAPE")
     except Exception as e:
         print(f"[ERROR] gm3: {e!r}")
         _fail(fails, repr(e))

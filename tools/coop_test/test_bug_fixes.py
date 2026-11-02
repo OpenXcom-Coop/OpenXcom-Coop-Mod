@@ -132,7 +132,8 @@ def test_bug1b_mirror_open(host, client):
     client.wait_for("soldier visible inside visited base", visible_in_visited_world, timeout=15)
     client.ok({"cmd": "dismiss_notice"})
 
-    session.leave_base(client)
+    client.ok({"cmd": "leave_base"})
+    session.wait_back_on_geoscape(client, "back in own world")
 
     def present():
         hits = at_base(client, host_base_id, soldier, 1)

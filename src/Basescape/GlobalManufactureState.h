@@ -42,6 +42,7 @@ private:
 	TextList *_lstManufacture;
 
 	std::vector<Base*> _bases;
+	bool coopHoldsGoneBase() const override { return coopBasesGone(_bases); } // coop
 	std::vector<const RuleManufacture*> _topics;
 	bool _openedFromBasescape;
 public:

@@ -60,6 +60,9 @@ enum CoopDialogCode {
 	COOP_DLG_SHARED_FAIL       = 556, // PRD-J10: the host rejected a SHARED command
 	COOP_DLG_CONFIRM_EQUIP_CRAFT = 557, // lock the Custom Battle craft before equipment
 	COOP_DLG_VOTE_COOLDOWN = 558, // a seat tried to start another vote too soon
+	// A quarantined coop battle-entry/battle-resume path: every stubbed site pushes
+	// this instead of starting/resuming a coop battle; OK just pops back to geoscape/lobby.
+	COOP_DLG_BATTLE_UNAVAILABLE = 559,
 };
 
 /**
@@ -178,20 +181,12 @@ class CoopState : public State
 };
 
 /**
- * Click-to-dismiss notice raised once a battle desync diagnostic bundle has been
- * written (SharedEcon::captureDesyncReport). Its own class rather than a CoopState
- * code or an InfoboxOKState because:
- *  - it is nearly always raised OVER a live battle, where CoopState's geoscape
- *    window is the documented dialog/dismiss trap;
- *  - InfoboxOKState's constructor REPLICATES itself to the peer when the local
- *    machine is the host, and each machine's report names its own local path -
- *    the peer must never be shown this one;
- *  - it has to hold a full filesystem path plus a "where to send it" sentence,
- *    which does not fit InfoboxOKState's 255x61 big-font title.
- * Palette handling mirrors GiftNoticeState: adopt the screen underneath, and in
- * battle use the co-op lobby's geoscape/saveMenus combination under the battle
- * palette. NOTHING is captured here - the bundle is already on disk by the time
- * this is pushed, so a dialog the player leaves sitting cannot spoil it.
+ * coop: the caught-and-repaired notice,
+ * shaped like the CoopDesyncNoticeState of older versions (OK / OPEN FOLDER / REPORT ON GITHUB). Raised on each machine after the
+ * automatic desync repair, naming that machine's own report zip. Its own class rather than a CoopState code: it sits
+ * over a live battle, and it holds a full path plus a "where to send it" sentence. Palette handling as in older versions: in battle
+ * the co-op lobby's geoscape / saveMenus combination under the battle palette. Nothing is captured here - the report is
+ * on disk before this is pushed.
  */
 class CoopDesyncNoticeState : public State
 {
@@ -204,13 +199,13 @@ class CoopDesyncNoticeState : public State
 	TextButton *_btnReport;
 	std::string _headline;
 	std::string _message;
-	std::string _zipPath;     ///< the diagnostic bundle zip
+	std::string _zipPath;     ///< the report zip
 	std::string _openTarget;  ///< the folder OPEN FOLDER opens (the reports dir)
 	std::string _reportUrl;   ///< the prefilled GitHub new-issue URL
 	void buildLayout();
   public:
-	/// PRD-I4: message + attribution headline + one-click UX (open folder / prefilled
-	/// GitHub issue). No auto-upload; the buttons only shell out to the OS helper.
+	/// Message + attribution headline + one-click UX (open folder / prefilled GitHub issue). No upload; the buttons only
+	/// shell out to the OS helper.
 	CoopDesyncNoticeState(const std::string &message, const std::string &headline,
 						  const std::string &zipPath, const std::string &reportUrl);
 	/// Harness introspection: what this notice says / would open.
@@ -222,8 +217,7 @@ class CoopDesyncNoticeState : public State
 	void btnOkClick(Action *);
 	void btnOpenFolderClick(Action *);
 	void btnReportClick(Action *);
-	/// Test hook: the values the LAST-raised notice would open, kept after the modal
-	/// is dismissed so a harness poll made later can still read them.
+	/// Test hook: the values the LAST-raised notice would open, kept after it is dismissed.
 	static std::string s_lastHeadline;
 	static std::string s_lastMessage;
 	static std::string s_lastReportUrl;
@@ -232,6 +226,7 @@ class CoopDesyncNoticeState : public State
 	static int s_raiseCount;
 };
 
+// coop: the next-launch crash reporter's consent dialog.
 /**
  * PRD-I5: next-launch crash-report consent dialog. Raised once over the main menu
  * when crash-pending.json names a dump + log that still exist. Three outcomes:

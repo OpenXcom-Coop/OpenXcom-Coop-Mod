@@ -76,6 +76,25 @@ def ending(gc):
     return gc.ok({"cmd": "ending_state"})["ending"]
 
 
+class ClosedPopups:
+    """Hands a machine to the drain and keeps the type of every popup the drain
+    closes, so a notice that opens after a screen read is still counted."""
+
+    def __init__(self, gc):
+        self._gc = gc
+        self.name = gc.name
+        self.types = []
+
+    def cmd(self, req, *args, **kwargs):
+        r = self._gc.cmd(req, *args, **kwargs)
+        if req.get("cmd") == "dismiss_popup" and r.get("ok") and not r.get("kept"):
+            self.types.append(str(r.get("type", "")))
+        return r
+
+    def __getattr__(self, attr):
+        return getattr(self._gc, attr)
+
+
 def destroy(host, client, base_name, owner):
     """Nuke `base_name` and run both clocks until it is gone everywhere.
 
@@ -88,29 +107,39 @@ def destroy(host, client, base_name, owner):
     host.ok({"cmd": "spawn_base_assault", "base": base_name, "type": "STR_BATTLESHIP",
              "mission": "STR_ALIEN_RESEARCH"})
     seen = {"host": set(), "client": set()}
+
+    def note(machine, state):
+        for name in ("BaseDestroyedState", "ErrorMessageState"):
+            if name in state:
+                seen[machine].add(name)
+
     non_owner = client if owner is host else host
     deadline = time.time() + 120
     while time.time() < deadline:
+        # The base lists are read before the screens: a machine drops a lost base
+        # and opens its notice in one step, so a notice that comes with the drop
+        # is on the screens read next.
+        gone = base_name not in base_names(host) and base_name not in base_names(client)
+        over = bool(ending(host) or ending(client))
         for gc in (host, client):
             for s in states(gc):
-                for name in ("BaseDestroyedState", "ErrorMessageState"):
-                    if name in s:
-                        seen[gc.name].add(name)
+                note(gc.name, s)
         if "BaseDestroyedState" in seen[non_owner.name]:
             raise AssertionError(
                 f"{non_owner.name} was shown the {owner.name}'s base loss dialog "
                 f"(base still present: {base_name in base_names(host)}); "
                 f"host states={states(host)}")
-        if base_name not in base_names(host) and base_name not in base_names(client):
-            return seen
-        if ending(host) or ending(client):
+        if gone or over:
             return seen
         for gc in (host, client):
+            closed = ClosedPopups(gc)
             # Leave a non-owner's loss dialog open so the next poll reports it.
             if gc is non_owner:
-                drain(gc, "BaseDestroyedState")
+                drain(closed, "BaseDestroyedState")
             else:
-                drain(gc)
+                drain(closed)
+            for s in closed.types:
+                note(gc.name, s)
             if geo.on_geoscape(gc):
                 gc.ok({"cmd": "geo_set_speed", "idx": 2})
         time.sleep(0.3)

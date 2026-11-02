@@ -55,6 +55,7 @@ public:
 	Craft* getCraft() const { return _craft; }
 	/// Creates the Confirm Landing state.
 	ConfirmLandingState(Craft *craft, Texture *missionTexture, Texture *globeTexture, int shade, bool sharedBroker = false);
+	Craft* coopHeldCraft() const { return _craft; } // coop: for GeoscapeState::coopHeldCrafts
 	/// Cleans up the Confirm Landing state.
 	~ConfirmLandingState();
 	/// initialize the state, make a sanity check.

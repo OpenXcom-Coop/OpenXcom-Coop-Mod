@@ -95,6 +95,10 @@ public:
 		/// player keeps its own in the world's template slots instead, so its
 		/// profile holds none.
 		EquipmentTemplates equipmentTemplates;
+		/// This player's saved craft type deployments (the Ufopaedia craft
+		/// preview), by craft type, in the form of RuleCraftDeployment. The
+		/// host's player keeps its own in the world's own map instead.
+		std::map<std::string, std::vector<std::vector<int> > > craftDeployments;
 	};
 private:
 	std::map<std::string, PlayerState> _players;

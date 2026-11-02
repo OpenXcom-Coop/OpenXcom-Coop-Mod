@@ -12,7 +12,7 @@ serialize, so on reload Craft::load could not re-resolve the destination and
 silently dropped it - the out-craft reverted to aimless PATROLLING, abandoning
 its mission. The fix persists the target's cross-instance coop id on the craft
 (and keeps the coop id stable across the host's own save/reload), lays down an
-interim waypoint at the saved position, and re-links the craft to the LIVE coop
+temporary waypoint at the saved position, and re-links the craft to the LIVE coop
 mirror once it re-syncs - so the craft keeps chasing the REAL, position-synced
 target and engages it on arrival.
 
