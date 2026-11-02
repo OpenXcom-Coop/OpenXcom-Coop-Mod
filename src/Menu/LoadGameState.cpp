@@ -348,6 +348,14 @@ void LoadGameState::think()
 					// client acknowledges the world.
 					_game->getSavedGame()->setBattleGame(0);
 
+					// The host's world replaces a new Separate client's temporary
+					// one. Only the first world after that client sent its base
+					// skips the hold below: the client already waited at the
+					// all-bases gate.
+					const bool firstSeparateWorld = _game->getCoopMod()->separateAwaitingFirstWorld;
+					_game->getCoopMod()->separateLocalStartWorld = false;
+					_game->getCoopMod()->separateAwaitingFirstWorld = false;
+
 					// resume/rejoin: report the loaded world to the host and
 					// hold with frozen time until it resumes (F3/F4/D5)
 					if (connectionTCP::session.lobbyMode != 0
@@ -365,12 +373,8 @@ void LoadGameState::think()
 						_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 
 						// (in a battle resume the host's battle offer replaces the
-						// whole state stack, dialog included). A new Separate client's
-						// first world arrives after it waited at the all-bases gate.
-						const bool freshSeparateBootstrap =
-							_game->getCoopMod()->isSeparateCampaign()
-							&& connectionTCP::session.lobbyMode == 1;
-						if (!freshSeparateBootstrap)
+						// whole state stack, dialog included)
+						if (!firstSeparateWorld)
 							_game->pushState(new CoopState(COOP_DLG_CLIENT_RESUME_HOLD));
 					}
 				}

@@ -36196,7 +36196,7 @@ bool connectionTCP::pushProgressToHostSilently()
 
 bool connectionTCP::isInitialSeparateContributionWorld()
 {
-	if (getServerOwner() || !getCoopStatic() || !isSeparateCampaign()
+	if (!separateLocalStartWorld || getServerOwner() || !getCoopStatic() || !isSeparateCampaign()
 		|| session.lobbyMode != 1 || !_game->getSavedGame()
 		|| _game->getSavedGame()->getMonthsPassed() > 0)
 		return false;
@@ -36228,6 +36228,8 @@ void connectionTCP::sendInitialSeparateBaseToHost()
 	Json::Value obj;
 	obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
 	sendTCPPacketData(obj.toStyledString());
+	separateLocalStartWorld = false;
+	separateAwaitingFirstWorld = true;
 	Log(LOG_INFO) << "[coop-separate] sending initial base contribution to host";
 }
 
@@ -40720,7 +40722,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (!connectionTCP::no_bases)
 			{
 				if (isSeparateCampaign())
+				{
 					_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+					separateLocalStartWorld = true;
+					separateAwaitingFirstWorld = false;
+				}
 				refreshSeparateBaseOwnership();
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 			}
@@ -46842,6 +46848,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// starts on the same date, so a stale one could pair with the wrong event.
 		_ownCertainSpawns.clear();
 		_peerCertainSpawns.clear();
+		separateLocalStartWorld = false;
+		separateAwaitingFirstWorld = false;
 
 		playerInsideCoopBase = false;
 

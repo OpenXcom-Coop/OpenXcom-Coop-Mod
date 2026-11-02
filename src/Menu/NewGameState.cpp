@@ -221,6 +221,8 @@ void NewGameState::btnOkClick(Action *)
 			save->getSeparateCampaign().setFaction(localPlayer,
 				"difficulty:" + std::to_string(static_cast<int>(diff)));
 			connectionTCP::session.markLobbyClosed();
+			_game->getCoopMod()->separateLocalStartWorld = true;
+			_game->getCoopMod()->separateAwaitingFirstWorld = false;
 			Base* base = save->getBases()->back();
 			base->setOwnerPlayerName(localPlayer);
 			_game->getCoopMod()->refreshSeparateBaseOwnership();
