@@ -209,7 +209,11 @@ def main():
         assert hlog.count(STREAM_LINE) == 1 and hlog.count(BUSY_LINE) == 1, (
             f"race fixture: the stream was not in flight after the buy "
             f"(streams={hlog.count(STREAM_LINE)}, busy drops={hlog.count(BUSY_LINE)})")
-        assert _rifles(host) == rifles_pre + 2, "race: the host did not apply its buy"
+        # The host queues its own command like a client's and applies it on its
+        # next update, a frame after the buy's reply.
+        host.wait_for("race: the host applied its buy",
+                      lambda: (_rifles(host) == rifles_pre + 2) or None,
+                      timeout=10, interval=0.02)
         host.wait_for("the replica adopted the restream (host released it)",
                       lambda: (hlog.count(RELEASE_LINE) >= 1) or None,
                       timeout=60, interval=0.1)

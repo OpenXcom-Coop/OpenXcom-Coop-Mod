@@ -39,6 +39,7 @@ Exit 0 = pass; 2 = failure.
 import os
 import sys
 
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 import session

@@ -52,7 +52,7 @@ the replica must reach the host's result through the host's messages, not a worl
 restream.
 
   * PASS (exit 0) / FAIL (exit 2: a row failed or a process crashed) /
-    FAIL (exit 3: a precondition never held).
+    FAIL (exit 2: a precondition never held).
 """
 import os
 import sys
@@ -450,7 +450,7 @@ def main():
     if not alive:
         sys.exit(2)
     if note:
-        sys.exit(3)
+        sys.exit(2)  # a precondition miss fails the run
     if not all(ok for ok, _ in results.values()):
         sys.exit(2)
     print("PASS: Separate events belong to the month's rotation owner")

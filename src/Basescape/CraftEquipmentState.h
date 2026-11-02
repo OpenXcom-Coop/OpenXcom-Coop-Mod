@@ -55,6 +55,7 @@ private:
 	Timer *_timerLeft, *_timerRight;
 	size_t _sel, _craft;
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	std::vector<std::string> _items;
 	int _totalItems;
 	double _totalItemStorageSize;

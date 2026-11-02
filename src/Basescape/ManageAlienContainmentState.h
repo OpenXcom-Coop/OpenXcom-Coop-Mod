@@ -41,6 +41,7 @@ class ManageAlienContainmentState : public TouchState
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	int _prisonType;
 	OptionsOrigin _origin;
 	TextButton *_btnOk, *_btnSell, *_btnCancel, *_btnTransfer, *_btnCleanup;
@@ -56,6 +57,8 @@ private:
 	bool _doNotReset, _threeButtons;
 	/// PRD-J10: live refresh when another player's shared_apply moves this base.
 	SharedEcon::ScreenRefresh _sharedRefresh;
+	SharedEcon::SelectionBinder _sharedSel; // coop
+	friend class SharedEcon::SelectionBinder; // coop
 
 	/// Gets selected quantity.
 	int getQuantity();
@@ -113,6 +116,7 @@ public:
 	/// shared_cmd; @a sell chooses sell-vs-execute). Returns false if no matching
 	/// alien row. Main thread only.
 	bool harnessRemovePrisoner(const std::string& alienType, int count, bool sell);
+	void harnessSelectRow(size_t row) { _sel = row; } // coop: test hook row select
 };
 
 }

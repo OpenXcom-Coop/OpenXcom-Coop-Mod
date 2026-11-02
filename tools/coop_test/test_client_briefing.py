@@ -1,0 +1,415 @@
+"""The client runs a READ-ONLY BriefingState on battle entry, so its flow
+matches the host's: briefing -> map.
+
+Without it, the client's entry would push a bare BattlescapeState straight
+over whatever stack it happened to be holding:
+  * the two players would see DIFFERENT flows - the host gets briefing ->
+    equip -> map while the client lands on the map with no idea what mission
+    it is in;
+  * a skirmish joiner would be left sitting on ['MainMenuState',
+    'NewBattleState', 'ServerList', 'LobbyMenu', 'BattlescapeState'] - a DEAD
+    lobby it cannot dismiss.
+
+WHAT THIS ASSERTS (each PASS line names its check).
+  entry_shape: The client reaches BriefingState in this ORDER: BattlescapeState
+     FIRST, BriefingState directly OVER it. The pre-battle menu stack is gone
+     (no LobbyMenu / ServerList / NewBattleState), and the stack is never
+     empty.
+  briefing_content: The briefing renders the CARRIED labels (strTarget /
+     strCraftOrBase, applied on blob load) and the DEPLOYMENT-SPECIFIC title +
+     description - never the "should never happen" generic fallback at
+     BriefingState.cpp:104-108. Proven two ways: the client's rendered widget
+     text is compared EXACTLY against the host's own BriefingState (same
+     title, same description, both machines), and the coop resolution hook's
+     log line is asserted never to say NONE.
+  no_cutscene: CUTSCENE + MUSIC SUPPRESSED. `_disableCutsceneAndMusic =
+     _infoOnly && !customBriefing` (BriefingState.cpp:142) is true, so init()
+     returns at :277 before pushing a CutsceneState. Asserted as "no
+     CutsceneState ever appeared on the client stack" plus the entry log line.
+  queue_drains_under_briefing: Game::run() only think()s the TOP state, so a
+     modal briefing over the battle screen is exactly where an apply queue
+     would silently stall. The host emits real seq-stamped evs WHILE THE
+     CLIENT IS IN THE BRIEFING and the client's event_state.queueDepth must
+     drain to 0 with lastSeqApplied advanced - the drain lives in
+     connectionTCP::updateCoopTask(), not in any State.
+  probes_under_briefing: TestServer probes under a CLIENT BriefingState.
+     SavedBattleGame::getBattleGame() derefs _battleState unconditionally; the
+     guards at TestServer.cpp:3468-3469 / :5260 handle a HOST parked in
+     BriefingState. The CLIENT is a different case - it has a live
+     BattlescapeState UNDERNEATH the briefing - so battle_state, event_state,
+     hash_now and get_palettes are all exercised there.
+  render_restored: THE RENDER HAZARD. BriefingState's ctor sets the GEOSCAPE
+     base resolution + resetDisplay() and setStandardPalette("PAL_GEOSCAPE",
+     ...) (BriefingState.cpp:58-60); btnOkClick sets the BATTLESCAPE values
+     back (:297-300). On the client that happens OVER a live
+     BattlescapeState. After close_briefing, both pre-battle equip screens and
+     both Turn-1 screens the client must be back on BattlescapeState with the
+     BATTLESCAPE base resolution, a SCREEN palette equal to the host's, an
+     unchanged map (mapFingerprint / mapObjTiles / mapSizeXYZ, cross-checked
+     against the host) and all hash buckets EQUAL.
+     NOTE the per-state "colors" get_palettes reports are each State's OWN
+     stored _palette, which a briefing round trip never touches - asserting
+     on those alone would be VACUOUS for this hazard, so this test uses
+     get_palettes' `screen` object (base resolution + live screen palette).
+  turn_zero_offer: The offer is snapshotted at turn 0 and the client's
+     turn-counter mirror is skipped for it, so the client's briefing shows
+     turn 0 and the host's pre-battle equip screen too; turn is 1 on BOTH
+     machines once both seats are ready.
+
+COVERAGE LIMITS, stated honestly.
+  * WHICH deployment-resolution path wins is fixture-dependent and deliberately
+    NOT asserted (same reasoning as test_mission_labels.py): on this
+    skirmish the client's streamed blob is the host's whole SavedGame, so
+    vanilla may still resolve the deployment itself. What is asserted is the
+    OUTCOME - never NONE, and the rendered text equals the host's.
+  * "Music suppressed" is proven structurally (infoOnly=true => the :277 early
+    return) and by the absence of a CutsceneState; the harness has no audio
+    probe and one is not worth adding for this.
+
+Run:  python tools/coop_test/test_client_briefing.py
+"""
+
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from harness import GameClient, make_user_dir
+import session
+
+SDLK_ESCAPE = 27
+
+
+# ---------------------------------------------------------------- helpers ---
+def states(gc):
+    return [s.replace("class OpenXcom::", "") for s in session.states(gc)]
+
+
+def top_state(gc):
+    st = states(gc)
+    return st[-1] if st else None
+
+
+def lobby(gc):
+    return gc.cmd({"cmd": "lobby_state"})
+
+
+def log_lines(user_dir):
+    log = os.path.join(user_dir, "openxcom.log")
+    if not os.path.exists(log):
+        return []
+    with open(log, encoding="utf-8", errors="replace") as f:
+        return f.readlines()
+
+
+def grep(user_dir, needle):
+    return [l.rstrip("\n") for l in log_lines(user_dir) if needle in l]
+
+
+def battle_state(gc):
+    bs = gc.cmd({"cmd": "battle_state"})
+    assert bs.get("ok"), f"battle_state failed: {bs}"
+    return bs
+
+
+def event_state(gc):
+    es = gc.cmd({"cmd": "event_state"})
+    assert es.get("ok"), f"event_state failed: {es}"
+    return es
+
+
+def palettes(gc):
+    r = gc.cmd({"cmd": "get_palettes"})
+    assert r.get("ok"), f"get_palettes failed: {r}"
+    return r
+
+
+def widget_texts(gc):
+    r = gc.cmd({"cmd": "list_widgets"})
+    assert r.get("ok"), f"list_widgets failed: {r}"
+    return [w.get("text", "") for w in r["widgets"] if w.get("text")]
+
+
+# ------------------------------------------------------------ lobby drive ---
+# test_handshake.py / test_mission_labels.py / repro_atom_turn.py all
+# carry these same inline copies.
+def skirmish_host(host, port, player="HostPlayer"):
+    host.ok({"cmd": "open_new_battle"})
+    host.wait_for("host new battle", lambda: session.has_state(host, "NewBattleState"))
+    host.ok({"cmd": "newbattle_coop"})
+    host.wait_for("host browser", lambda: session.has_state(host, "ServerList"))
+    host.ok({"cmd": "server_list_host"})
+    host.wait_for("host window", lambda: session.has_state(host, "HostMenu"))
+    host.ok({"cmd": "host_menu_host", "visibility": 0, "server": "TestSrv",
+             "port": port, "player": player})
+    host.wait_for("host lobby", lambda: session.has_state(host, "LobbyMenu"))
+
+
+def skirmish_client_at_browser(client):
+    client.ok({"cmd": "open_new_battle"})
+    client.wait_for("client new battle", lambda: session.has_state(client, "NewBattleState"))
+    client.ok({"cmd": "newbattle_coop"})
+    client.wait_for("client browser", lambda: session.has_state(client, "ServerList"))
+
+
+# ------------------------------------------------------------------- main ---
+def main():
+    port = "47985"
+    host_dir = make_user_dir("client_briefing_host")
+    client_dir = make_user_dir("client_briefing_client")
+    host = GameClient("host", 48796, host_dir)
+    client = GameClient("client", 48797, client_dir)
+    try:
+        host.spawn(); host.connect()
+        client.spawn(); client.connect()
+
+        skirmish_host(host, port)
+        skirmish_client_at_browser(client)
+        client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": port,
+                   "player": "ClientPlayer"})
+
+        host.wait_for("host popup", lambda: session.has_state(host, "Profile"))
+        client.wait_for("client popup", lambda: session.has_state(client, "Profile"))
+        host.ok({"cmd": "profile_ok"})
+        client.ok({"cmd": "profile_ok"})
+        host.wait_for("start offered", lambda: lobby(host).get("buttonVisible") or None)
+
+        # the client is deliberately left sitting DEEP in the menu stack here -
+        # MainMenuState / NewBattleState / ServerList / LobbyMenu - because
+        # that is exactly the stack the entry_shape check requires the entry
+        # to unwind.
+        pre_entry = states(client)
+        assert "LobbyMenu" in pre_entry, \
+            f"client should be in the lobby before the battle starts: {pre_entry}"
+        print(f"pre-entry client stack: {pre_entry}")
+
+        host.ok({"cmd": "lobby_action"})
+        host.wait_for("host at battle settings",
+                      lambda: (not session.has_state(host, "LobbyMenu")) or None)
+        assert top_state(host) == "NewBattleState", \
+            f"host should land on the NEW BATTLE setup screen, stack={states(host)}"
+
+        host.ok({"cmd": "newbattle_ok"})
+        host.wait_for("host briefing",
+                      lambda: session.has_state(host, "BriefingState"), timeout=30)
+
+        # Snapshot of the host's OWN pre-battle briefing text, taken while it is
+        # up, for the briefing_content compare below. The offer already went
+        # out at PREPARE (newbattle_ok), at turn 0, so both briefings are up at
+        # once; the host's OK below lands it on its pre-battle equip screen,
+        # where it stays until both seats are ready.
+        host_texts_pre_offer = widget_texts(host)
+
+        host.ok({"cmd": "click_widget", "match": "ok"})
+
+        # === entry_shape =====================================================
+        client.wait_for("client briefing",
+                        lambda: session.has_state(client, "BriefingState"), timeout=60)
+        time.sleep(2)  # let both logs flush the handshake lines
+
+        cstack = states(client)
+        assert cstack[-1] == "BriefingState", (
+            "the client's read-only BriefingState must be the TOP state on entry "
+            f"(briefing -> map), stack={cstack}")
+        assert len(cstack) >= 2 and cstack[-2] == "BattlescapeState", (
+            "wrong ORDER: BattlescapeState must come FIRST, then "
+            f"BriefingState OVER it - never inverted. stack={cstack}")
+        for dead in ("LobbyMenu", "ServerList", "NewBattleState"):
+            assert dead not in cstack, (
+                f"the client's pre-battle menu stack was not torn down: {dead} is still "
+                f"under the battle - a dead lobby the player cannot dismiss. "
+                f"stack={cstack}")
+        assert cstack, "the client's state stack must never be left empty"
+        print(f"PASS entry_shape: client stack={cstack} (was {pre_entry})")
+
+        entry_log = grep(client_dir, "read-only BriefingState pushed over the")
+        assert entry_log, (
+            "client log has no briefing entry line - the read-only BriefingState was not "
+            "pushed by the coop battle entry (someone else put it there?)")
+        print("CLIENT LOG:", entry_log[-1])
+
+        # === probes_under_briefing: TestServer probes under a CLIENT BriefingState
+        # (done early, because every assertion below depends on them working)
+        assert top_state(client) == "BriefingState"
+        cb = battle_state(client)
+        hb = battle_state(host)
+        ces = event_state(client)
+        assert cb.get("inBattle"), f"client battle_state says no battle: {cb}"
+        assert ces.get("phase") == "Active", f"client phase != Active: {ces}"
+        print("PASS probes_under_briefing: battle_state + event_state probed on a CLIENT parked in "
+              "BriefingState with a live BattlescapeState underneath "
+              "(TestServer.cpp:3468-3469 / :5260 guards hold)")
+
+        # === turn_zero_offer: the client's briefing shows turn 0 =============
+        # The offer is snapshotted at turn 0 and carries `equip`, so the client's
+        # turn-counter mirror is skipped: its briefing shows
+        # turn 0, and turn 1 arrives with the equip-end `sync` after both seats
+        # are ready (asserted after equip_both_ready below).
+        assert cb.get("turn") == 0, (
+            f"client battle_state.turn == {cb.get('turn')} under its entry briefing, expected "
+            "0 - the turn-0 offer or the skipped turn-counter mirror moved")
+        print("PASS turn_zero_offer: client turn == 0 under its entry briefing (the turn-0 offer; "
+              "turn 1 waits for both seats' ready)")
+
+        # === briefing_content: carried labels + deployment-specific text =====
+        assert hb["strTarget"] == cb["strTarget"] and \
+               hb["strCraftOrBase"] == cb["strCraftOrBase"], (
+            f"mission identity differs: host={hb['strTarget']!r}/{hb['strCraftOrBase']!r} "
+            f"client={cb['strTarget']!r}/{cb['strCraftOrBase']!r}")
+
+        # the host's own pre-battle BriefingState is long gone by now - the
+        # compare uses the SNAPSHOT taken above, while it was still up.
+        host_texts = host_texts_pre_offer
+        client_texts = widget_texts(client)
+        print("HOST   briefing texts (snapshot, pre-offer):", json.dumps(host_texts))
+        print("CLIENT briefing texts:", json.dumps(client_texts))
+
+        assert any(cb["strTarget"] in t for t in client_texts), (
+            f"the client's briefing does not render the carried mission target "
+            f"{cb['strTarget']!r}; texts={client_texts}")
+        assert any(cb["strCraftOrBase"] in t for t in client_texts), (
+            f"the client's briefing does not render the carried craft label "
+            f"{cb['strCraftOrBase']!r}; texts={client_texts}")
+
+        # EXACT TEXT, never non-emptiness: the client's briefing must render the
+        # SAME strings the host's does. A generic-fallback client would differ on
+        # title/description even when the labels matched, and a missing language
+        # deploy would show raw STR_ keys on one machine only.
+        assert sorted(host_texts) == sorted(client_texts), (
+            "the client's briefing does not render the same text as the host's - "
+            "deployment-specific title/description missing (the BriefingState.cpp:"
+            f"104-108 generic fallback?).\n  host  ={sorted(host_texts)}"
+            f"\n  client={sorted(client_texts)}")
+
+        # A raw STR_ key would mean the language deploy is stale and a
+        # missionType-as-title would mean tr() never resolved the deployment's
+        # briefing strings.
+        for t in client_texts:
+            assert not t.startswith("STR_"), (
+                f"the client's briefing rendered a RAW string key {t!r} - stale "
+                "bin/x64/Release/common language files (copy bin/common there again after "
+                "each build)")
+
+        resolved = grep(client_dir, "[coop-handshake] BriefingState deployment:")
+        assert resolved, (
+            "client log has no '[coop-handshake] BriefingState deployment:' line - the "
+            "coop resolution hook (BriefingState.cpp:100) did not run for the entry "
+            "briefing")
+        print("CLIENT LOG:", resolved[-1])
+        assert "deployment: NONE" not in resolved[-1], (
+            "the client's entry briefing fell through to the generic 'should never "
+            f"happen' branch (BriefingState.cpp:104-108): {resolved[-1]}")
+        print("PASS briefing_content: the client's briefing renders the carried labels and the "
+              "same deployment-specific title/description as the host's")
+
+        # === no_cutscene: cutscene + music suppressed ========================
+        assert "CutsceneState" not in cstack and "CutsceneState" not in states(client), (
+            "a CutsceneState reached the client - `_disableCutsceneAndMusic = _infoOnly "
+            "&& !customBriefing` (BriefingState.cpp:142) should have made "
+            "BriefingState::init() return at :277")
+        print("PASS no_cutscene: no CutsceneState on the client (cutscene/music suppressed by "
+              "infoOnly=true)")
+
+        # === queue_drains_under_briefing: the apply queue drains UNDER the briefing
+        # Game::run() only think()s the TOP state, so this is exactly where a
+        # State-driven drain would stall. inject_ev is the host-side test command:
+        # it mints a REAL seq through CoopEmit::sendEv and the client
+        # applies it as a state-less no-op, so nothing can diverge.
+        base_seq = event_state(client).get("lastSeqApplied", 0)
+        emitted = []
+        for i in range(3):
+            r = host.cmd({"cmd": "inject_ev", "kind": "spot"})
+            assert r.get("ok"), f"inject_ev failed on the host: {r}"
+            emitted.append(r.get("seq"))
+        print(f"host emitted seqs {emitted} with the client sitting in BriefingState")
+
+        assert top_state(client) == "BriefingState", (
+            "the client must still be IN the briefing while the host emits - that is "
+            f"the whole point of this assertion. stack={states(client)}")
+
+        def drained():
+            es = event_state(client)
+            return bool(es.get("queueDepth") == 0
+                        and es.get("lastSeqApplied", 0) >= max(emitted))
+
+        client.wait_for("client apply queue drained UNDER the briefing overlay",
+                        lambda: drained() or None, timeout=20)
+        ces = event_state(client)
+        assert top_state(client) == "BriefingState", (
+            f"the client left the briefing during the drain: {states(client)}")
+        assert not ces.get("desyncSeen"), f"client froze on a desync: {ces}"
+        print(f"PASS queue_drains_under_briefing: queueDepth=0, lastSeqApplied={ces['lastSeqApplied']} "
+              f"(was {base_seq}) with the BriefingState ON SCREEN - the drain lives in "
+              "updateCoopTask(), not in a State")
+
+        # === the host sits on its pre-battle equip screen: turn 0 until both
+        # === seats are ready ==================================================
+        hb_equip = battle_state(host)
+        assert hb_equip["turn"] == 0, (
+            f"host turn == {hb_equip['turn']} on its pre-battle equip screen, expected 0 - "
+            "turn 1 must wait for both seats' ready")
+
+        # === render_restored: close_briefing -> both equip screens -> a =======
+        # === CORRECTLY RENDERING map ==========================================
+        client.ok({"cmd": "close_briefing"})
+        client.wait_for("client's entry briefing closed",
+                        lambda: (not session.has_state(client, "BriefingState")) or None,
+                        timeout=20)
+        session.equip_both_ready(host, client)
+        session.dismiss_battle_start_overlays(host)
+        session.dismiss_battle_start_overlays(client)
+        time.sleep(1)
+
+        host_scr = palettes(host)["screen"]
+        hb2 = battle_state(host)
+        assert hb2["turn"] == 1, f"host turn != 1 after its own entry chain: {hb2['turn']}"
+
+        cstack2 = states(client)
+        assert cstack2[-1] == "BattlescapeState", \
+            f"close_briefing should land the client on BattlescapeState: {cstack2}"
+        assert "BriefingState" not in cstack2, \
+            f"the client's briefing was not popped: {cstack2}"
+
+        client_scr = palettes(client)["screen"]
+        assert client_scr["baseXResolution"] == client_scr["baseXBattlescape"] and \
+               client_scr["baseYResolution"] == client_scr["baseYBattlescape"], (
+            "the client's base resolution is still the GEOSCAPE one after close_briefing "
+            "- BriefingState::btnOkClick's restore (BriefingState.cpp:297-300) did not "
+            f"take effect: {client_scr}")
+        assert client_scr["colors"] == host_scr["colors"], (
+            "the client's live SCREEN palette differs from the host's after the briefing "
+            "round trip - the battlePaletteSource trap shape.\n"
+            f"  host  ={host_scr['colors']}\n  client={client_scr['colors']}")
+
+        cb2 = battle_state(client)
+        for key in ("mapFingerprint", "mapObjTiles", "mapSizeXYZ"):
+            assert cb2[key] == cb[key], (
+                f"the client's {key} changed across the briefing round trip: "
+                f"before={cb[key]} after={cb2[key]}")
+            assert cb2[key] == hb2[key], (
+                f"the client's {key} does not match the host's after the briefing: "
+                f"host={hb2[key]} client={cb2[key]}")
+        assert cb2["turn"] == 1 and hb2["turn"] == 1, (
+            f"turn parity broken after the briefing: host={hb2['turn']} "
+            f"client={cb2['turn']}")
+
+        hh, ch = session.assert_hash_clean(
+            host, client, full=True,
+            what="after the client's entry-briefing round trip")
+        print(f"PASS render_restored: client back on BattlescapeState with the BATTLESCAPE base "
+              f"resolution, a screen palette identical to the host's, an unchanged map "
+              f"(fingerprint={cb2['mapFingerprint']}, objTiles={cb2['mapObjTiles']}) and "
+              f"ALL {len(hh)} hash buckets EQUAL")
+
+        assert not battle_state(client)["authority"]["desyncFrozen"], \
+            "client desync-frozen at the end of the run"
+
+        print("ALL CLIENT-BRIEFING TESTS PASSED")
+    finally:
+        host.shutdown()
+        client.shutdown()
+
+
+if __name__ == "__main__":
+    main()

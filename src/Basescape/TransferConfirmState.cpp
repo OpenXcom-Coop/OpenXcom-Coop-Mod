@@ -120,8 +120,9 @@ void TransferConfirmState::btnOkClick(Action *)
 	// runs in SHARED.
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
 	{
-		_state->submitSharedTransfer();
+		const bool coopKeep = _state->submitSharedTransfer(); // coop
 		_game->popState();
+		if (coopKeep) return; // coop: the Transfer screen waits for the host's answer
 		_game->popState();
 		_game->popState();
 		return;
@@ -131,7 +132,6 @@ void TransferConfirmState::btnOkClick(Action *)
 	if (_game->getCoopMod()->getCoopStatic() == true && _base->_isForeignBase == true && _game->getCoopMod()->getCoopCampaign() == true)
 	{
 
-		*_game->getSavedGame()->getBases() = _base->old_bases;
 		_state->createPendingTransfers();
 	}
 	else

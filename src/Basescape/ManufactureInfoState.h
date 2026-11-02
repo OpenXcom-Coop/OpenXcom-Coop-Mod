@@ -40,6 +40,7 @@ class ManufactureInfoState : public State
 {
 private:
 	Base * _base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	RuleManufacture * _item;
 	Production * _production;
 	Window * _window;

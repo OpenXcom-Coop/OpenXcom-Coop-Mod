@@ -43,6 +43,8 @@ private:
 public:
 	/// Creates the Mission Detected state.
 	MissionDetectedState(MissionSite *mission, GeoscapeState *state, bool coop = false);
+	/// coop: the mission site this popup holds, for GeoscapeState::coopHeldTargets (never dereferenced there).
+	MissionSite* coopHeldSite() const { return _mission; }
 	/// Cleans up the Mission Detected state.
 	~MissionDetectedState();
 	/// Handler for clicking the Intercept button.

@@ -1,0 +1,36 @@
+# Test mod for test_research_grants.py (raw keys, no language file).
+# A STR_TERROR_MISSION overlay: a despawned site unlocks STR_GRANTTEST_DESPAWN (+ getOneFree STR_GRANTTEST_FREE),
+#     bumps STR_GRANTTEST_DESPAWN_CNT and raises STR_GRANTTEST_EV_DESPAWN (its window holds the host's heartbeat).
+# The arc script STR_GRANTTEST_ARCS fires at the first month roll only (firstMonth 1; month 0 excluded) and opens
+#     the STR_GRANTTEST_ARC article (the stock STR_ALIEN_ORIGINS text-article shape).
+alienDeployments:
+  - type: STR_TERROR_MISSION
+    unlockedResearchOnDespawn: STR_GRANTTEST_DESPAWN
+    counterDespawn: STR_GRANTTEST_DESPAWN_CNT
+    despawnEvents:
+      STR_GRANTTEST_EV_DESPAWN: 100
+events:
+  - name: STR_GRANTTEST_EV_DESPAWN
+    description: STR_GRANTTEST_EV_DESPAWN
+research:
+  - name: STR_GRANTTEST_DESPAWN
+    cost: 1000
+    points: 7
+    getOneFree: [STR_GRANTTEST_FREE]
+  - name: STR_GRANTTEST_FREE
+    cost: 1000
+    points: 3
+  - name: STR_GRANTTEST_ARC
+    cost: 1000
+    points: 11
+arcScripts:
+  - type: STR_GRANTTEST_ARCS
+    firstMonth: 1
+    sequentialArcs: [STR_GRANTTEST_ARC]
+ufopaedia:
+  - id: STR_GRANTTEST_ARC
+    type_id: 8
+    section: STR_ALIEN_RESEARCH_UC
+    requires:
+      - STR_GRANTTEST_ARC
+    text: STR_GRANTTEST_ARC

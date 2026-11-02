@@ -35,6 +35,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../fmath.h"
 #include "StatsForNerdsState.h"
+#include "../CoopMod/BattleAuthority.h"
 
 namespace OpenXcom
 {
@@ -395,7 +396,7 @@ namespace OpenXcom
 					for (auto* type : *ammo_data)
 					{
 						ArticleDefinition *ammo_article = _game->getMod()->getUfopaediaArticle(type->getType(), true);
-						if (Ufopaedia::isArticleAvailable(_game->getSavedGame(), ammo_article))
+						if (coopViewerArticleAvailable(_game->getSavedGame(), ammo_article))
 						{
 							if (skipShow > 0)
 							{

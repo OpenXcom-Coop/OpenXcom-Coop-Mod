@@ -291,6 +291,7 @@ void CraftEquipmentState::init()
 		}
 		initList();
 	}
+	SharedEcon::craftStageClose(_game, _base); // coop: after the excess removal (no-op unless staged)
 	_reload = true;
 	_returningFromGlobalTemplates = false;
 	_returningFromInventory = false;
@@ -856,6 +857,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 		submitSharedCraftEquip(item, change <= 0 ? change : -change);
 		return;
 	}
+	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop: vanilla moves an HWP locally below; its end-state follows
 	int cQty = 0;
 	if (item->getVehicleUnit()) cQty = c->getVehicleCount(_items[_sel]);
 	else cQty = c->getItems()->getItem(item);
@@ -924,6 +926,7 @@ void CraftEquipmentState::moveLeftByValue(int change)
 			_base->getStorageItems()->addItem(item, change);
 		}
 	}
+	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop: the HWP end-state to the host
 	updateQuantity();
 }
 
@@ -959,6 +962,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 		submitSharedCraftEquip(item, change);
 		return;
 	}
+	const int coopVehBefore = c->getVehicleCount(_items[_sel]); // coop: vanilla moves an HWP locally below; its end-state follows
 	int bqty = _base->getStorageItems()->getItem(item);
 	if (_isNewBattle)
 	{
@@ -1071,6 +1075,7 @@ void CraftEquipmentState::moveRightByValue(int change, bool suppressErrors)
 			_base->getStorageItems()->removeItem(item, change);
 		}
 	}
+	SharedEcon::craftVehiclesMoved(_game, _base, c, _items[_sel], coopVehBefore); // coop: the HWP end-state to the host
 	updateQuantity();
 }
 
@@ -1179,6 +1184,7 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 			// Note: the current implementation assumes no limit to the number or size of items a craft can hold.
 			//       If the craft has limited space, then we just won't have all the base items available on the inventory screen.
 
+			SharedEcon::craftStageOpen(_game, _base); // coop: the staging window before the load-all
 			auto& extras = *craft->getExtraItems();
 			extras.clear();
 
@@ -1217,6 +1223,7 @@ void CraftEquipmentState::btnInventoryClick(Action *)
 		{
 			_game->getSavedGame()->setDisableSoldierEquipment(true);
 		}
+		SharedEcon::baseEquipOpen(_game, _base); // coop: the soldiers' gear before vanilla's open (Ctrl+Alt clears it)
 		BattlescapeGenerator bgen = BattlescapeGenerator(_game);
 		if (separateView)
 		{
@@ -1255,6 +1262,7 @@ void CraftEquipmentState::saveGlobalLoadout(int index)
 			tmpl->addItem(item, cQty);
 		}
 	}
+	SharedEcon::submitLoadoutTemplate(_game, _base, index); // coop: the slot to the host
 
 	// Separate: the host keeps a client's templates in its player profile
 	// (the slot's name is already set, so name and contents travel together).
@@ -1281,6 +1289,7 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 		return;
 	}
 
+	Json::Value coopCraftMark = SharedEcon::craftItemsMark(_game, _base, _base->getCrafts()->at(_craft)); // coop: SHARED - the craft's items before the template load
 	// temporarily turn off alternate craft equipment management to allow removing all items from the craft
 	bool backup = Options::oxceAlternateCraftEquipmentManagement;
 	Options::oxceAlternateCraftEquipmentManagement = false;
@@ -1379,6 +1388,7 @@ void CraftEquipmentState::loadGlobalLoadout(int index, bool onlyAddItems)
 	// turn back the original setting
 	Options::oxceAlternateCraftEquipmentManagement = backup;
 	_localBatch = false;
+	SharedEcon::craftItemsCommit(_game, _base, _base->getCrafts()->at(_craft), coopCraftMark); // coop: the end-state to the host
 }
 
 /**

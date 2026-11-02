@@ -1,0 +1,35 @@
+# Test fixture for test_cutscene_endings.py. No language file (raw keys).
+# Each cutscene has no videos and no slideshow: CutsceneState::init logs "cutscene definition empty: <id>" and plays nothing.
+cutscenes:
+  - type: STR_CUTSCENETEST_WIN
+    winGame: true
+  - type: STR_CUTSCENETEST_LOSE
+    loseGame: true
+  - type: STR_CUTSCENETEST_STORY
+events:
+  - name: STR_CUTSCENETEST_EV_STORY
+    description: STR_CUTSCENETEST_EV_STORY
+    cutscene: STR_CUTSCENETEST_STORY
+  - name: STR_CUTSCENETEST_EV_WIN
+    cutscene: STR_CUTSCENETEST_WIN
+research:
+  - name: STR_CUTSCENETEST_T_WIN
+    cost: 1
+    points: 5
+    cutscene: STR_CUTSCENETEST_WIN
+  - name: STR_CUTSCENETEST_T_FREE
+    cost: 1
+    points: 5
+    getOneFree: [STR_CUTSCENETEST_T_LOSE]
+  - name: STR_CUTSCENETEST_T_LOSE
+    cost: 1000
+    points: 5
+    cutscene: STR_CUTSCENETEST_LOSE
+  - name: STR_CUTSCENETEST_T_EVSTORY
+    cost: 1
+    points: 5
+    spawnedEvent: STR_CUTSCENETEST_EV_STORY
+  - name: STR_CUTSCENETEST_T_EVWIN
+    cost: 1
+    points: 5
+    spawnedEvent: STR_CUTSCENETEST_EV_WIN

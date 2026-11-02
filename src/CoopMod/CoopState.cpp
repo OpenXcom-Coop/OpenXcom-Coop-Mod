@@ -35,7 +35,9 @@
 #include "../Menu/OptionsVideoState.h"
 #include "../Menu/PauseState.h"
 #include "../Geoscape/GeoscapeState.h"
-#include "../Engine/CrossPlatform.h"
+#include "../Geoscape/CraftErrorState.h"
+#include "../Engine/Language.h"
+#include "../Engine/CrossPlatform.h" // coop: CoopDesyncNoticeState's OPEN FOLDER / REPORT ON GITHUB
 #include "CoopState.h"
 #include "SharedEcon.h" // PRD-I5: crash-report bundle handlers
 #include "SeparateResearchModeWarningState.h"
@@ -47,6 +49,12 @@
 #include "../Savegame/ItemContainer.h"
 #include "../Mod/RuleItem.h"
 #include "../Savegame/Vehicle.h"
+#include "../Savegame/BattleUnit.h"
+#include "../Savegame/Craft.h"
+#include "../Mod/RuleSoldier.h"
+#include "../Engine/Yaml.h"
+#include "CoopBattleSetup.h"
+#include "BattleAuthority.h"
 
 #include "../Menu/SaveGameState.h"
 #include "../Menu/LoadGameState.h"
@@ -58,6 +66,8 @@ namespace OpenXcom
 {
 
 Globe *currentGlobe = 0;
+// coop: BasescapeState's guest-seat latch (BasescapeState.cpp :71); cleared before each view of the partner's base.
+extern bool _coop_base_init;
 
 namespace
 {
@@ -102,6 +112,8 @@ CoopState::CoopState(int state, int value) : _value(value)
 	_screen = false;
 
 	global_state = state;
+	// the game's push line names the class only; several flakes turn on WHICH dialog was up
+	Log(LOG_INFO) << "[coop-dialog] open code=" << state << " value=" << value;
 
 	int x = 20;
 
@@ -297,6 +309,21 @@ CoopState::CoopState(int state, int value) : _value(value)
 		_btnBack->setText(tr("OK"));
 		_btnBack->setX(110);
 		_btnBack->setY(105);
+		_btnBack->setVisible(true);
+	}
+
+	// Quarantined coop battle-entry/battle-resume choreography: every stub site pushes this
+	// instead of starting/resuming a coop battle. OK falls through to the default
+	// _game->popState() in previous(), so the caller's own return (to geoscape or
+	// lobby) is what the player sees underneath.
+	if (state == COOP_DLG_BATTLE_UNAVAILABLE)
+	{
+		_txtTitle->setSmall();
+		_txtTitle->setWordWrap(true);
+		_txtTitle->setAlign(ALIGN_CENTER);
+		_txtTitle->setText("Coop battles are unavailable in this build.");
+
+		_btnBack->setText(tr("OK"));
 		_btnBack->setVisible(true);
 	}
 
@@ -728,10 +755,24 @@ CoopState::CoopState(int state, int value) : _value(value)
 
 	if (state == 21)
 	{
+		// Captured BEFORE disconnectTCP()
+		// below - its own ctor-time call, per the comment at that function's
+		// top - tears the client's authority/session down. State 21 exists
+		// for exactly one reason (the host is gone), so any live battle
+		// under it is HOST-LEFT asymmetry's own end: the survivor's OK below
+		// (previous(), global_state==21) is the end-only control, and
+		// `reason:"seatLeft"` is logged here the same as the client-left
+		// survivor's ABANDON/SAVE&QUIT (CoopState::btnAbandonClick).
+		const bool hadLiveBattle = _game->getSavedGame()
+			&& _game->getSavedGame()->getSavedBattle() != nullptr;
 		connectionTCP::_coopGamemode = 0;
 		_txtTitle->setText("Server connection lost");
 		_btnBack->setVisible(true);
 		_game->getCoopMod()->disconnectTCP();
+		if (hadLiveBattle)
+		{
+			Log(LOG_INFO) << "[coop] battle ended: reason=\"seatLeft\" (host connection lost, local teardown, no debrief)";
+		}
 	}
 
 	// out of sync
@@ -1017,11 +1058,30 @@ std::string CoopState::waitingTitle() const
 		// one message, one look, two actors
 		return "Waiting for all players\nto place their bases...";
 	}
+	// coop: the repair's titles, above the lobby wording (the second player stays attached)
+	if (const int repair = coopResyncTitleState())
+	{
+		const std::string name = _game->getCoopMod()->getCurrentClientName();
+		if (repair == 1)
+			return name.empty() ? "Repairing the battle..." : "Repairing the battle with " + name + "...";
+		return "The battle could not be repaired.\nSave and quit, or abandon it.";
+	}
 	if (connectionTCP::session.clientInLobby)
 	{
 		return "Waiting for players to load...";
 	}
 	const std::string peer = _game->getCoopMod()->getCurrentClientName();
+	// A deliberate leave (battle_leave{reasonKey})
+	// names itself instead of reading as a silent connection loss. Keeps
+	// "to reconnect" in BOTH branches - existing dialog-wording assertions
+	// (test_lobby_dialogs.py, test_resume_game_in_battle.py) only check for
+	// that substring, never an exact match.
+	if (coopBattleAuthority().peerLeftByChoice)
+	{
+		return peer.empty()
+			? "The other player has left the battle.\nWaiting for them to reconnect..."
+			: peer + " has left the battle.\nWaiting for them to reconnect...";
+	}
 	return peer.empty() ? "Waiting for players to reconnect..."
 						: "Waiting for " + peer + " to reconnect...";
 }
@@ -1057,7 +1117,8 @@ bool CoopState::waitSatisfied() const
 		return connectionTCP::hasPvpClientWorld(
 			_game->getCoopMod()->getCurrentClientName());
 	}
-	return connectionTCP::session.resumeAck;
+	// coop: never RESUME over a refused or mismatched rejoin / repair - admission stays closed.
+	return connectionTCP::session.resumeAck && !coopResumedOfferFailed();
 }
 
 void CoopState::setWaitAction(bool ready)
@@ -1095,6 +1156,17 @@ void CoopState::think()
 {
 
 	State::think();
+
+	// coop: the host's "Saving..." (54) waits only while its save is armed (SaveGameState arms it before the push). A write that
+	// ran while another window covered the 54 (the partner's world landing, or the partner's drop) disarmed it but could not pop
+	// it: close it as soon as it is the top state again (pop only the top state).
+	if (global_state == COOP_DLG_HOST_SAVE_WAIT && connectionTCP::session.pendingHostSaveName.empty()
+		&& !_game->getStates().empty() && _game->getStates().back() == this)
+	{
+		Log(LOG_INFO) << "[coop] the host's save wait (54) closes - nothing is armed";
+		_game->popState();
+		return;
+	}
 
 	static Uint32 lastUpdate = 0;
 	Uint32 now = SDL_GetTicks();
@@ -1344,7 +1416,15 @@ void CoopState::previous(Action *)
 		}
 
 		_game->getCoopMod()->disconnectTCP();
-		_game->popState();
+		// coop: on a client that
+		// holds a campaign world, disconnectTCP() has already replaced the whole state stack, this dialog included, with
+		// GoToMainMenuState (its client branch, the issue #82 way out). A second pop here removed that state too, the stack was
+		// empty, and Game::run crashed reading it. Pop only while this dialog is still the top state: the host, and a client
+		// with no campaign world, close the dialog exactly as before.
+		if (!_game->getStates().empty() && _game->getStates().back() == this)
+		{
+			_game->popState();
+		}
 
 	}
 	// main menu
@@ -1368,8 +1448,18 @@ void CoopState::previous(Action *)
 	// client blob can't rewrite a possibly-different world.
 	else if (global_state == COOP_DLG_HOST_SAVE_WAIT)
 	{
-		_game->getCoopMod()->writePendingHostSave();
+		// coop: the 54 closes first, so a save error that writePendingHostSave() opens stays on top.
 		_game->popState();
+		_game->getCoopMod()->writePendingHostSave();
+	}
+	// coop: the constructors of
+	// 440 / 444 / 16 / 1000 / 3000 run disconnectTCP() and then pop the state under them. On a client that holds a campaign world,
+	// disconnectTCP() has already replaced the whole stack with GoToMainMenuState (issue #82), so that pop removed it and the dialog
+	// became the only state. Popping it here emptied the stack and Game::run crashed reading it. The only state leaves through
+	// GoToMainMenuState instead, as 979 and 21 do; every other dialog pops exactly as before.
+	else if (_game->getStates().size() == 1 && _game->getStates().back() == this)
+	{
+		_game->setState(new GoToMainMenuState(false));
 	}
 	else
 	{
@@ -1390,6 +1480,15 @@ void CoopState::previous(Action *)
  */
 void CoopState::btnSaveQuitClick(Action *)
 {
+	// coop: a named ironman campaign has one file. Save to it and leave, as
+	// vanilla's SAVE AND ABANDON GAME does (no list: a typed name would start a second file). The world is the save's owner (the alien
+	// host's own while it borrows the X-COM player's world). An unnamed world (the campaign-start waits) keeps the list.
+	SavedGame* owner = connectionTCP::coopPvpSaveOwner(_game->getSavedGame());
+	if (owner && owner->isIronman() && !owner->getName().empty())
+	{
+		_game->pushState(new SaveGameState(_origin, SAVE_IRONMAN_END, _palette, 0, true));
+		return;
+	}
 	_game->pushState(new ListSaveState(_origin, true));
 }
 
@@ -1402,6 +1501,15 @@ void CoopState::btnAbandonClick(Action *)
 {
 	_game->resetTouchButtonFlags();
 
+	// Captured BEFORE disconnectTCP()
+	// below clears BattleAuthority::peerAbsent - that flag IS "this ABANDON
+	// is closing a mid-battle co-op pause" (as opposed to issue #81's
+	// original case, ABANDON on the host's own PRE-battle campaign wait,
+	// where nothing is paused and no battle is being ended). This end
+	// control is a LOCAL teardown only (no `battle_end` wire atom, no
+	// debrief); `reason:"seatLeft"` is logged, never wired anywhere else.
+	const bool seatLeftTeardown = coopBattleAuthority().peerAbsent;
+
 	// Tear the session down FIRST and as the "main" teardown: that path never
 	// pushes a replacement dialog, so abandoning can't resurrect the very wait
 	// dialog we are leaving. Role is cleared AFTER the teardown, never before -
@@ -1410,6 +1518,11 @@ void CoopState::btnAbandonClick(Action *)
 	_game->getCoopMod()->disconnectTCP(true);
 	_game->getCoopMod()->setServerOwner(false);
 	connectionTCP::session.resetSession();
+
+	if (seatLeftTeardown)
+	{
+		Log(LOG_INFO) << "[coop] battle ended: reason=\"seatLeft\" (ABANDON, local teardown, no debrief)";
+	}
 
 	// issue #82: GoToMainMenuState::init does the geoscape rescale and drops the
 	// SavedGame - after the popped states are freed, not before them.
@@ -1733,7 +1846,337 @@ void CoopState::loadCoop(Action *)
 
 }
 
-// ---- CoopDesyncNoticeState ---------------------------------------------------
+// canonical seat -> faction mapping, by gamemode. Single source of
+// truth for BOTH the per-unit assignment loop in assignSeatsAndFactions()
+// below AND (via coopBattleAuthority().setSeatFaction()) the seat->faction
+// store that the real battle_offer seatMap (connectionTCP.cpp) and
+// BattleAuthority::factionOf()/mySideActive()/commandsUnit()/isSpectator()
+// all read.
+//
+// EXTERNAL linkage, declared in CoopBattleSetup.h: CoopHandshake::offerResumedBattle()
+// (connectionTCP.cpp, a different translation unit) reuses this SAME canonical map
+// for its disk-resume seat-store rebuild (never assignSeatsAndFactions(), a
+// generation-time pass).
+UnitFaction coopSeatCanonicalFaction(int gamemode, int seat)
+{
+	switch (gamemode)
+	{
+	case 2: // PvP: seat0 = the vanilla FACTION_PLAYER group, seat1 = hostile
+		return (seat == (int)COOP_SEAT_0) ? FACTION_PLAYER : FACTION_HOSTILE;
+	case 3: // PvP inverted
+		return (seat == (int)COOP_SEAT_0) ? FACTION_HOSTILE : FACTION_PLAYER;
+	default: // 0/1 classic/SHARED: every seated unit is player-side
+		return FACTION_PLAYER;
+	}
+}
+
+// See CoopBattleSetup.h.
+int coopSeatForUnownedUnit(int faction)
+{
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (private, stays 4)
+	{
+		if (coopBattleAuthority().seatMapped(seat) && coopBattleAuthority().factionOf(seat) == faction)
+			return seat;
+	}
+	return (int)COOP_SEAT_NONE;
+}
+
+void coopStampSpawnedUnitSeat(BattleUnit* unit)
+{
+	if (!unit || unit->getCoopSeat() != COOP_SEAT_NONE)
+		return;
+	const int seat = coopSeatForUnownedUnit((int)unit->getOriginalFaction());
+	if (seat == (int)COOP_SEAT_NONE)
+		return; // an AI side (co-op aliens / civilians, PvP civilians): unseated, its AI module kept (vanilla)
+	unit->setCoopSeat((CoopSeat)seat);
+	if (unit->getOriginalFaction() != FACTION_PLAYER)
+		unit->setAIModule(nullptr); // a PvP side a seat commands: no AI module, as at generation
+}
+
+// See CoopBattleSetup.h for the full
+// gamemode-by-gamemode contract this implements. HOST-ONLY, called once by
+// CoopHandshake::offerBattle() (connectionTCP.cpp) right after
+// BattlescapeGenerator::run() has produced @a save, before it is snapshotted
+// into the battle_offer blob - every write here streams to the client inside
+// that blob, so the client never needs to (and never does) call this itself.
+void assignSeatsAndFactions(SavedBattleGame* save, int gamemode, const std::vector<int>& seats)
+{
+	if (!save)
+		return;
+
+	if (gamemode == 4)
+	{
+		// PvE2 - both
+		// seats command the generated ALIENS against an AI-run X-COM squad, as older versions play it
+		// (their BriefingState::setupCoop's gm4 block), done ONCE here, host-side, before the blob snapshot
+		// (one canonical assignment, identical on both machines). Every generated hostile
+		// unit becomes FACTION_PLAYER with no AI module, seated in v2.0.6's order: the first
+		// floor(N/2) aliens in unit-list order to the client seat, the rest to
+		// the host's seat 0. Every generated player-side unit (soldiers, tanks) becomes FACTION_HOSTILE and
+		// unseated: the host's alien-turn AI runs it (handleAI() gives it an AI module on its first move).
+		// Civilians stay as generated. Both seats map to FACTION_PLAYER (coopSeatCanonicalFaction()'s
+		// default arm, which the disk-resume seat rebuild reuses).
+		coopBattleAuthority().resetSeatFactions();
+		int clientSeat = (int)COOP_SEAT_NONE;
+		for (int seat : seats)
+		{
+			coopBattleAuthority().setSeatFaction(seat, (int)coopSeatCanonicalFaction(gamemode, seat));
+			if (seat != (int)COOP_SEAT_0 && (clientSeat == (int)COOP_SEAT_NONE || seat < clientSeat))
+				clientSeat = seat;
+		}
+		int aliens = 0;
+		for (auto* unit : *save->getUnits())
+		{
+			if (unit && unit->getOriginalFaction() == FACTION_HOSTILE)
+				++aliens;
+		}
+		const int clientAliens = (clientSeat == (int)COOP_SEAT_NONE) ? 0 : aliens / 2;
+		int toClient = clientAliens;
+		for (auto* unit : *save->getUnits())
+		{
+			if (!unit)
+				continue;
+			const UnitFaction orig = unit->getOriginalFaction();
+			if (orig == FACTION_HOSTILE)
+			{
+				unit->setOriginalFaction(FACTION_PLAYER); // funnel
+				unit->convertToFaction(FACTION_PLAYER);
+				unit->setAIModule(nullptr);
+				if (toClient > 0)
+				{
+					unit->setCoopSeat((CoopSeat)clientSeat);
+					--toClient;
+				}
+				else
+				{
+					unit->setCoopSeat(COOP_SEAT_0);
+				}
+			}
+			else if (orig == FACTION_PLAYER)
+			{
+				unit->setOriginalFaction(FACTION_HOSTILE); // funnel
+				unit->convertToFaction(FACTION_HOSTILE);
+				// The re-skin of older versions (their BattlescapeGenerator): an
+				// AI-side X-COM soldier is re-typed MALE_CIVILIAN / FEMALE_CIVILIAN by its gender - no rank on the
+				// unit-info screen, a blank name where an enemy's name shows (a soldier unit has no race), no fatal
+				// wounds unless the Alien Bleeding option is on (BattleUnit::isWoundable). Sprites (the armor) and
+				// the id are unchanged; HWPs keep their type. coopLoadSoldierUnitRecord()
+				// carries the type through every document load.
+				if (Soldier* soldier = unit->getGeoscapeSoldier())
+					unit->setCoopType(soldier->getGender() == GENDER_FEMALE ? "FEMALE_CIVILIAN" : "MALE_CIVILIAN");
+				unit->setCoopSeat(COOP_SEAT_NONE);
+			}
+			else
+			{
+				unit->setCoopSeat(COOP_SEAT_NONE); // civilians never seated
+			}
+		}
+		Log(LOG_INFO) << "[coop-battle-setup] PvE2 split: " << aliens << " alien(s) to the players (seat 0: "
+			<< (aliens - clientAliens) << ", seat " << clientSeat << ": " << clientAliens
+			<< "); the X-COM side to the host's AI";
+		return;
+	}
+
+	// Populate the BattleAuthority seat->faction store for every active seat.
+	coopBattleAuthority().resetSeatFactions();
+	for (int seat : seats)
+	{
+		coopBattleAuthority().setSeatFaction(seat, (int)coopSeatCanonicalFaction(gamemode, seat));
+	}
+
+	for (auto* unit : *save->getUnits())
+	{
+		if (!unit)
+			continue;
+
+		if (gamemode == 0 || gamemode == 1) // classic / SHARED
+		{
+			if (unit->getOriginalFaction() != FACTION_PLAYER)
+			{
+				// Real mission aliens / civilians were never generated as
+				// PLAYER - nobody commands them.
+				unit->setCoopSeat(COOP_SEAT_NONE);
+				continue;
+			}
+
+			// Funnel - reasserts FACTION_PLAYER; a no-op value-wise
+			// for every classic/SHARED unit (vanilla generation already set
+			// it), but every real-faction write goes through the funnel.
+			unit->setOriginalFaction(FACTION_PLAYER);
+			unit->convertToFaction(FACTION_PLAYER);
+
+			Soldier* soldier = unit->getGeoscapeSoldier();
+			// A Separate campaign's tank keeps the seat of the player who owns it
+			// (the generator stamps it from the vehicle).
+			const int owner = soldier ? soldier->getCoop()
+				: (connectionTCP::isSeparateCampaignStatic() ? (int)unit->getCoopSeat() : -1);
+			bool ownerValid = false;
+			for (int s : seats)
+			{
+				if (s == owner) { ownerValid = true; break; }
+			}
+			// A player-side unit no seat of
+			// this battle owns - an HWP (no Soldier owner to read), a soldier
+			// with stale / out-of-roster ownership - is the host's
+			// (coopSeatForUnownedUnit(FACTION_PLAYER) = seat 0);
+			// civilians and aliens were continued above and stay unseated.
+			unit->setCoopSeat(ownerValid ? (CoopSeat)owner : (CoopSeat)coopSeatForUnownedUnit((int)FACTION_PLAYER));
+		}
+		else // gamemode 2/3 (PvP)
+		{
+			const UnitFaction orig = unit->getOriginalFaction();
+			if (orig != FACTION_PLAYER && orig != FACTION_HOSTILE)
+			{
+				unit->setCoopSeat(COOP_SEAT_NONE); // civilians never seated
+				continue;
+			}
+
+			const int seat = (gamemode == 2)
+				? (orig == FACTION_PLAYER ? (int)COOP_SEAT_0 : (int)COOP_SEAT_1)
+				: (orig == FACTION_PLAYER ? (int)COOP_SEAT_1 : (int)COOP_SEAT_0);
+			const UnitFaction faction = coopSeatCanonicalFaction(gamemode, seat);
+
+			unit->setOriginalFaction(faction); // funnel
+			unit->convertToFaction(faction);
+			unit->setCoopSeat((CoopSeat)seat);
+
+			if (faction == FACTION_HOSTILE)
+			{
+				// The human-commanded hostile side: stop vanilla's alien-turn
+				// AI from double-driving these units now that a seat commands
+				// them directly.
+				unit->setAIModule(nullptr);
+			}
+		}
+	}
+}
+
+// Deserialize a guest Soldier off the wire (the
+// same Soldier::save()/YAML form connectionTCP.cpp's coopSerializeGuestSoldier()
+// produces). Returns nullptr on a malformed/unknown-type entry (never throws
+// into the caller's merge loop - a bad entry is skipped, not fatal to the
+// rest of the roster).
+static Soldier* coopDeserializeGuestSoldier(Game* game, const std::string& yaml)
+{
+	YAML::YamlRootNodeReader reader(YAML::YamlString{ yaml }, "battleRosterContrib");
+	auto soldierReader = reader["soldier"];
+	std::string type = soldierReader["type"].readVal(game->getMod()->getSoldiersList().front());
+	RuleSoldier* rule = game->getMod()->getSoldier(type, false);
+	if (!rule)
+		return nullptr;
+
+	Soldier* soldier = new Soldier(rule, nullptr, 0 /*nationality; overwritten by load*/);
+	soldier->load(soldierReader, game->getMod(), game->getSavedGame(), game->getMod()->getScriptGlobal());
+	soldier->setCraft(0);
+	return soldier;
+}
+
+// See the doc comment in CoopBattleSetup.h.
+void coopMergeGuestContributions(Game* game, Craft* craft)
+{
+	if (!game || !craft || !game->getSavedGame())
+		return;
+
+	Base* base = craft->getBase();
+	if (!base)
+		return;
+
+	const std::string craftType = craft->getRules()->getType();
+	int spaceAvailable = craft->getSpaceAvailable();
+
+	for (int seat = 0; seat < 4; ++seat) // kMaxSeats (private, stays 4)
+	{
+		if (!coopGuestContribCraftMatches(seat, craft->getId(), craftType))
+			continue;
+
+		const int count = coopGuestContribCraftCount(seat, craft->getId(), craftType); // this craft's guests only
+		for (int i = 0; i < count; ++i)
+		{
+			const std::string& yaml = coopGuestContribSoldierYaml(seat, craft->getId(), craftType, i);
+			if (yaml.empty())
+				continue;
+
+			Soldier* soldier = coopDeserializeGuestSoldier(game, yaml);
+			if (!soldier)
+				continue;
+
+			// No coopOriginId field exists on Soldier, so a
+			// copy already merged by a prior call into this same battle
+			// entry is recognised by name + ownerPlayerId, not an id.
+			bool already = false;
+			for (auto* existing : *base->getSoldiers())
+			{
+				if (existing && existing->getName() == soldier->getName()
+					&& existing->getOwnerPlayerId() == soldier->getOwnerPlayerId())
+				{
+					already = true;
+					break;
+				}
+			}
+
+			if (already || spaceAvailable <= 0)
+			{
+				delete soldier;
+				continue;
+			}
+
+			int lastId = 0;
+			for (auto* existing : *base->getSoldiers())
+			{
+				if (existing && existing->getId() > lastId)
+					lastId = existing->getId();
+			}
+
+			// Tag the merged copy's coopName with the owner's SEAT and its OWN soldier id (soldier->getId() is still the
+			// contributed id here, before setId below). The SEPARATE return reads the seat/id back out to match and
+			// apply the record to the owner's own soldier; the tag survives a disk resume (coopname is saved).
+			const int originId = soldier->getId();
+			soldier->setCoopNameTag("coop-origin:" + std::to_string(seat) + ":" + std::to_string(originId));
+			soldier->setId(lastId + 1);
+			soldier->setCoop(seat);
+			soldier->setOwnerPlayerId(seat);
+			soldier->setCoopBase(-1); // merged COPY - deleted post-battle
+			soldier->calcStatString(game->getMod()->getStatStrings(), false);
+			base->getSoldiers()->push_back(soldier);
+			soldier->setCraftAndMoveEquipment(craft, base, game->getSavedGame()->getMonthsPassed() == -1);
+
+			spaceAvailable--;
+		}
+	}
+	// then the partner's parked tanks for this craft (connectionTCP.cpp; CoopBattleSetup.h)
+	coopMergeGuestVehicles(game, craft);
+}
+
+// See the doc comment in CoopBattleSetup.h.
+void coopStampCraftSeats(Craft* craft)
+{
+	if (!craft)
+		return;
+
+	Base* base = craft->getBase();
+	if (!base)
+		return;
+
+	for (auto* soldier : *base->getSoldiers())
+	{
+		if (!soldier || soldier->getCraft() != craft)
+			continue;
+
+		const int owner = soldier->getOwnerPlayerId();
+		soldier->setCoop(owner == 999 ? 0 : owner);
+	}
+
+	// A Separate campaign's vehicles keep their owners' seats.
+	if (connectionTCP::isSeparateCampaignStatic())
+		return;
+	for (auto* vehicle : *craft->getVehicles())
+	{
+		if (vehicle)
+			vehicle->setCoop(0);
+	}
+}
+
+// ---- coop: CoopDesyncNoticeState ----------------------------------------------------------------
 
 std::string CoopDesyncNoticeState::s_lastHeadline;
 std::string CoopDesyncNoticeState::s_lastMessage;
@@ -1746,15 +2189,10 @@ CoopDesyncNoticeState::CoopDesyncNoticeState(const std::string &message,
 	const std::string &headline, const std::string &zipPath, const std::string &reportUrl)
 	: _headline(headline), _message(message), _zipPath(zipPath), _reportUrl(reportUrl)
 {
-	// OPEN FOLDER opens the DIRECTORY the zip lives in (the reports folder), reusing
-	// CrossPlatform::openExplorer - the vetted cross-platform helper OXCE already uses
-	// for the mods folder - rather than a Windows-only `explorer /select,<zip>`.
+	// OPEN FOLDER opens the DIRECTORY the zip lives in (the reports folder), through CrossPlatform::openExplorer.
 	size_t slash = zipPath.find_last_of("/\\");
 	_openTarget = (slash == std::string::npos) ? zipPath : zipPath.substr(0, slash);
 
-	// Test hook: record what this notice WOULD open. The modal is dismissed by the
-	// co-op turn cycle within a poll or two, so a harness check made afterwards reads
-	// these statics instead of the live widget (and never launches a browser).
 	s_lastHeadline = _headline;
 	s_lastMessage = _message;
 	s_lastReportUrl = _reportUrl;
@@ -1769,8 +2207,7 @@ void CoopDesyncNoticeState::buildLayout()
 {
 	_screen = false;
 
-	// Roomier than the notice family's usual 256x88: this one carries a full
-	// filesystem path, an attribution headline AND three buttons.
+	// Roomier than the notice family's usual 256x88: a full path, a headline AND three buttons.
 	_window = new Window(this, 300, 172, 10, 14, POPUP_BOTH);
 	_txtHeadline = new Text(284, 18, 18, 22);
 	_txtMessage = new Text(284, 104, 18, 42);
@@ -1782,15 +2219,13 @@ void CoopDesyncNoticeState::buildLayout()
 	std::string textElement = "text";
 	if (_game->getSavedGame() && _game->getSavedGame()->getSavedBattle())
 	{
-		// Same combination the co-op lobby uses in battle: geoscape interface with
-		// alterPal, saveMenus colors, under the battle palette (see GiftNoticeState).
+		// The co-op lobby's combination in battle: geoscape interface with alterPal, saveMenus colors, battle palette.
 		setInterface("geoscape", true, _game->getSavedGame()->getSavedBattle());
 		category = "saveMenus";
 	}
 	else
 	{
-		// Adopt the palette of whatever screen we are over. Skip sibling notices so the
-		// context is the screen underneath, not another notice stacked on top.
+		// Adopt the palette of the screen underneath (sibling notices skipped).
 		State* context = nullptr;
 		for (auto it = _game->getStates().rbegin(); it != _game->getStates().rend(); ++it)
 		{
@@ -1805,7 +2240,7 @@ void CoopDesyncNoticeState::buildLayout()
 			setStatePalette(context->getPalette());
 			if (dynamic_cast<GeoscapeState*>(context))
 			{
-				category = "geoManufactureComplete"; // standard geoscape popup colors
+				category = "geoManufactureComplete";
 				textElement = "text1";
 			}
 		}
@@ -1857,8 +2292,7 @@ void CoopDesyncNoticeState::btnOkClick(Action *)
 
 void CoopDesyncNoticeState::btnOpenFolderClick(Action *)
 {
-	// Test hook + real action: record what we WOULD open, then shell out to the OS
-	// file manager. No auto-upload - this only opens the local folder.
+	// No upload - this only opens the local folder.
 	s_lastOpenTarget = _openTarget;
 	if (!_openTarget.empty())
 	{
@@ -1868,8 +2302,7 @@ void CoopDesyncNoticeState::btnOpenFolderClick(Action *)
 
 void CoopDesyncNoticeState::btnReportClick(Action *)
 {
-	// Test hook + real action: record the prefilled GitHub URL, then open the browser
-	// at it. No auto-upload - the player still attaches the zip by hand.
+	// No upload - the player still attaches the zip by hand.
 	s_lastReportUrl = _reportUrl;
 	if (!_reportUrl.empty())
 	{
@@ -1878,6 +2311,7 @@ void CoopDesyncNoticeState::btnReportClick(Action *)
 }
 
 // ---- CoopCrashPromptState (PRD-I5) ------------------------------------------
+// coop: the next-launch crash reporter's consent dialog.
 
 int CoopCrashPromptState::s_raiseCount = 0;
 std::string CoopCrashPromptState::s_lastChoice;

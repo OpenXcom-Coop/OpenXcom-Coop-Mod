@@ -82,10 +82,11 @@ class HostMenu : public State
 {
   private:
 	TextButton *_btnCancel, *_tcpButtonHost;
-	// coop (PRD-P5): session-scoped PARALLEL TURNS toggle, next to the other
-	// pre-session switches. Locks once the session is live (the hosting controls
-	// are hidden then), which matches the COOP_READY_HOST handshake timing.
-	TextButton *_btnParallelTurns;
+	// coop: the HOST/lobby TURN MODE toggle, in the shape older
+	// versions use. Flips Options::CoopTurnMode between
+	// "parallel" and "traditional"; the label reflects it; visible only while the
+	// rest of the hosting controls are.
+	TextButton *_btnTurnMode;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
@@ -111,9 +112,6 @@ class HostMenu : public State
 	/// Handler for clicking the OK button
 	void btnCancelClick(Action *action);
 	void hostTCPGame(Action *action);
-	void btnParallelTurnsClick(Action* action);
-	/// coop (PRD-P5): label + visibility of the PARALLEL TURNS toggle.
-	void updateParallelTurnsButton();
 	void btnChatClick(Action* action);
 	void cbxVisibilityChange(Action* action);
 	void cbxMaxPlayersChange(Action* action);
@@ -124,6 +122,15 @@ class HostMenu : public State
 	void testHostWithFields(int comboIndex, const std::string& server,
 							const std::string& port, const std::string& password);
 	bool hostControlsVisible() const;
+	/// coop: flips the HOST's remembered turn mode.
+	/// The choice is per-MACHINE and per-SESSION - it is stamped onto every
+	/// battle_offer this host sends and the client MIRRORS it, so only
+	/// the host's setting ever matters and it only matters before a battle starts.
+	void btnTurnModeClick(Action* action);
+	/// coop: keeps the toggle's label in sync with
+	/// Options::CoopTurnMode and its visibility in sync with the rest of the
+	/// hosting controls (hidden once a session is live).
+	void updateTurnModeButton();
 };
 
 }

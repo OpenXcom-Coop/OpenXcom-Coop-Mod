@@ -42,6 +42,7 @@
 #endif
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <share.h>
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <shellapi.h>
@@ -75,6 +76,7 @@
 #include <unistd.h>
 #include <sys/param.h>
 #include <sys/types.h>
+#include <sys/time.h>
 #include <pwd.h>
 #ifndef __CYGWIN__
 #include <execinfo.h>
@@ -1031,6 +1033,48 @@ bool moveFile(const std::string &src, const std::string &dest)
 }
 
 /**
+ * coop: moveFile for a co-op save's final rename (<name>.bak -> <name>). On Windows a move that fails
+ * because another process has a file open (ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION: an antivirus scan, a sync tool) is
+ * retried every 50 ms until boundMs have passed; any other error is not retried, and other platforms run moveFile once.
+ * Logs one line per failed attempt and one with the result.
+ * @param src Source path.
+ * @param dest Destination path.
+ * @param boundMs How long to keep retrying, in milliseconds.
+ * @return True if the operation succeeded, False otherwise.
+ */
+bool moveFileRetry(const std::string &src, const std::string &dest, int boundMs)
+{
+#ifdef _WIN32
+	auto srcW = pathToWindows(src);
+	auto dstW = pathToWindows(dest);
+	const DWORD start = GetTickCount();
+	for (int attempt = 1; ; ++attempt)
+	{
+		if (MoveFileExW(srcW.c_str(), dstW.c_str(), MOVEFILE_REPLACE_EXISTING) != 0)
+		{
+			Log(LOG_INFO) << "[coop] save rename moved " << src << " -> " << dest << " (attempt " << attempt << ", "
+				<< (DWORD)(GetTickCount() - start) << " ms)";
+			return true;
+		}
+		const DWORD err = GetLastError();
+		const DWORD elapsed = GetTickCount() - start;
+		Log(LOG_WARNING) << "[coop] save rename attempt " << attempt << " failed: error " << err << " at " << elapsed << " ms ("
+			<< src << " -> " << dest << ")";
+		if ((err != ERROR_ACCESS_DENIED && err != ERROR_SHARING_VIOLATION) || elapsed >= (DWORD)boundMs)
+		{
+			Log(LOG_ERROR) << "[coop] save rename failed after " << attempt << " attempt(s), " << elapsed << " ms: error " << err
+				<< " (" << src << " -> " << dest << ")";
+			return false;
+		}
+		Sleep(50);
+	}
+#else
+	(void)boundMs;
+	return moveFile(src, dest);
+#endif
+}
+
+/**
  * Copies a file from one path to another,
  * replacing any existing file.
  * @param src Source path.
@@ -1486,6 +1530,37 @@ std::string now()
 }
 
 /**
+ * Generates a timestamp of the current time, to the millisecond.
+ * The same shape now() returns plus ".mmm", for log lines only. now()
+ * itself is UNCHANGED because three of its callers build FILENAMES, and a
+ * wider timestamp would rename the files they build.
+ * @return String in D-M-Y_H-M-S.mmm format.
+ */
+std::string nowMillis()
+{
+	const int MAX_LEN = 25, MAX_RESULT = 80;
+	char result[MAX_RESULT] = { 0 };
+#ifdef _WIN32
+	// ONE clock read, so the second and the millisecond can never straddle a
+	// tick. dd-MM-yyyy_HH-mm-ss is the invariant-locale shape now() formats.
+	SYSTEMTIME st;
+	GetLocalTime(&st);
+	sprintf(result, "%02d-%02d-%04d_%02d-%02d-%02d.%03d",
+		(int)st.wDay, (int)st.wMonth, (int)st.wYear,
+		(int)st.wHour, (int)st.wMinute, (int)st.wSecond, (int)st.wMilliseconds);
+#else
+	char buffer[MAX_LEN];
+	struct timeval tv;
+	gettimeofday(&tv, NULL);
+	time_t rawtime = (time_t)tv.tv_sec;
+	struct tm *timeinfo = localtime(&rawtime);
+	strftime(buffer, MAX_LEN, "%d-%m-%Y_%H-%M-%S", timeinfo);
+	sprintf(result, "%s.%03d", buffer, (int)(tv.tv_usec / 1000));
+#endif
+	return result;
+}
+
+/**
  * I5 next-launch crash reporter: after the dying process has written its dump and
  * log, drop a marker naming those files so a HEALTHY next launch can offer to
  * bundle them for the developers. Best-effort and self-contained on purpose - the
@@ -1668,16 +1743,27 @@ bool openExplorer(const std::string &url)
 
 /**
  * Appends a file, logs nothing to avoid recursion.
+ * The append must PERMIT SHARED READING. SDL1's Windows RWops opens
+ * the file for writing with dwShareMode 0, i.e. exclusively, so the WRITER was
+ * denying every reader - and a reader's own open in turn made this append FAIL
+ * (measured: 84 sharing violations in 3000 reader opens and 21 lost game
+ * records in one run). Binary mode on both branches: the log is LF-only and a
+ * text-mode append would rewrite every '\n' as "\r\n".
  * @param filename - where to writeFile
  * @param data - what to writeFile
  * @return if we did write it.
  */
 static bool logToFile(const std::string& filename, const std::string& data) {
-	// Even SDL1 file IO accepts UTF-8 file names on windows.
-	SDL_RWops *rwops = SDL_RWFromFile(filename.c_str(), "a+");
-	if (rwops) {
-		auto rv = SDL_RWwrite(rwops, data.c_str(), data.size(), 1);
-		SDL_RWclose(rwops);
+#ifdef _WIN32
+	// UTF-8 file names, same as the SDL call this replaces.
+	FILE *f = _wfsopen(pathToWindows(filename).c_str(), L"ab", _SH_DENYNO);
+#else
+	// POSIX append already permits concurrent readers.
+	FILE *f = fopen(filename.c_str(), "ab");
+#endif
+	if (f) {
+		auto rv = fwrite(data.c_str(), data.size(), 1, f);
+		fclose(f);
 		return rv == 1;
 	}
 	return false;
@@ -1706,7 +1792,7 @@ void setLogFileName(const std::string& name) {
 void log(int level, const std::ostringstream& baremsgstream) {
 	std::lock_guard<std::recursive_mutex> lock(logMutex);
 	std::ostringstream msgstream;
-	msgstream << "[" << CrossPlatform::now() << "]" << "\t"
+	msgstream << "[" << CrossPlatform::nowMillis() << "]" << "\t"
 			  << "[" << Logger::toString(level) << "]" << "\t"
 			  << baremsgstream.str() << std::endl;
 	auto msg = msgstream.str();

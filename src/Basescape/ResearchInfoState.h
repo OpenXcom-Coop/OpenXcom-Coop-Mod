@@ -39,6 +39,7 @@ class ResearchInfoState : public State
 {
 private:
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	TextButton *_btnOk;
 	TextButton *_btnCancel;
 	ArrowButton *_btnMore, *_btnLess;

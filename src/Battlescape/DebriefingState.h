@@ -60,6 +60,8 @@ struct RecoveryItem { std::string name; int value; };
 class DebriefingState : public State
 {
 private:
+	friend class connectionTCP; // coop: the display-only client fill/finish and the host's bt_debrief_result serializer
+	std::string _coopTitleKey, _coopRecoveryKey; // coop: the keys behind _txtTitle / _txtRecovery's prepareDebriefing text; the second player renders them in its own language
 	typedef std::pair<std::string, UnitStats> SoldierStatsEntry;
 
 	RuleEvent *_eventToSpawn;
@@ -110,7 +112,7 @@ private:
 	void applyVisibility();
 	/// Creates a string for the soldier stats table from a stat difference value
 	std::string makeSoldierString(int stat);
-  public:
+public:
 	/// Creates the Debriefing state.
 	DebriefingState();
 	/// Cleans up the Debriefing state.
@@ -137,10 +139,6 @@ private:
 	void decreaseRecoveredItemCount(const RuleItem *rule, int amount);
 	// Hides the SELL and TRANSFER buttons.
 	void hideSellTransferButtons();
-	/// coop harness: the score page's rows exactly as prepareDebriefing() built them.
-	/// Each machine computes these from its OWN save, so this is the readout for
-	/// "did both players see the same mission result".
-	const std::vector<DebriefingStat*> &harnessStats() const { return _stats; }
 };
 
 }

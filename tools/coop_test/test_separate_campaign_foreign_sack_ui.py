@@ -26,7 +26,7 @@ def main():
         guest = hire_guests(host, client, 1)[0]
 
         client.ok({"cmd": "open_soldier_info", "base": "HostBase",
-                   "soldierId": guest})
+                   "soldierId": guest, "foreign": True})
         client.wait_for("foreign SoldierInfo opened",
                         lambda: has(client, "SoldierInfoState") or None)
         client.ok({"cmd": "sack", "base": "HostBase", "soldierId": guest})

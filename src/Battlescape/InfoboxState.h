@@ -47,6 +47,7 @@ public:
 	void think() override;
 	/// Closes the window.
 	void close();
+
 };
 
 }

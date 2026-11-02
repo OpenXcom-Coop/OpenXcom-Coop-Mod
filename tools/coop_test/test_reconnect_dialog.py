@@ -44,7 +44,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir, LAND_LON, LAND_LAT
+from harness import GameClient, make_user_dir, shutdown_clients, LAND_LON, LAND_LAT
 import shared_fixture
 import session
 import geo
@@ -214,8 +214,7 @@ def _drop_client_into_freeze(js):
     """Hard-kill the client of a live SHARED session and wait for the host's
     freeze dialog. Returns the dialog info."""
     host = js.host
-    js.client.proc.kill()
-    js.client.proc.wait(timeout=10)
+    js.client.kill()
     wait_peer_dropped(host, "host noticed the client drop")
     try:
         host.wait_for(
@@ -380,8 +379,7 @@ def scenario_resume_wait_buttons():
             timeout=120, interval=0.5)
 
         # the client dies before the host ever releases the hold
-        client.proc.kill()
-        client.proc.wait(timeout=10)
+        client.kill()
 
         # the host stays in 62 (which suppresses the freeze dialog on purpose)
         wait_peer_dropped(host, "host noticed the drop")
@@ -394,8 +392,7 @@ def scenario_resume_wait_buttons():
         wait_main_menu(host, "host escaped the resume-ack wait")
         print("PASS resume-wait-abandon: the host is no longer trapped")
     finally:
-        host.shutdown()
-        client.shutdown()
+        shutdown_clients(host, client)
 
 
 def scenario_wait_reword():
@@ -450,8 +447,7 @@ def scenario_wait_reword():
             timeout=120, interval=0.5)
         print(f"PASS wait-loading: host reads {dialog(host)['title']!r}")
 
-        client.proc.kill()
-        client.proc.wait(timeout=10)
+        client.kill()
         wait_peer_dropped(host, "host noticed the drop")
 
         host.wait_for(
@@ -466,8 +462,7 @@ def scenario_wait_reword():
             f"escape hatch missing after the re-word: {d}"
         print(f"PASS wait-reword: same dialog now reads {d['title']!r}")
     finally:
-        host.shutdown()
-        client.shutdown()
+        shutdown_clients(host, client)
 
 
 def main():

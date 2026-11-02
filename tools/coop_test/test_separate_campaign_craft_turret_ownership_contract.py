@@ -14,20 +14,22 @@ def main():
     game = read("src/Battlescape/BattlescapeGame.cpp")
     spawn = game.split("void BattlescapeGame::spawnNewUnit", 1)[1]
     spawn = spawn.split("void BattlescapeGame::spawnNewItem", 1)[0]
-    assert "newUnit->setCoop(owner->getCoop())" in spawn
+    assert "newUnit->setCoopSeat(owner->getCoopSeat())" in spawn
     assert "_save->getBattleOwnerPlayerName()" in spawn
-    assert "connectionTCP::seatCoop(seat)" in spawn
+    assert "newUnit->setCoopSeat((CoopSeat)seat)" in spawn
 
     saved = read("src/Savegame/SavedBattleGame.cpp")
     assert "savedGame->isSeparateCoopCampaign()" in saved
     assert "savedGame->getCoopPlayers()" in saved
     assert "unit->isSummonedPlayerUnit()" in saved
     assert "!unit->getPreviousOwner()" in saved
-    assert "unit->setCoop(battleOwnerSeat)" in saved
+    assert "unit->setCoopSeat((CoopSeat)battleOwnerSeat)" in saved
 
-    selectable = read("src/Savegame/BattleUnit.cpp")
-    assert "connectionTCP::isSeparateCampaignStatic()" in selectable
-    assert "connectionTCP::unitSeat(this) != connectionTCP::localSeat()" in selectable
+    # A unit is selectable only by the seat that commands it.
+    tcp = read("src/CoopMod/connectionTCP.cpp")
+    may_select = tcp.split("bool coopMaySelectUnit(const BattleUnit* u)", 1)[1]
+    may_select = may_select.split("\n}", 1)[0]
+    assert "coopBattleAuthority().commandsUnit(u)" in may_select
 
     print("PASS Separate mod craft turret ownership and save-upgrade guards")
 

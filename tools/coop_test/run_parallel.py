@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Run the coop test suite across K non-colliding harness lanes at once.
 
-Each lane is a slot (OXC_HARNESS_SLOT=k) that harness.py isolates: a per-slot
+Lane k runs on harness slot BASE+k (OXC_HARNESS_SLOT=BASE+k; BASE = --slot-base,
+else the inherited OXC_HARNESS_SLOT, else 0, so a caller that exports its own slot,
+e.g. 4, runs K=2 on its own pair 4/5). harness.py isolates a slot by a per-slot
 machine lock and s{slot}_-prefixed user dirs (see harness.py). Ports are now
 OS-assigned ephemeral for every instance, so lanes no longer need disjoint port
 bands - the isolation is purely the lock + user dirs. This runner owns all K
@@ -14,29 +16,48 @@ non-slotted / old-harness run.
     python tools/coop_test/run_parallel.py -k 4 test_shared_battle test_geoscape_sync
     python tools/coop_test/run_parallel.py --file batch.txt --json out.json
     python tools/coop_test/run_parallel.py --list-only      # print the plan
+    python tools/coop_test/run_parallel.py -k 2 --slot-base 4 <names>   # slots 4/5
+    python tools/coop_test/run_parallel.py -k 2 --log-dir L --fail-copy-dir F <names>
+
+--log-dir L writes each test's stdout+stderr to L/<test>.log (unbuffered); without
+it the K lanes interleave in one stream. --fail-copy-dir F copies, after a non-PASS
+test and before its lane's next test, every s<slot>_* user dir of that lane whose
+openxcom.log changed since the test started to F/<test>/, so a later run on the
+same slot cannot overwrite the failed run's engine logs.
 
 Assignment: timing-sensitive families (PINNED, below) are locked to slot 0 - the
 serial lane - so contention from the other lanes never perturbs a clock- or
 dogfight-timing assertion. Everything else is greedy-LPT bin-packed across all K
 lanes by measured weight (tools/ci/test_weights.json, same table the CI shard
-planner uses). Each lane runs its queue serially as subprocesses; a nonzero exit
-is retried once (flake tolerance, matching tools/ci/run_coop_suite.ps1) and only
-the last attempt's duration is reported. Exit 0 iff every test ended PASS.
+planner uses). Each lane runs its queue serially as subprocesses. Exit taxonomy:
+0 = PASS, any other exit code = FAIL. There is no SKIP
+status: a fixture that cannot be built is a failure (every test must exercise
+its scenario every time; a test that cannot is rewritten, never re-run).
+NOTHING is ever retried, because reruns hide flakiness. A file whose column-0
+guard prints SKIP-PENDING and exits 0 is QUARANTINED: never counted as a pass,
+listed and counted apart, and it does not fail the run. Exit 0 iff no test ended FAIL.
 
 Headless is forced on every lane (SDL_VIDEODRIVER/AUDIODRIVER=dummy) unless
 OXC_HARNESS_WINDOWED=1 is exported for interactive debugging.
 """
 
 import argparse
+import glob
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
 TESTDIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(TESTDIR))
+# The harness user-dir root, copied from harness.py :95-96 (this runner never imports harness).
+TEMP_ROOT = os.environ.get("TEMP") or os.environ.get("TMPDIR") or tempfile.gettempdir()
+TEST_ROOT = os.path.join(TEMP_ROOT, "oxc-coop-test")
 WEIGHTS_FILE = os.path.join(REPO, "tools", "ci", "test_weights.json")
 BUDGET_FILE = os.path.join(TESTDIR, "slow_test_exceptions.json")
 LOCAL_ONLY_FILE = os.path.join(TESTDIR, "local_only_tests.json")
@@ -188,12 +209,52 @@ def _kill_tree(proc):
         proc.kill()
 
 
-def _run_once(name, slot, base_env, hard_timeout):
+def _copy_fail_dirs(name, slot, t0, fail_dir):
+    """Copy this lane's s<slot>_* user dirs whose openxcom.log changed at or
+    after the test's start - 1 s to fail_dir/<test>/<dir>. Returns the path or None."""
+    dest = os.path.join(fail_dir, name)
+    for d in sorted(glob.glob(os.path.join(TEST_ROOT, "s%d_*" % slot))):
+        try:
+            if os.path.getmtime(os.path.join(d, "openxcom.log")) >= t0 - 1.0:
+                shutil.copytree(d, os.path.join(dest, os.path.basename(d)), dirs_exist_ok=True)
+        except OSError as exc:  # no openxcom.log = not this test's dir; else a partial copy
+            if os.path.isdir(os.path.join(dest, os.path.basename(d))):
+                print("  !! fail copy of %s incomplete: %s" % (d, exc), flush=True)
+    return dest if os.path.isdir(dest) else None
+
+
+# a quarantined file carries a column-0 guard
+# `print("SKIP-PENDING..."); sys.exit(0)`; such a file that exits 0 is QUARANTINED,
+# never PASS. The guard is read from the source, so the status is the same with or
+# without --log-dir (this runner captures a test's stdout only with --log-dir).
+GUARD_RE = re.compile(r"""^print\(\s*["']SKIP-PENDING""")
+
+
+def quarantine_marker(name):
+    """The file's triage tag (its first line holding 'SKIP-PENDING(', stripped) when
+    it has a column-0 SKIP-PENDING guard print; else None."""
+    try:
+        with open(os.path.join(TESTDIR, name + ".py"), encoding="utf-8", errors="replace") as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    if not any(GUARD_RE.match(ln) for ln in lines):
+        return None
+    return next((ln.strip() for ln in lines if "SKIP-PENDING(" in ln), "SKIP-PENDING")
+
+
+def _run_once(name, slot, base_env, hard_timeout, log_path=None):
     path = os.path.join(TESTDIR, name + ".py")
     env = dict(base_env)
     env["OXC_HARNESS_SLOT"] = str(slot)
     t0 = time.time()
-    proc = subprocess.Popen([sys.executable, path], env=env)
+    if log_path is None:
+        proc = subprocess.Popen([sys.executable, path], env=env)
+    else:  # --log-dir: its own file, unbuffered so a hard-killed test keeps its tail
+        env["PYTHONUNBUFFERED"] = "1"
+        with open(log_path, "w", encoding="utf-8") as logf:
+            proc = subprocess.Popen([sys.executable, path], env=env,
+                                    stdout=logf, stderr=subprocess.STDOUT)
     try:
         rc = proc.wait(timeout=hard_timeout)
         timed_out = False
@@ -204,20 +265,26 @@ def _run_once(name, slot, base_env, hard_timeout):
     return rc, round(time.time() - t0, 1), timed_out
 
 
-def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg):
+def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg,
+              log_dir=None, fail_dir=None):
     default_budget, hard_mult, exceptions = budget_cfg
     for name in queue:
         budget = exceptions.get(name, default_budget)
         hard = max(1.0, budget * hard_mult)
         s0 = round(time.time() - run_start, 1)
-        rc, secs, timed_out = _run_once(name, slot, base_env, hard)
-        attempts = 1
-        if rc != 0 and not timed_out:   # retry a real failure once; never retry a hang
-            rc, secs, timed_out = _run_once(name, slot, base_env, hard)
-            attempts = 2
+        log_path = os.path.join(log_dir, name + ".log") if log_dir else None
+        start_epoch = time.time()
+        rc, secs, timed_out = _run_once(name, slot, base_env, hard, log_path)
+        end_epoch = time.time()
+        rc_attempts = [rc]
+        # NOTHING is retried, by anyone, ever. rc_attempts/attempts and
+        # the ATT column stay (part of the --json schema) and are always 1.
+        attempts = len(rc_attempts)
         e0 = round(time.time() - run_start, 1)
         over_budget = (rc == 0 and not timed_out and secs > budget)
-        status = "FAIL" if (timed_out or rc != 0 or over_budget) else "PASS"
+        quarantine = (quarantine_marker(name)
+                      if (rc == 0 and not timed_out and not over_budget) else None)
+        status = "FAIL" if (timed_out or rc != 0 or over_budget) else ("QUARANTINED" if quarantine else "PASS")
         reason = None
         if timed_out:
             reason = ("BUDGET HARD-KILL: %s still running after %.1fs (%gx its %gs "
@@ -226,22 +293,27 @@ def _run_lane(slot, queue, base_env, results, lock, run_start, quiet, budget_cfg
         elif over_budget:
             reason = ("BUDGET EXCEEDED: %s took %.1fs > %gs budget - re-engineer the "
                       "test or add a justified exception" % (name, secs, budget))
+        fail_copy = (_copy_fail_dirs(name, slot, start_epoch, fail_dir)
+                     if fail_dir and status == "FAIL" else None)
         rec = {"test": name, "slot": slot, "status": status, "seconds": secs,
-               "attempts": attempts, "rc": rc, "timed_out": timed_out,
+               "attempts": attempts, "rc": rc, "rc_attempts": rc_attempts,
+               "timed_out": timed_out,
                "budget": budget, "over_budget": over_budget, "reason": reason,
-               "start": s0, "end": e0}
+               "start": s0, "end": e0, "start_epoch": round(start_epoch, 3),
+               "end_epoch": round(end_epoch, 3), "log": log_path, "fail_copy": fail_copy,
+               "quarantine": quarantine}
         with lock:
             results.append(rec)
             if not quiet:
                 note = []
-                if attempts > 1:
-                    note.append("retried")
                 if timed_out:
                     note.append("HANG rc=124")
                 elif rc != 0:
                     note.append("rc=%d" % rc)
                 elif over_budget:
                     note.append("over %gs budget" % budget)
+                elif quarantine:
+                    note.append("quarantined")
                 suffix = " (%s)" % ", ".join(note) if note else ""
                 print("[slot %d] %-11s %8.1fs  %s%s"
                       % (slot, status, secs, name, suffix), flush=True)
@@ -260,7 +332,16 @@ def main():
     ap.add_argument("--json", help="write machine-readable results here")
     ap.add_argument("--list-only", action="store_true", help="print the plan and exit")
     ap.add_argument("--quiet", action="store_true", help="suppress the per-test lines")
+    ap.add_argument("--slot-base", type=int, default=None, help="lane k runs on harness "
+                    "slot SLOT_BASE+k (default: the inherited OXC_HARNESS_SLOT, else 0)")
+    ap.add_argument("--log-dir", help="write each test's stdout+stderr to LOG_DIR/<test>.log")
+    ap.add_argument("--fail-copy-dir", help="after a non-PASS test, copy its lane's fresh "
+                    "s<slot>_* user dirs to FAIL_COPY_DIR/<test>/")
     args = ap.parse_args()
+    base = (args.slot_base if args.slot_base is not None
+            else int(os.environ.get("OXC_HARNESS_SLOT", "0")))
+    if base < 0:
+        ap.error("--slot-base must be >= 0")
 
     if args.slots < 1:
         ap.error("--slots must be >= 1")
@@ -300,11 +381,11 @@ def main():
     for k in range(args.slots):
         pinned_here = sum(1 for t in queues[k] if t in PINNED)
         print("  slot %d: %2d test(s), ~%6.0fs%s"
-              % (k, len(queues[k]), load[k],
+              % (base + k, len(queues[k]), load[k],
                  "  (%d pinned)" % pinned_here if pinned_here else ""))
     if args.list_only:
         for k in range(args.slots):
-            print("--- slot %d ---" % k)
+            print("--- slot %d ---" % (base + k))
             for t in queues[k]:
                 print("  %s%s" % (t, "  [PIN]" if t in PINNED else ""))
         return 0
@@ -313,13 +394,16 @@ def main():
     if not base_env.get("OXC_HARNESS_WINDOWED"):
         base_env["SDL_VIDEODRIVER"] = "dummy"
         base_env["SDL_AUDIODRIVER"] = "dummy"
+    log_dir, fail_dir = [os.path.abspath(p) if p else None for p in (args.log_dir, args.fail_copy_dir)]
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
 
     results = []
     lock = threading.Lock()
     run_start = time.time()
     threads = [threading.Thread(target=_run_lane,
-                                args=(k, queues[k], base_env, results, lock,
-                                      run_start, args.quiet, budget_cfg))
+                                args=(base + k, queues[k], base_env, results, lock,
+                                      run_start, args.quiet, budget_cfg, log_dir, fail_dir))
                for k in range(args.slots) if queues[k]]
     for t in threads:
         t.start()
@@ -328,9 +412,13 @@ def main():
     wall = round(time.time() - run_start, 1)
 
     results.sort(key=lambda r: r["seconds"], reverse=True)
-    fails = [r for r in results if r["status"] != "PASS"]
+    # any nonzero exit is a FAIL (exit 3 too: there is no separate SKIP).
+    # a QUARANTINED file is listed and counted apart, never as a pass,
+    # and does not fail the run.
+    fails = [r for r in results if r["status"] == "FAIL"]
+    quars = [r for r in results if r["status"] == "QUARANTINED"]
     serial = round(sum(r["seconds"] for r in results), 1)
-    lane_busy = [round(sum(r["seconds"] for r in results if r["slot"] == k), 1)
+    lane_busy = [round(sum(r["seconds"] for r in results if r["slot"] == base + k), 1)
                  for k in range(args.slots)]
 
     print("\n%-30s %-6s %8s %8s %4s %s"
@@ -338,10 +426,10 @@ def main():
     for r in results:
         print("%-30s %-6s %8.1f %8g %4d   %d%s"
               % (r["test"], r["status"], r["seconds"], r["budget"], r["attempts"],
-                 r["slot"], "  <-- FAIL" if r["status"] != "PASS" else ""))
+                 r["slot"], "  <-- FAIL" if r["status"] == "FAIL" else ""))
 
-    print("\n%d test(s): %d passed, %d failed" % (len(results),
-          len(results) - len(fails), len(fails)))
+    print("\n%d test(s): %d passed, %d quarantined, %d failed" % (len(results),
+          len(results) - len(fails) - len(quars), len(quars), len(fails)))
     print("wall-clock %.1fs | serial-sum %.1fs | speedup %.2fx | lanes %s"
           % (wall, serial, (serial / wall if wall else 0),
              "/".join("%.0f" % b for b in lane_busy)))
@@ -350,10 +438,14 @@ def main():
         for r in fails:
             if r.get("reason"):
                 print("  !! %s" % r["reason"])
+    if quars:
+        print("QUARANTINED: %s" % ", ".join(r["test"] for r in quars))
 
     if args.json:
         with open(args.json, "w", encoding="utf-8") as f:
-            json.dump({"slots": args.slots, "wall": wall, "serial": serial,
+            json.dump({"slots": args.slots, "slot_base": base,
+                       "slots_used": [base + k for k in range(args.slots) if queues[k]],
+                       "wall": wall, "serial": serial,
                        "speedup": round(serial / wall, 3) if wall else 0,
                        "lane_busy": lane_busy, "results": results}, f, indent=2)
         print("wrote %s" % args.json)

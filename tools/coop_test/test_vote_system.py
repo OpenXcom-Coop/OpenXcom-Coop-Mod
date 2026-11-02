@@ -30,7 +30,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from harness import GameClient, make_user_dir
+from harness import GameClient, make_user_dir, shutdown_clients
 import session
 
 
@@ -319,9 +319,7 @@ def _assert_disconnect_cancels_vote():
 
         # Kill the peer process so the host takes the real transport-drop path.
         if client.proc:
-            client.proc.kill()
-            client.proc.wait(timeout=10)
-        client.sock = None
+            client.kill()
 
         cancelled = host.wait_for(
             "VoteMenu cancellation after peer disconnect",
@@ -336,8 +334,7 @@ def _assert_disconnect_cancels_vote():
         assert cancelled["menuFinished"] is True, cancelled
         print("PASS peer disconnect cancels an open VoteMenu")
     finally:
-        host.shutdown()
-        client.shutdown()
+        shutdown_clients(host, client)
 
 
 def main():

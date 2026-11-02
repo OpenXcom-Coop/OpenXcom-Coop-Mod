@@ -113,6 +113,7 @@ private:
 	int getCoop() const;
 	std::string getCoopName();
 	void setCoopName(std::string name);
+	void setCoopNameTag(const std::string& tag) { _coopname = tag; } // coop: unconditional, unlike write-once setCoopName
 	void setCoopRank(SoldierRank rank) { _rank = rank; };
 	std::string coopSoldierID();
 	/// Creates a new soldier.
@@ -239,12 +240,12 @@ private:
 
 	/// Gets the soldier's wound recovery time.
 	int getWoundRecoveryInt() const;
-	/// coop: gets the exact (unrounded) wound recovery value.
-	float getWoundRecoveryExact() const { return _recovery; }
-	/// coop: sets the exact wound recovery value the host's day step left.
-	void setWoundRecoveryExact(float recovery) { _recovery = recovery > 0.0f ? recovery : 0.0f; }
 	/// Sets the soldier's wound recovery time.
 	void setWoundRecovery(int recovery);
+	/// coop: the exact wound recovery (fractional with sick-bay bonuses); the SHARED replica adopts the host's.
+	float getWoundRecoveryExact() const;
+	/// coop: sets the exact wound recovery, clamped at 0 as setWoundRecovery.
+	void setWoundRecoveryExact(float recovery);
 	/// Gets ther soldier's wound recovery.
 	int getWoundRecovery(float absBonus, float relBonus) const;
 

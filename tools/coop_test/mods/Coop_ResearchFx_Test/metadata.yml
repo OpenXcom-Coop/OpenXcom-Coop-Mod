@@ -1,0 +1,8 @@
+name: "Coop research side effects probe"
+version: 1.0
+description: "Test-only fixture (research side effects). Data only. STR_RESFX_A (cost 1) gets STR_RESFX_B for free,
+  spawns 2 x STR_PISTOL and raises STR_RESFX_COUNTER; STR_RESFX_B (needItem + destroyItem) is the obsolete
+  project the host removes and refunds. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

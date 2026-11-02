@@ -62,7 +62,7 @@ def main():
         if session.has_state(host, "Profile"):
             host.ok({"cmd": "profile_ok"})
             time.sleep(0.5)
-        host.ok({"cmd": "coop_dialog_back"})
+        session.press_back_when_shown(host, "host RESUME", codes=(60, 62))
 
         client.wait_for(
             "client back on geoscape",

@@ -17,7 +17,6 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "Map.h"
-#include "BattlescapeGame.h" // coop (Phase 2c death ghost): CoopDeathGhost + coopActiveGhost()
 #include "Camera.h"
 #include "UnitSprite.h"
 #include "ItemSprite.h"
@@ -53,6 +52,11 @@
 #include "../Interface/NumberText.h"
 #include "../Interface/Text.h"
 #include "../fmath.h"
+#include "../CoopMod/CoopFog.h"
+#include "../CoopMod/CoopGhost.h"
+#include "../CoopMod/CoopHotseat.h" // the battle half of the local hotseat mode
+#include "../CoopMod/BattleAuthority.h"
+#include "../CoopMod/CoopDelta.h" // coop: the draw probe (TEST-ONLY) and coopFactionIsMine()
 
 
 /*
@@ -333,7 +337,7 @@ void Map::draw()
 	if (_projectile)
 	{
 		t = _save->getTile(_projectile->getPosition(0).toTile());
-		if (_save->getSide() == FACTION_PLAYER || (t && t->getVisible()))
+		if (coopSideIsMine(_save) || (t && coopTileSeenHere(t))) // coop: the side this machine plays
 		{
 			_projectileInFOV = true;
 		}
@@ -349,7 +353,7 @@ void Map::draw()
 				break;
 			}
 			t = _save->getTile(explosion->getPosition().toTile());
-			if (t && t->getVisible())
+			if (t && coopTileSeenHere(t)) // coop: the side this machine plays
 			{
 				_explosionInFOV = true;
 				break;
@@ -357,7 +361,7 @@ void Map::draw()
 		}
 	}
 
-	if ((_save->getSelectedUnit() && _save->getSelectedUnit()->getVisible()) || _unitDying || _save->getSide() == FACTION_PLAYER || _save->getDebugMode() || _projectileInFOV || _explosionInFOV)
+	if (hiddenMovementShown())
 	{
 		drawTerrain(this);
 	}
@@ -365,6 +369,19 @@ void Map::draw()
 	{
 		_message->blit(this->getSurface());
 	}
+}
+
+/**
+  * coop: draw()'s hidden-movement predicate in its own function (vanilla's
+  * test plus the co-op edits), so a test
+ * probe can read the same value draw() acts on. Note the polarity: TRUE means
+ * the terrain is drawn and the HIDDEN MOVEMENT message is NOT shown.
+ */
+bool Map::hiddenMovementShown() const
+{
+	if (coopHotseatHidesMap(_save)) // coop: off the player side both hotseat players see HIDDEN MOVEMENT
+		return false;
+	return coopHiddenMovementActorTerm(_save) || _unitDying || coopSideIsMine(_save) || _save->getDebugMode() || _projectileInFOV || _explosionInFOV; // coop: off a PvP side, the acting unit
 }
 
 void Map::refreshAIProgress(int progress)
@@ -413,7 +430,9 @@ void Map::refreshHiddenMovementBackground()
 int Map::getWallShade(TilePart part, Tile* tileFrot)
 {
 	int shade;
-	if (tileFrot->isDiscovered(O_FLOOR))
+	// coop: the per-seat discovered read-switch (coopTileDiscoveredHere). Vanilla outside co-op and
+	// in classic co-op; only a non-player-side seat sees a different set.
+	if (coopTileDiscoveredHere(tileFrot, O_FLOOR))
 	{
 		shade = reShade(tileFrot);
 	}
@@ -423,7 +442,8 @@ int Map::getWallShade(TilePart part, Tile* tileFrot)
 	}
 	if (part)
 	{
-		if ((tileFrot->isDoor(part) || tileFrot->isUfoDoor(part)) && tileFrot->isDiscovered(part))
+		// coop: the per-seat discovered read-switch
+		if ((tileFrot->isDoor(part) || tileFrot->isUfoDoor(part)) && coopTileDiscoveredHere(tileFrot, part))
 		{
 			Position offset =
 				part == O_NORTHWALL ? Position(1,0,0) :
@@ -489,11 +509,17 @@ int getShadePulseForFrame(int shade, int frame)
  */
 void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer, BattleUnit* movingUnit)
 {
+	const int tileFoorWidth = 32;
+	const int tileFoorHeight = 16;
+	const int tileHeight = 40;
+
 	if (!unitTile)
 	{
 		return;
 	}
 	BattleUnit* bu = unitTile->getOverlappingUnit(_save, TUO_ALWAYS);
+	if (!bu) bu = CoopGhost::trailingUnitOverTile(_save, unitTile); // coop ghost, no-op in SP
+	Position unitOffset;
 	bool unitFromBelow = false;
 	bool unitFromAbove = false;
 	if (bu)
@@ -518,60 +544,26 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	}
 	else
 	{
-		// coop (Phase 2c death ghost): no live unit occupies this tile - a client-side
-		// death ghost (a unit already tile-unlinked by coopApplyCasualty) may cover it.
-		coopMaybeDrawGhost(unitSprite, unitTile, currTile, currTileScreenPosition, topLayer);
 		return;
 	}
-	drawUnitResolved(unitSprite, bu, unitTile, currTile, currTileScreenPosition, topLayer, unitFromBelow, unitFromAbove, false, false);
-}
 
-/**
- * coop (Phase 2c death ghost): draw the death-collapse animation for a client-side
- * ghost whose footprint covers @a unitTile. The ghost's unit was tile-unlinked by
- * coopApplyCasualty so it never resolves through getOverlappingUnit; draw it here with
- * its captured apply-time visibility standing in for getVisible(). A fast null-check
- * no-op when no ghost covers this tile (host / classic / single-player).
- */
-void Map::coopMaybeDrawGhost(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer)
-{
-	BattlescapeGame* bg = _save->getBattleGame();
-	if (!bg)
-	{
-		return;
-	}
-	const CoopDeathGhost* g = bg->coopGhostCoveringTile(unitTile->getPosition());
-	if (!g || !g->unit)
-	{
-		return;
-	}
-	drawUnitResolved(unitSprite, g->unit, unitTile, currTile, currTileScreenPosition, topLayer, false, false, true, g->visibleAtApply);
-}
-
-/**
- * Draws a resolved unit (or a Phase 2c death ghost) at its tile. Factored out of
- * drawUnit so the ghost path reuses the exact multi-tile offset / mask / shade logic;
- * @a useVisibleOverride lets the ghost supply its captured apply-time visibility
- * instead of the (now tile-less) unit's live getVisible().
- */
-void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTile, Tile *currTile, Position currTileScreenPosition, bool topLayer, bool unitFromBelow, bool unitFromAbove, bool useVisibleOverride, bool visibleOverride)
-{
-	const int tileFoorWidth = 32;
-	const int tileFoorHeight = 16;
-	const int tileHeight = 40;
-
-	Position unitOffset;
-
-	if (!((useVisibleOverride ? visibleOverride : bu->getVisible()) || _save->getDebugMode()))
+	if (!(coopUnitVisibleHere(bu) || _save->getDebugMode()))
 	{
 		return;
 	}
 
-	unitOffset.x = unitTile->getPosition().x - bu->getPosition().x;
-	unitOffset.y = unitTile->getPosition().y - bu->getPosition().y;
+	// the presentation read-switch (CoopMod/CoopGhost.h). `view` is
+	// SP-identical to `bu`'s own getters until CoopGhost::view() overwrites
+	// what a live ghost animates for THIS unit - a no-op outside a coop
+	// battle, with the option off, or with no ghost running for `bu`.
+	CoopUnitDrawView view = CoopUnitDrawView::fromUnit(bu);
+	CoopGhost::view(bu, &view);
+
+	unitOffset.x = unitTile->getPosition().x - view.pos.x;
+	unitOffset.y = unitTile->getPosition().y - view.pos.y;
 	int part = unitOffset.x + unitOffset.y*2;
 
-	bool moving = bu->getStatus() == STATUS_WALKING || bu->getStatus() == STATUS_FLYING;
+	bool moving = view.status == STATUS_WALKING || view.status == STATUS_FLYING;
 	int bonusWidth = moving ? 0 : tileFoorWidth;
 	int topMargin = 0;
 	int bottomMargin = 0;
@@ -605,10 +597,10 @@ void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTil
 	{
 		GraphSubset leftMask = mask.offset(-tileFoorWidth/2, 0);
 		GraphSubset rightMask = mask.offset(+tileFoorWidth/2, 0);
-		int direction = bu->getDirection();
+		int direction = view.direction;
 		Position partCurr = currTile->getPosition();
-		Position partDest = bu->getDestination() + unitOffset;
-		Position partLast = bu->getLastPosition() + unitOffset;
+		Position partDest = view.destination + unitOffset;
+		Position partLast = view.lastPos + unitOffset;
 		bool isTileDestPos = positionHaveSameXY(partDest, partCurr);
 		bool isTileLastPos = positionHaveSameXY(partLast, partCurr);
 
@@ -719,7 +711,8 @@ void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTil
 	//get shade helpers
 	auto getTileShade = [&](Tile* tile)
 	{
-		return tile ? (tile->isDiscovered(O_FLOOR) ? reShade(tile) : 16) : 16;
+		// coop: the per-seat discovered read-switch
+		return tile ? (coopTileDiscoveredHere(tile, O_FLOOR) ? reShade(tile) : 16) : 16;
 	};
 	auto getMixedTileShade = [&](Tile* tile, int heightOffset, bool below)
 	{
@@ -741,11 +734,11 @@ void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTil
 
 	// draw unit
 	int shade = 0;
-	UnitWalkingOffset offsets = calculateWalkingOffset(bu);
+	UnitWalkingOffset offsets = calculateWalkingOffset(bu, &view);
 	if (moving)
 	{
-		const Position start = bu->getPosition();
-		const Position end = bu->getDestination();
+		const Position start = view.pos;
+		const Position end = view.destination;
 		const auto minLevel = std::min(start.z, end.z); // Sint16
 		const int startShade = getMixedTileShade(_save->getTile(start), start.z == minLevel ? offsets.TerrainLevelOffset : 0, false);
 		const int endShade = getMixedTileShade(_save->getTile(end), end.z == minLevel ? offsets.TerrainLevelOffset : 0, false);
@@ -763,61 +756,7 @@ void Map::drawUnitResolved(UnitSprite &unitSprite, BattleUnit* bu, Tile *unitTil
 	{
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
-
-	// coop: ALT facing-indicator and motion-scanner arrows are read-only observer
-	// visuals, so allow them during the off-turn player's view too (previously this
-	// forced _isAltPressed/_isCtrlPressed false when it wasn't our turn).
-
-	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed);
-}
-
-/**
- * coop (Phase 2c death ghost): Tile::getTopItem() but skipping any item id an
- * active/pending death ghost is hiding (its freshly minted corpse + spilled kit),
- * so those stay invisible until the collapse animation reveals them. Replicates
- * Tile::getTopItem's selection (>100 items -> front; any item carrying a unit wins;
- * else max total weight). A fast passthrough to the stock getter whenever no ghost
- * is hiding anything (host / classic / single-player, and most parallel frames).
- */
-BattleItem* Map::coopTopItemExcluding(Tile* tile)
-{
-	BattlescapeGame* bg = _save->getBattleGame();
-	if (!bg || !bg->coopHasHiddenGhostItems())
-	{
-		return tile->getTopItem();
-	}
-	std::vector<BattleItem*>* inv = tile->getInventory();
-	if (inv->size() > 100)
-	{
-		for (auto* bi : *inv)
-		{
-			if (!bg->coopIsGhostHiddenItem(bi->getId()))
-			{
-				return bi;
-			}
-		}
-		return nullptr;
-	}
-	int biggestWeight = -999;
-	BattleItem* biggestItem = nullptr;
-	for (auto* bi : *inv)
-	{
-		if (bg->coopIsGhostHiddenItem(bi->getId()))
-		{
-			continue;
-		}
-		if (bi->getUnit())
-		{
-			return bi;
-		}
-		int temp = bi->getTotalWeight();
-		if (temp > biggestWeight)
-		{
-			biggestWeight = temp;
-			biggestItem = bi;
-		}
-	}
-	return biggestItem;
+	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed, &view);
 }
 
 /**
@@ -829,6 +768,7 @@ void Map::drawTerrain(Surface *surface)
 {
 	_isAltPressed = _game->isAltPressed(true);
 	_isCtrlPressed = _game->isCtrlPressed(true);
+	coopDrawProbeFrame(); // coop: TEST-ONLY draw probe (one drawTerrain frame)
 	int frameNumber = 0;
 	SurfaceRaw<const Uint8> tmpSurface;
 	Tile *tile;
@@ -1006,7 +946,8 @@ void Map::drawTerrain(Surface *surface)
 				{
 					bool isUnitMovingNearby = movingUnit && positionInRangeXY(movingUnitPosition, mapPosition, 2);
 
-					if (tile->isDiscovered(O_FLOOR))
+					// coop: the per-seat discovered read-switch
+					if (coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						tileShade = reShade(tile);
 						obstacleShade = tileShade;
@@ -1045,14 +986,14 @@ void Map::drawTerrain(Surface *surface)
 						{
 							if (_cursorType != CT_AIM)
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = halfAnimFrameRest; // yellow box
 								else
 									frameNumber = 0; // red box
 							}
 							else
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = 7 + halfAnimFrame; // yellow animated crosshairs
 								else
 									frameNumber = 6; // red static crosshairs
@@ -1119,7 +1060,7 @@ void Map::drawTerrain(Surface *surface)
 							}
 						}
 						// draw an item on top of the floor (if any)
-						BattleItem* item = coopTopItemExcluding(tile); // coop (Phase 2c): hide a death ghost's corpse/kit until its collapse ends
+						BattleItem* item = tile->getTopItem();
 						if (item)
 						{
 							itemSprite.draw(item,
@@ -1312,7 +1253,8 @@ void Map::drawTerrain(Surface *surface)
 					}
 
 					// Draw smoke/fire
-					if (tile->getSmoke() && tile->isDiscovered(O_FLOOR))
+					// coop: the per-seat discovered read-switch
+					if (tile->getSmoke() && coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						frameNumber = 0;
 						int shade = 0;
@@ -1326,7 +1268,18 @@ void Map::drawTerrain(Surface *surface)
 							{
 								frameNumber += Mod::SMOKE_OFFSET;
 							}
-							frameNumber += int(floor((tile->getSmoke() / 6.0) - 0.1)); // see http://www.ufopaedia.org/images/c/cb/Smoke.gif
+							if (Mod::EXTENDED_SMOKE_OFFSET == 0)
+							{
+								frameNumber += int(floor((tile->getSmoke() / 6.0) - 0.1)); // see http://www.ufopaedia.org/images/c/cb/Smoke.gif
+							}
+							else if (Mod::EXTENDED_SMOKE_OFFSET == 1)
+							{
+								frameNumber += int(floor((tile->getSmoke() / 6.0) - 0.1)) * 4;
+							}
+							else // if (Mod::EXTENDED_SMOKE_OFFSET == 2)
+							{
+								frameNumber += (tile->getSmoke() - 1) / 5 * 4;
+							}
 							shade = tileShade;
 						}
 
@@ -1365,7 +1318,8 @@ void Map::drawTerrain(Surface *surface)
 					}
 
 					// Draw Path Preview
-					if (_previewSettingArrows && tile->getPreview() != -1 && tile->isDiscovered(O_FLOOR))
+					// coop: the per-seat discovered read-switch
+					if (_previewSettingArrows && tile->getPreview() != -1 && coopTileDiscoveredHere(tile, O_FLOOR))
 					{
 						if (itZ > 0 && tile->hasNoFloor(_save))
 						{
@@ -1403,14 +1357,14 @@ void Map::drawTerrain(Surface *surface)
 						{
 							if (_cursorType != CT_AIM)
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = 3 + halfAnimFrameRest; // yellow box
 								else
 									frameNumber = 3; // red box
 							}
 							else
 							{
-								if (unit && (unit->getVisible() || _save->getDebugMode()))
+								if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 									frameNumber = 7 + halfAnimFrame; // yellow animated crosshairs
 								else
 									frameNumber = 6; // red static crosshairs
@@ -1468,7 +1422,7 @@ void Map::drawTerrain(Surface *surface)
 										else
 										{
 											// recalculate
-											if (unit && (unit->getVisible() || _save->getDebugMode()))
+											if (unit && (coopUnitVisibleHere(unit) || _save->getDebugMode()))
 											{
 												hasLOS = _save->getTileEngine()->visible(action->actor, tile);
 											}
@@ -1542,14 +1496,14 @@ void Map::drawTerrain(Surface *surface)
 										{
 											_cacheActiveWeaponUfopediaArticleUnlocked = 1; // assume unlocked
 											ArticleDefinition *article = _game->getMod()->getUfopaediaArticle(rule->getType(), false);
-											if (article && !Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+											if (article && !coopArticleAvailableFor(_game, action->actor, article))
 											{
 												_cacheActiveWeaponUfopediaArticleUnlocked = 0; // ammo/weapon locked
 											}
 											if (rule->getType() != weapon->getType())
 											{
 												article = _game->getMod()->getUfopaediaArticle(weapon->getType(), false);
-												if (article && !Ufopaedia::isArticleAvailable(_game->getSavedGame(), article))
+												if (article && !coopArticleAvailableFor(_game, action->actor, article))
 												{
 													_cacheActiveWeaponUfopediaArticleUnlocked = 0; // weapon locked
 												}
@@ -1660,10 +1614,11 @@ void Map::drawTerrain(Surface *surface)
 							if (_save->getBattleGame()->getCurrentAction()->type == BA_LAUNCH || _save->getBattleGame()->getCurrentAction()->sprayTargeting)
 							{
 								_numWaypid->setValue(waypid);
+								_numWaypid->setBordered(true); // OXCE, not configurable
 								_numWaypid->draw();
 								_numWaypid->blitNShade(surface, screenPosition.x + waypXOff, screenPosition.y + waypYOff, 0);
 
-								waypXOff += waypid > 9 ? 8 : 6;
+								waypXOff += waypid > 9 ? 10 : 6; // OXCE
 								if (waypXOff >= 26)
 								{
 									waypXOff = 2;
@@ -1698,7 +1653,8 @@ void Map::drawTerrain(Surface *surface)
 						screenPosition.y > -_spriteHeight && screenPosition.y < surface->getHeight() + _spriteHeight )
 					{
 						tile = _save->getTile(mapPosition);
-						if (!tile || !tile->isDiscovered(O_FLOOR) || tile->getPreview() == -1)
+						// coop: the per-seat discovered read-switch
+						if (!tile || !coopTileDiscoveredHere(tile, O_FLOOR) || tile->getPreview() == -1)
 							continue;
 						int adjustment = -tile->getTerrainLevel();
 						if (_previewSettingArrows)
@@ -1774,7 +1730,7 @@ void Map::drawTerrain(Surface *surface)
 	}
 
 	auto* selectedUnit = _save->getSelectedUnit();
-	if (selectedUnit && (_save->getSide() == FACTION_PLAYER || _save->getDebugMode()) && selectedUnit->getPosition().z <= _camera->getViewLevel())
+	if (selectedUnit && (coopSideIsMine(_save) || _save->getDebugMode()) && selectedUnit->getPosition().z <= _camera->getViewLevel()) // coop: the side this machine plays
 	{
 		_camera->convertMapToScreen(selectedUnit->getPosition(), &screenPosition);
 		screenPosition += _camera->getMapOffset();
@@ -1790,29 +1746,21 @@ void Map::drawTerrain(Surface *surface)
 		}
 		if (this->getCursorType() != CT_NONE)
 		{
-
-			// coop
-			if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
-			{
-				// do nothing
-			}
-			else
-			{
-				_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
-			}
-	
+			coopDrawProbeArrow(selectedUnit); // coop: TEST-ONLY draw probe (the selection arrow is drawn)
+			_arrow->blitNShade(surface, screenPosition.x + offset.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2), screenPosition.y + offset.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame), 0);
 		}
 	}
 
 	// Draw motion scanner arrows
-	if (_isAltPressed && _save->getSide() == FACTION_PLAYER && this->getCursorType() != CT_NONE)
+	if (_isAltPressed && coopSideIsMine(_save) && this->getCursorType() != CT_NONE) // coop: the side this machine plays
 	{
 		for (auto* myUnit : *_save->getUnits())
 		{
-			bool motionScan = myUnit->getScannedTurn() == _save->getTurn() && myUnit->getFaction() != FACTION_PLAYER && !myUnit->isOut();
-			bool customMarker = myUnit->getCustomMarker() > 0 && myUnit->getFaction() == FACTION_PLAYER && !myUnit->isOut();
+			bool motionScan = myUnit->getScannedTurn() == _save->getTurn() && !coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop: not this machine's side
+			bool customMarker = myUnit->getCustomMarker() > 0 && coopFactionIsMine((int)myUnit->getFaction()) && !myUnit->isOut(); // coop: this machine's side
 			if (motionScan || customMarker)
 			{
+				coopDrawProbeMark(myUnit, motionScan); // coop: TEST-ONLY draw probe (an Alt marker is drawn)
 				Position temp = myUnit->getPosition();
 				temp.z = _camera->getViewLevel();
 				_camera->convertMapToScreen(temp, &screenPosition);
@@ -1869,23 +1817,11 @@ void Map::drawTerrain(Surface *surface)
 				_camera->convertMapToScreen(pos, &screenPosition);
 				screenPosition += _camera->getMapOffset();
 				screenPosition.y += 2; // based on vanilla soldier standHeight
-
-				// coop
-				if (_game->getCoopMod()->getCoopStatic() == true && _game->getCoopMod()->getCurrentTurn() == 1)
-				{
-					// do nothing
-				}
-				else
-				{
-
-					_arrow->blitNShade(
-						surface,
-						screenPosition.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2),
-						screenPosition.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame),
-						0);
-
-				}
-
+				_arrow->blitNShade(
+					surface,
+					screenPosition.x + (_spriteWidth / 2) - (_arrow->getWidth() / 2),
+					screenPosition.y - _arrow->getHeight() + getArrowBobForFrame(_animFrame),
+					0);
 			}
 		}
 	}
@@ -2256,14 +2192,22 @@ void Map::getSelectorPosition(Position *pos) const
  * @param unit Pointer to BattleUnit.
  * @param offset Pointer to the offset to return the calculation.
  */
-UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
+UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit, const CoopUnitDrawView* view) const
 {
 	UnitWalkingOffset result = { };
 
 	int offsetX[8] = { 1, 1, 1, 0, -1, -1, -1, 0 };
 	int offsetY[8] = { 1, 0, -1, -1, -1, 0, 1, 1 };
-	int phase = unit->getWalkingPhase() + unit->getDiagonalWalkingPhase();
-	int dir = unit->getDirection();
+	// `view` is null for every caller except Map::drawUnit (byte-
+	// identical vanilla behaviour then - the OTHER caller, :1720, never
+	// passes one). When non-null, every motion read below comes from it
+	// instead of `unit` - the ghost renders from ITS OWN interpolation
+	// state, never from BattleUnit - and with no live ghost `view`'s
+	// fields are exactly what `fromUnit()` copied off `unit`, so the value
+	// is unchanged either way.
+	int phase = view ? ((view->walkPhase % 8) + (view->walkPhase / 8) * 8)
+	                  : (unit->getWalkingPhase() + unit->getDiagonalWalkingPhase());
+	int dir = view ? view->direction : unit->getDirection();
 	int midphase = 4 + 4 * (dir % 2);
 	int endphase = 8 + 8 * (dir % 2);
 	int size = unit->getArmor()->getSize();
@@ -2282,12 +2226,23 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
 		else
 			midphase = 1;
 	}
-	if (unit->getVerticalDirection())
+	if (view && view->ghostTrailing)
+	{
+		// coop: a ghost-trailing WALK is behind the scenes on the
+		// destination tile for its WHOLE sweep, not just the phase>=midphase
+		// half vanilla's own dual-branch below already handles - forcing
+		// midphase to 0 routes every phase through that branch, so the
+		// screen offset runs from a full tile behind to zero as walkPhase
+		// advances from 0 to endphase.
+		midphase = 0;
+	}
+	const int status = view ? view->status : (int)unit->getStatus();
+	if (view ? view->verticalDirection : unit->getVerticalDirection())
 	{
 		midphase = 4;
 		endphase = 8;
 	}
-	else if ((unit->getStatus() == STATUS_WALKING || unit->getStatus() == STATUS_FLYING))
+	else if (status == STATUS_WALKING || status == STATUS_FLYING)
 	{
 		if (phase < midphase)
 		{
@@ -2300,15 +2255,16 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
 			result.ScreenOffset.y = - (phase - endphase) * offsetY[dir];
 		}
 	}
+	if (view && view->ghostTrailing) midphase = 0; // coop: a trailing vertical ghost keeps the whole-sweep branch
 
 	result.NormalizedMovePhase = endphase == 16 ? phase : phase * 2;
 
 	// If we are walking in between tiles, interpolate it's terrain level.
-	if (unit->getStatus() == STATUS_WALKING || unit->getStatus() == STATUS_FLYING)
+	if (status == STATUS_WALKING || status == STATUS_FLYING)
 	{
-		const Position posCurr = unit->getPosition();
-		const Position posDest = unit->getDestination();
-		const Position posLast = unit->getLastPosition();
+		const Position posCurr = view ? view->pos : unit->getPosition();
+		const Position posDest = view ? view->destination : unit->getDestination();
+		const Position posLast = view ? view->lastPos : unit->getLastPosition();
 		if (phase < midphase)
 		{
 			int fromLevel = getTerrainLevel(posCurr, size);
@@ -2346,7 +2302,7 @@ UnitWalkingOffset Map::calculateWalkingOffset(const BattleUnit *unit) const
 	}
 	else
 	{
-		result.TerrainLevelOffset = getTerrainLevel(unit->getPosition(), size);
+		result.TerrainLevelOffset = getTerrainLevel(view ? view->pos : unit->getPosition(), size);
 	}
 	result.ScreenOffset.y += result.TerrainLevelOffset;
 	return result;
@@ -2514,20 +2470,10 @@ void Map::scrollKey()
  */
 void Map::fadeShade()
 {
-
-	// coop
-	if (_game->getCoopMod()->getChatMenu())
-	{
-		if (_game->getCoopMod()->getChatMenu()->isActive() == true)
-		{
-			return;
-		}
-	}
-
 	bool hold = SDL_GetKeyState(NULL)[Options::keyNightVisionHold];
 	if ((_nightVisionOn && !hold) || (!_nightVisionOn && hold))
 	{
- 		_nvColor = Options::oxceNightVisionColor;
+		_nvColor = Options::oxceNightVisionColor;
 		_save->setToggleNightVisionTemp(true);
 		_save->setToggleNightVisionColorTemp(_nvColor);
 		if (_fadeShade > NIGHT_VISION_SHADE) // 0 = max brightness

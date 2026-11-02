@@ -54,6 +54,9 @@ public:
 	void save(YAML::YamlNodeWriter writer) const;
 	void load(const YAML::YamlNodeReader& reader);
 	const std::map<std::string, int> &getRandomProductionInfo() const { return _randomProductionInfo; }
+	int getCoopStarterSeat() const { return _coopStarterSeat; } // coop
+	void setCoopStarterSeat(int seat) { _coopStarterSeat = seat; } // coop
+	void setRandomProductionInfo(const std::map<std::string, int> &info) { _randomProductionInfo = info; } // coop: the SHARED replica adopts the host's list
 	/// coop: ids of the crafts this production built in this session, in order.
 	/// The host sends them with the finished production so a replica builds the
 	/// same crafts instead of minting its own ids. Not saved: a resumed replica
@@ -73,6 +76,7 @@ private:
 	bool _sell;
 	bool _isFallback;
 	std::map<std::string, int> _randomProductionInfo;
+	int _coopStarterSeat = -1; // coop: the seat that started this production (SHARED), -1 unknown
 	bool haveEnoughMoneyForOneMoreUnit(SavedGame * g) const;
 	bool haveEnoughLivingSpaceForOneMoreUnit(Base * b);
 	bool haveEnoughMaterialsForOneMoreUnit(Base * b, const Mod *m) const;

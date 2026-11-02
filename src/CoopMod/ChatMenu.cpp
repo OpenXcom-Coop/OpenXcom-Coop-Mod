@@ -239,9 +239,9 @@ void ChatMenu::draw(SDL_Surface* screen)
 		if (savedGame)
 		{
 			auto savedBattle = savedGame->getSavedBattle();
-			if (savedBattle)
+			if (savedBattle && savedGame->coopHasRealBattle()) // coop: an equipment screen's practice battle has no BattlescapeState
 			{
-				auto battleGame = savedBattle->getBattleGame();
+				auto battleGame = connectionTCP::isBattlescapeStateLive(savedBattle->getBattleState()) ? savedBattle->getBattleGame() : nullptr; // coop: no BattlescapeState in a briefing or on "all aliens killed"
 				if (battleGame)
 				{
 					auto map = battleGame->getMap();
@@ -295,6 +295,19 @@ void ChatMenu::clearMessages()
 {
 	messages.clear();
 	miniMessages.clear();
+}
+
+// coop: read-only view of the chat lines (the synced_options_state probe)
+const std::vector<ChatMessage>& ChatMenu::getMessages() const
+{
+	return messages;
+}
+
+// coop: a system line composed locally on this machine (never sent): the
+// synced-option change line `[hh:mm] System: <player> changed <option> to <value>`.
+void ChatMenu::addSystemMessage(const std::string& player, const std::string& text)
+{
+	addMessage(getCurrentTime(), player, text);
 }
 
 }

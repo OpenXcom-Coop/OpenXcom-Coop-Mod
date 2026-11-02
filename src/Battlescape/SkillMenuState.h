@@ -31,9 +31,9 @@ class SkillMenuState : public ActionMenuState
 private:
 	/// Adds a new menu item for an action.
 	void addItem(const RuleSkill* skill, int *id, SDLKey key);
-	/// Choose an action weapon based on given parameters.
-	void chooseWeaponForSkill(BattleAction* action, const RuleSkill* skillRules);
 public:
+	/// Choose an action weapon based on given parameters.
+	static void chooseWeaponForSkill(BattleAction* action, const RuleSkill* skillRules);
 	/// Creates the Skill Menu state.
 	SkillMenuState(BattleAction *action, int x, int y);
 	/// Cleans up the Skill Menu state.

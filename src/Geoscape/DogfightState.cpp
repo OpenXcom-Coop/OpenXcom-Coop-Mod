@@ -2184,6 +2184,7 @@ void DogfightState::hostToggleWeapon(int idx)
 	{
 		CraftWeapon* w = _craft->getWeapons()->at(idx);
 		if (w) w->setDisabled(!_weaponEnabled[idx]);
+		if (w) SharedEcon::submitDogfightWeaponDisabled(_game, _craft, idx); // coop: the remembered flag reaches the replica
 	}
 }
 
@@ -2218,9 +2219,7 @@ void DogfightState::harnessToggleWeapon(int idx)
 	if (idx < 0 || idx >= _weaponNum) return;
 	if (_isReplicaView)
 	{
-		_weaponEnabled[idx] = !_weaponEnabled[idx]; // optimistic echo
-		recolor(idx, _weaponEnabled[idx]);
-		emitDfCmd("weaponToggle", idx);
+		emitDfCmd("weaponToggle", idx); // request only; the icon follows the host's df_state (as weaponClick)
 	}
 	else
 	{
@@ -2651,16 +2650,15 @@ void DogfightState::drawProjectile(const CraftWeaponProjectile* p)
  */
 void DogfightState::weaponClick(Action * a)
 {
-	// PRD-DF02 REPLICA: optimistically recolor the icon now (pure render) + emit
-	// df_cmd{weaponToggle,arg=i}; the next df_state confirms/corrects (applyFrame
-	// recolors to the host's authoritative _weaponEnabled).
+	// REPLICA: the weapon icon is HOST-AUTHORITATIVE, like the
+	// stance buttons. A click only requests the toggle (df_cmd{weaponToggle,arg=i}); the
+	// icon never flips locally - it follows the host's df_state (applyFrame recolors to the
+	// host's _weaponEnabled on a change). No optimistic echo => no revert flicker.
 	if (_isReplicaView)
 	{
 		for (int i = 0; i < _weaponNum; ++i)
 			if (a->getSender() == _weapon[i])
 			{
-				_weaponEnabled[i] = !_weaponEnabled[i];
-				recolor(i, _weaponEnabled[i]);
 				emitDfCmd("weaponToggle", i);
 				return;
 			}
@@ -2679,6 +2677,7 @@ void DogfightState::weaponClick(Action * a)
 				if (w)
 				{
 					w->setDisabled(!_weaponEnabled[i]);
+					SharedEcon::submitCraftWeaponDisabled(_game, _craft, i); // coop
 				}
 			}
 			return;
@@ -3022,6 +3021,7 @@ void DogfightState::awardExperienceToPilots()
 	if (_firedAtLeastOnce && !_experienceAwarded && _craft && _ufo && (_ufo->isCrashed() || _ufo->isDestroyed()))
 	{
 		bool psiStrengthEval = (Options::psiStrengthEval && _game->getSavedGame()->isResearched(_game->getMod()->getPsiRequirements()));
+		const Json::Value h18bMark = SharedEcon::soldierFxMark(_game); // coop: the pilots' records before the award
 		for (auto* pilot : _craft->getPilotList(false, nullptr)) // refresh already done in the constructor
 		{
 			if (pilot->getCurrentStats()->firing < pilot->getRules()->getStatCaps().firing)
@@ -3050,6 +3050,7 @@ void DogfightState::awardExperienceToPilots()
 			}
 			pilot->calcStatString(_game->getMod()->getStatStrings(), psiStrengthEval);
 		}
+		SharedEcon::hostSoldierFx(_game, h18bMark); // coop: the host's pilot experience reaches the replica
 		_experienceAwarded = true;
 	}
 }
@@ -3299,8 +3300,9 @@ void DogfightState::applyFrame(const Json::Value& frame)
 		{
 			// PRD-DF02: adopt the host's authoritative weapon-enabled state AND recolor
 			// the icon on a change (recolor() is a relative offset, so only on change) -
-			// this confirms/corrects the optimistic weaponToggle echo and closes the
-			// DF01 gap where replica icons never tracked the disabled colour.
+			// a replica's weapon icon follows the host here (a click only
+			// sends weaponToggle, with no local flip); this also makes
+			// replica icons track the disabled colour.
 			bool newEnabled = we[i].asBool();
 			if (newEnabled != _weaponEnabled[i])
 			{

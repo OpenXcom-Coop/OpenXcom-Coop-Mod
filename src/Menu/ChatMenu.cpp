@@ -149,19 +149,11 @@ void ChatMenu::update()
 	Uint32 now = SDL_GetTicks();
 	if (isActive() == true && (now - lastChatClear) >= 1000) // 1 seconds
 	{
-
-		if (_game->getPingInProgress() == false)
-		{
-
-			_game->setPingInProgress(true);
-
-			pingSentTime = now;
-			Json::Value root;
-			root["state"] = "ping_request";
-			root["time"] = pingSentTime;
-
-			_game->sendTCPPacketData(root.toStyledString().c_str());
-		}
+		// This used to send "ping_request" here every second while chat was
+		// active, but that message has no onTCPMessage handler anywhere (a dead
+		// id) - it was sent into the void. The send site is removed; the real
+		// ping/RTT mechanism is the separate pre-dispatch PING/PONG lane
+		// (connectionTCP::getPing()).
 
 		lastChatClear = now;
 	}

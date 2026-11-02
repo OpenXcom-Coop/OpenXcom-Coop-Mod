@@ -43,6 +43,7 @@ private:
 	Text *_txtTitle, *_txtBase, *_txtName, *_txtStatus, *_txtWeapon, *_txtCrew, *_txtHwp;
 	TextList *_lstCrafts;
 	Base *_base;
+	bool coopHoldsGoneBase() const override { return coopBaseGone(_base); } // coop
 	std::vector<int> _displayedCrew;
 
 	/// PRD-J10: live refresh. A list view holds no pending user input, so it

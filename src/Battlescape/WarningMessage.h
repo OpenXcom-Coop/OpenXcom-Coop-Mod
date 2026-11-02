@@ -51,10 +51,13 @@ public:
 	void setPalette(const SDL_Color *colors, int firstcolor = 0, int ncolors = 256) override;
 	/// Shows the warning message.
 	void showMessage(const std::string &msg, int time = 2);
-	/// coop (PRD-P5): the message currently on screen, "" when hidden. Read-only
-	/// introspection - the co-op harness asserts WHICH banners a turn mode posts
-	/// (the persistent showCoopWarning(msg, -1) ones squat on this widget).
-	std::string getMessage() const;
+	/// coop (test introspection only, same family as
+	/// BattlescapeState::getCoopWaitText): the message text currently held by
+	/// this surface, or "" if none was ever shown. Read-only; never read by game
+	/// logic. It exists because a client's step-1 reserve refusal is shown on
+	/// VANILLA's own warning surface (a local refusal), and a test must assert
+	/// EXACT TEXT, never an absence.
+	std::string getMessageText() const;
 	/// Handles the timers.
 	void think() override;
 	/// Fades the message.
