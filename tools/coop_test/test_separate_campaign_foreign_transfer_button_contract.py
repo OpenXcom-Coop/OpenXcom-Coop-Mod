@@ -1,4 +1,4 @@
-"""Foreign Separate bases hide Transfer while own bases retain the button."""
+"""Foreign Separate bases keep Transfer, and its list offers only the visitor's soldiers."""
 
 from pathlib import Path
 
@@ -14,9 +14,17 @@ def main():
 
     own_defaults, foreign = access.split("if (_base->_isForeignBase)", 1)
     assert "_btnTransfer->setVisible(true);" in own_defaults
-    assert "_btnTransfer->setVisible(false);" in foreign
+    assert "_btnTransfer->setVisible(_game->getCoopMod()->isSeparateCampaign());" in foreign
 
-    print("PASS Separate Transfer is visible at own bases and hidden at foreign bases")
+    transfer = (ROOT / "src/Basescape/TransferItemsState.cpp").read_text(
+        encoding="utf-8")
+    assert "const bool ownSoldiersOnly = _game->getCoopMod()->isSeparateCampaign()" in transfer
+    for guard in ("if (_debriefingState || ownSoldiersOnly) break;",
+                  "_debriefingState == 0 && !ownSoldiersOnly",
+                  "if (qty > 0 && !ownSoldiersOnly)"):
+        assert guard in transfer, guard
+
+    print("PASS Separate Transfer is visible at foreign bases and lists only the visitor's soldiers")
 
 
 if __name__ == "__main__":

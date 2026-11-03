@@ -631,7 +631,8 @@ void BasescapeState::updateBaseAccessButtons()
 	{
 		// Separate foreign bases retain the established limited management view:
 		// browsing, soldiers, craft equipment and purchasing are allowed, while
-		// construction, research, production, transfers and selling stay owner-only.
+		// construction, research, production and selling stay owner-only. Transfers
+		// list only the visitor's own soldiers there.
 		if (_game->getCoopMod()->isSeparateCampaign()
 			&& !_base->getOwnerPlayerName().empty())
 		{
@@ -647,7 +648,7 @@ void BasescapeState::updateBaseAccessButtons()
 		_btnFacilities->setVisible(false);
 		_btnResearch->setVisible(false);
 		_btnManufacture->setVisible(false);
-		_btnTransfer->setVisible(false);
+		_btnTransfer->setVisible(_game->getCoopMod()->isSeparateCampaign());
 		_btnSell->setVisible(false);
 
 		// PvP marker bases are display-only and keep their stricter old rules.

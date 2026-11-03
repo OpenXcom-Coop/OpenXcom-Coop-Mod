@@ -235,7 +235,6 @@ def main():
     assert "void BasescapeState::updateBaseAccessButtons()" in basescape
     assert "connectionTCP::seatName(connectionTCP::localSeat())" in basescape
     assert "_btnFacilities->setVisible(false);" in basescape
-    assert "_btnTransfer->setVisible(false);" in basescape
     assert "_btnCrafts->setVisible(true);" in basescape
     targets = source("src/Geoscape/MultipleTargetsState.cpp")
     foreign_route = targets.split(
