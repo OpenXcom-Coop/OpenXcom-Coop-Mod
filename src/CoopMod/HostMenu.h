@@ -87,6 +87,13 @@ class HostMenu : public State
 	// "parallel" and "traditional"; the label reflects it; visible only while the
 	// rest of the hosting controls are.
 	TextButton *_btnTurnMode;
+	// coop: hotseat (two players on this machine: X-COM, then the aliens) for a
+	// single-player campaign's battles. The connection-type combo offers HOTSEAT
+	// MODE only over such a campaign's geoscape (New Battle has its own toggle);
+	// _hotseatOption is its index, -1 when it is not offered.
+	TextButton *_btnStartHotseat, *_btnReactionFire;
+	Text *_hotseatTooltip;
+	int _hotseatOption = -1;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
@@ -136,6 +143,15 @@ class HostMenu : public State
 	/// Options::CoopTurnMode and its visibility in sync with the rest of the
 	/// hosting controls (hidden once a session is live).
 	void updateTurnModeButton();
+	/// coop: true over a single-player campaign's geoscape (no battle, no co-op
+	/// save, no session) - the only place the HOTSEAT MODE option is offered.
+	bool hotseatOffered() const;
+	/// coop: shows the hotseat controls for the current pick and arm state.
+	void updateHotseatControls();
+	/// coop: ENABLE HOTSEAT / DISABLE HOTSEAT.
+	void startHotseat(Action* action);
+	/// coop: ENABLE REACTION FIRE / DISABLE REACTION FIRE for hotseat battles.
+	void btnReactionFireClick(Action* action);
 };
 
 }

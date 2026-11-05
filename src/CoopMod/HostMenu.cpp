@@ -63,10 +63,14 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_lblPort = new Text(108, 18, x + 18, 92);
 	_lblPassword = new Text(108, 18, x + 18, 132);
 
+	_hotseatTooltip = new Text(200, 18, x + 18, 72);
+
 	_port = new TextEdit(this, 116, 18, x + 126, 92);
 	_serverName = new TextEdit(this, 116, 18, x + 126, 72);
 	_tcpButtonHost = new TextButton(112, 18, x + 18, 172);
 	_btnTurnMode = new TextButton(224, 18, x + 18, 152);
+	_btnStartHotseat = new TextButton(224, 18, x + 18, 112);
+	_btnReactionFire = new TextButton(224, 18, x + 18, 132);
 	_cbxVisibility = new ComboBox(this, 224, 18, x + 18, 50);
 	_cbxRegions = new ComboBox(this, 112, 18, x + 18, 112); 
 	_cbxMaxPlayers = new ComboBox(this, 112, 18, x + 130, 112); 
@@ -83,6 +87,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 
 	add(_window, "window", "pauseMenu");
+	add(_hotseatTooltip, "text", "pauseMenu");
 	add(_lblServerName, "text", "pauseMenu");
 	add(_lblPort, "text", "pauseMenu");
 	add(_lblPassword, "text", "pauseMenu");
@@ -91,6 +96,8 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	add(_password, "text", "pauseMenu");
 	add(_tcpButtonHost, "button", "pauseMenu");
 	add(_btnTurnMode, "button", "pauseMenu");
+	add(_btnStartHotseat, "button", "pauseMenu");
+	add(_btnReactionFire, "button", "pauseMenu");
 	add(_btnCancel, "button", "pauseMenu");
 	add(_cbxVisibility, "button", "pauseMenu");
 	add(_cbxRegions, "button", "pauseMenu");
@@ -125,6 +132,10 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 			? "  [SHARED]" : "  [SEPARATE]";
 	}
 	_txtTitle->setText(hostTitle);
+
+	_hotseatTooltip->setBorderColor(color);
+	_hotseatTooltip->setText("Active: In this machine, players swap turns.\nAll locally (no internet).");
+	_hotseatTooltip->setVisible(false);
 
 	// labels
 	_lblServerName->setBig();
@@ -170,6 +181,13 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_btnTurnMode->onMouseClick((ActionHandler)&HostMenu::btnTurnModeClick);
 	updateTurnModeButton();
 
+	_btnStartHotseat->setText("ENABLE HOTSEAT");
+	_btnStartHotseat->onMouseClick((ActionHandler)&HostMenu::startHotseat);
+	_btnStartHotseat->setVisible(false);
+
+	_btnReactionFire->onMouseClick((ActionHandler)&HostMenu::btnReactionFireClick);
+	_btnReactionFire->setVisible(false);
+
 	_btnCancel->setText(tr("CANCEL"));
 	_btnCancel->onMouseClick((ActionHandler)&HostMenu::btnCancelClick);
 	_btnCancel->onKeyboardPress((ActionHandler)&HostMenu::btnCancelClick, Options::keyCancel);
@@ -177,8 +195,14 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 	_visibilityTypes.push_back("VISIBILITY: PRIVATE (TCP)");
 	_visibilityTypes.push_back("VISIBILITY: PRIVATE (UDP)");
 	_visibilityTypes.push_back("VISIBILITY: PUBLIC (UDP)");
-	// Hotseat is a local skirmish mode, not a networked visibility. It is armed
-	// from the New Battle screen (NewBattleState) instead of this host dialog.
+	// Hotseat is not a networked visibility. A New Battle arms it on the New
+	// Battle screen (NewBattleState); a single-player campaign arms it here,
+	// over its geoscape, for its battles.
+	if (hotseatOffered())
+	{
+		_hotseatOption = (int)_visibilityTypes.size();
+		_visibilityTypes.push_back("HOTSEAT MODE");
+	}
 	_cbxVisibility->setOptions(_visibilityTypes, false);
 	_cbxVisibility->onChange((ActionHandler)&HostMenu::cbxVisibilityChange);
 
@@ -257,6 +281,7 @@ HostMenu::HostMenu() : _craft(0), _selectType(NewBattleSelectType::MISSION), _is
 
 	}
 	updateTurnModeButton(); // coop
+	updateHotseatControls(); // coop
 
 	// READ HOST ADDRESS
 
@@ -368,6 +393,7 @@ void HostMenu::init()
 
 	}
 	updateTurnModeButton(); // coop
+	updateHotseatControls(); // coop
 }
 
 void HostMenu::convertUnits()
@@ -474,6 +500,7 @@ void HostMenu::cbxVisibilityChange(Action* action)
 	}
 
 	updateTurnModeButton(); // coop
+	updateHotseatControls(); // coop
 }
 
 void HostMenu::cbxMaxPlayersChange(Action* action)
@@ -771,10 +798,61 @@ void HostMenu::updateTurnModeButton()
 
 bool HostMenu::hostControlsVisible() const
 {
-	// the window counts as usable if the primary action (START HOST) or the
-	// connection-type combo can be interacted with
+	// the window counts as usable if the primary action (START HOST or the
+	// hotseat toggle) or the connection-type combo can be interacted with
 	return _tcpButtonHost->getVisible()
+		|| _btnStartHotseat->getVisible()
 		|| _cbxVisibility->getVisible();
+}
+
+bool HostMenu::hotseatOffered() const
+{
+	SavedGame* save = _game->getSavedGame();
+	return save && !save->getCountries()->empty() && !save->isCoopSave() && !save->getSavedBattle()
+		&& !_game->getCoopMod()->getCoopStatic();
+}
+
+/**
+ * Armed: only DISABLE HOTSEAT and its note show. HOTSEAT MODE picked but not
+ * armed: ENABLE HOTSEAT and the REACTION FIRE toggle replace the hosting
+ * controls. Any other pick: the hotseat controls are hidden.
+ */
+void HostMenu::updateHotseatControls()
+{
+	const bool armed = _hotseatOption >= 0 && _game->getCoopMod()->_isHotseatActive;
+	const bool picked = _hotseatOption >= 0 && (armed || (int)_cbxVisibility->getSelected() == _hotseatOption);
+	if (picked)
+	{
+		_cbxVisibility->setSelected(_hotseatOption);
+		_cbxVisibility->setVisible(!armed);
+		_tcpButtonHost->setVisible(false);
+		_port->setVisible(false);
+		_lblPort->setVisible(false);
+		_serverName->setVisible(false);
+		_lblServerName->setVisible(false);
+		_password->setVisible(false);
+		_lblPassword->setVisible(false);
+		_cbxMaxPlayers->setVisible(false);
+		_cbxRegions->setVisible(false);
+	}
+	_btnStartHotseat->setText(armed ? "DISABLE HOTSEAT" : "ENABLE HOTSEAT");
+	_btnStartHotseat->setVisible(picked);
+	_btnReactionFire->setText(connectionTCP::_isHotseatReactionFireEnabled ? "DISABLE REACTION FIRE" : "ENABLE REACTION FIRE");
+	_btnReactionFire->setVisible(picked && !armed);
+	_hotseatTooltip->setVisible(armed);
+	updateTurnModeButton();
+}
+
+void HostMenu::startHotseat(Action*)
+{
+	_game->getCoopMod()->_isHotseatActive = !_game->getCoopMod()->_isHotseatActive;
+	updateHotseatControls();
+}
+
+void HostMenu::btnReactionFireClick(Action*)
+{
+	connectionTCP::_isHotseatReactionFireEnabled = !connectionTCP::_isHotseatReactionFireEnabled;
+	updateHotseatControls();
 }
 
 size_t HostMenu::harnessVisibilitySelected() const

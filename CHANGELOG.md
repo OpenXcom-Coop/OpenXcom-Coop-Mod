@@ -24,6 +24,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
   with a line-of-sight blackout in between. The earlier menu redesign had buried
   the toggle inside the network host dialog with no way to actually begin a battle.
   An optional REACT FIRE toggle appears while hotseat is armed.
+- Hotseat can be started in a single-player campaign again. On the Geoscape, open
+  OPTIONS > CO-OP, pick HOTSEAT MODE in the HOST window and press ENABLE HOTSEAT.
+  The Geoscape stays single player; in the next battle Player 1 commands X-Com and,
+  when X-Com ends its turn, Player 2 takes the aliens on the same machine. The
+  option had been dropped from the HOST window when hotseat moved to the New
+  Battle screen. Hotseat switches off when the battle ends, as it does for a New
+  Battle.
 
 <!-- Template for the next release section (keep this comment ABOVE the newest
      released section: the notes extractor reads from "## [<v>]" until the next
