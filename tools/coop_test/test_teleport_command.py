@@ -6,9 +6,9 @@ no walk, no shot, no AI turn ever runs in this file). Deterministic fixture: the
 commands plus the hash-equality gate, never by a map-generator re-roll loop.
 
 Two legs:
-  - terror (STR_TERROR_MISSION with floaters, which brings live 2x2 reapers): `battle_teleport_all {faction:"hostile",
-    corner:"SE"}` moves each 2x2 hostile whole into the SE corner quarter, its footprint overlapping no other unit, and
-    hash_now full is ALL BUCKETS EQUAL after the move.
+  - terror (STR_TERROR_MISSION with floaters on the pinned map seed TERROR_MAP_SEED, which brings live 2x2 reapers):
+    `battle_teleport_all {faction:"hostile", corner:"SE"}` moves each 2x2 hostile whole into the SE corner quarter, its
+    footprint overlapping no other unit, and hash_now full is ALL BUCKETS EQUAL after the move.
   - supplyship (STR_SUPPLY_SHIP, no live 2x2 hostile):
     - `battle_teleport_all {faction:"hostile"}` moves every live hostile on BOTH machines, with IDENTICAL replies.
     - `battle_teleport_unit` (via `contact_free_ufo_door_setup`) moves one seat-1 soldier onto the standable tile next
@@ -34,12 +34,18 @@ import repro_atom_walk as W
 FACTION_PLAYER = 0
 FACTION_HOSTILE = 1
 
+# The terror leg's map seed, set on the host right before newbattle_ok. A floater terror deployment asks for 2-6
+# reapers, but the generator drops any alien it cannot put on a free spawn point, and the URBAN map roll decides how
+# many spawn points exist. A roll made mostly of road blocks has about 10; the floaters deploy first and fill them, and
+# no reaper is placed. Seed 1 rolls a map with 45 spawn points (13 that take a 2x2 unit) and places 4 reapers.
+TERROR_MAP_SEED = 1
+
 
 def battle_state(gc):
     return gc.cmd({"cmd": "battle_state"})
 
 
-def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat=None):
+def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat=None, pre_ok=None):
     host_dir = make_user_dir(f"teleport_{tag}_host")
     client_dir = make_user_dir(f"teleport_{tag}_client")
     host = GameClient(f"{tag}-host", host_test_port, host_dir)
@@ -47,7 +53,7 @@ def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat
     try:
         W.bring_up_lobby(host, client, game_port)
         seated = {}
-        session.drive_to_battlescape(host, client, seated, mission=mission, pre_seat=pre_seat)
+        session.drive_to_battlescape(host, client, seated, mission=mission, pre_seat=pre_seat, pre_ok=pre_ok)
     except BaseException:
         # run_fixture's try/finally starts only after this returns, so a failed bring-up shuts
         # down the games it spawned here before the error propagates (shared_fixture.bring_up's form)
@@ -57,9 +63,9 @@ def bring_up(tag, mission, game_port, host_test_port, client_test_port, pre_seat
 
 
 def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
-               pre_seat=None, expect_2x2=False):
+               pre_seat=None, pre_ok=None, expect_2x2=False):
     host, client, _seated = bring_up(tag, mission, game_port, host_test_port, client_test_port,
-                                     pre_seat=pre_seat)
+                                     pre_seat=pre_seat, pre_ok=pre_ok)
     try:
         # ---- t=0 baseline: BOTH machines start from an equal document ----
         assert_hash_clean(host, client, full=True, what=f"{tag} t=0")
@@ -72,7 +78,7 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
         has_2x2 = any(u.get("armorSize", 1) != 1 for u in hostile_units)
 
         if expect_2x2:
-            # a floater terror mission brings at least two live reapers,
+            # the pinned floater terror map places live reapers (TERROR_MAP_SEED),
             # so this leg proves the whole move of a 2x2 unit.
             assert has_2x2, (
                 f"FIXTURE: {tag}: expected a live 2x2 hostile (floater terror), "
@@ -176,6 +182,7 @@ def run_fixture(tag, mission, game_port, host_test_port, client_test_port,
 def main():
     run_fixture("terror", "STR_TERROR_MISSION", "47991", 48991, 48992,
                pre_seat=lambda h: h.ok({"cmd": "newbattle_race", "race": "STR_FLOATER"}),
+               pre_ok=lambda h: h.ok({"cmd": "set_seed", "seed": TERROR_MAP_SEED}),
                expect_2x2=True)
     run_fixture("supplyship", "STR_SUPPLY_SHIP", "47993", 48993, 48994)
     print("ALL TELEPORT COMMAND TESTS PASSED")
