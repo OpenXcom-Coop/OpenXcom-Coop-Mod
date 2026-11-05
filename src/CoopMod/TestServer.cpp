@@ -16007,9 +16007,10 @@ std::string TestServer::execute(const std::string& line)
 			else if (act == "kill_unit")
 			{
 				// Harness-only deterministic elimination for the PvP win/lose
-				// gate. Kills a single unit ("unit" id) or every living combatant
-				// on a coop side ("coop_side": 0=host-side, 1=client-side).
-				// Faction is NOT filtered: the per-machine PvP remap makes the
+				// gate. Kills a single unit ("unit" id), every living combatant
+				// on a coop side ("coop_side": 0=host-side, 1=client-side) or every
+				// living unit of a faction ("faction").
+				// A coop side is NOT filtered by faction: the per-machine PvP remap makes the
 				// enemy side FACTION_HOSTILE locally, so a coop-side wipe must key
 				// on getCoop() alone and skip only neutrals. Apply on the machine
 				// whose end-turn scan reads the result (the executor).
@@ -16021,7 +16022,8 @@ std::string TestServer::execute(const std::string& line)
 				{
 					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
 					bool match = (coopSide >= 0 && (int)u->getCoopSeat() == coopSide)
-						|| (killId >= 0 && u->getId() == killId);
+						|| (killId >= 0 && u->getId() == killId)
+						|| (killFaction >= 0 && (int)u->getFaction() == killFaction);
 					if (match)
 					{
 						u->instaKill();

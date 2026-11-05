@@ -26,10 +26,10 @@
     "test_separate_campaign_rosigma_client_research_menu": "40K + ROSIGMA mods",
     "test_separate_campaign_rosigma_craft_turret": "40K + ROSIGMA mods",
     "test_separate_campaign_rosigma_faction_finales": "40K + ROSIGMA mods",
-    "test_separate_campaign_rosigma_saved_finale_transition": "40K + ROSIGMA mods and a stage-2 save (ROSIGMA_FINALE_SAVE)",
+    "test_separate_campaign_rosigma_saved_finale_transition": "40K + ROSIGMA mods",
     "test_separate_campaign_rosigma_single_seat_craft": "40K + ROSIGMA mods",
     "test_separate_campaign_same_faction_research": "40K + ROSIGMA mods",
-    "test_separate_campaign_storage_owner_resume": "40K + ROSIGMA mods and a 40K campaign save",
+    "test_separate_campaign_storage_owner_resume": "40K + ROSIGMA mods",
     "test_separate_campaign_three_month_factions": "40K + ROSIGMA mods"
   }
 }
