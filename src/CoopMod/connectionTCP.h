@@ -517,9 +517,15 @@ class connectionTCP
 	Uint32 lastRandomClear = 0;
 	void generateCraftSoldiers();
 	bool _onTCP = false;
-	bool _stop = false;
-	bool _hostStop = false;
-	bool _clientStop = false;
+	// Stop requests for the worker threads; set on the main thread, read by the
+	// threads themselves.
+	std::atomic<bool> _stop{false};
+	std::atomic<bool> _hostStop{false};
+	std::atomic<bool> _clientStop{false};
+	// True from a worker thread's start until its thread function returns.
+	std::atomic<bool> _loopRunning{false};
+	std::atomic<bool> _hostRunning{false};
+	std::atomic<bool> _clientRunning{false};
 	void loopData();
 	void startTCPClient();
 	void startTCPHost();
@@ -590,6 +596,12 @@ class connectionTCP
 	long long getDateTimeCoop() const;
 	void clearAllReceivedTCPPackets();
 	void createLoopdataThread();
+	/// Ask the worker threads (data loop, TCP host, TCP client) to stop and join
+	/// them, waiting at most timeoutMs for each. A thread still running then is
+	/// detached. Returns the names of the threads left running ("" when none).
+	std::string stopWorkerThreads(unsigned timeoutMs);
+	/// The names of the worker threads running now ("" when none).
+	std::string runningWorkerThreads() const;
 	void updateCoopTask();
 	std::vector<std::string> splitVectorMod(std::string s, std::string delimiter);
 	bool hasRequiredMods(const std::string& mod_hash);

@@ -36729,11 +36729,70 @@ void connectionTCP::clearAllReceivedTCPPackets()
 
 }
 
+namespace
+{
+// Clears a worker thread's running flag when its thread function returns. The
+// flag is set before the thread starts, so a stop request that comes before
+// the thread runs still waits for it.
+struct WorkerRunningGuard
+{
+	std::atomic<bool>& running;
+	~WorkerRunningGuard() { running = false; }
+};
+}
+
 void connectionTCP::createLoopdataThread()
 {
 
-	_loopThread = std::thread(&connectionTCP::loopData, this);
+	_loopRunning = true;
+	_loopThread = std::thread([this] { WorkerRunningGuard guard{_loopRunning}; loopData(); });
 
+}
+
+std::string connectionTCP::stopWorkerThreads(unsigned timeoutMs)
+{
+	_stop = true;
+	_hostStop = true;
+	_clientStop = true;
+
+	std::string left;
+	auto finish = [&](std::thread& thread, const std::atomic<bool>& running, const char* name)
+	{
+		if (!thread.joinable())
+			return;
+		// Each loop checks its stop flag every pass, but the client's connect
+		// call blocks; a bounded wait keeps a quit from hanging on it.
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+		while (running && std::chrono::steady_clock::now() < deadline)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		if (running)
+		{
+			thread.detach();
+			left += left.empty() ? name : std::string(", ") + name;
+		}
+		else
+		{
+			thread.join();
+		}
+	};
+	finish(_loopThread, _loopRunning, "loopData");
+	finish(_hostThread, _hostRunning, "startTCPHost");
+	finish(_clientThread, _clientRunning, "startTCPClient");
+	return left;
+}
+
+std::string connectionTCP::runningWorkerThreads() const
+{
+	std::string running;
+	auto add = [&](const std::atomic<bool>& flag, const char* name)
+	{
+		if (flag)
+			running += running.empty() ? name : std::string(", ") + name;
+	};
+	add(_loopRunning, "loopData");
+	add(_hostRunning, "startTCPHost");
+	add(_clientRunning, "startTCPClient");
+	return running;
 }
 
 // true while this machine shows its co-op skirmish battle-end
@@ -46171,7 +46230,8 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 	session.beginHosting();
 
 	_hostStop = false;
-	 _hostThread = std::thread(&connectionTCP::startTCPHost, this);
+	_hostRunning = true;
+	_hostThread = std::thread([this] { WorkerRunningGuard guard{_hostRunning}; startTCPHost(); });
 
 }
 
@@ -46212,8 +46272,9 @@ void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port
 	session.beginJoining();
 
 	_clientStop = false;
+	_clientRunning = true;
 
-	_clientThread = std::thread(&connectionTCP::startTCPClient, this);
+	_clientThread = std::thread([this] { WorkerRunningGuard guard{_clientRunning}; startTCPClient(); });
 
 }
 
