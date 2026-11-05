@@ -73,9 +73,10 @@ void coopHotseatOnEndTurn(SavedBattleGame* s);
 /// gets its real factions and X-COM's explored map back before the debriefing reads them.
 void coopHotseatOnFinishBattle(SavedBattleGame* s);
 
-/// DebriefingState's constructor: hotseat is scoped to one skirmish (as in older versions' DebriefingState) -
-/// clear the state and disarm the toggle.
-void coopHotseatOnDebriefing();
+/// DebriefingState's constructor: clear the battle's hotseat state. A New Battle's hotseat is scoped to that one
+/// battle, so the toggle is disarmed; a campaign's (campaign = true) stays armed for its next battles until the
+/// player presses DISABLE HOTSEAT in the HOST window or returns to the main menu.
+void coopHotseatOnDebriefing(bool campaign);
 
 /// Map::hiddenMovementShown(): true = force the HIDDEN MOVEMENT screen. In a hotseat battle every
 /// non-player side (the end of player 2's turn, the civilians' turn) is hidden from both players.
