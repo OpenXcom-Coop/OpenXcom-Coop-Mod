@@ -16,7 +16,7 @@ host seat's first unit with items); the host's briefing OK (a bounded wait for i
   alien_takes_rifle        the host alien takes RIFLE into BACKPACK_CELL (host-local real UI): rifle_held_by_alien,
                            rifle_gone_from_xcom_screen
   alien_drops_pistol       the host alien's own PISTOL goes on the shared pile: pistol_on_pile, xcom_sees_pistol
-  xcom_takes_pistol        the X-COM player takes it onto C1_CELL (the client's real UI): pistol_take_order,
+  xcom_takes_pistol        the X-COM player takes it into C1_CELL, its left hand (the client's real UI): pistol_take_order,
                            pistol_held_by_xcom, pistol_gone_from_alien_screen
   turn_one_with_xcom_gear  turn 1 (the client's OK, the host's OK where its screen is up): turn_one_starts,
                            alien_keeps_rifle, item_census_unchanged
@@ -156,10 +156,12 @@ def row_xcom_takes_pistol(host, client, ctx, crash0):
     if AE.screen_on(client, C1) and P in AE.G(client) and xc is not None:
         p, d = {}, {}
         if AE.pick_ground(client, P, p) is not None:
-            AE.drop_at(client, BACK, xc[0], xc[1], d)
+            AE.drop_at(client, LH, xc[0], xc[1], d)
             ev["orderS"] = AE.settle(host, client)
             ev["landS"] = AE.wait_until(lambda: all(AE.owned(AE.IT(gc), P, C1) for gc in (host, client)), AE.LAND_S)[1]
         ev.update(pick=p, drop=d)
+    elif xc is None:
+        ev["step"] = f"no free left-hand cell on C1 {C1} for PISTOL {P}"
     else:
         ev["step"] = f"no PISTOL {P} on the client's ground (screen on {C1} {AE.screen_on(client, C1)})"
     gone = AE.screen_on(host, A) and P not in AE.G(host)

@@ -62,7 +62,10 @@ void enqueue(const Json::Value& evOrEnd);
 /// logs the gap and sets g_battleFrozen, then stops draining (the
 /// out-of-order entry is left queued, not discarded, in case a later
 /// desync report wants it). Never calls pushState/popState or any
-/// BState op - appliers set flags only.
+/// BState op - appliers set flags only. On a co-op client it also stops,
+/// leaving the in-order entry queued, while a shot ghost is still drawing
+/// its flight (CoopGhost::holdsApply()): the hit and everything behind it
+/// apply on a later pass, once the flight has been drawn whole.
 void drainApplyQueue();
 
 /// Highest seq successfully applied this battle (0 = none yet).

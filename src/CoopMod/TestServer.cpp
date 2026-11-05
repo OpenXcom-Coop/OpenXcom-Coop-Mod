@@ -4605,6 +4605,19 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			resp["ok"] = true;
 		}
 	}
+	else if (cmd == "geo_membership")
+	{
+		// Read-only: the UFO / mission id sets connectionTCP::geoMembershipChanged()
+		// recorded from the last geoscape position snapshot this machine built, and
+		// how many snapshots it flagged for the reliable resend.
+		Json::Value ufoIds(Json::arrayValue), missionIds(Json::arrayValue);
+		for (int id : coop->_lastGeoUfoIds) ufoIds.append(id);
+		for (int id : coop->_lastGeoMissionIds) missionIds.append(id);
+		resp["ufoIds"] = ufoIds;
+		resp["missionIds"] = missionIds;
+		resp["changes"] = Json::UInt(coop->_geoMembershipChanges);
+		resp["ok"] = true;
+	}
 	else if (cmd == "spawn_base_assault")
 	{
 		// Spawn a retaliation UFO that is ASSAULTING an X-Com base: its destination is the

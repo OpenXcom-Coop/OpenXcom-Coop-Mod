@@ -435,7 +435,10 @@ its own staged data (`tools/worktree_bootstrap.ps1`).
   `cancel_dialog`, `show_notice`, `get_notices`, `dismiss_notice`,
   `get_palettes`.
 - Geoscape: `geo_state`, `geo_set_speed`, `dismiss_popup`, `craft_dispatch`,
-  `confirm_landing`, `craft_order` (`target`/`return`/`patrol`), `intercept_list`.
+  `confirm_landing`, `craft_order` (`target`/`return`/`patrol`), `intercept_list`,
+  `geo_membership` (the UFO / mission id sets the last position snapshot this
+  machine built was compared by, and how many snapshots were flagged for the
+  reliable resend on a membership change).
 - Dogfights (shared JOINT): `dogfight_state` (per-open-fight introspection on each
   machine: `craftId/ufoId/currentDist/targetDist/mode/ufoIsAttacking/minimized/
   ended/isReplicaView/epoch/ufoStance/weaponEnabled[]/projectileCount`, plus the

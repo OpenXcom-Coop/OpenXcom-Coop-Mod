@@ -96,12 +96,14 @@ turn the cue started had drawn its whole turn by then); launch_legs' second
 leg: afterTurnSeq 0. Every projectile assertion of the row is unchanged.
 
 FLIGHT assertions (host_snap, host_turn_snap, throw_arc and every leg of
-launch_legs): each shot ghost draws its whole flight - it ends at its own end
-(record cut false) or after drawing its last position (lastIndex ==
-min(trajLen - 1, (ticks - 1) x speed)) - and, with every client advance() gap
-below one 16 ms tick (maxGapMs < TICK_MS), steps == ticks - 1 (every position
-after the first). host_snap, with no turn, is the control: a turn before the
-shot costs no flight positions.
+launch_legs): each shot ghost draws its whole flight and is never cut. The
+client's apply pump keeps the hit (and every envelope behind it, in order)
+queued until the flight has been drawn whole, so the ghost always ends on its
+own clock: record cut false, however late the shot reached the client. With
+every client advance() gap below one 16 ms tick (maxGapMs < TICK_MS) it also
+drew every position after the first (steps == ticks - 1) and ended on its last
+position (lastIndex == min(trajLen - 1, (ticks - 1) x speed)). host_snap, with
+no turn, is the control: a turn before the shot costs no flight positions.
 
 Common to every row (after session.wait_host_idle: the host has no context
 and no BState, the client applied up to the host's lastSeqEmitted):
@@ -120,8 +122,10 @@ equality with the flight formula computed here from the record's own trajLen
 and the expected dial.
 
 Probes (event_state): combatGhost {enqueued, completed,
-cut: {shot, hit, explosion}, joined, live, unresolved, noMap, ring} (both;
-written on the client), derivedPaths (client: {seq, arc,
+cut: {shot, hit, explosion}, joined, live, unresolved, noMap, applyHold
+{count, maxMs, seq}, ring} (both; written on the client; a shot record's
+heldSeq / holdMs name the envelope that waited for its flight and for how
+long), derivedPaths (client: {seq, arc,
 derivedLen, derivedEnd} per applied shot), rngSeed (both, read only),
 shotTrajectories (host: the last 16 shots' {seq, trajLen, speed, impact});
 the read-only test command display_rules {types} (items' display rules and the
@@ -148,10 +152,13 @@ ev in the action / no turnGhost record" and every other row PASSES; with the
 turn ev but without its display they pass every wire assertion and FAIL only on
 the display ones (endedBy, dirsShown, afterTurnSeq, poseShown); with the turn
 held before the same action's projectile but without the `turn_start` cue,
-host_turn_snap, throw_arc and launch_legs FAIL on the leading `turn_start` and
-on the FLIGHT assertions (the watching machine starts the turn only when the
-host's has ended, so the host's next ev cuts the held flight's tail); with the
-cue all nine PASS. Each row
+host_turn_snap, throw_arc and launch_legs FAIL on the leading `turn_start` (the
+held flight starts late but is no longer cut: the hit waits for it); with the
+cue all nine PASS. Without the apply hold (the next envelope applied as soon
+as it arrives, cutting the flight) host_snap FAILS on FLIGHT's cut false (its
+hit reaches the client a few ms before the ghost's own end), and host_turn_snap,
+throw_arc and launch_legs fail whenever their shot reaches the client a little
+late. Each row
 prints ONE "EVIDENCE <id>:" line (JSON) with both machines' fields BEFORE its
 pass conditions are checked; main() runs every row even after an earlier one
 failed and prints "PASS <id>" / "FAIL <id>: <message>". Every wait is
@@ -290,7 +297,8 @@ def rng_of(gc):
 def cg_counts(cg):
     """combatGhost without its ring."""
     cg = cg or {}
-    return {k: cg.get(k) for k in ("enqueued", "completed", "cut", "joined", "live", "unresolved", "noMap")}
+    return {k: cg.get(k) for k in ("enqueued", "completed", "cut", "joined", "live", "unresolved", "noMap",
+                                   "applyHold")}
 
 
 def kind_of(d, kind):
@@ -483,9 +491,10 @@ def record_fails(rec, seq, payload, speed, seat, arc=False):
 
 
 def flight_fails(rec, seq):
-    """FLIGHT: one shot ghost drew its whole flight - it ended at its own end (cut false) or after drawing its
-    last position (lastIndex == min(trajLen - 1, (ticks - 1) x speed)); and with every client advance() gap below
-    one tick (maxGapMs < TICK_MS) it drew every position after the first (steps == ticks - 1)."""
+    """FLIGHT: one shot ghost drew its whole flight and was never cut - it ended on its own clock (cut false: the
+    client's apply pump held the next envelope until then); and with every client advance() gap below one tick
+    (maxGapMs < TICK_MS) it drew every position after the first (steps == ticks - 1) and ended on its last
+    position (lastIndex == min(trajLen - 1, (ticks - 1) x speed))."""
     rs = rec["ring"].get(seq) or []
     if len(rs) != 1:
         return []  # record_fails reports it
@@ -495,14 +504,16 @@ def flight_fails(rec, seq):
         return [f"shot seq {seq}: flight record ticks {ticks} speed {speed} trajLen {n} (want positive ints)"]
     last = min(n - 1, (ticks - 1) * speed)
     fails = []
-    if r.get("cut") is not False and r.get("lastIndex") != last:
-        fails.append(f"shot seq {seq}: the flight ended at position {r.get('lastIndex')} of {last} (cut "
-                     f"{r.get('cut')}, steps {r.get('steps')} of {ticks - 1}, waitMs {r.get('waitMs')}; want the "
-                     f"whole flight drawn)")
+    if r.get("cut") is not False:
+        fails.append(f"shot seq {seq}: the flight was cut at position {r.get('lastIndex')} of {last} (cut "
+                     f"{r.get('cut')}, steps {r.get('steps')} of {ticks - 1}, waitMs {r.get('waitMs')}, heldSeq "
+                     f"{r.get('heldSeq')} holdMs {r.get('holdMs')}; want cut false: the next envelope waits for "
+                     f"the whole flight)")
     gap = r.get("maxGapMs")
-    if isinstance(gap, int) and gap < TICK_MS and r.get("steps") != ticks - 1:
-        fails.append(f"shot seq {seq}: record steps {r.get('steps')} (want {ticks - 1}: every position after the "
-                     f"first, maxGapMs {gap} < {TICK_MS})")
+    if isinstance(gap, int) and gap < TICK_MS and (r.get("steps") != ticks - 1 or r.get("lastIndex") != last):
+        fails.append(f"shot seq {seq}: record steps {r.get('steps')} lastIndex {r.get('lastIndex')} (want "
+                     f"{ticks - 1} steps ending on {last}: every position after the first, maxGapMs {gap} < "
+                     f"{TICK_MS})")
     return fails
 
 
@@ -551,7 +562,8 @@ def turn_view(host, rec, seat):
             "cueH": cue_h, "cueDelta": delta_attached(host, cue_seq) if cue_seq else None,
             "turnCounts": {n: (rec["after"][n]["turnGhost"] or {}).get("counts") for n in ("host", "client")},
             "shotRecords": [{k: (r or {}).get(k) for k in ("seq", "afterTurnSeq", "waitMs", "maxGapMs", "startStamp",
-                                                           "ms", "ticks", "steps", "lastIndex", "cut")}
+                                                           "ms", "ticks", "steps", "lastIndex", "cut", "heldSeq",
+                                                           "holdMs")}
                             for r in shot_recs],
             "pace": pace}
 

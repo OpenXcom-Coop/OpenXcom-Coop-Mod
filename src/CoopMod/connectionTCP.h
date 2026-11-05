@@ -698,9 +698,15 @@ class connectionTCP
 	// conflation slot silently drops transient spawns/despawns, so the caller also
 	// sends the snapshot on the reliable FIFO lane whenever this returns true. The
 	// set rarely changes, so the extra reliable sends do not reintroduce the flood.
+	// The ids are the ones the snapshot's receiver keys on: coop mirror ids in the
+	// legacy mirror snapshot, real ids (UFO unique id, mission site id) in the
+	// Shared/Separate one.
 	bool geoMembershipChanged(const Json::Value& root);
 	std::set<int> _lastGeoUfoIds;
 	std::set<int> _lastGeoMissionIds;
+	// How many snapshots geoMembershipChanged() flagged for the reliable resend
+	// (read by the test server).
+	unsigned _geoMembershipChanges = 0;
 	// Playtest: craft ids whose SHARED landing decision has been resolved (any seat
 	// answered). Every seat is prompted; the losers' broker ConfirmLandingState polls
 	// this in think() and closes itself. Marked by the host resolver / a land_close

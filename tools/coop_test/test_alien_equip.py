@@ -7,8 +7,11 @@ stays in their hands, and after the equip screen every drop lands on the droppin
 Rules the steps follow: every drop on the pile goes to the first free ground cell in column-major order where the
 item fits, across the WHOLE ground grid, the screen scrolled to that cell's page first. PISTOL = the first A_START item
 (right hand, left hand, then the rest by id) whose type is not on the pile. RIFLE = the pile's STR_RIFLE; with none on
-the pile, the pile item with the lowest ground column that fits BACKPACK_CELL. No item id is pinned: every id is read
-at run time.
+the pile, the pile item with the lowest ground column that fits BACKPACK_CELL. The X-COM unit takes PISTOL into its
+LEFT HAND (H1_CELL here, C1_CELL in gm3): New Battle hands the craft's items out in an order that changes between runs
+(it follows the RuleItem objects' memory addresses, which set_seed does not pin), so a soldier's backpack can hold
+anything, while in this ruleset no soldier starts with anything in the left hand. No item id is pinned: every id is
+read at run time.
 
 Boot client_aliens (key 49065): set_seed 1, the client joins and takes the Alien team (gamemode 2),
 repro_pvp_side_relative's gm2 drive without its last line; both briefings; the initial reads on each machine (A = the
@@ -20,7 +23,7 @@ opens on (PILE, PILE_IDS = G(host)); dismiss_client_briefing (a bounded wait for
                            rifle_take_order, rifle_held_by_alien, rifle_gone_from_xcom_screen
   alien_drops_pistol       the alien's own PISTOL goes on the shared pile: pistol_drop_order, pistol_on_pile,
                            xcom_sees_pistol
-  xcom_takes_pistol        the X-COM player takes it onto H1_CELL (host-local real UI): pistol_held_by_xcom,
+  xcom_takes_pistol        the X-COM player takes it into H1_CELL, its left hand (host-local real UI): pistol_held_by_xcom,
                            pistol_gone_from_alien_screen
   xcom_returns_pistol      the X-COM player drops it back on the pile: pistol_back_on_pile, alien_sees_pistol_back
   alien_returns_rifle      the alien puts RIFLE back: rifle_back_on_pile, xcom_sees_rifle
@@ -174,6 +177,7 @@ def sizes():
 
 SZ = sizes()
 SLOTS = {}
+SLOT_TYPES = {}  # inventory_view's slot type per slot id: "slot", "hand" or "ground"
 PAGE = {}   # {machine name: the ground page its open pre-battle screen shows}; goto_page keeps it
 
 
@@ -183,9 +187,15 @@ def foot(t, x, y):
 
 
 def free_cell(gc, its, uid, itype, slot=BACK):
-    """The first free `slot` cell, row-major, of `uid` where `itype` fits (cells minus the unit's items)."""
+    """The first free `slot` cell, row-major, of `uid` where `itype` fits (cells minus the unit's items). A hand holds
+    one item of any size at (0, 0), so a hand gives (0, 0) when the unit holds nothing in it, else None."""
     if not SLOTS:
-        SLOTS.update({k: {tuple(c) for c in v["cells"]} for k, v in (gc.cmd({"cmd": "inventory_view"}).get("slots") or {}).items()})
+        view = gc.cmd({"cmd": "inventory_view"}).get("slots") or {}
+        SLOTS.update({k: {tuple(c) for c in v["cells"]} for k, v in view.items()})
+        SLOT_TYPES.update({k: v.get("type") for k, v in view.items()})
+    if SLOT_TYPES.get(slot) == "hand":
+        held = any(it.get("owner") == uid and it.get("slot") == slot for it in its.values())
+        return None if held else (0, 0)
     cells, occ = SLOTS.get(slot) or set(), set()
     for it in its.values():
         if it.get("owner") == uid and it.get("slot") == slot and it.get("slotX") is not None:
@@ -339,7 +349,8 @@ def initial_reads(gc, seat):
 
 
 def reads(ctx, host, xgc):
-    """PISTOL, RIFLE (rifle_choice), BACKPACK_CELL, the X-COM unit's cell for PISTOL (H1_CELL here, C1_CELL in gm3)."""
+    """PISTOL, RIFLE (rifle_choice), BACKPACK_CELL, the X-COM unit's left-hand cell for PISTOL (H1_CELL here, C1_CELL in
+    gm3). The left hand, not the backpack: the X-COM loadout varies between runs and can leave no backpack room."""
     ih, A = IT(host), ctx["A"]
     ast = ctx["initial"]["host"]["A_START"]
     ptypes = {(ih.get(i) or {}).get("type") for i in ctx["PILE_IDS"]}
@@ -349,7 +360,7 @@ def reads(ctx, host, xgc):
     ctx["RIFLE_CELL"] = free_cell(xgc, ih, A, "STR_RIFLE")
     ctx["RIFLE"] = rifle_choice(xgc, ih, A, ctx["RIFLE_CELL"])
     ctx["BACKPACK_CELL"] = free_cell(xgc, ih, A, (ih.get(ctx["RIFLE"]) or {}).get("type"))
-    ctx["X_CELL"] = free_cell(xgc, ih, ctx["X"], (ih.get(ctx["PISTOL"]) or {}).get("type"))
+    ctx["X_CELL"] = free_cell(xgc, ih, ctx["X"], (ih.get(ctx["PISTOL"]) or {}).get("type"), slot=LH)
     ctx["types"] = {k: (ih.get(ctx[k]) or {}).get("type") for k in ("PISTOL", "RIFLE")}
 
 
@@ -601,10 +612,12 @@ def row_xcom_takes_pistol(host, client, ctx, crash0):
         p, d = {}, {}
         got = pick_ground(host, P, p)
         if got is not None:
-            drop_at(host, BACK, xc[0], xc[1], d)
+            drop_at(host, LH, xc[0], xc[1], d)
             ev["drainS"] = drained(host, client)
             ev["landS"] = wait_until(lambda: all(owned(IT(gc), P, H1) for gc in m), LAND_S)[1]
         ev.update(pick=p, drop=d)
+    elif xc is None:
+        ev["step"] = f"no free left-hand cell on H1 {H1} for PISTOL {P} (host {[PEQ.item_view(IT(host), i) for i, it in IT(host).items() if it.get('owner') == H1]})"
     else:
         ev["step"] = f"no PISTOL {P} on the host's ground (screen on {H1} {screen_on(host, H1)})"
     gone = screen_on(client, A) and P not in G(client)
@@ -617,9 +630,9 @@ def row_xcom_takes_pistol(host, client, ctx, crash0):
 def row_xcom_returns_pistol(host, client, ctx, crash0):
     A, P, H1, xc = ctx["A"], ctx["PISTOL"], ctx["X"], ctx["X_CELL"]
     ev = {"PISTOL": P}
-    if screen_on(host, H1) and owned(IT(host), P, H1, BACK) and xc is not None:
+    if screen_on(host, H1) and owned(IT(host), P, H1, LH) and xc is not None:
         p, d = {}, {}
-        if pick_at(host, BACK, xc[0], xc[1], P, p):
+        if pick_at(host, LH, xc[0], xc[1], P, p):
             drop_ground(host, IT(host), d)
             ev["drainS"] = drained(host, client)
             ev["landS"] = wait_until(lambda: at_both(host, client, P, ctx["PILE"]), LAND_S)[1]
