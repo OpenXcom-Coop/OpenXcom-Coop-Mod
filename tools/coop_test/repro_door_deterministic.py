@@ -60,6 +60,11 @@ import repro_atom_walk as W
 MISSION = "STR_TERROR_MISSION"
 RACE = "STR_FLOATER"
 CRAFT = "STR_LIGHTNING"
+# The battle comes from a pinned seed, so the map, its doors and where the aliens
+# deploy are the same on every boot. Unpinned, some rolls had no door the
+# walk-through phase could use (none far enough from every hostile).
+SEED_MAP = 1                     # set_seed on the host right before newbattle_ok (run_fixture's boot)
+MAP_FP = -9.115813404615179e+18  # host AND client battle_state.mapFingerprint on SEED_MAP
 # CLIENT LEG needs enough TU to walk the approach step AND pay the door: 60 is ample.
 CLIENT_LEG_TU = 60
 # HOST LEG MUST be pinned LOW or the control proves nothing. Tile::openDoor computes
@@ -88,8 +93,10 @@ def _pin(h):
     h.ok({"cmd": "newbattle_race", "race": RACE})
 
 
-def bring_up():
-    """One boot, no retry; the port and user-dir offsets are fixed."""
+def bring_up(seed=None):
+    """One boot, no retry; the port and user-dir offsets are fixed. `seed`, when
+    given, is sent with set_seed right before newbattle_ok, so the battle is the
+    one that seed rolls."""
     port = str(BASE_GAME_PORT + 1)
     host = GameClient("det-host", BASE_TEST_PORT + 2,
                       make_user_dir("door_det_host_1"))
@@ -98,7 +105,9 @@ def bring_up():
     try:
         W.bring_up_lobby(host, client, port)
         seated = {}
-        session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin)
+        pre_ok = None if seed is None else (lambda h: h.ok({"cmd": "set_seed", "seed": seed}))
+        session.drive_to_battlescape(host, client, seated, mission=MISSION, pre_seat=_pin,
+                                     pre_ok=pre_ok)
         # The boundary-close phase presses a REAL end-of-turn, which needs the
         # alien side inert so the boundary crosses deterministically (the
         # AI-neutral pin the other boundary-crossing tests use too).
@@ -1128,12 +1137,21 @@ def run_scenario(host, client, tag):
     phase_client_refused(host, client, f"{tag} client-refusal phase", census_after_close)
 
 
+def assert_map(host, client):
+    """Both machines hold the map SEED_MAP rolls (MAP_FP)."""
+    fps = {gc.name: session.battle_state(gc).get("mapFingerprint") for gc in (host, client)}
+    assert all(fp == MAP_FP for fp in fps.values()), (
+        f"mapFingerprint {fps}, baked MAP_FP={MAP_FP!r} (SEED_MAP {SEED_MAP}): the seed "
+        f"no longer rolls the map this test was checked on")
+
+
 def run_fixture(tag):
-    """One boot, no retry - a `FIXTURE:` staging failure
+    """One boot on SEED_MAP, no retry - a `FIXTURE:` staging failure
     propagates straight to `__main__`'s is_fixture_error mapping (exit 2)
     instead of being caught and retried here."""
-    host, client = bring_up()
+    host, client = bring_up(seed=SEED_MAP)
     try:
+        assert_map(host, client)
         run_scenario(host, client, tag)
         print(f"[{tag}] PASSED")
     finally:
