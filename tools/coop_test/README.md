@@ -294,6 +294,7 @@ finally:
 | `test_shared_world_equal.py` | the equality helper itself, **including a negative control** |
 | `test_shared_disconnect.py` | client killed with a command in flight -> no half-apply; rejoin restores one world |
 | `test_shared_month_run.py` | the long run: 2 month ends + a battle in one campaign |
+| `test_shared_production_unit_sync.py` | a finished unit of a running 40x batch reaches the client's stores in the hour the host makes it, on an ordinary hour and in the month-roll hour, with no repair resync |
 | `test_separate_campaign_core.py` | focused schema-3 Separate core: named unified world, full single-player Monthly Report income, and the global eight-base cap |
 | `test_separate_campaign_ui.py` | focused Separate UI: foreign-base permissions, purple mini-base border, direct globe navigation, and BASES selecting an own base |
 | `test_separate_campaign_soldiers.py` | focused Separate personnel: foreign-base arrival cleanup, owner-prefixed popup, and private Soldier List views |

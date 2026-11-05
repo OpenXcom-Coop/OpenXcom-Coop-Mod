@@ -395,6 +395,7 @@
   "test_shared_newbase": 5.8,
   "test_shared_page3": 62.8,
   "test_shared_production_sell": 9.2,
+  "test_shared_production_unit_sync": 36.0,
   "test_shared_purchase": 7.2,
   "test_shared_recruit_stores_full": 5.7,
   "test_shared_refresh": 6.8,
