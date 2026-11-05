@@ -2775,16 +2775,20 @@ void GeoscapeState::timeAdvance()
 		// Combined with the host's own implicit pause (its GeoscapeState stops
 		// thinking inside a sub-state), this double-gates time: it advances only when
 		// BOTH players are on the geoscape, and resumes only once both return.
-		// Separate only: in SHARED and PvP the host freezes on
-		// a stale client heartbeat, or on the client's popup hold. A SHARED client's open dogfight window
-		// reports focus 0 while it stays on the geoscape, and time keeps
-		// running through it.
+		// Separate: the host freezes on the client's focus screen, a stale client heartbeat, or the client's
+		// popup hold. In SHARED and PvP the host freezes on a stale client heartbeat, or on the client's popup
+		// hold. A SHARED client's open dogfight window reports focus 0 while it stays on the geoscape, and time
+		// keeps running through it.
 		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
 		const bool peerStale =
 			SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace;
 		if (_game->getCoopMod()->isSeparateCampaign())
 		{
-			if (_game->getCoopMod()->peerFocusScreen >= 0 || peerStale)
+			// The client's popup push reports focus 0 on the reliable queue, while its last heartbeat (focus -1,
+			// hold set) rides the snapshot slot; the send thread can deliver them in either order. The hold flag
+			// is set in both orders, so it keeps the clock stopped while the client's popup is open.
+			if (_game->getCoopMod()->peerFocusScreen >= 0 || peerStale
+				|| (_game->getCoopMod()->getServerOwner() && _game->getCoopMod()->peerGeoHold.load()))
 				timeSpan = 0;
 		}
 		else if (_game->getCoopMod()->getServerOwner()
