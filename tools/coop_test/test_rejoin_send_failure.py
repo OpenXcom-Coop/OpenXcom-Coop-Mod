@@ -18,7 +18,8 @@ stack judged); W_ACK 30 s (max(30 s, 3 x t_world, measured at 2.57 s)); SPLIT = 
 not isOut; HASH = wait_host_idle + assert_hash_clean(full) + desyncSeen false on both; REJOIN = a fresh client2 on its
 own dir (campaign: join_tcp from the main menu; skirmish: rejoin_skirmish; an exception is a value), wait <= W_ACK for
 the host's resumeAck true AND peerAbsent false (profile_ok on a top host Profile, client2's only once its load wait 52
-is gone), press_back_when_shown(host, codes=(62,)), both tops BattlescapeState <= 60 s.
+is gone; sent with top: true, so a Profile covered in the meantime is refused), press_back_when_shown(host, codes=(62,)),
+both tops BattlescapeState <= 60 s.
 battle_state is probed only with a BattlescapeState on the stack or no battle in the world; the dropped client is
 probed with get_state / coop_dialog_info only until it is at the main menu. Needles = host log since the row's
 baseline (client2: its own log). A WAIT that times out ends the row (later cells "not reached"), except REJOIN's
@@ -244,9 +245,10 @@ def rejoin(x, key, skirmish, ev):
         ev["join_tcp"] = q(c2, {"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": "ClientPlayer"})
 
     def acked():
-        for gc in (h, c2):  # client2's Profile only once its load wait 52 is gone
+        for gc in (h, c2):  # client2's Profile only once its load wait 52 is gone; top: true - a press while client2's world
+            # loads would pop the LoadGameState pushed over its Profile (it waits 10 frames before loading)
             if top(gc) == PROFILE and (gc is h or dlg(c2).get("code") != 52):
-                ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok"}).get("ok")])
+                ev.setdefault("profile_ok", []).append([gc.name, round(time.time() - t0, 2), q(gc, {"cmd": "profile_ok", "top": True}).get("ok")])
         return coop(h).get("resumeAck") is True and auth(h).get("peerAbsent") is False
     try:
         ev["ack s"] = wait("host resumeAck true and peerAbsent false", acked, W_ACK)
@@ -262,7 +264,7 @@ def resume(x, ev):
 
     def shown():
         if top(h) == PROFILE:
-            ev.setdefault("profile_ok", []).append([h.name, "resume", q(h, {"cmd": "profile_ok"}).get("ok")])
+            ev.setdefault("profile_ok", []).append([h.name, "resume", q(h, {"cmd": "profile_ok", "top": True}).get("ok")])
         d = dlg(h)
         if top(h) == CS and d.get("code") == 62 and d.get("backVisible") is True:
             ev["RESUME dialog"] = d
