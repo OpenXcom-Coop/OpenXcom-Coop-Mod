@@ -7,7 +7,10 @@ both keep it and no "Order cancelled" line shows. A soldier item the partner lif
 is held.
 The boot (SHARED, key 49416, dirs base_partner_held_host / _client): shared_fixture.bring_up + test_shared_base_equip's
 setup (H, C, SKY, HostBase; its helpers and test_base_partner_pointer's are imported, never edited). Spine: stage_item the
-host stages H (inventory_move {H, ITEM_H, left}, real OK; the client's record of H carries it within W); open_screens both
+host stages H (inventory_move {H, ITEM_H, left}, real OK; the client's record of H carries it within W); clear_belt the
+client empties C's belt (inventory_move {C, type, ground, from: unit} until no belt item is left, real OK; both records of
+C hold no belt item within W), so BELT does not depend on C's starting gear (New Battle hands out the craft's items in an
+order the seed does not pin; a full belt left no cell); open_screens both
 open HostBase's Soldiers inventory, the client NEXTs to C; move_pointers move(client, PT1), move(host, PT2)
 (test_base_partner_pointer's recipe: each snapshot `on`). Preconditions: PILE_TYPE's cell >= 2 entries and LAST_TYPE
 exactly 1 entry on both screens (preferred values with their replacement rules, logged); each cursor_pos inside its
@@ -70,7 +73,7 @@ GROUND, BELT_SLOT, LEFT = "STR_GROUND", "STR_BELT", "STR_LEFT_HAND"
 PILE_PIN, LAST_PIN, ITEM_H, BELT_PIN = "STR_PISTOL_CLIP", "STR_GRENADE", "STR_PISTOL", (0, 0)
 TEXT_ITEM_MISSING = "Order cancelled - item unavailable"  # STR_COOP_DENY_ITEM_MISSING (the pre-battle equip refusal)
 HALF = (16, 24)                    # the held item's top-left = the pointer - (HAND_W * SLOT_W / 2, HAND_H * SLOT_H / 2)
-W_PTR, W, CYCLE_CAP, CLICK_W = 2.0, 10.0, 16, 2.0
+W_PTR, W, CYCLE_CAP, CLICK_W, CLEAR_CAP = 2.0, 10.0, 16, 2.0, 16
 POLL, PAGE = 0.05, 1000000         # a parked ground item sits at x PAGE
 CELLS = {
     "partner_lift": ["pile_count_drops", "host_draws_held_item", "host_picks_other_copy"],
@@ -281,6 +284,31 @@ def pick_belt(x):
     return {"cells": cells, "items": held, "used": sorted(used), "BELT": [list(BELT_PIN), x.belt]}
 
 
+def clear_belt(x, sh):
+    """The client moves every item off C's belt to the ground on its base screen and presses OK. from: unit takes the
+    first item of that type C carries, which can sit in another slot, so it repeats until the belt is empty (at most
+    CLEAR_CAP moves, each recorded)."""
+    c = x.client
+    belt = lambda: sorted((ty, sx, sy) for (ty, ow, sl, sx, sy) in types(c).values()  # noqa: E731
+                          if ow == x.ids["C"] and sl == BELT_SLOT)
+    rec = {"open": open_soldier_screen(sh, c), "moves": []}
+    rec["before"] = belt()
+    for _ in range(CLEAR_CAP):
+        left = belt()
+        if not left:
+            break
+        r = q(c, {"cmd": "inventory_move", "name": x.C, "item": left[0][0], "slot": "ground", "from": "unit"})
+        rec["moves"].append([left[0][0], r.get("landedSlot"), r.get("error")])
+    rec["after"] = belt()
+    rec["ok"] = click(c, widget="ok")
+    sbe.wait_until(lambda: INV not in stack(c), 10.0, POLL)
+    rec["soldiers_ok"] = q(c, {"cmd": "soldiers_ok"}).get("ok")
+    sbe.wait_until(lambda: bpp.top(c) == GEO, 10.0, POLL)
+    empty = lambda gc: not any(i.get("slot") == BELT_SLOT for i in (sbe.layouts(gc).get(x.C) or {}).get("layout") or [])  # noqa: E731
+    rec["records empty"], rec["within"] = sbe.converge(lambda: empty(x.host) and empty(c))
+    return rec
+
+
 def spine(x):
     h, c = x.host, x.client
     sbe.setup(x)
@@ -294,6 +322,7 @@ def spine(x):
     hand = lambda gc: any(i.get("type") == ITEM_H and i.get("slot") == LEFT  # noqa: E731
                           for i in (sbe.layouts(gc).get(x.H) or {}).get("layout") or [])
     sp["stage_item client record"], sp["stage_item within"] = sbe.converge(lambda: hand(c))
+    sp["clear_belt"] = clear_belt(x, sh)
     sp["open_screens open"] = {gc.name: open_soldier_screen(sh, gc) for gc in (h, c)}
     sp["open_screens nav"] = []
     sp["open_screens client on C"] = goto(c, x.ids["C"], sp["open_screens nav"])
@@ -311,7 +340,8 @@ def spine(x):
                "steps": sp, "open fails": sh.fails}
     xy = lambda n, k: sp["cursor"][n].get(k) if isinstance(sp["cursor"][n].get(k), int) else -1  # noqa: E731
     inside = all(0 <= xy(n, "x") < 320 and 0 <= xy(n, "y") < 200 for n in ("host", "client"))  # the Inventory surface (rect)
-    if not (sp["stage_item move"].get("landedSlot") == LEFT and sp["stage_item client record"] and all(sp["open_screens open"].values())
+    if not (sp["stage_item move"].get("landedSlot") == LEFT and sp["stage_item client record"] and not sp["clear_belt"]["after"]
+            and sp["clear_belt"]["records empty"] and all(sp["open_screens open"].values())
             and sp["open_screens client on C"] and all(sp["move_pointers moves"][:2]) and inside and x.pile and x.last and x.belt
             and None not in x.pile_cell.values() and None not in x.last_cell.values() and None not in x.item_h.values()
             and not sp["host record of C belt"] and all(bpp.top(gc) == INV for gc in (h, c))):
