@@ -176,22 +176,35 @@ def win_stages(host, client, expected_completed):
     return mission_types
 
 def return_to_geoscape(host, client):
+    # The Geoscape stays under a finished battle, so a machine has left the
+    # battle only once no battle screen is on its stack.
     for _ in range(40):
-        if all(session.has_state(gc, "GeoscapeState") and not has(gc, "DebriefingState")
-               and not has(gc, "InfoboxState") for gc in (host, client)): return
+        if all(session.has_state(gc, "GeoscapeState") and not has(gc, "BattlescapeState")
+               and not has(gc, "DebriefingState") and not has(gc, "InfoboxState")
+               for gc in (host, client)): return
         for gc in (host, client):
             if has(gc, "InfoboxState") or has(gc, "DebriefingState"):
                 gc.cmd({"cmd": "dismiss_popup"})
         time.sleep(.5)
-    raise AssertionError((states(host), states(client)))
+    raise AssertionError({gc.name: {
+        "states": states(gc),
+        "battleEnd": gc.cmd({"cmd": "event_state"}).get("battleEnd")}
+        for gc in (host, client)})
 
 def continue_after_partial_finale(host, client, expected_owner):
     return_to_geoscape(host, client)
     for gc in (host, client):
-        gc.wait_for("faction finale vote", lambda gc=gc: (lambda vote:
-            vote if vote.get("active") and vote.get("action", "").startswith(
-                "continue_faction_campaign|") else None)(
-                    gc.ok({"cmd": "vote_state"})), timeout=30, interval=.25)
+        try:
+            gc.wait_for("faction finale vote", lambda gc=gc: (lambda vote:
+                vote if vote.get("active") and vote.get("action", "").startswith(
+                    "continue_faction_campaign|") else None)(
+                        gc.ok({"cmd": "vote_state"})), timeout=30, interval=.25)
+        except TimeoutError as error:
+            raise AssertionError({peer.name: {
+                "vote": peer.cmd({"cmd": "vote_state"}),
+                "factionFinale": peer.cmd({"cmd": "get_coop"}).get("factionFinale"),
+                "profile": peer.cmd({"cmd": "separate_profile_state"}),
+                "states": states(peer)} for peer in (host, client)}) from error
     host_vote = host.ok({"cmd": "vote_state"})
     assert host_vote["action"] == "continue_faction_campaign|" + expected_owner, host_vote
     vote_id = host_vote["id"]

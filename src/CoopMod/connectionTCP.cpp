@@ -19500,8 +19500,13 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	const std::string cutscene = !ruleDeploy ? std::string() : abort ? ruleDeploy->getAbortCutscene()
 		: (inExitArea == 0 ? ruleDeploy->getLoseCutscene() : ruleDeploy->getWinCutscene());
 	const RuleVideo* video = cutscene.empty() ? nullptr : game->getMod()->getVideo(cutscene);
+	// A Separate faction finale won while other factions still play shows a
+	// debriefing instead of the ending (finishBattle's partial faction victory).
+	const bool gameOver = video && (video->getWinGame() || video->getLoseGame())
+		&& SeparateEcon::factionFinalOutcomeEndsCampaign(game, save->getBattleOwnerPlayerName(),
+			video->getWinGame());
 	coopHostSendBattleEnd(coopBuildActionEndHash(save), reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t,
-		video && (video->getWinGame() || video->getLoseGame()));
+		gameOver);
 }
 
 // ===== An all-aliens-dead start ends the
@@ -37976,6 +37981,10 @@ void connectionTCP::updateCoopTask()
 			if (coopAdoptWorldInPlace(heldKey))
 			{
 				g_coopPostBattleWorldAdopted = true;
+				// The adopted world is the host's post-battle world, which holds any
+				// faction finale the battle queued, as campaign_begun's world does.
+				if (!_pendingFactionFinaleOwner.empty())
+					_factionFinaleReplicaSynced = true;
 				coopDebriefPage3Live(deb); // page 3 live at EVERY adoption
 				CoopDelta::battleEndRecordSet("heldAppliesAtAdopt", heldApplies);
 				CoopDelta::battleEndRecordSet("worldAdopted", CoopDelta::battleEndRecord()["worldAdopted"].asInt() + 1);

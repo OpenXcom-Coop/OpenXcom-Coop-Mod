@@ -2086,6 +2086,28 @@ bool resolveFactionFinalOutcome(Game* game, const std::string& ownerPlayerName,
 	return allCompleted;
 }
 
+bool factionFinalOutcomeEndsCampaign(Game* game, const std::string& ownerPlayerName,
+	bool victory)
+{
+	if (!game || !game->getSavedGame() || !game->getCoopMod()
+		|| !game->getCoopMod()->isSeparateCampaign() || ownerPlayerName.empty())
+		return true;
+	const CampaignData& campaign = game->getSavedGame()->getSeparateCampaign();
+	if (!campaign.haveDifferentFactions() || !victory) return true;
+	// allPlayerFactionsCompleted() with the owner's faction counted as done.
+	const std::string ownerFaction = campaign.getPlayerFaction(ownerPlayerName);
+	bool anyFaction = false;
+	for (const std::string& name : game->getSavedGame()->getCoopPlayers())
+	{
+		const std::string faction = campaign.getPlayerFaction(name);
+		if (faction.empty()) continue;
+		anyFaction = true;
+		if (faction != ownerFaction && !campaign.isFactionCompleted(faction))
+			return false;
+	}
+	return anyFaction;
+}
+
 std::string factionDisplayName(Game* game, const std::string& playerName)
 {
 	if (!game || !game->getSavedGame()) return playerName;
