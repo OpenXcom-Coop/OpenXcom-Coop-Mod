@@ -113,6 +113,7 @@
   "test_crash_produces_dump": 1.0,
   "test_crash_reporter": 11.5,
   "test_crashlog_modlist": 0.8,
+  "test_custom_initial_base": 28.0,
   "test_cutscene_endings": 57.7,
   "test_cydonia_coop_start": 19.6,
   "test_cydonia_ending": 140.4,
