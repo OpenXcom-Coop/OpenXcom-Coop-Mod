@@ -436,6 +436,7 @@
   "test_soldier_allocations": 74.3,
   "test_soldier_effects": 75.0,
   "test_soldier_removal_log": 15.7,
+  "test_soldier_rename_after_hire": 32.0,
   "test_soldier_training": 19.4,
   "test_soldier_transformation": 64.5,
   "test_solo_ironman_pause": 33.5,
