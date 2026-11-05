@@ -87,6 +87,13 @@ class HostMenu : public State
 	// "parallel" and "traditional"; the label reflects it; visible only while the
 	// rest of the hosting controls are.
 	TextButton *_btnTurnMode;
+	// coop: hotseat (two players on this machine: X-COM, then the aliens) for a
+	// single-player campaign's battles. The connection-type combo offers HOTSEAT
+	// MODE only over such a campaign's geoscape (New Battle has its own toggle);
+	// _hotseatOption is its index, -1 when it is not offered.
+	TextButton *_btnStartHotseat, *_btnReactionFire;
+	Text *_hotseatTooltip;
+	int _hotseatOption = -1;
 	TextList *_lstSaves;
 	TextEdit *_serverName, *_port, *_password;
 	ComboBox *_cbxVisibility, *_cbxMaxPlayers, *_cbxRegions;
@@ -122,6 +129,11 @@ class HostMenu : public State
 	void testHostWithFields(int comboIndex, const std::string& server,
 							const std::string& port, const std::string& password);
 	bool hostControlsVisible() const;
+	/// Test hooks: the connection-type combo's options and selection, and picking
+	/// an option by its label through the combo's own change handler.
+	const std::vector<std::string>& harnessVisibilityOptions() const { return _visibilityTypes; }
+	size_t harnessVisibilitySelected() const;
+	bool harnessSelectVisibility(const std::string& label);
 	/// coop: flips the HOST's remembered turn mode.
 	/// The choice is per-MACHINE and per-SESSION - it is stamped onto every
 	/// battle_offer this host sends and the client MIRRORS it, so only
@@ -131,6 +143,15 @@ class HostMenu : public State
 	/// Options::CoopTurnMode and its visibility in sync with the rest of the
 	/// hosting controls (hidden once a session is live).
 	void updateTurnModeButton();
+	/// coop: true over a single-player campaign's geoscape (no battle, no co-op
+	/// save, no session) - the only place the HOTSEAT MODE option is offered.
+	bool hotseatOffered() const;
+	/// coop: shows the hotseat controls for the current pick and arm state.
+	void updateHotseatControls();
+	/// coop: ENABLE HOTSEAT / DISABLE HOTSEAT.
+	void startHotseat(Action* action);
+	/// coop: ENABLE REACTION FIRE / DISABLE REACTION FIRE for hotseat battles.
+	void btnReactionFireClick(Action* action);
 };
 
 }
