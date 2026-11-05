@@ -38891,19 +38891,27 @@ void connectionTCP::startTCPHost()
 		}
 
 		// ---- Accept new client if we don't have one ----
-		if (TCPsocket newClient = SDLNet_TCP_Accept(listening))
+		// Not while the last client's drop (-2) still waits for the main thread. Its teardown
+		// (disconnectTCP) reads onConnect again to tell a host's drop from a client's, and an
+		// accept here set it to 1 underneath that teardown, so the host shut its own server down.
+		// A password retry reconnects right after its first connection closes, which hit this.
+		// The new connection waits in the listen queue until the teardown sets onConnect to 1.
+		if (onConnect != -2)
 		{
-			if (!clientSock)
+			if (TCPsocket newClient = SDLNet_TCP_Accept(listening))
 			{
-				clientSock = newClient;
-				SDLNet_TCP_AddSocket(socketSet, clientSock);
-				DebugLog("Host: client connected\n");
-				onConnect = 1;
-			}
-			else
-			{
-				// Only 1 client supported -> close extra connection silently
-				SDLNet_TCP_Close(newClient);
+				if (!clientSock)
+				{
+					clientSock = newClient;
+					SDLNet_TCP_AddSocket(socketSet, clientSock);
+					DebugLog("Host: client connected\n");
+					onConnect = 1;
+				}
+				else
+				{
+					// Only 1 client supported -> close extra connection silently
+					SDLNet_TCP_Close(newClient);
+				}
 			}
 		}
 
