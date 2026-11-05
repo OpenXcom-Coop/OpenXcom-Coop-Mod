@@ -46441,23 +46441,38 @@ void connectionTCP::sendCoopSnapshot(int slot, std::string data)
 
 bool connectionTCP::geoMembershipChanged(const Json::Value& root)
 {
-	// Compare the set of UFO/mission coop ids in this snapshot to the last one.
+	// Compare the set of UFO/mission ids in this snapshot to the last one.
 	// A change means something spawned or despawned -> the caller must deliver
 	// this snapshot reliably (the conflation slot may drop it otherwise).
+	//
+	// Each id is the one the snapshot's receiver keys on. The legacy mirror
+	// snapshot carries coop mirror ids (ufo_id / mission_id). The Shared/Separate
+	// snapshot (`shared`) carries real ids instead: UFOs by unique id - the display
+	// id is 0 for every undetected UFO - falling back to the display id for an
+	// entry without one, and mission sites by id. Reading the legacy keys there
+	// collapsed every set to {0}, so only empty <-> non-empty transitions counted.
+	const bool shared = root.get("shared", false).asBool();
 	std::set<int> ufoIds, missionIds;
 	if (root.isMember("ufos"))
 	{
 		for (const auto& u : root["ufos"])
-			ufoIds.insert(u["ufo_id"].asInt());
+		{
+			if (!shared)
+				ufoIds.insert(u["ufo_id"].asInt());
+			else
+				ufoIds.insert(u.isMember("uniqueId") ? u["uniqueId"].asInt() : u["id"].asInt());
+		}
 	}
 	if (root.isMember("missions"))
 	{
 		for (const auto& m : root["missions"])
-			missionIds.insert(m["mission_id"].asInt());
+			missionIds.insert(m[shared ? "id" : "mission_id"].asInt());
 	}
 	bool changed = (ufoIds != _lastGeoUfoIds) || (missionIds != _lastGeoMissionIds);
 	_lastGeoUfoIds.swap(ufoIds);
 	_lastGeoMissionIds.swap(missionIds);
+	if (changed)
+		++_geoMembershipChanges;
 	return changed;
 }
 
