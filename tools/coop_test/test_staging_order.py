@@ -5,8 +5,8 @@ One run; EVIDENCE before each verdict; every row runs after a failure; exit 0 on
 fake_barrier_waits (guard) / fake_settle_waits: a fake pair (no game) against wait_seq_barrier + wait_host_idle /
 the ten settle waits in FAKE_WAITS.
 delta_both_held (guard) / place_deterministic_held / battle_end_both_held (boots delta / deterministic / battle_end):
-dc.both / session.place_deterministic / bes.both while a burst of battle_state probes keeps the client's command pump
-busy after A's teleport."""
+dc.both / session.place_deterministic / bes.both while the client's command pump is held (pump_hold) from A's teleport
+until the client's next command."""
 import json
 import os
 import sys
@@ -30,7 +30,7 @@ import test_retry_cancel as retry_cancel
 import test_turn_mode as turn_mode
 
 BOOTS = {"delta": (49415, "47232"), "deterministic": (49417, "47234"), "battle_end": (49419, "47236")}   # labels, lobby
-HOLD_S, CALIBRATE, HELD_MIN_S, FAKE_TIMEOUT_S, OUTCOME_S = 3.0, 200, 1.0, 5, 6.0
+HOLD_TIMEOUT_MS, FAKE_TIMEOUT_S, OUTCOME_S = 20000, 5, 6.0
 A_AT = {"unit": cs.A_ID, "x": cs.A_TILE[0], "y": cs.A_TILE[1], "z": cs.A_TILE[2], "dir": cs.A_DIR}
 TELE_A = dict(A_AT, cmd="battle_teleport_unit")
 HEALTH_A = {"cmd": "battle_set_unit_state", "unit": cs.A_ID, "health": cs.A_HEALTH}
@@ -139,31 +139,25 @@ def read_line(gc):
 
 
 def held_send(self, obj):
-    """GameClient._send, first dropping the answers owed to the probes; one-shot: holds the client after A's move."""
+    """GameClient._send, first reading the hold's release reply when one is owed; one-shot: after A's move, holds the
+    client's command pump until this machine's next command (pump_hold), however long the host takes to answer."""
     st = self._hold
     owed, st["owed"] = st["owed"], 0
     t_send = time.time()
     self.sock.sendall((json.dumps(obj) + "\n").encode())
-    for _ in range(owed):
-        read_line(self)
+    released = [json.loads(read_line(self)) for _ in range(owed)]
     resp = json.loads(read_line(self))
     if owed and "afterHold" not in st["trace"]:
-        st["trace"]["afterHold"] = {"cmd": obj.get("cmd"), "sentAfterHeldS": round(t_send - st["trace"]["heldAt"], 3),
-                                    "answeredAfterS": round(time.time() - t_send, 3)}
+        st["trace"]["afterHold"] = dict({k: released[-1].get(k) for k in ("releasedBy", "nextCmd", "heldMs")},
+                                        cmd=obj.get("cmd"), sentAfterHeldS=round(t_send - st["trace"]["heldAt"], 3),
+                                        answeredAfterS=round(time.time() - t_send, 3))
     if st["armed"] and obj.get("cmd") == "battle_teleport_unit" and obj.get("unit") == cs.A_ID and resp.get("ok"):
         st["armed"] = False
-        probe = (json.dumps({"cmd": "battle_state"}) + "\n").encode()
-        tc = time.time()
-        self.sock.sendall(probe * CALIBRATE)
-        for _ in range(CALIBRATE):
-            read_line(self)
-        per = (time.time() - tc) / CALIBRATE
-        n = max(CALIBRATE, int(HOLD_S / max(per, 1e-5)))
         t0 = time.time()
-        self.sock.sendall(probe * n)   # the client's pump is busy from here ...
-        read_line(self)                # ... once its first probe is answered
-        st["owed"] = n - 1
-        st["trace"].update({"perProbeMs": round(per * 1000, 3), "n": n, "firstAnswerS": round(time.time() - t0, 3),
+        self.sock.sendall((json.dumps({"cmd": "pump_hold", "timeoutMs": HOLD_TIMEOUT_MS}) + "\n").encode())
+        first = json.loads(read_line(self))   # "holding": the client's pump is held from here to its next command
+        st["owed"] = 1 if first.get("pumpHold") == "holding" else 0   # the release reply, ahead of that command's
+        st["trace"].update({"holding": first.get("pumpHold") or first, "firstAnswerS": round(time.time() - t0, 3),
                             "heldAt": time.time()})
     return resp
 
@@ -304,8 +298,9 @@ def live_row(row, x):
         out = outcome(host, client, s0)
         disarm_hold(client)
         print(f"EVIDENCE {row}: {json.dumps(dict(s0=s0, hold=trace, **info, **out), default=str)}", flush=True)
-        if not (trace.get("heldAt") and (trace.get("n") or 0) >= CALIBRATE
-                and ((trace.get("afterHold") or {}).get("answeredAfterS") or 0) >= HELD_MIN_S):
+        after = trace.get("afterHold") or {}
+        if not (trace.get("holding") == "holding" and after.get("releasedBy") == "next"
+                and after.get("nextCmd") == after.get("cmd")):
             fails.append(("guard", f"the hold did not fire or did not hold the next client command: {trace}"))
         if out["hostReveals"] < 1:
             fails.append(("guard", f"the host shipped no reveal ev after seq {s0}: {out['hostEvs']}"))

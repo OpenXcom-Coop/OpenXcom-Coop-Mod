@@ -923,6 +923,80 @@ static bool testServerRestreamOwned(const State* s)
 	return cs && cs->getStateCode() == COOP_DLG_CLIENT_RESUME_HOLD;
 }
 
+// TEST-ONLY. `pump_hold {timeoutMs = 20000 (1..60000)}` holds this machine's command pump: the game thread runs no
+// frame, so no received battle ev is applied, until the harness's NEXT command arrives (or timeoutMs passes); that next
+// command then runs in this same pump pass, ahead of the frame's updateCoopTask. Two reply lines: {ok, pumpHold:
+// "holding"} as soon as the hold begins (the harness drives the other machine only after reading it), then {ok, pumpHold:
+// "released", releasedBy: "next" | "timeout", nextCmd, heldMs} just ahead of the next command's own reply. A hold that
+// ends on the harness's next command, not on a time budget, holds however long the other machine takes to answer.
+bool TestServer::pumpHold(const std::string& line, std::string& resp)
+{
+	if (line.find("\"pump_hold\"") == std::string::npos)
+	{
+		return false;
+	}
+	Json::CharReaderBuilder rb;
+	std::unique_ptr<Json::CharReader> reader(rb.newCharReader());
+	Json::Value req;
+	std::string errs;
+	if (!reader->parse(line.data(), line.data() + line.size(), &req, &errs) || req.get("cmd", "").asString() != "pump_hold")
+	{
+		return false;
+	}
+	Json::FastWriter w;
+	auto reply = [&](Json::Value& v)
+	{
+		if (req.isMember("_requestId"))
+		{
+			v["_requestId"] = req["_requestId"];
+		}
+		std::string s = w.write(v);
+		if (!s.empty() && s.back() == '\n') s.pop_back();
+		return s;
+	};
+	Json::Value out;
+	const int timeoutMs = req.get("timeoutMs", 20000).asInt();
+	if (timeoutMs < 1 || timeoutMs > 60000)
+	{
+		out["ok"] = false;
+		out["error"] = "pump_hold: timeoutMs must be 1..60000";
+		resp = reply(out);
+		return true;
+	}
+	Json::Value holding;
+	holding["ok"] = true;
+	holding["pumpHold"] = "holding";
+	const std::string holdingLine = reply(holding);
+	{
+		std::lock_guard<std::mutex> lock(_mutex);
+		_outbox.push_back(holdingLine);
+	}
+	const Uint32 start = SDL_GetTicks();
+	std::string next;
+	while (_running.load() && SDL_GetTicks() - start < (Uint32)timeoutMs)
+	{
+		{
+			std::lock_guard<std::mutex> lock(_mutex);
+			if (!_inbox.empty())
+			{
+				next = _inbox.front();
+				break;
+			}
+		}
+		SDL_Delay(1);
+	}
+	Json::Value nextReq;
+	std::string nextErrs;
+	out["ok"] = true;
+	out["pumpHold"] = "released";
+	out["releasedBy"] = next.empty() ? "timeout" : "next";
+	out["nextCmd"] = !next.empty() && reader->parse(next.data(), next.data() + next.size(), &nextReq, &nextErrs)
+		? nextReq.get("cmd", "").asString() : std::string();
+	out["heldMs"] = (Json::UInt)(SDL_GetTicks() - start);
+	resp = reply(out);
+	return true;
+}
+
 void TestServer::pump()
 {
 	if (!_running.load())
@@ -957,7 +1031,8 @@ void TestServer::pump()
 		std::string resp;
 		try
 		{
-			resp = execute(line);
+			if (!pumpHold(line, resp)) // TEST-ONLY pump_hold, see its comment above pump()
+				resp = execute(line);
 		}
 		catch (const std::exception& e)
 		{
