@@ -51,7 +51,7 @@ namespace OpenXcom
  * @param detected Was the UFO detected?
  * @param hyperwave Was it a hyperwave radar?
  */
-UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave, bool coop) : _ufo(ufo), _state(state)
+UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave, bool coop) : _ufo(ufo), _state(state), _hyperwave(hyperwave)
 {
 
 	// Generate UFO ID
@@ -256,6 +256,10 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 		// ambiguous: two scouts of the same race detected close together matched each
 		// other's alert (and the old single pending slot dropped one of them entirely).
 		root["ufo_id"] = ufo->getId();
+		// This detection's hyperwave decode, so the peer's popup matches this one
+		// even if its UFO copy still holds a stale flag (the position snapshot that
+		// updates it, e.g. after a loss and re-detection, may not have applied yet).
+		root["hyperDetected"] = hyperwave;
 
 		_game->getCoopMod()->sendTCPPacketData(root.toStyledString());
 

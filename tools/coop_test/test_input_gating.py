@@ -74,6 +74,13 @@ COOP_SEAT_NONE = -1
 COOP_SEAT_0 = 0
 COOP_SEAT_1 = 1
 
+# Both battles come from a pinned seed, so the map and where every unit deploys
+# are the same on every boot. Unpinned, the client's actor sometimes deployed
+# near the map's edge, and the distant ground-click target landed off the map,
+# where mapClick ignores the click (issue #220).
+SEED_MAP = 4                    # set_seed on the host right before newbattle_ok
+MAP_FP = 9.152588632214278e+18  # host AND client battle_state.mapFingerprint on SEED_MAP
+
 SDLK_BACKSPACE = 8   # Options::keyBattleEndTurn default
 SDLK_TAB = 9         # Options::keyBattleNextUnit default
 SDLK_BACKSLASH = 92  # Options::keyBattleDeselectUnit default (Options.cpp:328)
@@ -105,6 +112,14 @@ def battle_state(gc):
     st = gc.cmd({"cmd": "battle_state"})
     assert st.get("ok") and st.get("inBattle"), f"battle_state failed: {st}"
     return st
+
+
+def assert_map(host, client):
+    """Both machines hold the map SEED_MAP rolls (MAP_FP)."""
+    fps = {gc.name: battle_state(gc).get("mapFingerprint") for gc in (host, client)}
+    assert all(fp == MAP_FP for fp in fps.values()), (
+        f"mapFingerprint {fps}, baked MAP_FP={MAP_FP!r} (SEED_MAP {SEED_MAP}): the seed "
+        f"no longer rolls the map this test was checked on")
 
 
 def event_state(gc):
@@ -204,6 +219,7 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     seated_holder["soldierIds"] = soldier_ids
     seated_holder["soldierId"] = soldier_ids[0] if soldier_ids else None
 
+    host.ok({"cmd": "set_seed", "seed": SEED_MAP})
     host.ok({"cmd": "newbattle_ok"})
 
     # the shared battle-entry spine - both briefings (the offer goes
@@ -212,6 +228,7 @@ def drive_to_battlescape(host, client, host_dir, client_dir, seated_holder,
     session.briefings_to_battlescape(host, client)
     assert session.has_state(host, "BattlescapeState"), \
         f"host should reach BattlescapeState after OK, stack={states(host)}"
+    assert_map(host, client)
 
     time.sleep(3)  # let both logs flush the handshake lines before reading them
 

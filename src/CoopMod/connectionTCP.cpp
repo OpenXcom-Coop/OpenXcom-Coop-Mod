@@ -36755,11 +36755,70 @@ void connectionTCP::clearAllReceivedTCPPackets()
 
 }
 
+namespace
+{
+// Clears a worker thread's running flag when its thread function returns. The
+// flag is set before the thread starts, so a stop request that comes before
+// the thread runs still waits for it.
+struct WorkerRunningGuard
+{
+	std::atomic<bool>& running;
+	~WorkerRunningGuard() { running = false; }
+};
+}
+
 void connectionTCP::createLoopdataThread()
 {
 
-	_loopThread = std::thread(&connectionTCP::loopData, this);
+	_loopRunning = true;
+	_loopThread = std::thread([this] { WorkerRunningGuard guard{_loopRunning}; loopData(); });
 
+}
+
+std::string connectionTCP::stopWorkerThreads(unsigned timeoutMs)
+{
+	_stop = true;
+	_hostStop = true;
+	_clientStop = true;
+
+	std::string left;
+	auto finish = [&](std::thread& thread, const std::atomic<bool>& running, const char* name)
+	{
+		if (!thread.joinable())
+			return;
+		// Each loop checks its stop flag every pass, but the client's connect
+		// call blocks; a bounded wait keeps a quit from hanging on it.
+		const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+		while (running && std::chrono::steady_clock::now() < deadline)
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		if (running)
+		{
+			thread.detach();
+			left += left.empty() ? name : std::string(", ") + name;
+		}
+		else
+		{
+			thread.join();
+		}
+	};
+	finish(_loopThread, _loopRunning, "loopData");
+	finish(_hostThread, _hostRunning, "startTCPHost");
+	finish(_clientThread, _clientRunning, "startTCPClient");
+	return left;
+}
+
+std::string connectionTCP::runningWorkerThreads() const
+{
+	std::string running;
+	auto add = [&](const std::atomic<bool>& flag, const char* name)
+	{
+		if (flag)
+			running += running.empty() ? name : std::string(", ") + name;
+	};
+	add(_loopRunning, "loopData");
+	add(_hostRunning, "startTCPHost");
+	add(_clientRunning, "startTCPClient");
+	return running;
 }
 
 // true while this machine shows its co-op skirmish battle-end
@@ -41306,6 +41365,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		alert.ufoId = obj.get("ufo_id", -1).asInt();
 		alert.type = str_type;
 		alert.race = str_race;
+		if (obj.isMember("hyperDetected"))
+			alert.hyperDetected = obj["hyperDetected"].asBool();
 		coopUfoAlerts.push_back(alert);
 		while (coopUfoAlerts.size() > kMaxCoopUfoAlerts)
 			coopUfoAlerts.erase(coopUfoAlerts.begin()); // drop oldest, stay bounded
@@ -42657,11 +42718,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (ju.isMember("coopId")) ufo->_coop_ufo_id = ju["coopId"].asInt();
 				ufo->setLongitude(ju["lon"].asDouble());
 				ufo->setLatitude(ju["lat"].asDouble());
-				// PRD-J08: adopt hull damage BEFORE status - setDamage derives
+				// Adopt hull damage BEFORE status - setDamage derives
 				// CRASHED/DESTROYED from thresholds, the host's status then
 				// re-asserts the authoritative value.
 				if (ju.isMember("damage")) ufo->setDamage(ju["damage"].asInt(), _game->getMod());
 				ufo->setDetected(ju["detected"].asBool());
+				// issue #183: an older host omits the hyperwave flag; keep the
+				// value adopted with the world then.
+				if (ju.isMember("hyperDetected")) ufo->setHyperDetected(ju["hyperDetected"].asBool());
 				// Altitude without Ufo::setAltitude's status derivation (any
 				// altitude but STR_GROUND would turn a crashed UFO, or a destroyed
 				// one still at flight altitude, back to FLYING on the replica).
@@ -46205,7 +46269,8 @@ void connectionTCP::hostTCPServer(std::string servername, std::string str_port)
 	session.beginHosting();
 
 	_hostStop = false;
-	 _hostThread = std::thread(&connectionTCP::startTCPHost, this);
+	_hostRunning = true;
+	_hostThread = std::thread([this] { WorkerRunningGuard guard{_hostRunning}; startTCPHost(); });
 
 }
 
@@ -46246,8 +46311,9 @@ void connectionTCP::connectTCPServer(std::string ipaddress, std::string str_port
 	session.beginJoining();
 
 	_clientStop = false;
+	_clientRunning = true;
 
-	_clientThread = std::thread(&connectionTCP::startTCPClient, this);
+	_clientThread = std::thread([this] { WorkerRunningGuard guard{_clientRunning}; startTCPClient(); });
 
 }
 
