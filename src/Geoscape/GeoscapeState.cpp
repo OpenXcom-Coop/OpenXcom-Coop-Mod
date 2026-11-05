@@ -1829,24 +1829,26 @@ void GeoscapeState::think()
 			// single type/race slot silently dropped one and could pop the wrong UFO).
 			{
 				auto& alerts = _game->getCoopMod()->coopUfoAlerts;
+				// One host-authoritative world (Shared/Separate campaign): the client's
+				// UFOs are replicas of the host's, updated by the shared snapshot.
+				const bool campaignWorld = _game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign();
 				for (auto it = alerts.begin(); it != alerts.end(); )
 				{
 					Ufo* match = nullptr;
 					for (auto* ufo : *_game->getSavedGame()->getUfos())
 					{
-						// Playtest B5: in a SHARED campaign the host runs the one shared sim
-						// and broadcasts ufo_popup; the client's matching UFO is a
-						// byte-faithful replica of the host's own (getCoop()==false), NOT a
-						// SEPARATE mirror (getCoop()==true). Requiring getCoop()==true
-						// swallowed the alert on every non-host player.
-						bool coopMatch = (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
-							? true : (ufo->getCoop() == true);
+						// In a campaign world the host runs the one sim and broadcasts
+						// ufo_popup; the client's matching UFO is a byte-faithful replica
+						// of the host's own (getCoop()==false), NOT a legacy mirror
+						// (getCoop()==true). Requiring getCoop()==true swallowed the
+						// alert on every non-host player.
+						bool coopMatch = campaignWorld ? true : (ufo->getCoop() == true);
 						if (!coopMatch || !ufo->getDetected())
 							continue;
 						// Exact match on the peer's ufo id when it travelled (SHARED shares
 						// one world, so ids are identical); otherwise fall back to the
 						// legacy type+race match.
-						if (it->ufoId >= 0 && (_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+						if (it->ufoId >= 0 && campaignWorld)
 						{
 							if (ufo->getId() == it->ufoId) { match = ufo; break; }
 						}
@@ -1859,7 +1861,14 @@ void GeoscapeState::think()
 					}
 					if (match)
 					{
-						popup(new UfoDetectedState(match, this, true, match->getHyperDetected(), true));
+						// issue #183: in a campaign world the alert carries the host's
+						// hyperwave decode for this detection. The UFO's own flag is left
+						// to the snapshot, which may already be newer than this alert.
+						// Elsewhere (legacy mirror, which forces the flag for the alien
+						// side in PvP) and for an older host, the UFO's flag decides.
+						const bool hyperDetected = (campaignWorld && it->hyperDetected.has_value())
+							? *it->hyperDetected : match->getHyperDetected();
+						popup(new UfoDetectedState(match, this, true, hyperDetected, true));
 						it = alerts.erase(it);
 					}
 					else
@@ -2161,7 +2170,7 @@ void GeoscapeState::think()
 				}
 			}
 
-			// PRD-J04: SHARED position snapshot. Replicas are simulation-frozen, so
+			// SHARED position snapshot. Replicas are simulation-frozen, so
 			// they never move crafts/UFOs themselves; the HOST mirrors the REAL
 			// object positions (keyed by real id, not a _coop mirror id) so replicas
 			// still SEE movement. Reuses the SNAP_GEO_POSITIONS conflation slot (can't
@@ -2188,7 +2197,7 @@ void GeoscapeState::think()
 						jc["lat"] = craft->getLatitude();
 						jc["status"] = craft->getStatus();
 						jc["speed"] = craft->getSpeed();
-						// PRD-J08: replica-visible craft condition (refuel/repair/rearm
+						// Replica-visible craft condition (refuel/repair/rearm
 						// progress) - the host simulates it, replicas render it.
 						jc["fuel"] = craft->getFuel();
 						jc["damage"] = craft->getDamage();
@@ -2224,12 +2233,15 @@ void GeoscapeState::think()
 					ju["lat"] = ufo->getLatitude();
 					ju["status"] = _game->getCoopMod()->ufostatusToInt(ufo->getStatus());
 					ju["detected"] = ufo->getDetected();
+					// Hyperwave decode can be gained after detection and is cleared
+					// on loss, so it travels with the rest of the UFO state.
+					ju["hyperDetected"] = ufo->getHyperDetected();
 					ju["altitude"] = ufo->getAltitude();
 					ju["speed"] = ufo->getSpeed();
-					// PRD-J08: hull damage mirrors so an initiator-simulated
+					// Hull damage mirrors so an initiator-simulated
 					// dogfight starts from the authoritative UFO condition.
 					ju["damage"] = ufo->getDamage();
-					// PRD-J08: crash/land marker identity (ids travel by value).
+					// Crash/land marker identity (ids travel by value).
 					ju["crashId"] = ufo->getCrashId();
 					ju["landId"] = ufo->getLandId();
 					jufos.append(ju);

@@ -37,6 +37,7 @@ class UfoDetectedState : public State
 private:
 	Ufo *_ufo;
 	GeoscapeState *_state;
+	bool _hyperwave;
 
 	TextButton *_btnIntercept, *_btnCentre, *_btnCancel;
 	Window *_window;
@@ -57,6 +58,8 @@ public:
 	void btnCancelClick(Action *action);
 	/// Handler for pressing/releasing CTRL.
 	void toggleCancel(Action *action);
+	/// Test automation: whether this popup was built with hyperwave details.
+	bool harnessHyperwave() const { return _hyperwave; }
 };
 
 }

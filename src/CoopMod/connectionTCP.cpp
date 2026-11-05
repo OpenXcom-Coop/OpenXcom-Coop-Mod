@@ -41331,6 +41331,8 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		alert.ufoId = obj.get("ufo_id", -1).asInt();
 		alert.type = str_type;
 		alert.race = str_race;
+		if (obj.isMember("hyperDetected"))
+			alert.hyperDetected = obj["hyperDetected"].asBool();
 		coopUfoAlerts.push_back(alert);
 		while (coopUfoAlerts.size() > kMaxCoopUfoAlerts)
 			coopUfoAlerts.erase(coopUfoAlerts.begin()); // drop oldest, stay bounded
@@ -42682,11 +42684,14 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				if (ju.isMember("coopId")) ufo->_coop_ufo_id = ju["coopId"].asInt();
 				ufo->setLongitude(ju["lon"].asDouble());
 				ufo->setLatitude(ju["lat"].asDouble());
-				// PRD-J08: adopt hull damage BEFORE status - setDamage derives
+				// Adopt hull damage BEFORE status - setDamage derives
 				// CRASHED/DESTROYED from thresholds, the host's status then
 				// re-asserts the authoritative value.
 				if (ju.isMember("damage")) ufo->setDamage(ju["damage"].asInt(), _game->getMod());
 				ufo->setDetected(ju["detected"].asBool());
+				// issue #183: an older host omits the hyperwave flag; keep the
+				// value adopted with the world then.
+				if (ju.isMember("hyperDetected")) ufo->setHyperDetected(ju["hyperDetected"].asBool());
 				// Altitude without Ufo::setAltitude's status derivation (any
 				// altitude but STR_GROUND would turn a crashed UFO, or a destroyed
 				// one still at flight altitude, back to FLYING on the replica).

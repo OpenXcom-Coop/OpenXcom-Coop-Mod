@@ -1086,7 +1086,16 @@ class connectionTCP
 	// first (alert silently lost), and matching on type+race alone could pop the dialog
 	// for the WRONG UFO of the same race/type. Queued, and carrying the peer's ufo id so
 	// the match is exact in SHARED (shared world -> identical ids).
-	struct CoopUfoAlert { int ufoId = -1; std::string type; std::string race; };
+	struct CoopUfoAlert
+	{
+		int ufoId = -1;
+		std::string type;
+		std::string race;
+		// The host's hyperwave decode for this detection. Empty when the packet
+		// came from an older peer; the popup then falls back to the replicated
+		// UFO state.
+		std::optional<bool> hyperDetected;
+	};
 	std::vector<CoopUfoAlert> coopUfoAlerts;
 	static const size_t kMaxCoopUfoAlerts = 16; // bound: drop oldest, never grow forever
 
