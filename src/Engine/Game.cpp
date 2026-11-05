@@ -148,6 +148,14 @@ Game::~Game()
 
 	Mix_CloseAudio();
 
+	// The co-op worker threads must be gone before SDL is: they call SDL and
+	// SDL_net. The shutdown regression test reads this line.
+	if (_tcpConnection)
+	{
+		const std::string running = _tcpConnection->runningWorkerThreads();
+		Log(LOG_INFO) << "[coop-shutdown] worker threads running at SDL_Quit: " << (running.empty() ? "none" : running);
+	}
+
 	SDL_Quit();
 }
 
