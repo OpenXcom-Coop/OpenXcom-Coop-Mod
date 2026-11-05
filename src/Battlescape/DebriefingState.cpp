@@ -301,7 +301,8 @@ DebriefingState::DebriefingState() :
 	_lstRecoveredItems->setAlign(ALIGN_LEFT);
 	_lstRecoveredItems->setDot(true);
 
-	coopHotseatOnDebriefing(); // coop: hotseat is scoped to one skirmish (as in older versions' DebriefingState)
+	// coop: a New Battle's hotseat ends with the battle; a campaign's stays armed until DISABLE HOTSEAT
+	coopHotseatOnDebriefing(!_game->getSavedGame()->getCountries()->empty());
 
 	// coop: this is the host's battle-end chokepoint (abort/win/lose all
 	// route through here via BattlescapeState::finishBattle before the geoscape

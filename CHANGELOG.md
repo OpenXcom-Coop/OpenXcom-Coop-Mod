@@ -29,8 +29,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
   The Geoscape stays single player; in the next battle Player 1 commands X-Com and,
   when X-Com ends its turn, Player 2 takes the aliens on the same machine. The
   option had been dropped from the HOST window when hotseat moved to the New
-  Battle screen. Hotseat switches off when the battle ends, as it does for a New
-  Battle.
+  Battle screen. Hotseat stays on for the campaign's later battles until you press
+  DISABLE HOTSEAT in the same window or return to the main menu.
 
 <!-- Template for the next release section (keep this comment ABOVE the newest
      released section: the notes extractor reads from "## [<v>]" until the next

@@ -505,12 +505,13 @@ void coopHotseatOnFinishBattle(SavedBattleGame* s)
 	coopHotseatReset();
 }
 
-void coopHotseatOnDebriefing()
+void coopHotseatOnDebriefing(bool campaign)
 {
 	if (!connectionTCP::_isHotseatActive)
 		return;
 	coopHotseatReset();
-	connectionTCP::_isHotseatActive = false; // one skirmish (as in older versions' DebriefingState)
+	if (!campaign)
+		connectionTCP::_isHotseatActive = false; // one New Battle (as in older versions' DebriefingState)
 }
 
 bool coopHotseatHidesMap(const SavedBattleGame* s)
