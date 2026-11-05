@@ -129,6 +129,18 @@ Game::~Game()
 	TestServer::instance().stop();
 	stopUdpPeer();
 
+	// Stop the co-op worker threads before the states, the saved game and SDL
+	// they use are torn down. Nothing deletes _tcpConnection, so its destructor,
+	// which used to be the only place that stopped them, never ran: the data
+	// loop and the TCP host/client threads kept calling SDL through SDL_Quit()
+	// and exit(), and on Linux the host could crash on quit.
+	if (_tcpConnection)
+	{
+		const std::string left = _tcpConnection->stopWorkerThreads(2000);
+		if (!left.empty())
+			Log(LOG_WARNING) << "[coop-shutdown] worker threads did not stop in time: " << left;
+	}
+
 	Sound::stop();
 	Music::stop();
 
