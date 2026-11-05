@@ -1049,9 +1049,25 @@ def digits(text):
     return re.sub(r"(?<=\d)[^\w\-](?=\d)", "", text)
 
 
+def _keep_economy_warning(gc):
+    """A drain_popups interest that never fires. Its keep list makes the drain
+    close every popup except an economy warning (a CraftErrorState)."""
+    return None
+
+
+_keep_economy_warning.keep = ["CraftErrorState"]
+
+
 def last_day_warnings(host, client, host_funds, client_funds):
     """Set both wallets, run the clock into the last day of the month and return
-    each machine's economy warnings."""
+    each machine's economy warnings.
+
+    Alien activity goes on while the clock runs, so a UFO or mission alert can
+    open on either machine. An open popup stops the shared clock before the last
+    day, and one that opens as the warning arrives keeps the warning queued behind
+    it, off the state stack. So every poll closes every popup but the economy
+    warning on both machines, and sets the speed again (closing a popup can reset
+    it)."""
     for gc in (host, client):
         geo.drain_popups(gc)
         gc.ok({"cmd": "set_funds", "player": "HostPlayer", "value": host_funds})
@@ -1059,11 +1075,14 @@ def last_day_warnings(host, client, host_funds, client_funds):
     t = fixture.geo(host)["time"]
     days = calendar.monthrange(t["year"], t["month"])[1]
     host.ok({"cmd": "set_geo_day", "day": days - 1, "hour": 23})
-    for gc in (host, client):
-        gc.ok({"cmd": "geo_set_speed", "idx": 3})
     reached = None
     deadline = time.time() + 60
     while time.time() < deadline:
+        for gc in (host, client):
+            geo.drain_popups(gc, interest=_keep_economy_warning)
+        for gc in (host, client):
+            if geo.on_geoscape(gc):
+                gc.cmd({"cmd": "geo_set_speed", "idx": 3})
         if fixture.geo(host)["time"]["day"] == days:
             reached = reached or time.time()
             if time.time() - reached > 4:
