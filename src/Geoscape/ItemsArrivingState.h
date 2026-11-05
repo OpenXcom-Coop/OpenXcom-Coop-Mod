@@ -81,6 +81,8 @@ public:
 	const std::vector<ArrivalRow>& getAllRows() const { return _allRows; }
 	/// Test automation: the formatted first-column labels.
 	std::vector<std::string> harnessRows() const;
+	/// Checks whether this machine's player sees an arrival row.
+	static bool showsArrivalLocally(const ArrivalRow& row);
 };
 
 }

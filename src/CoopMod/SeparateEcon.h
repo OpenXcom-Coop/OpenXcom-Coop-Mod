@@ -207,6 +207,9 @@ int localFactionScore(Game* game, size_t historyIndex);
 /// while a win becomes global only after every distinct faction has completed.
 bool resolveFactionFinalOutcome(Game* game, const std::string& ownerPlayerName,
 	bool victory);
+/// The same answer as resolveFactionFinalOutcome(), without recording anything.
+bool factionFinalOutcomeEndsCampaign(Game* game, const std::string& ownerPlayerName,
+	bool victory);
 /// Return the localized New Game label for a player's difficulty-backed faction.
 /// Non-difficulty faction identifiers are returned as-is.
 std::string factionDisplayName(Game* game, const std::string& playerName);

@@ -14,16 +14,10 @@ def close_to_tactical(host, client):
         gc.wait_for("ROSIGMA final briefing", lambda gc=gc: has(gc, "BriefingState") or None,
                     timeout=180, interval=.5)
         gc.ok({"cmd": "close_briefing"})
-    for gc in (host, client):
-        gc.wait_for("ROSIGMA final inventory", lambda gc=gc: has(gc, "InventoryState") or None,
-                    timeout=120, interval=.5)
-        gc.ok({"cmd": "battle_inventory", "action": "ok"})
-    for _ in range(30):
-        if all(top(gc) == "BattlescapeState" for gc in (host, client)): return
-        for gc in (client, host):
-            if top(gc) != "BattlescapeState": gc.cmd({"cmd": "dismiss_popup"})
-        time.sleep(.5)
-    raise AssertionError((states(host), states(client)))
+    # A machine with no units of its own in the battle (the host in a
+    # client-owned mission) closes its equipment screen by itself.
+    if not session.drive_both_to_tactical(host, client, timeout=120):
+        raise AssertionError((states(host), states(client)))
 
 def prepare_faction_force(host, client, owner, owner_seat, base_name, craft_type,
                           soldier_type):
@@ -64,13 +58,14 @@ def prepare_faction_force(host, client, owner, owner_seat, base_name, craft_type
         b for b in host.ok({"cmd": "geo_state"})["bases"]
         if b["name"] == base_name)["crafts"] if craft["type"] == craft_type)
 
-def start_finale(host, client, owner, base_name, craft, mission, deployment):
+def start_finale(host, client, owner, base_name, craft, mission, deployment,
+                 race="STR_CHAOS_FINAL_UNITED_HARD"):
     geo.slow_clock(host, client)
     base = next(b for b in host.ok({"cmd": "geo_state"})["bases"] if b["name"] == base_name)
     lon, lat = base["lon"] + .18, base["lat"] + .06
     site_id = host.ok({"cmd": "spawn_mission_site", "mission": mission,
         "deployment": deployment, "owner": owner, "lon": lon, "lat": lat,
-        "race": "STR_CHAOS_FINAL_UNITED_HARD", "hours": 240})["site_id"]
+        "race": race, "hours": 240})["site_id"]
     client.wait_for("ROSIGMA finale replicated", lambda: any(
         s["id"] == site_id for s in client.ok({"cmd": "geo_state"})["missionSites"]) or None,
         timeout=60, interval=.5)
@@ -87,9 +82,13 @@ def start_finale(host, client, owner, base_name, craft, mission, deployment):
             "lon": lon, "lat": lat, "dest": f"site:{site_id}"}))
     assert all(result["reached"] for result in forced), forced
     assert all(result["units"] > 0 for result in forced), forced
+    # Only the craft owner gets the landing prompt; the settle after the skip
+    # must leave it open there.
+    def landing(gc):
+        return "landing" if gc is owner_gc and has(gc, "ConfirmLandingState") else None
+    landing.keep = ("ConfirmLandingState",)
     arrival = geo.skip_realtime(host, client, 90, speed_idx=2,
-        interest=lambda gc: "landing" if has(owner_gc, "ConfirmLandingState") else None,
-        stuck_timeout=None)
+        interest=landing, stuck_timeout=None)
     if not has(owner_gc, "ConfirmLandingState"):
         raise AssertionError({"arrival": arrival, "forced": forced,
             "hostStates": states(host), "clientStates": states(client),
@@ -177,22 +176,35 @@ def win_stages(host, client, expected_completed):
     return mission_types
 
 def return_to_geoscape(host, client):
+    # The Geoscape stays under a finished battle, so a machine has left the
+    # battle only once no battle screen is on its stack.
     for _ in range(40):
-        if all(session.has_state(gc, "GeoscapeState") and not has(gc, "DebriefingState")
-               and not has(gc, "InfoboxState") for gc in (host, client)): return
+        if all(session.has_state(gc, "GeoscapeState") and not has(gc, "BattlescapeState")
+               and not has(gc, "DebriefingState") and not has(gc, "InfoboxState")
+               for gc in (host, client)): return
         for gc in (host, client):
             if has(gc, "InfoboxState") or has(gc, "DebriefingState"):
                 gc.cmd({"cmd": "dismiss_popup"})
         time.sleep(.5)
-    raise AssertionError((states(host), states(client)))
+    raise AssertionError({gc.name: {
+        "states": states(gc),
+        "battleEnd": gc.cmd({"cmd": "event_state"}).get("battleEnd")}
+        for gc in (host, client)})
 
 def continue_after_partial_finale(host, client, expected_owner):
     return_to_geoscape(host, client)
     for gc in (host, client):
-        gc.wait_for("faction finale vote", lambda gc=gc: (lambda vote:
-            vote if vote.get("active") and vote.get("action", "").startswith(
-                "continue_faction_campaign|") else None)(
-                    gc.ok({"cmd": "vote_state"})), timeout=30, interval=.25)
+        try:
+            gc.wait_for("faction finale vote", lambda gc=gc: (lambda vote:
+                vote if vote.get("active") and vote.get("action", "").startswith(
+                    "continue_faction_campaign|") else None)(
+                        gc.ok({"cmd": "vote_state"})), timeout=30, interval=.25)
+        except TimeoutError as error:
+            raise AssertionError({peer.name: {
+                "vote": peer.cmd({"cmd": "vote_state"}),
+                "factionFinale": peer.cmd({"cmd": "get_coop"}).get("factionFinale"),
+                "profile": peer.cmd({"cmd": "separate_profile_state"}),
+                "states": states(peer)} for peer in (host, client)}) from error
     host_vote = host.ok({"cmd": "vote_state"})
     assert host_vote["action"] == "continue_faction_campaign|" + expected_owner, host_vote
     vote_id = host_vote["id"]

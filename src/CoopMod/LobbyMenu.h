@@ -52,6 +52,10 @@ protected:
 	bool _sortable;
 	bool _timerStarted = false;
 	bool _redirected = false; // think() left the lobby after a lost connection
+	// think() refreshes the player rows once a second, and once on this lobby's
+	// first frame, so a lobby opened right after another one is never empty.
+	bool _rosterRefreshed = false;
+	Uint32 _lastRosterRefresh = 0;
 	/// Playtest B7: this coop menu was opened MID-GAME (a running campaign geoscape
 	/// sits on the stack underneath). The action button becomes RESUME GAME and just
 	/// returns to the live game instead of leaving disconnect as the only option.

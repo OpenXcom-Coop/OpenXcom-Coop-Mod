@@ -1367,7 +1367,14 @@ class connectionTCP
 	// New SEPARATE campaign only: contribute the client's freshly placed first
 	// base to the host world once. The transient transfer is discarded after
 	// merge and is never embedded as a player-world save.
+	bool isInitialSeparateContributionWorld();
 	void sendInitialSeparateBaseToHost();
+	// A new Separate client's own start, set only where that client builds its
+	// temporary world: the world stands until the first base is sent, then the
+	// client waits for the host's world. A later world load (a resync or a
+	// rejoin) and a base lost in month zero are not that start.
+	bool separateLocalStartWorld = false;
+	bool separateAwaitingFirstWorld = false;
 	// Legacy multi-world PvP helper. Campaigns never call this path.
 	void syncOwnWorldGuestCraft(int coopBaseId, const std::map<std::string, std::pair<int, std::string>>& assignments);
 	// Clears session gift state (pending queues, dedup ids, away-ids)

@@ -53,6 +53,30 @@ static std::string formatRow(const ArrivalRow& r)
 }
 
 /**
+ * Checks whether this machine's player sees an arrival row. Outside Separate
+ * every player does. In Separate a soldier notifies the player who ordered it.
+ * An item, craft or staff member also notifies the owner of the receiving base,
+ * so a visitor's purchase reaches both players while an owner's own order
+ * reaches only the owner.
+ * @param row The arrival row. Its base index refers to the shared base list.
+ * @return True if the row shows on this machine.
+ */
+bool ItemsArrivingState::showsArrivalLocally(const ArrivalRow& row)
+{
+	if (!_game->getCoopMod()->isSeparateCampaign())
+		return true;
+	const std::string local = connectionTCP::seatName(connectionTCP::localSeat());
+	auto* bases = _game->getSavedGame()->getBases();
+	const std::string baseOwner = (row.baseIdx >= 0 && row.baseIdx < (int)bases->size())
+		? bases->at(row.baseIdx)->getOwnerPlayerName() : std::string();
+	// Older peers send no purchaser; the receiving base's owner stands in.
+	const std::string& orderedBy = row.ownerPlayerName.empty() ? baseOwner : row.ownerPlayerName;
+	if (!orderedBy.empty() && orderedBy == local)
+		return true;
+	return row.type != TRANSFER_SOLDIER && !baseOwner.empty() && baseOwner == local;
+}
+
+/**
  * Builds the shared window widgets.
  */
 void ItemsArrivingState::buildUI()
@@ -135,9 +159,6 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 				// the other player.
 				if (transferOwner.empty() && _game->getCoopMod()->isSeparateCampaign())
 					transferOwner = xbase->getOwnerPlayerName();
-				const bool showLocally = !_game->getCoopMod()->isSeparateCampaign()
-					|| (!transferOwner.empty()
-						&& transferOwner == connectionTCP::seatName(connectionTCP::localSeat()));
 
 				// Check if we have an automated use for an item
 				if (transfer->getType() == TRANSFER_ITEM)
@@ -177,7 +198,7 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state) : _state(state), _b
 					? transfer->getSoldier()->getOwnerPlayerId() : -1;
 				row.ownerPlayerName = transferOwner;
 				_allRows.push_back(row);
-				if (showLocally)
+				if (showsArrivalLocally(row))
 				{
 					if (!_base) _base = xbase;
 					_rows.push_back(row);
@@ -208,15 +229,8 @@ ItemsArrivingState::ItemsArrivingState(GeoscapeState *state, const std::vector<A
 	for (const ArrivalRow& r : rows)
 	{
 		_allRows.push_back(r);
-		if (_game->getCoopMod()->isSeparateCampaign())
-		{
-			std::string owner = r.ownerPlayerName;
-			auto* bases = _game->getSavedGame()->getBases();
-			if (owner.empty() && r.baseIdx >= 0 && r.baseIdx < (int)bases->size())
-				owner = bases->at(r.baseIdx)->getOwnerPlayerName();
-			if (owner.empty() || owner != connectionTCP::seatName(connectionTCP::localSeat()))
-				continue;
-		}
+		if (!showsArrivalLocally(r))
+			continue;
 		_rows.push_back(r);
 		std::ostringstream ss;
 		ss << r.qty;

@@ -27,6 +27,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <typeinfo>
 #include <unordered_set>
@@ -19499,8 +19500,13 @@ void coopHostBattleEnd(Game* game, SavedBattleGame* save, bool abort, int inExit
 	const std::string cutscene = !ruleDeploy ? std::string() : abort ? ruleDeploy->getAbortCutscene()
 		: (inExitArea == 0 ? ruleDeploy->getLoseCutscene() : ruleDeploy->getWinCutscene());
 	const RuleVideo* video = cutscene.empty() ? nullptr : game->getMod()->getVideo(cutscene);
+	// A Separate faction finale won while other factions still play shows a
+	// debriefing instead of the ending (finishBattle's partial faction victory).
+	const bool gameOver = video && (video->getWinGame() || video->getLoseGame())
+		&& SeparateEcon::factionFinalOutcomeEndsCampaign(game, save->getBattleOwnerPlayerName(),
+			video->getWinGame());
 	coopHostSendBattleEnd(coopBuildActionEndHash(save), reason, aborted, inExitArea, xcomVerdict, hostileVerdict, t,
-		video && (video->getWinGame() || video->getLoseGame()));
+		gameOver);
 }
 
 // ===== An all-aliens-dead start ends the
@@ -36193,11 +36199,29 @@ bool connectionTCP::pushProgressToHostSilently()
 
 }
 
+bool connectionTCP::isInitialSeparateContributionWorld()
+{
+	if (!separateLocalStartWorld || getServerOwner() || !getCoopStatic() || !isSeparateCampaign()
+		|| session.lobbyMode != 1 || !_game->getSavedGame()
+		|| _game->getSavedGame()->getMonthsPassed() > 0)
+		return false;
+
+	const std::string localPlayer = seatName(localSeat());
+	bool foundLocalBase = false;
+	for (Base* base : *_game->getSavedGame()->getBases())
+	{
+		if (!base || base->_coopIcon)
+			continue;
+		if (!base->isOwnedByPlayer(localPlayer))
+			return false;
+		foundLocalBase = true;
+	}
+	return foundLocalBase;
+}
+
 void connectionTCP::sendInitialSeparateBaseToHost()
 {
-	if (getServerOwner() || !getCoopStatic() || !isSeparateCampaign()
-		|| session.lobbyMode != 1 || !_game->getSavedGame()
-		|| _game->getSavedGame()->getMonthsPassed() != -1
+	if (!isInitialSeparateContributionWorld()
 		|| _game->getSavedGame()->getSavedBattle())
 	{
 		return;
@@ -36209,6 +36233,8 @@ void connectionTCP::sendInitialSeparateBaseToHost()
 	Json::Value obj;
 	obj["state"] = "SEND_FILE_HOST_TRUE_SAVE_PROGRESS";
 	sendTCPPacketData(obj.toStyledString());
+	separateLocalStartWorld = false;
+	separateAwaitingFirstWorld = true;
 	Log(LOG_INFO) << "[coop-separate] sending initial base contribution to host";
 }
 
@@ -38014,6 +38040,10 @@ void connectionTCP::updateCoopTask()
 			if (coopAdoptWorldInPlace(heldKey))
 			{
 				g_coopPostBattleWorldAdopted = true;
+				// The adopted world is the host's post-battle world, which holds any
+				// faction finale the battle queued, as campaign_begun's world does.
+				if (!_pendingFactionFinaleOwner.empty())
+					_factionFinaleReplicaSynced = true;
 				coopDebriefPage3Live(deb); // page 3 live at EVERY adoption
 				CoopDelta::battleEndRecordSet("heldAppliesAtAdopt", heldApplies);
 				CoopDelta::battleEndRecordSet("worldAdopted", CoopDelta::battleEndRecord()["worldAdopted"].asInt() + 1);
@@ -40368,7 +40398,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
 		const bool initialSeparateBootstrap = liveSave
 			&& liveSave->getCampaignType() == CoopCampaignType::Separate
-			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+			&& liveSave->getMonthsPassed() <= 0 && session.lobbyMode == 1;
 		const bool bootstrapProgressPacket = initialSeparateBootstrap
 			&& (stateString == "SEND_FILE_HOST_TRUE_SAVE_PROGRESS"
 				|| stateString == "SEND_FILE_HOST_SAVE_PROGRESS");
@@ -40760,7 +40790,11 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			if (!connectionTCP::no_bases)
 			{
 				if (isSeparateCampaign())
+				{
 					_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(connectionTCP::seatName(connectionTCP::localSeat()));
+					separateLocalStartWorld = true;
+					separateAwaitingFirstWorld = false;
+				}
 				refreshSeparateBaseOwnership();
 				beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());
 			}
@@ -44860,7 +44894,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
 		const bool initialSeparateBootstrap = liveSave
 			&& liveSave->getCampaignType() == CoopCampaignType::Separate
-			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+			&& liveSave->getMonthsPassed() <= 0 && session.lobbyMode == 1;
 		if ((isSharedCampaign() || isSeparateCampaign()) && !initialSeparateBootstrap)
 		{
 			return;
@@ -44879,7 +44913,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		const SavedGame* liveSave = _game ? _game->getSavedGame() : nullptr;
 		const bool initialSeparateBootstrap = liveSave
 			&& liveSave->getCampaignType() == CoopCampaignType::Separate
-			&& liveSave->getMonthsPassed() == -1 && session.lobbyMode == 1;
+			&& liveSave->getMonthsPassed() <= 0 && session.lobbyMode == 1;
 		if ((isSharedCampaign() || isSeparateCampaign()) && !initialSeparateBootstrap)
 		{
 			return;
@@ -46889,6 +46923,8 @@ void connectionTCP::disconnectTCP(bool isMain)
 		// starts on the same date, so a stale one could pair with the wrong event.
 		_ownCertainSpawns.clear();
 		_peerCertainSpawns.clear();
+		separateLocalStartWorld = false;
+		separateAwaitingFirstWorld = false;
 
 		playerInsideCoopBase = false;
 
@@ -47107,15 +47143,25 @@ bool connectionTCP::writeHostMapSaveProgressFile()
 		separate.setFactionResearch(connectionTCP::seatName(connectionTCP::localSeat()),
 			hostFactionResearch);
 		separate.setFactionResearch(owner, clientFactionResearch);
-		// The temporary client save already contains the discoveries granted by
-		// its selected faction at new-save creation. Import that private profile;
-		// factionResearch is mission-script metadata and does not drive the actual
-		// New Research list.
-		if (const SeparateEcon::CampaignData::PlayerState* clientProfile =
-			coopFile->getSeparateCampaign().getPlayer(owner))
+		// Faction-start discoveries may exist in the temporary world's global list
+		// or in a profile created before the final network player name was known.
+		// This one-shot world belongs only to the joining client's chosen faction,
+		// so merge every temporary profile into the final owner profile.
+		std::set<std::string> clientCompleted(
+			clientFactionResearch.begin(), clientFactionResearch.end());
+		std::set<std::string> clientDisabled;
+		for (const auto& entry : coopFile->getSeparateCampaign().getPlayers())
 		{
-			separate.replaceCompletedResearch(owner, clientProfile->completedResearch);
+			clientCompleted.insert(entry.second.completedResearch.begin(),
+				entry.second.completedResearch.end());
+			clientDisabled.insert(entry.second.disabledResearch.begin(),
+				entry.second.disabledResearch.end());
 		}
+		separate.replaceCompletedResearch(owner, clientCompleted);
+		separate.setFactionResearch(owner,
+			std::vector<std::string>(clientCompleted.begin(), clientCompleted.end()));
+		for (const std::string& research : clientDisabled)
+			separate.disableResearch(owner, research);
 		bool alreadyMerged = false;
 		for (Base* base : *_game->getSavedGame()->getBases())
 			if (base && base->isOwnedByPlayer(owner)) { alreadyMerged = true; break; }

@@ -183,7 +183,14 @@ void BaseNameState::btnOkClick(Action *)
 			if (connectionTCP::session.lobbyMode != 0)
 			{
 				if (_game->getCoopMod()->isSeparateCampaign())
-					_game->getCoopMod()->sendInitialSeparateBaseToHost();
+				{
+					// The temporary client faction must complete its normal month-zero
+					// initialization before it is contributed to the host world. Sending
+					// here would serialize an unnamed faction profile with no starting
+					// research. GeoscapeState::init sends and holds it once initialization
+					// has completed.
+					return;
+				}
 				else
 					_game->getCoopMod()->pushProgressToHostSilently();
 

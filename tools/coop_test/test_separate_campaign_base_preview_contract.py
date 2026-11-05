@@ -29,8 +29,9 @@ def main():
     # Every co-op battle gate reads isCoopBattle(), which needs the offered battle to be active.
     assert ("bool isCoopBattle()\n{\n\treturn connectionTCP::getCoopStatic() "
             "&& coopBattleAuthority().phase == CoopBattlePhase::Active;") in tcp.replace("\r\n", "\n")
+    assert "_disableCutsceneAndMusic = _disableCutsceneAndMusic || isPreview" in briefing
 
-    print("PASS Separate base preview bypasses network turn and ownership gates")
+    print("PASS Separate base preview bypasses network gates and never sends a cutscene")
 
 
 if __name__ == "__main__":

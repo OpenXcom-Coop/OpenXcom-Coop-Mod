@@ -11844,9 +11844,11 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 	{
 		// TEST command - push the REAL SoldierInfoState for soldier {soldierId} on THIS machine; base and index
 		// found exactly as the soldier_rename test command finds them (skip _isForeignBase / _coopIcon bases; optional {base} name). The
-		// screen inits on the next frame. Reply {ok, baseIndex, index}.
+		// screen inits on the next frame. Reply {ok, baseIndex, index}. {foreign:true} also searches the other player's bases,
+		// as a visitor opens its own soldier there.
 		const int idOS = req.get("soldierId", -1).asInt();
 		const std::string baseOS = req.get("base", "").asString();
+		const bool foreignOS = req.get("foreign", false).asBool();
 		Base* targetOS = nullptr;
 		size_t idxOS = 0;
 		int biOS = -1;
@@ -11854,7 +11856,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 			for (size_t b = 0; b < _game->getSavedGame()->getBases()->size() && !targetOS; ++b)
 			{
 				Base* base = _game->getSavedGame()->getBases()->at(b);
-				if (base->_isForeignBase || base->_coopIcon) continue;
+				if ((base->_isForeignBase && !foreignOS) || base->_coopIcon) continue;
 				if (!baseOS.empty() && base->getName() != baseOS) continue;
 				auto* sols = base->getSoldiers();
 				for (size_t i = 0; i < sols->size(); ++i)
@@ -16067,9 +16069,10 @@ std::string TestServer::execute(const std::string& line)
 			else if (act == "kill_unit")
 			{
 				// Harness-only deterministic elimination for the PvP win/lose
-				// gate. Kills a single unit ("unit" id) or every living combatant
-				// on a coop side ("coop_side": 0=host-side, 1=client-side).
-				// Faction is NOT filtered: the per-machine PvP remap makes the
+				// gate. Kills a single unit ("unit" id), every living combatant
+				// on a coop side ("coop_side": 0=host-side, 1=client-side) or every
+				// living unit of a faction ("faction").
+				// A coop side is NOT filtered by faction: the per-machine PvP remap makes the
 				// enemy side FACTION_HOSTILE locally, so a coop-side wipe must key
 				// on getCoop() alone and skip only neutrals. Apply on the machine
 				// whose end-turn scan reads the result (the executor).
@@ -16081,7 +16084,8 @@ std::string TestServer::execute(const std::string& line)
 				{
 					if (u->isOut() || u->getFaction() == FACTION_NEUTRAL) continue;
 					bool match = (coopSide >= 0 && (int)u->getCoopSeat() == coopSide)
-						|| (killId >= 0 && u->getId() == killId);
+						|| (killId >= 0 && u->getId() == killId)
+						|| (killFaction >= 0 && (int)u->getFaction() == killFaction);
 					if (match)
 					{
 						u->instaKill();

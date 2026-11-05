@@ -223,6 +223,9 @@ BriefingState::BriefingState(Craft *craft, Base *base, bool infoOnly, BriefingDa
 	_txtTitle->setText(tr(title));
 
 	bool isPreview = battleSave->isPreview();
+	// Craft/base deployment previews are local UI. They must neither play the
+	// mission deployment cutscene nor broadcast it to the other player.
+	_disableCutsceneAndMusic = _disableCutsceneAndMusic || isPreview;
 	if (isPreview)
 	{
 		if (battleSave->getCraftForPreview())
@@ -278,7 +281,21 @@ void BriefingState::init()
 
 	if (!_cutsceneId.empty())
 	{
-		_game->pushState(new CutsceneState(_cutsceneId));
+		bool playHere = true;
+		if (_game->getCoopMod()->getCoopStatic()
+			&& _game->getCoopMod()->isSeparateCampaign())
+		{
+			// Separate uses one host-authoritative world. The permanent server host
+			// creates the briefing cutscene and CutsceneState sends it to the client.
+			// The client already has its own BriefingState, but must not create a
+			// second local copy. getServerOwner() deliberately does not follow the
+			// temporary mission-transfer role when a client craft started the battle.
+			playHere = _game->getCoopMod()->getServerOwner();
+			if (playHere)
+				_game->getCoopMod()->allow_cutscene = true;
+		}
+		if (playHere)
+			_game->pushState(new CutsceneState(_cutsceneId));
 
 		// don't play the cutscene again when we return to this state
 		_cutsceneId = "";

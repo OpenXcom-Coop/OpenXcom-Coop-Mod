@@ -1491,14 +1491,14 @@ void LobbyMenu::think()
 
 	}
 
-	static Uint32 lastUpdate = 0;
 	static Uint32 pingSentTime = 0;
 	Uint32 now = SDL_GetTicks();
 
-	if (now - lastUpdate >= 1000)
+	if (!_rosterRefreshed || now - _lastRosterRefresh >= 1000)
 	{
 
-		lastUpdate = now;
+		_rosterRefreshed = true;
+		_lastRosterRefresh = now;
 
 		// own player
 		std::string txtTeam = "XCOM";

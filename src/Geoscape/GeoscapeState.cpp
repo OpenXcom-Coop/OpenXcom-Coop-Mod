@@ -2413,6 +2413,29 @@ void GeoscapeState::think()
 		}
 	}
 
+	// A modded Separate client owns a one-shot temporary faction world. Wait
+	// until every month-zero popup has been answered before contributing it;
+	// otherwise the hold dialog covers mandatory choices such as ROSIGMA's
+	// Strategy Selection. Pushing the hold changes the top state immediately,
+	// so this can run only once.
+	if (_game->getCoopMod()->isSeparateCampaign()
+		&& !_game->getCoopMod()->getServerOwner()
+		&& _game->getCoopMod()->isInitialSeparateContributionWorld()
+		&& connectionTCP::session.lobbyMode == 1
+		&& _game->getSavedGame()->getMonthsPassed() == 0
+		&& _popups.empty()
+		&& !_game->getStates().empty()
+		&& _game->getStates().back() == this)
+	{
+		_game->getCoopMod()->sendInitialSeparateBaseToHost();
+
+		Json::Value ack;
+		ack["state"] = "resume_ack";
+		_game->getCoopMod()->sendTCPPacketData(ack.toStyledString());
+		_game->pushState(new CoopState(COOP_DLG_CLIENT_HOLD));
+		return;
+	}
+
 	// PRD-DF01 shared/replicated SHARED dogfights. HOST: publish the membership
 	// set (df_open) + one per-tick render frame (df_state). REPLICA: reconcile
 	// its render-only windows toward the latest df_open set (runs every think so

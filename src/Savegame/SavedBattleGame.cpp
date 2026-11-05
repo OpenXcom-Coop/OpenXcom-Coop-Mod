@@ -386,6 +386,27 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 		}
 	}
 
+	// Save upgrade for ownerless player units spawned by a mod's craft map item.
+	// Older Separate battles stored them on side 0 even when the client's craft
+	// owned the mission. Unit-owned summons keep their summoner's side instead.
+	if (savedGame->isSeparateCoopCampaign() && !_battleOwnerPlayerName.empty())
+	{
+		int battleOwnerSeat = -1;
+		const std::vector<std::string>& players = savedGame->getCoopPlayers();
+		for (size_t seat = 0; seat < players.size(); ++seat)
+			if (players[seat] == _battleOwnerPlayerName)
+			{
+				battleOwnerSeat = static_cast<int>(seat);
+				break;
+			}
+		if (battleOwnerSeat >= 0)
+			for (BattleUnit* unit : _units)
+				if (unit && unit->getFaction() == FACTION_PLAYER
+					&& unit->isSummonedPlayerUnit() && !unit->getPreviousOwner())
+					// A Separate battle seat is the owner's roster seat.
+					unit->setCoopSeat((CoopSeat)battleOwnerSeat);
+	}
+
 	// items 2nd pass
 	for (auto& keyAndVector : itemKeysAndVectors)
 	{

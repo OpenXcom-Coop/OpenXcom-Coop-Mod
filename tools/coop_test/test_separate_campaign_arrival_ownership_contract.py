@@ -1,4 +1,4 @@
-"""Contracts for owner-only Separate purchase and faction-event arrivals."""
+"""Contracts for typed Separate purchase and faction-event arrivals."""
 
 from pathlib import Path
 
@@ -19,15 +19,17 @@ def main():
     event = source("src/Geoscape/GeoscapeEventState.cpp")
     assert "_ownerPlayerName" in transfer_h
     assert 'writer.write("ownerPlayerName"' in transfer_cpp
-    assert "showLocally" in arrivals and "getOwnerPlayerName" in arrivals
+    assert "showsArrivalLocally(row)" in arrivals and "getOwnerPlayerName" in arrivals
     assert "transferOwner = xbase->getOwnerPlayerName()" in arrivals
+    assert "row.ownerPlayerName = transferOwner" in arrivals
+    assert "row.type != TRANSFER_SOLDIER && !baseOwner.empty() && baseOwner == local" in arrivals
     assert "showBaseNotification" in separate_h and "showBaseNotification" in separate_cpp
-    assert "owner.empty() || owner != connectionTCP::seatName" in arrivals
+    assert "ItemsArrivingState::showsArrivalLocally(row)" in shared
     assert "SeparateEcon::showBaseNotification(game, base)" in shared
     assert "transferOwner = connectionTCP::seatName(seat)" in shared
     assert "setOwnerPlayerName(transferOwner)" in shared
     assert "setOwnerPlayerName(_ownerPlayerName)" in event
-    print("PASS Separate owner-only purchase/event arrival contract")
+    print("PASS Separate purchaser and base-owner arrival contract")
 
 
 if __name__ == "__main__":
