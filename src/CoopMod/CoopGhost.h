@@ -128,12 +128,15 @@ BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 /// the named unit (see this header's own file comment for why: the `kneel`
 /// case needs the PRE-apply kneeled bit). A ghost already running for the
 /// SAME unit is completed INSTANTLY (dropped to its end state) and replaced -
-/// the display clock never gates apply. No-op when
+/// a turn/kneel/walk ghost's clock never gates apply (only a shot's flight does,
+/// see holdsApply()). No-op when
 /// Options::coopGhostStepper is false, outside a coop battle, for any other
 /// `kind`, or when @a save/the payload's unit does not resolve.
 ///
 /// On a coop CLIENT this is also the COMBAT ghost's single bt_ev entry. Every applied ev except a
-/// `reveal` first ends every running combat ghost (cut when its fixed duration has not elapsed), and a `shot`
+/// `reveal` first ends every running combat ghost (cut when its fixed duration has not elapsed; a shot ghost
+/// is never early here in normal play, because the apply pump holds the next envelope until the flight has
+/// been drawn whole - holdsApply()), and a `shot`
 /// also completes the shooter's own running turn/kneel/walk ghost; that completion rule is never gated by
 /// Options::coopGhostStepper, only STARTING a ghost is. An applied `shot` then starts one display-only
 /// projectile ghost: a vanilla Projectile on the live Map flying the path re-derived with vanilla's own path
@@ -171,6 +174,20 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev);
 /// partner's or an alien's shot. FALSE in single player, on the host and whenever the Map shows no ghost
 /// projectile. Reads only (a pointer compare).
 bool ownsProjectile(const Map* map);
+
+/// TRUE while CoopPump::drainApplyQueue() must keep @a head, the next in-order envelope, queued because a
+/// shot ghost is still drawing its flight: the hit (and everything behind it, in order) applies only once the
+/// flight has been drawn whole, so the watching player sees every shot's full flight and its damage, deaths
+/// and explosions when the bullet lands, as on the host. A shot held behind its shooter's turn ghost holds
+/// too, until one flight after that turn's end. The wait is bounded by the flight's own clock (never by the
+/// pump, a screen or the network): it ends when the flight's time is up whether or not advance() ran. Holds
+/// nothing for a `turn_start` / `death_step` cue or a nested `reveal` (they leave combat ghosts running),
+/// for a ghost whose Map is not the live one (a teardown or a new BattlescapeState), with no live
+/// BattlescapeState, with the option off, on the host and outside a coop battle. Main thread only (the pump
+/// thread); takes no lock (it runs under the apply queue's).
+/// Counts each held envelope once in combatProbe()'s `applyHold` and, when it is released, writes `heldSeq` /
+/// `holdMs` into the shot's ring record.
+bool holdsApply(const Json::Value& head, std::uint32_t nowMs);
 
 /// Advances every running ghost by one frame of wall-clock time - called
 /// once per frame from BattlescapeState::think()'s existing per-frame path

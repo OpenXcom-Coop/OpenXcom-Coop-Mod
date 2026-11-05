@@ -2648,6 +2648,13 @@ void drainApplyQueue()
 				ev = g_battleApplyQueue.front();
 				g_battleFrozen.store(true);
 			}
+			else if (CoopGhost::holdsApply(g_battleApplyQueue.front(), SDL_GetTicks()))
+			{
+				// A co-op client's shot ghost is still drawing its flight: this envelope (the hit, or whatever
+				// comes next) and everything behind it stay queued, in order, until the flight has been drawn
+				// whole. A later pump pass applies them; the wait is bounded by the flight's own clock.
+				return;
+			}
 			else
 			{
 				ev = std::move(g_battleApplyQueue.front());
@@ -24453,6 +24460,15 @@ struct CombatProbeStore
 	std::deque<Json::Value> cameraMoves;
 	CameraSuppressedCounts cameraSuppressed;
 	std::uint64_t cameraPushed = 0;  // move records pushed this battle (a follow finds its own)
+	// The apply hold (event_state `combatGhost.applyHold`): how many envelopes waited in the apply pump for a
+	// shot ghost's flight, the longest wait, and the envelope waiting now (its seq, since when, and the ring
+	// record of the shot it waits for, which gets `heldSeq` / `holdMs` when the wait ends). Cleared with the
+	// rest of this storage by combatSync() only.
+	int applyHolds = 0;
+	std::uint32_t applyHoldMaxMs = 0;
+	std::uint32_t holdSeq = 0;
+	std::uint32_t holdSinceMs = 0;
+	std::uint64_t holdOrdinal = 0;
 };
 CombatProbeStore g_combatProbe;
 const std::size_t kCombatRingCap = 32;
@@ -24547,6 +24563,11 @@ struct CombatGhost
 	bool held = false;
 	std::uint32_t afterTurnSeq = 0;
 	std::uint32_t enqueuedAtMs = 0;
+	// A shot ghost only: the SDL tick at which its flight has been drawn whole. Until then the apply pump keeps
+	// the next envelope queued (holdsApply()), so the hit never cuts the flight. Started at once: startedAtMs +
+	// durationMs. Held behind its shooter's turn: that turn's end + durationMs, fixed at enqueue so the wait has
+	// a bound even when nothing releases the shot; the release then sets the real end (release + durationMs).
+	std::uint32_t flightEndMs = 0;
 	// The held pair's keys - the shooter's unit id (its turn ghost's key) and the shot's actionId - and the
 	// fire / throw sound picked at enqueue (the ammo may leave with this cue's own delta), played and recorded at
 	// release.
@@ -25291,6 +25312,8 @@ void combatEnd(CombatGhost& g, bool cut)
 }
 
 /// Every running combat ghost ends before the next ev's state applies (cut when early).
+/// A shot ghost is not early here in normal play: the apply pump keeps the next envelope queued until the
+/// flight has been drawn whole (holdsApply()). Impact and effect ghosts still end at the next ev.
 /// A pellet `hit` passes its own non-zero actionId as @a spareActionId - the
 /// running hit / explosion ghost of that action keeps running (the pellet joins it); every other ghost ends.
 void combatEndAll(std::uint32_t nowMs, std::uint32_t spareActionId = 0)
@@ -25304,6 +25327,10 @@ void combatEndAll(std::uint32_t nowMs, std::uint32_t spareActionId = 0)
 			g_combatGhosts.push_back(g);
 			continue;
 		}
+		// Probe only: the time since the last advance() counts as a gap too, so a frame stall right before
+		// this end shows in the record's maxGapMs.
+		if (!g.held && nowMs - g.lastAdvanceMs > g.maxGapMs)
+			g.maxGapMs = nowMs - g.lastAdvanceMs;
 		combatEnd(g, (std::uint32_t)(nowMs - g.startedAtMs) < g.durationMs);
 	}
 }
@@ -25388,6 +25415,10 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	r["waitMs"] = 0;
 	r["maxGapMs"] = 0;
 	r["startStamp"] = 0;
+	// Probe only: the envelope the apply pump kept queued behind this flight (its seq, 0 for none) and how long
+	// it waited.
+	r["heldSeq"] = 0;
+	r["holdMs"] = 0;
 	++g_combatProbe.enqueued.shot;
 
 	std::vector<Position> path;
@@ -25504,6 +25535,12 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 		g.afterTurnSeq = turnSeq;
 		g.enqueuedAtMs = SDL_GetTicks();
 		g.lastAdvanceMs = g.enqueuedAtMs;
+		// The flight is expected to end one flight after that turn ends on its own clock.
+		std::uint32_t turnEndMs = g.enqueuedAtMs;
+		auto t = g_coopGhosts.find(g.unitId);
+		if (t != g_coopGhosts.end() && t->second.seq == turnSeq)
+			turnEndMs = t->second.startedAtMs + t->second.durationMs;
+		g.flightEndMs = turnEndMs + g.durationMs;
 		r["afterTurnSeq"] = turnSeq;
 		g.ordinal = combatPushRecord(r);
 		++g_combatProbe.live;
@@ -25516,6 +25553,7 @@ void combatStartShot(SavedBattleGame* save, const Json::Value& ev, bool hold, st
 	map->setProjectile(projectile);
 	map->setFollowProjectile(cameraFollowStart(map, g));
 	map->invalidate();
+	g.flightEndMs = g.startedAtMs + g.durationMs;
 	g.lastAdvanceMs = g.startedAtMs;           // probe only
 	r["startStamp"] = ++g_combatProbe.stamp;   // probe only
 	g.ordinal = combatPushRecord(r);
@@ -26839,7 +26877,8 @@ bool fallView(const BattleUnit* u, CoopUnitDrawView* io)
 }
 
 /// The combat half of onEvApplied() (a coop client): the end-before-the-next-ev rule, never gated by the
-/// option, then a `shot`'s own ghost when the option is on. a `hit` / `explosion` starts its
+/// option (a shot ghost has always finished its flight by then in normal play: the apply pump holds the next
+/// envelope until it has, holdsApply()), then a `shot`'s own ghost when the option is on. a `hit` / `explosion` starts its
 /// impact ghost the same way, and a pellet `hit` joins the running one of its action instead.
 /// a `melee` / `psi` starts its effect ghost, a `medikit` / `panic` plays its sound (option on).
 void combatOnEv(SavedBattleGame* save, const Json::Value& ev, const std::string& kind)
@@ -27040,10 +27079,11 @@ bool combatAdvance(std::uint32_t nowMs)
 /// completion loop, so a turn ghost that ended naturally this frame releases its shot this same frame. A
 /// held ghost whose Map is no longer the live one, or whose thrown item no longer resolves to the pointer
 /// captured at enqueue, ends as a cut held ghost. One whose shooter has no ghost-stepper ghost with seq == afterTurnSeq any more
-/// is released: startedAtMs = now, its record's waitMs and startStamp, its fire / throw sound
-/// (picked at enqueue) played and recorded, then combatStartShot()'s go-on-Map lines (the Map's follow flag
-/// read now and switched off, setProjectile, invalidate). Stepping starts at the next combatAdvance(). Not
-/// option-gated; display only - no state waits for it.
+/// is released: startedAtMs = now, flightEndMs = now + its duration, its record's waitMs and startStamp, its
+/// fire / throw sound (picked at enqueue) played and recorded, then combatStartShot()'s go-on-Map lines (the
+/// Map's follow flag read now and switched off, setProjectile, invalidate). Stepping starts at the next
+/// combatAdvance(). Not option-gated. The release itself never waits on the apply pump; the pump waits for the
+/// flight (holdsApply()).
 void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
 {
 	combatSync();
@@ -27074,6 +27114,7 @@ void combatReleaseHeld(const SavedBattleGame* save, std::uint32_t nowMs)
 		}
 		it->held = false;
 		it->startedAtMs = nowMs;
+		it->flightEndMs = nowMs + it->durationMs; // the next envelope now waits for the real end of the flight
 		const std::uint32_t stamp = ++g_combatProbe.stamp;
 		combatPlay(save, it->pendingSound, live->getSoundAngle(it->pendingSoundAt));
 		if (Json::Value* r = combatRecord(it->ordinal))
@@ -27496,6 +27537,62 @@ void onActionEndApplied(SavedBattleGame* save, const Json::Value& ev)
 	cameraReactionRestore(ev);
 }
 
+bool holdsApply(const Json::Value& head, std::uint32_t nowMs)
+{
+	if (!combatClient() || !Options::coopGhostStepper)
+		return false;
+	combatSync();
+	if (g_combatGhosts.empty() && g_combatProbe.holdSeq == 0)
+		return false;
+	const std::uint32_t headSeq = head.get("seq", 0u).asUInt();
+	bool hold = false;
+	std::uint64_t ordinal = 0;
+	// The display-only `turn_start` and `death_step` cues and a nested `reveal` leave every combat ghost
+	// running (combatOnEv), so they never wait for a flight.
+	const std::string kind = head.get("kind", "").asString();
+	const bool endsGhosts = !(head.get("state", "").asString() == "bt_ev"
+		&& (kind == "reveal" || kind == "death_step" || kind == "turn_start"));
+	Map* live = combatLiveMap();
+	if (endsGhosts && live)
+	{
+		for (const CombatGhost& g : g_combatGhosts)
+		{
+			// Only a shot on the live Map holds: a ghost drawn on a Map that is gone ends at the next advance() and
+			// holds nothing. (Its thrown item cannot leave while it holds: only a later envelope could remove it.)
+			// The wait is bounded by the flight's own clock.
+			if (g.kind != "shot" || g.drawnOn != live)
+				continue;
+			if ((std::int32_t)(g.flightEndMs - nowMs) > 0)
+			{
+				hold = true;
+				ordinal = g.ordinal;
+				break;
+			}
+		}
+	}
+	// Probe only: count each held envelope once, and on its release write the wait into the shot's record.
+	if (hold && g_combatProbe.holdSeq != headSeq)
+	{
+		++g_combatProbe.applyHolds;
+		g_combatProbe.holdSeq = headSeq;
+		g_combatProbe.holdSinceMs = nowMs;
+		g_combatProbe.holdOrdinal = ordinal;
+	}
+	else if (!hold && g_combatProbe.holdSeq != 0)
+	{
+		const std::uint32_t waited = nowMs - g_combatProbe.holdSinceMs;
+		if (waited > g_combatProbe.applyHoldMaxMs)
+			g_combatProbe.applyHoldMaxMs = waited;
+		if (Json::Value* r = combatRecord(g_combatProbe.holdOrdinal))
+		{
+			(*r)["heldSeq"] = g_combatProbe.holdSeq;
+			(*r)["holdMs"] = waited;
+		}
+		g_combatProbe.holdSeq = 0;
+	}
+	return hold;
+}
+
 bool ownsProjectile(const Map* map)
 {
 	if (!map || !map->getProjectile())
@@ -27519,6 +27616,11 @@ Json::Value combatProbe()
 	o["live"] = g_combatProbe.live;
 	o["unresolved"] = g_combatProbe.unresolved;
 	o["noMap"] = g_combatProbe.noMap;
+	Json::Value hold(Json::objectValue);
+	hold["count"] = g_combatProbe.applyHolds;
+	hold["maxMs"] = g_combatProbe.applyHoldMaxMs;
+	hold["seq"] = g_combatProbe.holdSeq; // the envelope waiting now, 0 for none
+	o["applyHold"] = hold;
 	Json::Value ring(Json::arrayValue);
 	for (const Json::Value& r : g_combatProbe.ring)
 		ring.append(r);
