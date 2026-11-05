@@ -24,13 +24,19 @@ cell, then the row verdict; a row whose precondition failed FAILs its cells "blo
       (every live unit on its real faction).
   second_handover: X-COM's END TURN again, the aliens' screen, close, settle. second_handover-swap.
   battle_end: player 2 aborts the mission. -debrief (the debriefing on top, 0 new crash files), -real (0 soldiers
-      killed or missing, the soldier page lists the squad), -disarm (the debriefing disarms hotseat, as it does
-      for a New Battle).
+      killed or missing, the soldier page lists the squad), -armed (hotseat is still armed: in a campaign it stays
+      on until DISABLE HOTSEAT; a New Battle's debriefing disarms it, test_hotseat_turns.py).
   geoscape: the debriefing's OK, back on the geoscape. -back (geoscape on top, 0 new crash files), -roster (every
-      squad soldier is still in the base roster and the roster size is unchanged).
+      squad soldier is still in the base roster and the roster size is unchanged), -armed (hotseat armed), -window
+      (OPTIONS > CO-OP opens the HOST window with DISABLE HOTSEAT and no ENABLE HOTSEAT; CANCEL, CANCEL back).
+  second_battle: the same squad flies to a second terror site, nothing re-armed. -armed (hotseat armed at the
+      battlescape, turn 1, X-COM's side), -swap (X-COM's END TURN hands the aliens to player 2: swapped factions,
+      an alien selected), then player 2 aborts and the debriefing's OK returns to the geoscape.
+  disable: OPTIONS > CO-OP, DISABLE HOTSEAT. disable-off (hotseat disarmed, the button reads ENABLE HOTSEAT).
   common: campaign-common, 0 new crash files over the whole run.
-On a build without the campaign entry, entry-offer and every later cell FAIL. Exit 0 only when every cell passes,
-else 2 (one run, no SKIP).
+On a build without the campaign entry, entry-offer and every later cell FAIL; on a build whose debriefing disarms
+a campaign's hotseat, battle_end-armed and every cell after it FAIL. Exit 0 only when every cell passes, else 2
+(one run, no SKIP).
 
 Run: python tools/coop_test/test_hotseat_campaign.py
 """
@@ -54,11 +60,14 @@ CELLS = {
     "first_handover": ["first_handover-side", "first_handover-swap", "first_handover-select", "first_handover-noai"],
     "handback": ["handback-turn", "handback-real"],
     "second_handover": ["second_handover-swap"],
-    "battle_end": ["battle_end-debrief", "battle_end-real", "battle_end-disarm"],
-    "geoscape": ["geoscape-back", "geoscape-roster"],
+    "battle_end": ["battle_end-debrief", "battle_end-real", "battle_end-armed"],
+    "geoscape": ["geoscape-back", "geoscape-roster", "geoscape-armed", "geoscape-window"],
+    "second_battle": ["second_battle-armed", "second_battle-swap"],
+    "disable": ["disable-off"],
     "common": ["campaign-common"],
 }
-ORDER = ["entry", "battle_start", "first_handover", "handback", "second_handover", "battle_end", "geoscape"]
+ORDER = ["entry", "battle_start", "first_handover", "handback", "second_handover", "battle_end", "geoscape",
+         "second_battle", "disable"]
 RES = {}
 T0 = time.time()
 
@@ -252,6 +261,63 @@ def bring_up(B):
     gc.ok({"cmd": "geo_set_speed", "idx": 0})
 
 
+def land(B, cid, dlat):
+    """A terror site beside the base (latitude offset dlat), the Skyranger sent to it, the landing prompt's YES
+    after set_seed SEED, the briefing and the battle-start overlays. -> the site id, BattlescapeState on top."""
+    gc = B.gc
+    b0 = base0(gc)
+    gc.ok({"cmd": "set_seed", "seed": SEED})
+    site = gc.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION",
+                  "lon": b0["lon"] + 0.35, "lat": b0["lat"] + dlat, "race": "STR_SECTOID", "hours": 240})
+    sid_ = site["site_id"]
+    B.wait("site listed", lambda: any(s["id"] == sid_ for s in gc.ok({"cmd": "geo_state"})["missionSites"]), 30)
+    gc.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT", "lon": b0["lon"] + 0.34,
+           "lat": b0["lat"] + dlat, "dest": "site:%d" % sid_, "fuel": 999999, "lowFuel": False})
+    end = time.time() + 60
+    while B.top() != "ConfirmLandingState":
+        if time.time() > end:
+            raise Blocked("the craft never reached the site (stack %s)" % B.states()[-3:])
+        B.drain_one(keep=("ConfirmLandingState",))
+        gc.cmd({"cmd": "geo_set_speed", "idx": 2})
+        time.sleep(0.5)
+    gc.ok({"cmd": "set_seed", "seed": SEED})
+    gc.ok({"cmd": "confirm_landing"})
+    B.wait("BriefingState", lambda: session.has_state(gc, "BriefingState"), 120, 0.25)
+    gc.ok({"cmd": "close_briefing"})
+    B.wait("BattlescapeState", lambda: session.has_state(gc, "BattlescapeState"), 60, 0.2)
+    session.dismiss_battle_start_overlays(gc, timeout=20)
+    B.wait("BattlescapeState on top", lambda: B.top() == "BattlescapeState", 30)
+    return sid_
+
+
+def open_host_window(B):
+    """OPTIONS, then CO-OP, on screen from the geoscape. -> the top state's visible button captions."""
+    B.click("OPTIONS")
+    B.wait("PauseState on top", lambda: B.top() == "PauseState", 10)
+    B.click("CO-OP")
+    B.wait("HostMenu on top", lambda: B.top() == "HostMenu", 10)
+    session.wait_widget_ready(B.gc, "CANCEL")  # the popup window shows its buttons once it has opened
+    return B.buttons()
+
+
+def back_to_geoscape(B):
+    """CANCEL in the HOST window, CANCEL in the options."""
+    B.click("CANCEL")
+    B.wait("PauseState on top", lambda: B.top() == "PauseState", 10)
+    B.click("CANCEL")
+    B.wait("geoscape on top", lambda: B.top() == "GeoscapeState", 10)
+
+
+def abort_to_geoscape(B):
+    """ABORT, the abort dialog's OK, the debriefing's OK, any popups down to the geoscape."""
+    B.gc.ok({"cmd": "battle_action", "action": "abort"})
+    B.wait("AbortMissionState", lambda: B.top() == "AbortMissionState", 10)
+    B.gc.ok({"cmd": "dismiss_popup"})
+    B.wait("DebriefingState", lambda: B.top() == "DebriefingState", 30)
+    B.gc.wait_for("back on the geoscape",
+                  lambda: session.drain_to_geoscape(B.gc, time.time() + 2, 0.3), timeout=60, interval=0.1)
+
+
 def row_entry(B, ctx):
     gc = B.gc
     path = [B.top()]
@@ -312,28 +378,8 @@ def row_battle_start(B, ctx):
             raise Blocked("soldier %s not seated: %s" % (sid, r))
     ctx["squad"] = squad
     ctx["squadNames"] = sorted(s["name"] for s in rb["soldiers"] if s["id"] in squad)
-    b0 = base0(gc)
-    gc.ok({"cmd": "set_seed", "seed": SEED})
-    site = gc.ok({"cmd": "spawn_mission_site", "mission": "STR_ALIEN_TERROR", "deployment": "STR_TERROR_MISSION",
-                  "lon": b0["lon"] + 0.35, "lat": b0["lat"] + 0.10, "race": "STR_SECTOID", "hours": 240})
-    sid_ = site["site_id"]
-    B.wait("site listed", lambda: any(s["id"] == sid_ for s in gc.ok({"cmd": "geo_state"})["missionSites"]), 30)
-    gc.ok({"cmd": "craft_force", "craft_id": cid, "status": "STR_OUT", "lon": b0["lon"] + 0.34,
-           "lat": b0["lat"] + 0.10, "dest": "site:%d" % sid_, "fuel": 999999, "lowFuel": False})
-    end = time.time() + 60
-    while B.top() != "ConfirmLandingState":
-        if time.time() > end:
-            raise Blocked("the craft never reached the site (stack %s)" % B.states()[-3:])
-        B.drain_one(keep=("ConfirmLandingState",))
-        gc.cmd({"cmd": "geo_set_speed", "idx": 2})
-        time.sleep(0.5)
-    gc.ok({"cmd": "set_seed", "seed": SEED})
-    gc.ok({"cmd": "confirm_landing"})
-    B.wait("BriefingState", lambda: session.has_state(gc, "BriefingState"), 120, 0.25)
-    gc.ok({"cmd": "close_briefing"})
-    B.wait("BattlescapeState", lambda: session.has_state(gc, "BattlescapeState"), 60, 0.2)
-    session.dismiss_battle_start_overlays(gc, timeout=20)
-    B.wait("BattlescapeState on top", lambda: B.top() == "BattlescapeState", 30)
+    ctx["craft"] = cid
+    sid_ = land(B, cid, 0.10)
     b = B.bst()
     us = {u["id"]: u for u in b.get("units", [])}
     co = gc.ok({"cmd": "get_coop"})
@@ -451,7 +497,7 @@ def row_battle_end(B, ctx):
     cell("battle_end-debrief", B.top() == "DebriefingState" and not new, "top %s, new crash files %s" % (B.top(), new))
     cell("battle_end-real", killed == 0 and mia == 0 and names == ctx["squadNames"],
          "killed %d, MIA %d, soldiers %s (squad %s)" % (killed, mia, names, ctx["squadNames"]))
-    cell("battle_end-disarm", hs is False, "hotseat %r" % hs)
+    cell("battle_end-armed", hs is True, "hotseat %r" % hs)
     ctx["debrief"] = B.top() == "DebriefingState"
 
 
@@ -470,11 +516,71 @@ def row_geoscape(B, ctx):
     cell("geoscape-back", B.top() == "GeoscapeState" and not new, "top %s, new crash files %s" % (B.top(), new))
     cell("geoscape-roster", not missing and ids == ctx["roster0"],
          "squad missing %s, roster %d (was %d)" % (missing, len(ids), len(ctx["roster0"])))
+    hs = B.gc.ok({"cmd": "get_coop"}).get("hotseat")
+    cell("geoscape-armed", hs is True, "hotseat %r" % hs)
+    if B.top() != "GeoscapeState":
+        fail_rest("geoscape", "blocked: not on the geoscape")
+        return
+    shown = open_host_window(B)
+    evidence("geoscape_window", buttons=shown, texts=B.texts())
+    cell("geoscape-window", "DISABLE HOTSEAT" in shown and "ENABLE HOTSEAT" not in shown, "buttons %s" % shown)
+    back_to_geoscape(B)
+    ctx["geo"] = B.top() == "GeoscapeState"
+
+
+def row_second_battle(B, ctx):
+    if not ctx.get("geo"):
+        fail_rest("second_battle", "blocked: not back on the geoscape (geoscape)")
+        return
+    sid_ = land(B, ctx["craft"], -0.10)
+    b = B.bst()
+    hs = B.gc.ok({"cmd": "get_coop"}).get("hotseat")
+    evidence("second_battle", site=sid_, hotseat=hs, turn=b.get("turn"), side=b.get("side"),
+             missionType=b.get("missionType"), soldiers=len(live(B.units(), 0)))
+    armed = hs is True and b.get("turn") == 1 and b.get("side") == 0
+    cell("second_battle-armed", armed, "hotseat %r turn %r side %r" % (hs, b.get("turn"), b.get("side")))
+    if not armed:
+        cell("second_battle-swap", False, "blocked: the battle did not start in hotseat")
+    else:
+        nts = B.end_turn_to(1, 60)
+        if not nts:
+            B.capture("second_battle: no aliens' turn screen")
+            cell("second_battle-swap", False, "no aliens' turn screen in 60 s")
+        else:
+            B.gc.ok({"cmd": "close_nextturn"})
+            settled, b, st = B.settle(10)
+            us = {u["id"]: u for u in b.get("units", [])}
+            ok_swap, bad = swapped(us)
+            sel = b.get("selectedId")
+            cell("second_battle-swap", settled and ok_swap and sel in {u["id"] for u in live(us, 1)},
+                 "settled %r, wrong %s, selectedId %r" % (settled, bad, sel))
+    abort_to_geoscape(B)
+    ctx["geo2"] = B.top() == "GeoscapeState"
+
+
+def row_disable(B, ctx):
+    if not ctx.get("geo2"):
+        fail_rest("disable", "blocked: not back on the geoscape (second_battle)")
+        return
+    shown = open_host_window(B)
+    if "DISABLE HOTSEAT" not in shown:
+        evidence("disable", buttons=shown)
+        back_to_geoscape(B)
+        fail_rest("disable", "blocked: no DISABLE HOTSEAT button (buttons %s)" % shown)
+        return
+    B.click("DISABLE HOTSEAT")
+    off = B.wait("hotseat disarmed", lambda: B.gc.ok({"cmd": "get_coop"}).get("hotseat") is False, 5)
+    after = B.buttons()
+    evidence("disable", before=shown, after=after)
+    back_to_geoscape(B)
+    hs = B.gc.ok({"cmd": "get_coop"}).get("hotseat")
+    cell("disable-off", off and hs is False and "ENABLE HOTSEAT" in after and "DISABLE HOTSEAT" not in after,
+         "hotseat %r, buttons %s" % (hs, after))
 
 
 ROWS = {"entry": row_entry, "battle_start": row_battle_start, "first_handover": row_first_handover,
         "handback": row_handback, "second_handover": row_second_handover, "battle_end": row_battle_end,
-        "geoscape": row_geoscape}
+        "geoscape": row_geoscape, "second_battle": row_second_battle, "disable": row_disable}
 
 
 def main():
