@@ -122,6 +122,11 @@ class HostMenu : public State
 	void testHostWithFields(int comboIndex, const std::string& server,
 							const std::string& port, const std::string& password);
 	bool hostControlsVisible() const;
+	/// Test hooks: the connection-type combo's options and selection, and picking
+	/// an option by its label through the combo's own change handler.
+	const std::vector<std::string>& harnessVisibilityOptions() const { return _visibilityTypes; }
+	size_t harnessVisibilitySelected() const;
+	bool harnessSelectVisibility(const std::string& label);
 	/// coop: flips the HOST's remembered turn mode.
 	/// The choice is per-MACHINE and per-SESSION - it is stamped onto every
 	/// battle_offer this host sends and the client MIRRORS it, so only

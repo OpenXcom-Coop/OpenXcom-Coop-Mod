@@ -777,6 +777,30 @@ bool HostMenu::hostControlsVisible() const
 		|| _cbxVisibility->getVisible();
 }
 
+size_t HostMenu::harnessVisibilitySelected() const
+{
+	return _cbxVisibility->getSelected();
+}
+
+/**
+ * Test hook: picks the connection-type option with this label, then runs the
+ * combo's own change handler, as a player's pick in the dropdown does.
+ * @return false when the combo offers no such option.
+ */
+bool HostMenu::harnessSelectVisibility(const std::string& label)
+{
+	for (size_t i = 0; i < _visibilityTypes.size(); ++i)
+	{
+		if (_visibilityTypes[i] == label)
+		{
+			_cbxVisibility->setSelected(i);
+			cbxVisibilityChange(nullptr);
+			return true;
+		}
+	}
+	return false;
+}
+
 /**
  * Returns to the previous screen.
  * @param action Pointer to an action.

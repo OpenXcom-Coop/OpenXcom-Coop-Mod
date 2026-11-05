@@ -17216,7 +17216,36 @@ std::string TestServer::execute(const std::string& line)
 			HostMenu* hm = findState<HostMenu>(_game);
 			resp["open"] = (hm != nullptr);
 			resp["controlsVisible"] = hm ? hm->hostControlsVisible() : false;
+			// the connection-type combo: every option it offers and the picked one
+			Json::Value hmOptions(Json::arrayValue);
+			if (hm)
+			{
+				for (const auto& o : hm->harnessVisibilityOptions())
+					hmOptions.append(o);
+				resp["visibilitySelected"] = (Json::UInt)hm->harnessVisibilitySelected();
+			}
+			resp["visibilityOptions"] = hmOptions;
 			resp["ok"] = true;
+		}
+		else if (cmd == "host_menu_visibility")
+		{
+			// pick a connection-type option by its label through the combo's own
+			// change handler (the dropdown pick a player makes)
+			HostMenu* hm = topState<HostMenu>(_game);
+			const std::string label = req.get("label", "").asString();
+			if (!hm)
+			{
+				resp["error"] = "no HostMenu on top";
+			}
+			else if (!hm->harnessSelectVisibility(label))
+			{
+				resp["error"] = "the HOST window offers no option '" + label + "'";
+			}
+			else
+			{
+				resp["selected"] = (Json::UInt)hm->harnessVisibilitySelected();
+				resp["ok"] = true;
+			}
 		}
 		else if (cmd == "host_menu_cancel")
 		{
