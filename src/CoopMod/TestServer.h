@@ -56,6 +56,9 @@ private:
 	TestServer() = default;
 	void ioThread(int port);
 	std::string execute(const std::string& line);
+	/// TEST-ONLY `pump_hold` (see its comment in TestServer.cpp). True = @a line was that command and @a resp holds
+	/// its final reply. Lives beside pump(), not in execute(), because it waits on the inbox pump() drains.
+	bool pumpHold(const std::string& line, std::string& resp);
 	/// PRD-J10 hooks. execute()'s command chain is at MSVC's 128-block nesting
 	/// limit (C1061), so newer commands get their own dispatcher; execute() tries
 	/// this one first. True = @a cmd was handled here.
