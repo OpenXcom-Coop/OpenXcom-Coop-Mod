@@ -7,8 +7,8 @@ entry with id SKY (customDeployment); EQ = both D equal in saved and positions. 
 keys from read_key.
 PV(gc, erase) = keyGeoUfopedia, "X-COM CRAFT", the SKYRANGER row, keyGeoUfopedia (INFO), "Preview", close_briefing,
 battle_action abort, [modstate ctrl], OK, [modstate none], end_turn_button, close_screens (<= 2 s per probe, SETTLE
-0.3 s before a key or click; never close_screens or a copy over an open preview). COPY = client force_resync, then both
-stacks [GeoscapeState] and EQ <= 30 s.
+0.3 s before a key or click, "X-COM CRAFT" clicked once session.wait_widget_ready shows it; never close_screens or a
+copy over an open preview). COPY = client force_resync, then both stacks [GeoscapeState] and EQ <= 30 s.
 SET(want) = host PV(erase = not want) when the host's saved != want, COPY when not EQ, client
 shared_reset_resync_stats; guard saved == want on both and EQ. MARK = base_screen_op deploy_mark {HostBase, SKY} on
 both, then Dsky true on both. reqs / fails = the client's shared_resync_stats.requests / shared_stats.failCount.
@@ -156,11 +156,14 @@ def pv(gc, keys, erase=False):
          or miss("pedia_open", act(gc, key).get("ok") and kind("start"), pd(gc).get("kind")))
     if m:
         return m, ev
-    sec = act(gc, {"cmd": "click_widget", "match": "X-COM CRAFT"})
+    # UfopaediaStartState's POPUP window hides its buttons while it opens and a hidden button drops the click: wait
+    # until "X-COM CRAFT" shows.
+    ready = session.wait_widget_ready(gc, "X-COM CRAFT")
+    sec = q(gc, {"cmd": "click_widget", "match": "X-COM CRAFT"})
     kind("select")
     p = pd(gc)
     m = (miss("craft_section", sec.get("ok") and p.get("kind") == "select" and "SKYRANGER" in (p.get("rows") or []),
-              [sec.get("text"), p.get("rows")])
+              [sec.get("text"), p.get("rows"), {"ready s": ready}])
          or miss("skyranger_article", row(p, sec, "SKYRANGER") and pd(gc).get("article") == SKYR, pd(gc).get("article"))
          or miss("info_screen", act(gc, key).get("ok") and kind("nerds") and len(caption(gc)) == 1, caption(gc))
          or miss("preview_open", act(gc, {"cmd": "click_widget", "match": "preview"}).get("ok") and on(BRF), stack(gc)))
