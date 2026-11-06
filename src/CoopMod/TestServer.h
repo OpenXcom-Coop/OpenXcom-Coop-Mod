@@ -80,6 +80,9 @@ private:
 	/// call from product code). Same C1061-avoidance reason as the three
 	/// dispatchers above.
 	bool executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// Join-check hooks (server browser rows, the incompatible-mods screen, the
+	/// reported build version and mod list). executeIntrospect13 tries it first.
+	bool executeJoinChecks14(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

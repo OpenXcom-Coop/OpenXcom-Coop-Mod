@@ -126,6 +126,7 @@
 #include "../Mod/RuleInterface.h"                     // the debriefing interface's box colours
 
 #include "./connectionUDP/connection_rendezvous_glue.h"
+#include "./connectionUDP/rendezvous_config.h"
 
 #include "PasswordCheckMenu.h"
 #include "ModCheckMenu.h"
@@ -37345,6 +37346,20 @@ void connectionTCP::updateCoopTask()
 		_game->pushState(new CoopState(441));
 	}
 
+	// refused by a rendezvous join check (another build version or mod list)
+	if (onConnect == -4)
+	{
+
+		onConnect = -1;
+
+		// the attempt is over: retire "Connecting..." and show what differs
+		closeConnectingDialog();
+
+		std::string hostVersion;
+		const bool versionKnown = lastJoinRefusalHostVersion(hostVersion);
+		_game->pushState(new ModCheckMenu(lastJoinRefusalHostMods(), versionKnown, hostVersion));
+	}
+
 	// coop
 	// server error!
 	coopRearmParkedStage(_game); // coop: a waiting part 2 is offered again after the rejoin + RESUME
@@ -38219,40 +38234,25 @@ std::vector<std::string> connectionTCP::splitVectorMod(std::string s, std::strin
 	return splitVector(s, delimiter);
 }
 
+// The build version and mod list (a coopModListString) a host's join message
+// reports; "" for what it does not report.
+static void hostJoinIdentity(const Json::Value& obj, std::string& version, std::string& mods)
+{
+	version = obj.get("game_version", "").asString();
+	std::vector<std::pair<std::string, std::string>> list;
+	for (const Json::Value& mod : obj["mods"])
+	{
+		list.push_back(std::make_pair(mod.get("name", "").asString(), mod.get("version", "").asString()));
+	}
+	mods = coopModListString(list);
+}
+
 bool connectionTCP::hasRequiredMods(const std::string& mod_hash)
 {
-	// Local mods
-	std::vector<std::string> local_mod_names = _game->getMod()->getCoopModList();
-
-	// If server does not require mods, allow join
-	if (mod_hash == "")
-		return true;
-
-	// Required mods from the host/server
-	std::vector<std::string> required_mods =
-		_game->getCoopMod()->splitVectorMod(mod_hash, ";");
-
-	// Remove empty strings, because mod_hash may end with ";"
-	required_mods.erase(
-		std::remove(required_mods.begin(), required_mods.end(), ""),
-		required_mods.end());
-
-	local_mod_names.erase(
-		std::remove(local_mod_names.begin(), local_mod_names.end(), ""),
-		local_mod_names.end());
-
-	// Check that mod count is the same
-	if (local_mod_names.size() != required_mods.size())
-		return false;
-
-	// Check that every required mod exists locally
-	for (const auto& mod : required_mods)
-	{
-		if (std::find(local_mod_names.begin(), local_mod_names.end(), mod) == local_mod_names.end())
-			return false;
-	}
-
-	return true;
+	// A host's published mod list (coopModListString) must equal this game's
+	// own: the same mods, at the same versions, in the same load order. An
+	// empty list never matches.
+	return !mod_hash.empty() && mod_hash == getReportedModList(_game->getMod()->getCoopModList());
 }
 
 void connectionTCP::syncCoopInventory()
@@ -40763,6 +40763,22 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 	if (stateString == "tcp_password")
 	{
+
+		// the challenge carries the host's build version and mod list: a host
+		// the join reply would refuse is refused here, before the player is
+		// asked for its password
+		{
+			std::string hostVersion, hostMods;
+			hostJoinIdentity(obj, hostVersion, hostMods);
+			if (!isCoopJoinCompatible(hostVersion, hostMods, getReportedGameVersion(),
+				getReportedModList(_game->getMod()->getCoopModList())))
+			{
+				disconnectTCP();
+				closeConnectingDialog();
+				_game->pushState(new ModCheckMenu(hostMods, true, hostVersion));
+				return;
+			}
+		}
 
 		// A bounce while the prompt is already up means the password the
 		// player submitted was wrong: let updateCoopTask() raise the
@@ -43739,25 +43755,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "COOP_READY_SAVE_PROGRESS" && onTcpHost == false)
 	{
 
-		// MODS
-		std::string str_hash;
-		for (Json::Value host_mod : obj["mods"])
-		{
-
-			std::string host_mod_name = host_mod["name"].asString();
-
-			str_hash += host_mod_name + ";";
-		}
-
-		if (!_game->getCoopMod()->hasRequiredMods(str_hash))
+		// a host on another build, or with another mod list (another mod, mod
+		// version or load order), is refused
+		std::string hostVersion, hostMods;
+		hostJoinIdentity(obj, hostVersion, hostMods);
+		if (!isCoopJoinCompatible(hostVersion, hostMods, getReportedGameVersion(),
+			getReportedModList(_game->getMod()->getCoopModList())))
 		{
 
 			_game->getCoopMod()->disconnectTCP();
 
-			// refused for a mod mismatch: the attempt is over
+			// refused: the attempt is over
 			closeConnectingDialog();
 
-			_game->pushState(new ModCheckMenu(str_hash));
+			_game->pushState(new ModCheckMenu(hostMods, true, hostVersion));
 
 			return;
 		}
@@ -43843,25 +43854,20 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 	if (stateString == "COOP_READY_CLIENT_REQUEST_PROFILE" && onTcpHost == false)
 	{
 
-		// MODS
-		std::string str_hash;
-		for (Json::Value host_mod : obj["mods"])
-		{
-
-			std::string host_mod_name = host_mod["name"].asString();
-
-			str_hash += host_mod_name + ";";
-		}
-
-		if (!_game->getCoopMod()->hasRequiredMods(str_hash))
+		// a host on another build, or with another mod list (another mod, mod
+		// version or load order), is refused
+		std::string hostVersion, hostMods;
+		hostJoinIdentity(obj, hostVersion, hostMods);
+		if (!isCoopJoinCompatible(hostVersion, hostMods, getReportedGameVersion(),
+			getReportedModList(_game->getMod()->getCoopModList())))
 		{
 
 			_game->getCoopMod()->disconnectTCP();
 
-			// refused for a mod mismatch: the attempt is over
+			// refused: the attempt is over
 			closeConnectingDialog();
 
-			_game->pushState(new ModCheckMenu(str_hash));
+			_game->pushState(new ModCheckMenu(hostMods, true, hostVersion));
 
 			return;
 		}
@@ -43977,15 +43983,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		Json::Value root;
 
-		// mod check
-		std::vector<std::string> mod_names = _game->getMod()->getCoopModList();
+		// the joiner compares this game's build version and mod list (each mod's
+		// name and version, in load order) with its own
+		root["game_version"] = getReportedGameVersion();
 
 		int index = 0;
 
-		for (auto mod_name : mod_names)
+		for (const auto& mod : getReportedMods(_game->getMod()->getCoopModList()))
 		{
 
-			root["mods"][index]["name"] = mod_name;
+			root["mods"][index]["name"] = mod.first;
+			root["mods"][index]["version"] = mod.second;
 
 			index++;
 		}
@@ -44001,6 +44009,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 				Json::Value rootPassword;
 				rootPassword["state"] = "tcp_password";
+				// the same build version and mod list, so a joiner on another
+				// build or mod list is refused before it is asked for the password
+				rootPassword["game_version"] = root["game_version"];
+				rootPassword["mods"] = root["mods"];
 
 				sendTCPPacketData(rootPassword.toStyledString());
 

@@ -264,7 +264,7 @@ bool getRendezvousServerConfig(size_t index,
     outCfg.host = e.host;
     outCfg.tcpPort = e.tcpPort;
     outCfg.udpPort = e.udpPort;
-    outCfg.gameVersion = OPENXCOM_VERSION_LONG;
+    outCfg.gameVersion = getReportedGameVersion();
 
     return decodeKeysFor(e, outKeys, error);
 }
@@ -280,7 +280,7 @@ BuiltInRendezvousConfig getBuiltInRendezvousConfig()
     cfg.host = e.host;
     cfg.tcpPort = e.tcpPort;
     cfg.udpPort = e.udpPort;
-    cfg.gameVersion = OPENXCOM_VERSION_LONG;
+    cfg.gameVersion = getReportedGameVersion();
     return cfg;
 }
 
@@ -301,6 +301,106 @@ std::string getRendezvousConfigPath()
 {
     servers();
     return g_loadedPath;
+}
+
+namespace
+{
+    // Read by join worker threads, so every access holds the lock.
+    std::mutex g_reportedMutex;
+    bool g_reportedVersionReplaced = false;
+    std::string g_reportedVersion;
+    bool g_reportedModsReplaced = false;
+    std::vector<std::pair<std::string, std::string>> g_reportedMods;
+}
+
+std::string getReportedGameVersion()
+{
+    std::lock_guard<std::mutex> lock(g_reportedMutex);
+    return g_reportedVersionReplaced ? g_reportedVersion : std::string(OPENXCOM_VERSION_LONG);
+}
+
+std::vector<std::pair<std::string, std::string>> getReportedMods(const std::vector<std::string>& loadedIds)
+{
+    {
+        std::lock_guard<std::mutex> lock(g_reportedMutex);
+        if (g_reportedModsReplaced)
+            return g_reportedMods;
+    }
+
+    std::vector<std::pair<std::string, std::string>> mods;
+    const auto& infos = Options::getModInfos();
+    for (const auto& id : loadedIds)
+    {
+        auto it = infos.find(id);
+        mods.push_back(std::make_pair(id, it != infos.end() ? it->second.getVersion() : std::string()));
+    }
+    return mods;
+}
+
+std::string coopModListString(const std::vector<std::pair<std::string, std::string>>& mods)
+{
+    std::string list;
+    for (const auto& mod : mods)
+        list += mod.first + ":" + mod.second + ";";
+    return list;
+}
+
+std::string getReportedModList(const std::vector<std::string>& loadedIds)
+{
+    return coopModListString(getReportedMods(loadedIds));
+}
+
+std::vector<std::pair<std::string, std::string>> parseCoopModList(const std::string& list)
+{
+    std::vector<std::pair<std::string, std::string>> mods;
+    size_t start = 0;
+    while (start < list.size())
+    {
+        size_t end = list.find(';', start);
+        if (end == std::string::npos)
+            end = list.size();
+        const std::string entry = list.substr(start, end - start);
+        if (!entry.empty())
+        {
+            const size_t colon = entry.find(':');
+            if (colon == std::string::npos)
+                mods.push_back(std::make_pair(entry, std::string()));
+            else
+                mods.push_back(std::make_pair(entry.substr(0, colon), entry.substr(colon + 1)));
+        }
+        start = end + 1;
+    }
+    return mods;
+}
+
+bool isCoopJoinCompatible(const std::string& hostVersion, const std::string& hostMods,
+                          const std::string& localVersion, const std::string& localMods)
+{
+    return !hostVersion.empty() && hostVersion == localVersion
+        && !hostMods.empty() && hostMods == localMods;
+}
+
+void setReportedGameVersionForTest(const std::string& version)
+{
+    std::lock_guard<std::mutex> lock(g_reportedMutex);
+    g_reportedVersionReplaced = true;
+    g_reportedVersion = version;
+}
+
+void setReportedModsForTest(const std::vector<std::pair<std::string, std::string>>& mods)
+{
+    std::lock_guard<std::mutex> lock(g_reportedMutex);
+    g_reportedModsReplaced = true;
+    g_reportedMods = mods;
+}
+
+void clearReportedIdentityForTest()
+{
+    std::lock_guard<std::mutex> lock(g_reportedMutex);
+    g_reportedVersionReplaced = false;
+    g_reportedVersion.clear();
+    g_reportedModsReplaced = false;
+    g_reportedMods.clear();
 }
 
 }

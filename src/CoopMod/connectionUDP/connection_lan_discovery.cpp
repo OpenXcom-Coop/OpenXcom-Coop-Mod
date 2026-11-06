@@ -107,7 +107,8 @@ namespace
 
         if (compatibleOnly)
         {
-            if (!gameVersion.empty() && !room.gameVersion.empty() && room.gameVersion != gameVersion)
+            // a room on another build, or one that reports no build, is left out
+            if (room.gameVersion.empty() || room.gameVersion != gameVersion)
                 return false;
             if (!modHash.empty() && !room.modHash.empty() && room.modHash != modHash)
                 return false;

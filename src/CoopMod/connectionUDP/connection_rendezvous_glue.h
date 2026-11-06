@@ -40,6 +40,17 @@ void probeAllRendezvousServersAsync(uint32_t timeoutMs, RendezvousProbeCallback 
 // TCP-only disconnects use this to avoid closing stale rendezvous state.
 bool isRendezvousConnectionActive();
 
+// True when the last join attempt was refused for another build version or mod
+// list (onConnect -4): its failure callback must not open the password prompt.
+bool lastJoinRefusedIncompatible();
+
+// The published mod list (coopModListString) of the room the last join attempt
+// was refused against, for the incompatible-mods screen; "" when unknown.
+std::string lastJoinRefusalHostMods();
+
+// That room's published build version: true and *version set when it is known.
+bool lastJoinRefusalHostVersion(std::string& version);
+
 // -----------------------------------------------------------------------------
 // Short UI-facing API.
 // Uses rendezvous_config.cpp for host, ports, game version and public keys.
@@ -117,7 +128,9 @@ bool joinLanRoomViaRendezvous(const std::string& roomId,
 // Direct Connect helper for LAN hosts that were created with
 // hostListedViaRendezvousAsync(...). The user only provides the host LAN IP;
 // this function queries that host on kLanDiscoveryPort to get roomId/lanPort, then joins
-// the same rendezvous room through the LAN endpoint.
+// the same rendezvous room through the LAN endpoint. modHash is this game's own
+// mod list (getReportedModList): a room on another build version or with another
+// mod list is refused (onConnect -4) before any password is asked for.
 bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
                                        const std::string& roomPassword,
                                        const std::string& playerName,

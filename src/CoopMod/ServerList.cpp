@@ -962,6 +962,145 @@ void ServerList::lstServerMouseOut(Action*)
 }
 
 /**
+ * Joins the server in row `sel` of the server list.
+ * @param sel Index into the listed servers.
+ */
+void ServerList::joinServer(int sel)
+{
+
+	if (!_servers[sel].added && !_game->getCoopMod()->hasRequiredMods(_servers[sel].modHash))
+	{
+
+		_game->pushState(new ModCheckMenu(_servers[sel].modHash));
+
+		return;
+	}
+
+	if (_servers[sel].isUDP == true && _servers[sel].added == false)
+	{
+
+		if (_servers[sel].passwordRequired == "YES")
+		{
+
+			_game->pushState(new PasswordCheckMenu(&_servers[sel], _game->getCoopMod()->getHostName(), true, false));
+
+		}
+		else
+		{
+
+			_game->getCoopMod()->_waitBC = false;
+			_game->getCoopMod()->_waitBH = false;
+			_game->getCoopMod()->_battleWindow = false;
+			_game->getCoopMod()->_battleInit = false;
+			_game->getCoopMod()->coopInventory = false;
+			_game->getCoopMod()->coopMissionEnd = false;
+			_game->getCoopMod()->inventory_battle_window = true;
+
+			// Ensure the coop state menu does not close immediately.
+			connectionTCP::forceCloseCoopStateMenu = false;
+
+			// Ensure the password check menu does not close immediately.
+			connectionTCP::forceClosePasswordCheckMenu = false;
+
+			_game->pushState(new CoopState(15));
+
+			const bool useLanEndpoint =
+				_servers[sel].isLanDiscovery &&
+				!_servers[sel].lanHost.empty() &&
+				_servers[sel].lanPort != 0;
+
+			if (useLanEndpoint)
+			{
+
+				OpenXcom::joinLanRoomViaRendezvousAsync(
+					_servers[sel].id,                   // Rendezvous room id.
+					_servers[sel].lanHost,              // LAN IP found by UDP discovery, e.g. 192.168.1.50.
+					_servers[sel].lanPort,              // Host LAN UDP port, usually 3001 if 3000 is discovery.
+					"",                                 // Empty if no password.
+					_game->getCoopMod()->getHostName(), // Local player name.
+					0                                   // Client local UDP port. 0 = automatic.
+				);
+			}
+			else
+			{
+
+				OpenXcom::joinListedViaRendezvousAsync(
+					_servers[sel].id,                   // Room ID from the selected server-list entry. This identifies which room to join.
+					"",                                 // Room password. Empty string means no password; must match host password if one is set.
+					_game->getCoopMod()->getHostName(), // Local player name sent to the rendezvous server / shown to the host or lobby.
+					0                                   // Local UDP port. 0 = let the OS choose a free UDP port automatically.
+				);
+			}
+
+		}
+
+	}
+	else if (_servers[sel].added == true)
+	{
+
+		_game->getCoopMod()->_waitBC = false;
+		_game->getCoopMod()->_waitBH = false;
+		_game->getCoopMod()->_battleWindow = false;
+		_game->getCoopMod()->_battleInit = false;
+		_game->getCoopMod()->coopInventory = false;
+		_game->getCoopMod()->coopMissionEnd = false;
+		_game->getCoopMod()->inventory_battle_window = true;
+
+		// Ensure the coop state menu does not close immediately.
+		connectionTCP::forceCloseCoopStateMenu = false;
+
+		// Ensure the password check menu does not close immediately.
+		connectionTCP::forceClosePasswordCheckMenu = false;
+
+		_game->pushState(new CoopState(15));
+
+		if (_servers[sel].isUDP == true)
+		{
+
+			uint16_t port = _servers[sel].lanPort;
+			std::string ipAddress = _servers[sel].lanHost;
+
+			OpenXcom::joinLanRoomByAddressViaRendezvousAsync(
+				ipAddress,                          // Host LAN IP from Direct Connect menu.
+				"",                                 // Must match host password. Empty is allowed.
+				_game->getCoopMod()->getHostName(), // Client player name.
+				getReportedModList(_game->getMod()->getCoopModList()), // This game's mod list, compared with the host's.
+				port,                               // client local UDP port, 0 = automatic
+				[this, port, ipAddress](bool ok)
+				{
+					if (ok)
+					{
+						// Direct LAN connection started.
+						return;
+					}
+
+					// another build or mod list: the incompatible-mods screen opens instead
+					if (OpenXcom::lastJoinRefusedIncompatible())
+					{
+						return;
+					}
+
+					connectionTCP::forceCloseCoopStateMenu = true;
+
+					// Direct LAN failed. Most likely wrong password, host not found,
+					// firewall, or wrong port.
+					// If this room/server requires a password, open passwordCheck menu.
+					_game->pushState(new PasswordCheckMenu(ipAddress, _game->getCoopMod()->getHostName(), port, true, true));
+				});
+
+		}
+		else
+		{
+
+			_game->getCoopMod()->connectTCPServer(_servers[sel].lanHost, std::to_string(_servers[sel].lanPort));
+
+		}
+
+	}
+
+}
+
+/**
  * Deletes the selected save.
  * @param action Pointer to an action.
  */
@@ -971,135 +1110,9 @@ void ServerList::lstServerPress(Action* action)
 	{
 
 		int sel = _lstServers->getSelectedRow() - _firstValidRow;
-		std::string wstr;
 		if (sel >= 0 && sel < (int)_servers.size())
 		{
-
-			std::string udpPassword = "";
-
-			if (!_servers[sel].added && !_game->getCoopMod()->hasRequiredMods(_servers[sel].modHash))
-			{
-
-				_game->pushState(new ModCheckMenu(_servers[sel].modHash));
-
-				return;
-			}
-
-			if (_servers[sel].isUDP == true && _servers[sel].added == false)
-			{
-
-				if (_servers[sel].passwordRequired == "YES")
-				{
-
-					_game->pushState(new PasswordCheckMenu(&_servers[sel], _game->getCoopMod()->getHostName(), true, false));
-
-				}
-				else
-				{
-
-					_game->getCoopMod()->_waitBC = false;
-					_game->getCoopMod()->_waitBH = false;
-					_game->getCoopMod()->_battleWindow = false;
-					_game->getCoopMod()->_battleInit = false;
-					_game->getCoopMod()->coopInventory = false;
-					_game->getCoopMod()->coopMissionEnd = false;
-					_game->getCoopMod()->inventory_battle_window = true;
-
-					// Ensure the coop state menu does not close immediately.
-					connectionTCP::forceCloseCoopStateMenu = false;
-
-					// Ensure the password check menu does not close immediately.
-					connectionTCP::forceClosePasswordCheckMenu = false;
-
-					_game->pushState(new CoopState(15));
-
-					const bool useLanEndpoint =
-						_servers[sel].isLanDiscovery &&
-						!_servers[sel].lanHost.empty() &&
-						_servers[sel].lanPort != 0;
-
-					if (useLanEndpoint)
-					{
-
-						OpenXcom::joinLanRoomViaRendezvousAsync(
-							_servers[sel].id,                   // Rendezvous room id.
-							_servers[sel].lanHost,              // LAN IP found by UDP discovery, e.g. 192.168.1.50.
-							_servers[sel].lanPort,              // Host LAN UDP port, usually 3001 if 3000 is discovery.
-							"",                                 // Empty if no password.
-							_game->getCoopMod()->getHostName(), // Local player name.
-							0                                   // Client local UDP port. 0 = automatic.
-						);
-					}
-					else
-					{
-
-						OpenXcom::joinListedViaRendezvousAsync(
-							_servers[sel].id,                   // Room ID from the selected server-list entry. This identifies which room to join.
-							"",                                 // Room password. Empty string means no password; must match host password if one is set.
-							_game->getCoopMod()->getHostName(), // Local player name sent to the rendezvous server / shown to the host or lobby.
-							0                                   // Local UDP port. 0 = let the OS choose a free UDP port automatically.
-						);
-					}
-
-				}
-
-			}
-			else if (_servers[sel].added == true)
-			{
-
-				_game->getCoopMod()->_waitBC = false;
-				_game->getCoopMod()->_waitBH = false;
-				_game->getCoopMod()->_battleWindow = false;
-				_game->getCoopMod()->_battleInit = false;
-				_game->getCoopMod()->coopInventory = false;
-				_game->getCoopMod()->coopMissionEnd = false;
-				_game->getCoopMod()->inventory_battle_window = true;
-
-				// Ensure the coop state menu does not close immediately.
-				connectionTCP::forceCloseCoopStateMenu = false;
-
-				// Ensure the password check menu does not close immediately.
-				connectionTCP::forceClosePasswordCheckMenu = false;
-
-				_game->pushState(new CoopState(15));
-
-				if (_servers[sel].isUDP == true)
-				{
-
-					uint16_t port = _servers[sel].lanPort;
-					std::string ipAddress = _servers[sel].lanHost;
-
-					OpenXcom::joinLanRoomByAddressViaRendezvousAsync(
-						ipAddress,                          // Host LAN IP from Direct Connect menu.
-						"",                                 // Must match host password. Empty is allowed.
-						_game->getCoopMod()->getHostName(), // Client player name.
-						port,                               // client local UDP port, 0 = automatic
-						[this, port, ipAddress](bool ok)
-						{
-							if (ok)
-							{
-								// Direct LAN connection started.
-								return;
-							}
-
-							connectionTCP::forceCloseCoopStateMenu = true;
-
-							// Direct LAN failed. Most likely wrong password, host not found,
-							// firewall, or wrong port.
-							// If this room/server requires a password, open passwordCheck menu.
-							_game->pushState(new PasswordCheckMenu(ipAddress, _game->getCoopMod()->getHostName(), port, true, true));
-						});
-
-				}
-				else
-				{
-
-					_game->getCoopMod()->connectTCPServer(_servers[sel].lanHost, std::to_string(_servers[sel].lanPort));
-
-				}
-
-			}
-
+			joinServer(sel);
 		}
 	}
 	else if (action->getDetails()->button.button == SDL_BUTTON_RIGHT)
