@@ -251,9 +251,13 @@ void SaveGameState::think()
 			// where the client is gone - the wait would never end. Write now
 			// with whatever blob is in the store (same staleness guarantee the
 			// autosaves and the COOP_DLG_HOST_SAVE_WAIT cancel already have).
+			// coop: nor in a PvP campaign whose client plays the aliens (gamemode 2). That client has no world of its own
+			// to send (only an unplaced stand-in base, so it never answers the request) and the save embeds a stand-in
+			// world for it, so write now.
 			bool deferHostSave = false;
 			if (!_quitAfterSave && (_game->getCoopMod()->isCoopSession() == true && _game->getCoopMod()->getServerOwner() == true && _game->getSavedGame() && !_game->getSavedGame()->getSavedBattle()) && _game->getCoopMod()->coopMissionEnd == false && _type != SAVE_IRONMAN_END
-				&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign()))
+				&& !(_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
+				&& connectionTCP::_coopGamemode != 2)
 			{
 
 				if (_type != SAVE_AUTO_GEOSCAPE && _type != SAVE_AUTO_BATTLESCAPE)
