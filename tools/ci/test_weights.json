@@ -349,6 +349,7 @@
   "test_shared_arrival_owner_labels": 12.3,
   "test_shared_autoend_crashsite": 44.4,
   "test_shared_base_attack": 5.8,
+  "test_shared_base_autoequip_parity": 34.0,
   "test_shared_base_defense": 11.0,
   "test_shared_base_equip": 18.4,
   "test_shared_base_writes": 52.5,
