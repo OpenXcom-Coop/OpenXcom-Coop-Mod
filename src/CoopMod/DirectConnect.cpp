@@ -21,6 +21,8 @@
 #include "DirectConnect.h"
 #include "../Engine/Surface.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
+#include "connectionUDP/rendezvous_config.h"
+#include "../Mod/Mod.h"
 #include "PasswordCheckMenu.h"
 
 namespace OpenXcom
@@ -402,6 +404,7 @@ void DirectConnect::joinTCPGame(Action* action)
 			_ipAddress->getText(),					// Host LAN IP from Direct Connect menu.
 			"",										// Must match host password. Empty is allowed.
 			_game->getCoopMod()->getHostName(),		// Client player name.
+			getReportedModList(_game->getMod()->getCoopModList()), // This game's mod list, compared with the host's.
 			hostUdpPort,							// client local UDP port, 0 = automatic
 			[this, hostUdpPort](bool ok)
 			{
@@ -409,6 +412,12 @@ void DirectConnect::joinTCPGame(Action* action)
 				if (ok)
 				{
 					// Direct LAN connection started.
+					return;
+				}
+
+				// another build or mod list: the incompatible-mods screen opens instead
+				if (OpenXcom::lastJoinRefusedIncompatible())
+				{
 					return;
 				}
 

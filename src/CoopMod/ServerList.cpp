@@ -1064,12 +1064,19 @@ void ServerList::joinServer(int sel)
 				ipAddress,                          // Host LAN IP from Direct Connect menu.
 				"",                                 // Must match host password. Empty is allowed.
 				_game->getCoopMod()->getHostName(), // Client player name.
+				getReportedModList(_game->getMod()->getCoopModList()), // This game's mod list, compared with the host's.
 				port,                               // client local UDP port, 0 = automatic
 				[this, port, ipAddress](bool ok)
 				{
 					if (ok)
 					{
 						// Direct LAN connection started.
+						return;
+					}
+
+					// another build or mod list: the incompatible-mods screen opens instead
+					if (OpenXcom::lastJoinRefusedIncompatible())
+					{
 						return;
 					}
 

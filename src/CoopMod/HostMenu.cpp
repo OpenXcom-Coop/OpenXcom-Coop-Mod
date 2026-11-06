@@ -694,13 +694,8 @@ void HostMenu::hostTCPGame(Action* action)
 		_game->getCoopMod()->coopMissionEnd = false;
 		_game->getCoopMod()->inventory_battle_window = true;
 
-		// mod compatibility
-		std::string str_hash;
-
-		for (const auto& mod : getReportedMods(_game->getMod()->getCoopModList()))
-		{
-			str_hash += mod.first + ";";
-		}
+		// mod compatibility: every mod with its version, in load order
+		std::string str_hash = getReportedModList(_game->getMod()->getCoopModList());
 
 		OpenXcom::hostListedViaRendezvousAsync(
 			_game->getCoopMod()->getHostServer(),  // Public room name shown in the server list.

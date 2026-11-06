@@ -21,6 +21,8 @@
 #include "PasswordCheckMenu.h"
 #include "../Engine/Surface.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
+#include "connectionUDP/rendezvous_config.h"
+#include "../Mod/Mod.h"
 
 namespace OpenXcom
 {
@@ -190,6 +192,7 @@ void PasswordCheckMenu::joinTCPGame(Action* action)
 			_ipAddress,                         // Host LAN IP from Direct Connect menu.
 			_password->getText(),               // Must match host password. Empty is allowed.
 			_player,                            // Client player name.
+			getReportedModList(_game->getMod()->getCoopModList()), // This game's mod list, compared with the host's.
 			_port                               // client local UDP port, 0 = automatic
 		);
 

@@ -37,6 +37,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace OpenXcom
@@ -102,6 +103,24 @@ std::string getReportedGameVersion();
 /// `loadedIds` is Mod::getCoopModList(); call on the main thread. The test
 /// server may replace the whole list.
 std::vector<std::pair<std::string, std::string>> getReportedMods(const std::vector<std::string>& loadedIds);
+
+/// A mod list as one string, "id:version;" per mod in load order. A room
+/// publishes it and every join check compares it whole, so another mod, another
+/// mod version or another load order makes it differ.
+std::string coopModListString(const std::vector<std::pair<std::string, std::string>>& mods);
+
+/// coopModListString(getReportedMods(loadedIds)): the mod list this game
+/// publishes with a room and compares a host's against. Main thread.
+std::string getReportedModList(const std::vector<std::string>& loadedIds);
+
+/// The (mod id, version) pairs of a coopModListString, in order. An entry
+/// without ":" (a host that reports names only) has an empty version.
+std::vector<std::pair<std::string, std::string>> parseCoopModList(const std::string& list);
+
+/// Whether a host may be joined: its build version and mod list both equal this
+/// game's own. An empty string never matches, so a host that reports none is refused.
+bool isCoopJoinCompatible(const std::string& hostVersion, const std::string& hostMods,
+                          const std::string& localVersion, const std::string& localMods);
 
 /// Test server only: replace the reported build version or mod list, or put
 /// both back to the real ones.

@@ -337,6 +337,49 @@ std::vector<std::pair<std::string, std::string>> getReportedMods(const std::vect
     return mods;
 }
 
+std::string coopModListString(const std::vector<std::pair<std::string, std::string>>& mods)
+{
+    std::string list;
+    for (const auto& mod : mods)
+        list += mod.first + ":" + mod.second + ";";
+    return list;
+}
+
+std::string getReportedModList(const std::vector<std::string>& loadedIds)
+{
+    return coopModListString(getReportedMods(loadedIds));
+}
+
+std::vector<std::pair<std::string, std::string>> parseCoopModList(const std::string& list)
+{
+    std::vector<std::pair<std::string, std::string>> mods;
+    size_t start = 0;
+    while (start < list.size())
+    {
+        size_t end = list.find(';', start);
+        if (end == std::string::npos)
+            end = list.size();
+        const std::string entry = list.substr(start, end - start);
+        if (!entry.empty())
+        {
+            const size_t colon = entry.find(':');
+            if (colon == std::string::npos)
+                mods.push_back(std::make_pair(entry, std::string()));
+            else
+                mods.push_back(std::make_pair(entry.substr(0, colon), entry.substr(colon + 1)));
+        }
+        start = end + 1;
+    }
+    return mods;
+}
+
+bool isCoopJoinCompatible(const std::string& hostVersion, const std::string& hostMods,
+                          const std::string& localVersion, const std::string& localMods)
+{
+    return !hostVersion.empty() && hostVersion == localVersion
+        && !hostMods.empty() && hostMods == localMods;
+}
+
 void setReportedGameVersionForTest(const std::string& version)
 {
     std::lock_guard<std::mutex> lock(g_reportedMutex);

@@ -36,6 +36,7 @@
 #include "../Interface/ArrowButton.h"
 
 #include "ModCheckMenu.h"
+#include "connectionUDP/rendezvous_config.h"
 
 namespace OpenXcom
 {
@@ -230,15 +231,24 @@ void ModCheckMenu::updateModList()
 	_mods.clear();
 
 	// Local mods
-	std::vector<std::string> local_mod_names = _game->getMod()->getCoopModList();
+	std::vector<std::string> local_mod_names;
+	for (const auto& local : getReportedMods(_game->getMod()->getCoopModList()))
+	{
+		local_mod_names.push_back(local.first);
+	}
 
 	if (_modHash != "")
 	{
-		// Required mods from the host/server
-		std::vector<std::string> mods = _game->getCoopMod()->splitVectorMod(_modHash, ";");
+		// Required mods from the host/server (each "id:version", in load order)
+		std::vector<std::string> mods;
+		for (const auto& host : parseCoopModList(_modHash))
+		{
+			mods.push_back(host.first);
+		}
 
-		// Check if any required mod is missing locally
-		for (auto& mod : mods)
+		// Check if any required mod is missing locally (by copy: the display
+		// names below must not change the list the extra-mod check reads)
+		for (auto mod : mods)
 		{
 			if (mod == "")
 				continue;

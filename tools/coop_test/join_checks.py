@@ -153,6 +153,11 @@ def judge(name, want, outcome, seen, last, gc, extra=None):
                 f.append("%s shown" % s)
         if coop and (coop.get("coopSession") or coop.get("onConnect") == 1):
             f.append("session still up after the refusal: %s" % coop)
+        # every joiner loads the host's mods by name: each host mod is listed once, as enabled
+        rows = [(r.get("name"), r.get("status")) for r in (info.get("rows") or [])]
+        names = [n for n, _ in rows]
+        if len(set(names)) != len(names) or any(s != "This mod is enabled." for _, s in rows):
+            f.append("screen rows %s (want each host mod once, 'This mod is enabled.')" % rows)
     elif outcome != "joined":
         f.append("matching games did not join: outcome %s, stack %s" % (outcome, last))
     print("%s %s%s" % ("PASS" if not f else "FAIL", name, "" if not f else ": " + "; ".join(f)), flush=True)
