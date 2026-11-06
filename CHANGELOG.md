@@ -9,6 +9,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Newest first.
 
 ## [Unreleased]
 ### Fixed
+- Co-op: joining a lobby is refused when the two players run different builds
+  or different mod lists (another mod, another version of a mod, or the same
+  mods in another load order), on every join path: the online and LAN server
+  lists, Direct Connect (TCP and UDP), saved servers and the password retry. A
+  refused join shows the incompatible-mods screen instead of the password
+  prompt or a "Connecting..." dialog that never closed. The joining player's
+  game does the check, so it needs this version.
 - Co-op SHARED campaigns: a soldier gifted between players during a battle no
   longer duplicates after the mission ends. Transferring a soldier back and forth
   in the battlescape used to leave a second copy of it in the shared roster once
