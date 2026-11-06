@@ -56,8 +56,8 @@ SLOT_ID = {"right": "STR_RIGHT_HAND", "left": "STR_LEFT_HAND",
 
 # ---- shared single-world helpers (imported by the other equipment tests) ----
 
-def bring_up(tag):
-    return fixture.bring_up(tag, PORTS)
+def bring_up(tag, options=None):
+    return fixture.bring_up(tag, PORTS, host_options=options, client_options=options)
 
 
 def _has_state(gc, n):

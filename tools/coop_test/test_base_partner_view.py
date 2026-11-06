@@ -48,6 +48,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture  # noqa: E402
+from harness import NO_AUTO_EQUIP  # noqa: E402
 import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
 import test_shared_base_writes as sbw  # noqa: E402  (main-guarded: keys, key, ctrl1, bso, personal, names)
 from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen  # noqa: E402
@@ -625,7 +626,8 @@ def main(tag=TAG, ports=PORTS, extra=None):
     t0, results, walls, js, x = time.time(), {}, {}, None, None
     try:
         try:
-            js = shared_fixture.bring_up(tag, ports, host_options=LINKS_OPT, client_options=LINKS_OPT)
+            opts = dict(LINKS_OPT, **NO_AUTO_EQUIP)
+            js = shared_fixture.bring_up(tag, ports, host_options=opts, client_options=opts)
             x = Fx(js.host, js.client, js)
             spine(x)
             walls["spine"] = round(time.time() - t0, 1)

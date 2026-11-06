@@ -996,6 +996,14 @@ def _remove_readonly(func, path, exc_info):
         raise exc_info[1]
 
 
+# Boot options for a test that moves items onto soldiers on a base or craft inventory screen. When that screen opens,
+# every soldier without a saved layout is handed starting gear from the base's items (BattlescapeGenerator::autoEquip),
+# in an order taken from item pointers: it changes from boot to boot and differs between the host and the client.
+# disableAutoEquip hands nothing out, so every soldier starts with empty slots on both machines. Do not use it in a
+# boot whose battle needs armed soldiers: the battle's deployment hands out nothing either.
+NO_AUTO_EQUIP = {"disableAutoEquip": True}
+
+
 def make_user_dir(name, saves=(), mods=(), options=None):
     """Hermetic, isolated user folder: a freshly written options.cfg pinning
     the stock `xcom1` master (see HERMETIC_OPTIONS) with no external mods and

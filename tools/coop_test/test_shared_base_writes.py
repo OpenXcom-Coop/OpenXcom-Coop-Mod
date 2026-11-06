@@ -13,20 +13,21 @@ SHARED boot (ports 49421 / 49422 / 47924, option OFF, STR_PERSONAL_ARMOR 4 on bo
   base_write_2 client screen: rename H "Vasquez B". Refused before any write: the reply keeps H's name and neither
         machine shows "Vasquez B" (host W). Without the read-only partner rule the reply says "Vasquez B".
   base_write_3 (guard) host screen open; client soldier_rename {C2, "Hicks B"} lands; host close: "Hicks B" on both.
-  base_write_4 client screen: select C, Ctrl+1, close. Without the fix the host's global 0 is still [] after W (its
-        screen open); with it slot 0 is equal.
+  base_write_4 client screen: select C, STR_PISTOL into C's left hand, Ctrl+1, close. Without the fix the host's
+        global 0 is still [] after W (its screen open); with it slot 0 is equal.
   base_write_5 client SKY equipment screen: loadout_save {index: 0}, OK. Without the fix the host's loadout 0 is still
         {} after W; with it they are equal.
   base_write_6 client soldier_armor {H, A1}. Without the fix the host's H wears A1 (cleanup: host -> A0); with it the
         request is refused "not your soldier".
   base_write_7 (guard, last in the SHARED boot) js.finish(): world equality (names included) + replica zero-disk.
 Armor boot (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_POWER_SUIT 4 on both):
-  base_write_8 C: A2, personal saved with it, A1; client screen key 108 (client's C A2). Without the fix the host's C
-        is still A1 after W.
+  base_write_8 C: A2, STR_PISTOL into C's left hand, personal saved with it, A1; client screen key 108 (client's C
+        A2). Without the fix the host's C is still A1 after W.
   base_write_9 H (host staging): A2, H's belt emptied to the ground, personal + one grenade, A1; client screen key 108
         on H. Nothing changes on either machine within 5 s. Without the read-only partner rule H takes the personal's
-        grenades on the client's screen. The fixture does not pin H's starting gear, and a full belt (two autocannon
-        clips, a grenade and a smoke grenade) left no cell for the staged grenade, so the belt is emptied first.
+        grenades on the client's screen. A full belt (two autocannon clips, a grenade and a smoke grenade) once left
+        no cell for the staged grenade, so the belt is emptied first.
+Every boot starts with harness.NO_AUTO_EQUIP: the soldiers carry nothing until a row stages an item.
 SEPARATE boot (labels 49693 / 49694, lobby 47693; one world, the client's soldiers at ClientBase, STR_PERSONAL_ARMOR 2
   there on both):
   separate_template_armor the client's first own soldier S: its screen saves global layout 0 with S's armor (A0),
@@ -47,7 +48,7 @@ import geo  # noqa: E402
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
 import test_shared_base_equip as sbe  # noqa: E402  (main-guarded: setup, screens, q / stack / wait_until)
-from harness import GameClient, make_user_dir, shutdown_clients  # noqa: E402
+from harness import GameClient, NO_AUTO_EQUIP, make_user_dir, shutdown_clients  # noqa: E402
 from test_shared_base_equip import q, stack, wait_until, open_soldier_screen, close_soldier_screen  # noqa: E402
 
 TAG_SHARED, PORTS_SHARED = "base_writes_shared", (49421, 49422, 47924)
@@ -55,7 +56,7 @@ TAG_ARMOR, PORTS_ARMOR = "base_writes_armor", (49425, 49426, 47926)
 TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "base_writes_separate", (49693, 49694), "47693"
 HB, CB, GEO = "HostBase", "ClientBase", "GeoscapeState"
 A0, A1, A2 = "STR_NONE_UC", "STR_PERSONAL_ARMOR_UC", "STR_POWER_SUIT_UC"
-I1, I2, GREN = "STR_PERSONAL_ARMOR", "STR_POWER_SUIT", "STR_GRENADE"
+I1, I2, GREN, PISTOL = "STR_PERSONAL_ARMOR", "STR_POWER_SUIT", "STR_GRENADE", "STR_PISTOL"
 BELT, CLEAR_CAP = "STR_BELT", 16
 W, KEY_W, SETTLE, KEY_SETTLE, SDLK_1 = 10.0, 5.0, 1.0, 0.3, 49
 NOT_YOURS = "not your soldier"
@@ -285,11 +286,13 @@ def row_layout_template_syncs(x, r):
     if not open_soldier_screen(r, c):
         return
     sel = bso(c, op="select", name=x.first["C"])
+    stage = q(c, {"cmd": "inventory_move", "name": x.first["C"], "item": PISTOL, "slot": "left"})
     k = ctrl1(c)
     close_soldier_screen(r, c)
-    r.ev.update({"select": sel, "ctrl1": k})
+    r.ev.update({"select": sel, "stage": stage, "ctrl1": k})
     cs = k["slot0"]
     nv = r.cell("non-vacuity: select C", sel.get("ok") is True and sel.get("id") == x.ids["C"], sel)
+    nv = r.cell(f"guard: the client staged {PISTOL} in C's left hand", stage.get("moved") is True, stage) and nv
     if not (r.cell("non-vacuity: the client's global 0 non-empty within 5 s", k["saved"] and cs and cs[0], k) and nv):
         r.evidence()
         return
@@ -389,11 +392,13 @@ def row_personal_armor_syncs(x, r):
         return
     kk = keys(c)
     sel = bso(c, op="select", name=cn)
-    r.ev["setup key 115"] = [sel, key(c, kk.get("keyInvSavePersonalEquipment")),
+    stage = q(c, {"cmd": "inventory_move", "name": cn, "item": PISTOL, "slot": "left"})
+    r.ev["setup key 115"] = [sel, stage, key(c, kk.get("keyInvSavePersonalEquipment")),
                              converge(lambda: personal(c, cid)[1] == A2, KEY_W)]
     close_soldier_screen(r, c)
-    if not (r.cell("guard: the client's personal of C saved with POWER", personal(c, cid)[1] == A2 and personal(c, cid)[0],
-                   personal(c, cid)) and set_armor(r, x, c, cid, A1, "setup C PERSONAL")):
+    if not (r.cell("guard: the client's personal of C saved with POWER", stage.get("moved") is True
+                   and personal(c, cid)[1] == A2 and PISTOL in personal(c, cid)[0], [stage, personal(c, cid)])
+            and set_armor(r, x, c, cid, A1, "setup C PERSONAL")):
         return
     b0 = snap_personal(x)
     if not open_soldier_screen(r, c):
@@ -515,8 +520,8 @@ def row_separate_template_armor(x, r):
 
 def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
-    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host", options=NO_AUTO_EQUIP))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client", options=NO_AUTO_EQUIP))
     x = X(h, c, base=CB)
     try:
         try:
@@ -570,7 +575,7 @@ def shared_boot(tag, ports, gifts, rids, rows, results, walls):
     t0, js, x = time.time(), None, None
     try:
         try:
-            js = shared_fixture.bring_up(tag, ports)
+            js = shared_fixture.bring_up(tag, ports, host_options=NO_AUTO_EQUIP, client_options=NO_AUTO_EQUIP)
             x = X(js.host, js.client, js)
             sbe.setup(x)  # option OFF on both, seats differ, H / C / C2, the SKYRANGER, the HostBase index (raises on a miss)
             x.first = {k: getattr(x, k) for k in ("H", "C", "C2")}

@@ -29,6 +29,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import test_coop_transferred_equipment as T
+from harness import NO_AUTO_EQUIP
 
 GEAR = [("STR_RIFLE", "right", 1), ("STR_PISTOL", "left", 1), ("STR_SMALL_ROCKET", "backpack", 2)]
 # what the client equips on its own crew, by hand
@@ -97,7 +98,7 @@ def assert_screens_agree(base_g, craft_g, sid, label):
 
 
 def main():
-    js = T.bring_up("xeqpeer")
+    js = T.bring_up("xeqpeer", NO_AUTO_EQUIP)
     host, client = js.host, js.client
     try:
         T.set_alt(host, client, True)

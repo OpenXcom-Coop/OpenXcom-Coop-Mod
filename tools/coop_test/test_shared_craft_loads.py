@@ -598,11 +598,11 @@ def down_option_on(js, results, crash0):
             js.client.shutdown()
 
 
-def shared_boot(tag, ports, rids, rows, results, walls, setup=None):
+def shared_boot(tag, ports, rids, rows, results, walls, setup=None, options=harness.NO_AUTO_EQUIP):
     t0, js, x, crash0 = time.time(), None, None, set()
     try:
         try:
-            js = shared_fixture.bring_up(tag, ports)
+            js = shared_fixture.bring_up(tag, ports, host_options=options, client_options=options)
             crash0 = crash_logs(js)
             x = sbe.X(js.host, js.client, js)
             sbe.setup(x)  # option OFF on both, seats differ, H / C / C2, the SKYRANGER, the HostBase index (raises on a miss)
@@ -619,8 +619,8 @@ def shared_boot(tag, ports, rids, rows, results, walls, setup=None):
 
 def boot_separate(results, walls):
     t0 = time.time()
-    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host"))
-    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client"))
+    h = GameClient("host", LABELS_SEPARATE[0], make_user_dir(TAG_SEPARATE + "_host", options=harness.NO_AUTO_EQUIP))
+    c = GameClient("client", LABELS_SEPARATE[1], make_user_dir(TAG_SEPARATE + "_client", options=harness.NO_AUTO_EQUIP))
     x = sbe.X(h, c, base=CB)
     try:
         try:
@@ -649,7 +649,8 @@ def main():
         ("craft_screen_load_syncs", lambda x, r: client_edit(
             x, r, "C2", True, "the client's craft-screen load never reached the host")),
         ("host_load_no_recopy", row_host_load), ("world_equal_option_on", finish),
-        ("open_screen_kept", row_open_screen_kept)), results, walls, setup_option_on)
+        ("open_screen_kept", row_open_screen_kept)), results, walls, setup_option_on,
+        options=None)  # setup_option_on needs every SKY crew member to leave the soldier screen with a layout
     boot_separate(results, walls)
     failed = [rid for rid in ORDER if not results.get(rid)]
     downs = sorted(k for k, v in results.items() if k.startswith("shutdown") and not v)
