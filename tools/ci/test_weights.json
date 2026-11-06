@@ -255,6 +255,7 @@
   "test_pvp_campaign_month": 36.4,
   "test_pvp_campaign_reconnect": 38.2,
   "test_pvp_campaign_resume": 22.3,
+  "test_pvp_campaign_save_after_rejoin": 8.0,
   "test_pvp_campaign_ufo_spawn": 33.2,
   "test_pvp_controls": 25.7,
   "test_pvp_controls_gm3": 24.8,
