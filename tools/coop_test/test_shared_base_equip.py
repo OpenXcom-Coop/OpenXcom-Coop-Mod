@@ -173,13 +173,19 @@ def open_soldier_screen(r, gc, base=HB):
 
 
 def close_soldier_screen(r, gc):
-    """battle_inventory ok -> InventoryState gone -> soldiers_ok -> SoldiersState gone."""
+    """battle_inventory ok -> InventoryState gone -> SoldiersState on top -> soldiers_ok -> SoldiersState gone.
+    soldiers_ok presses OK on a SoldiersState found anywhere in the stack, and OK closes whatever screen is on top, so
+    it is pressed only once SoldiersState is the top screen, as a player sees it. The cell keeps the stack before and
+    after the press (one run once left a SoldiersState open after soldiers_ok replied ok)."""
     rep = q(gc, {"cmd": "battle_inventory", "action": "ok"})
     r.cell(f"guard: {gc.name} battle_inventory ok",
            rep.get("ok") and wait_until(lambda: "InventoryState" not in stack(gc), 30), [rep, stack(gc)])
-    rep = q(gc, {"cmd": "soldiers_ok"})
+    on_top = wait_until(lambda: (stack(gc) or [""])[-1] == "SoldiersState", 30)
+    before = stack(gc)
+    rep = q(gc, {"cmd": "soldiers_ok"}) if on_top else {"error": "SoldiersState not on top within 30 s"}
     r.cell(f"guard: {gc.name} soldiers_ok",
-           rep.get("ok") and wait_until(lambda: "SoldiersState" not in stack(gc), 30), [rep, stack(gc)])
+           rep.get("ok") and wait_until(lambda: "SoldiersState" not in stack(gc), 30),
+           {"reply": rep, "stack before": before, "stack after": stack(gc)})
 
 
 def open_craft_screen(r, x, gc):
