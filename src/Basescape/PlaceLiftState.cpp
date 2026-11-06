@@ -206,6 +206,14 @@ void PlaceLiftState::viewClick(Action *)
 
 		_game->getCoopMod()->sendTCPPacketData(markers.toStyledString());
 
+		// coop: a PvP client's world lives on the host as a copy: the host serves it back when this client rejoins after a
+		// drop and writes it into a save it makes without asking (SAVE & QUIT after a drop). Send the world with the new base
+		// now, or that copy brings the client's world back without it. No-op on the host and on the alien side.
+		if (!_first)
+		{
+			_game->getCoopMod()->pushProgressToHostSilently();
+		}
+
 	}
 
 
