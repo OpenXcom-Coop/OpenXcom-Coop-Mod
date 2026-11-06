@@ -23,9 +23,10 @@ SHARED boot (ports 49421 / 49422 / 47924, option OFF, STR_PERSONAL_ARMOR 4 on bo
 Armor boot (SHARED, ports 49425 / 49426 / 47926, STR_PERSONAL_ARMOR 4 and STR_POWER_SUIT 4 on both):
   base_write_8 C: A2, personal saved with it, A1; client screen key 108 (client's C A2). Without the fix the host's C
         is still A1 after W.
-  base_write_9 H (host staging): A2, personal + one grenade, A1; client screen key 108 on H. Nothing changes on
-        either machine within 5 s. Without the read-only partner rule H takes the personal's grenades on the client's
-        screen.
+  base_write_9 H (host staging): A2, H's belt emptied to the ground, personal + one grenade, A1; client screen key 108
+        on H. Nothing changes on either machine within 5 s. Without the read-only partner rule H takes the personal's
+        grenades on the client's screen. The fixture does not pin H's starting gear, and a full belt (two autocannon
+        clips, a grenade and a smoke grenade) left no cell for the staged grenade, so the belt is emptied first.
 SEPARATE boot (labels 49693 / 49694, lobby 47693; one world, the client's soldiers at ClientBase, STR_PERSONAL_ARMOR 2
   there on both):
   separate_template_armor the client's first own soldier S: its screen saves global layout 0 with S's armor (A0),
@@ -55,6 +56,7 @@ TAG_SEPARATE, LABELS_SEPARATE, LOBBY_SEPARATE = "base_writes_separate", (49693, 
 HB, CB, GEO = "HostBase", "ClientBase", "GeoscapeState"
 A0, A1, A2 = "STR_NONE_UC", "STR_PERSONAL_ARMOR_UC", "STR_POWER_SUIT_UC"
 I1, I2, GREN = "STR_PERSONAL_ARMOR", "STR_POWER_SUIT", "STR_GRENADE"
+BELT, CLEAR_CAP = "STR_BELT", 16
 W, KEY_W, SETTLE, KEY_SETTLE, SDLK_1 = 10.0, 5.0, 1.0, 0.3, 49
 NOT_YOURS = "not your soldier"
 ROWS_SHARED = ["base_write_%d" % n for n in range(1, 8)]
@@ -130,6 +132,27 @@ def grenades(gc, nm):
     g = q(gc, {"cmd": "inventory_ground"})
     u = next((u for u in g.get("soldiers") or [] if u.get("name") == nm), {})
     return sum(1 for v in (u.get("slots") or {}).values() for e in v if e.get("item") == GREN)
+
+
+def belt_items(gc, nm):
+    g = q(gc, {"cmd": "inventory_ground"})
+    u = next((u for u in g.get("soldiers") or [] if u.get("name") == nm), {})
+    return [e.get("item") for e in (u.get("slots") or {}).get(BELT) or []]
+
+
+def clear_belt(gc, nm):
+    """Moves every item off nm's belt to the ground on gc's open soldier screen. from: unit takes the first item of that
+    type nm carries, which can sit in another slot, so it repeats until the belt is empty (at most CLEAR_CAP moves, each
+    recorded)."""
+    rec = {"before": belt_items(gc, nm), "moves": []}
+    for _ in range(CLEAR_CAP):
+        left = belt_items(gc, nm)
+        if not left:
+            break
+        mv = q(gc, {"cmd": "inventory_move", "name": nm, "item": left[0], "slot": "ground", "from": "unit"})
+        rec["moves"].append([left[0], mv.get("landedSlot"), mv.get("error")])
+    rec["after"] = belt_items(gc, nm)
+    return rec
 
 
 class X:
@@ -410,16 +433,18 @@ def row_partner_personal_readonly(x, r):
         return
     kk = keys(h)
     sel = bso(h, op="select", name=hn)
+    clear = clear_belt(h, hn)
     belt = q(h, {"cmd": "inventory_move", "name": hn, "item": GREN, "slot": "belt"})
     k115 = key(h, kk.get("keyInvSavePersonalEquipment"))
     saved = converge(lambda: personal(h, hid)[1] == A2 and GREN in personal(h, hid)[0], KEY_W)
     drop = q(h, {"cmd": "inventory_move", "name": hn, "item": GREN, "slot": "ground", "from": "unit"})
     close_soldier_screen(r, h)
-    r.ev["setup"] = {"select": sel, "belt": belt, "key 115": k115, "saved": saved, "drop": drop}
+    r.ev["setup"] = {"select": sel, "clear belt": clear, "belt": belt, "key 115": k115, "saved": saved, "drop": drop}
     synced = converge(lambda: personal(c, hid) == personal(h, hid))
     r.ev["setup"]["client record of H"] = [personal(c, hid), synced]
-    if not (r.cell("guard: the host's staging (grenade on, key 115, grenade off)", sel.get("ok") and belt.get("moved") is True
-                   and saved[0] and drop.get("moved") is True, r.ev["setup"])
+    if not (r.cell("guard: the host's staging (belt emptied, grenade on, key 115, grenade off)", sel.get("ok")
+                   and not clear["after"] and belt.get("moved") is True and saved[0] and drop.get("moved") is True,
+                   r.ev["setup"])
             and r.cell("guard: the client's record of H's personal == the host's", synced[0], personal(c, hid))
             and set_armor(r, x, h, hid, A1, "setup H PERSONAL")):
         r.evidence()
