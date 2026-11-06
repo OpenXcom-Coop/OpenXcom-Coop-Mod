@@ -110,6 +110,8 @@ protected:
 	void lstServerMouseOut(Action *action);
 	/// Handler for clicking the Server list.
 	virtual void lstServerPress(Action *action);
+	/// Joins the server in row `sel` of the server list (a left click on it).
+	void joinServer(int sel);
 	/// Handler for clicking the Name arrow.
 	void sortNameClick(Action *action);
 	/// Handler for clicking the Date arrow.
@@ -124,6 +126,8 @@ protected:
 	void think() override;
 	/// Read-only access to the rendezvous-server combobox (test harness).
 	DisableableComboBox* getServerCombo() const { return _cbxServer; }
+	/// Read-only access to the listed servers, in row order (test harness).
+	const std::vector<ServerInfo>& getServers() const { return _servers; }
 };
 
 }

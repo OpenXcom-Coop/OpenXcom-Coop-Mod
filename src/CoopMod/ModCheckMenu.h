@@ -71,6 +71,10 @@ protected:
 	void sortModRequiredClick(Action* action);
 	/// disables the sort buttons.
 	void disableSort();
+	/// Read-only access to the screen's title and rows (test harness).
+	std::string getTitle() const;
+	const std::vector<ModInfoCoop>& getRows() const { return _mods; }
+	const std::string& getModHash() const { return _modHash; }
 };
 
 }

@@ -92,4 +92,21 @@ bool loadBuiltInRendezvousKeys(RendezvousClient::ServerKeys& outKeys, std::strin
 /// if none existed). Useful for diagnostics / UI. Empty before first load.
 std::string getRendezvousConfigPath();
 
+// --- What this game reports about itself when it hosts or joins --------------
+
+/// Build version this game reports when it lists, hosts or joins a room:
+/// OPENXCOM_VERSION_LONG unless the test server replaced it.
+std::string getReportedGameVersion();
+
+/// Mods this game reports, as (mod id, metadata version) pairs in load order.
+/// `loadedIds` is Mod::getCoopModList(); call on the main thread. The test
+/// server may replace the whole list.
+std::vector<std::pair<std::string, std::string>> getReportedMods(const std::vector<std::string>& loadedIds);
+
+/// Test server only: replace the reported build version or mod list, or put
+/// both back to the real ones.
+void setReportedGameVersionForTest(const std::string& version);
+void setReportedModsForTest(const std::vector<std::pair<std::string, std::string>>& mods);
+void clearReportedIdentityForTest();
+
 }

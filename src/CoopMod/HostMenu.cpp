@@ -28,6 +28,7 @@
 #include "Profile.h"
 #include "ChatMenu.h"
 #include "connectionUDP/connection_rendezvous_glue.h"
+#include "connectionUDP/rendezvous_config.h"
 #include "BattleAuthority.h" // coopTurnMode* helpers
 
 namespace OpenXcom
@@ -694,12 +695,11 @@ void HostMenu::hostTCPGame(Action* action)
 		_game->getCoopMod()->inventory_battle_window = true;
 
 		// mod compatibility
-		std::vector<std::string> mod_names = _game->getMod()->getCoopModList();
 		std::string str_hash;
 
-		for (const auto& mod_name : mod_names)
+		for (const auto& mod : getReportedMods(_game->getMod()->getCoopModList()))
 		{
-			str_hash += mod_name + ";";
+			str_hash += mod.first + ";";
 		}
 
 		OpenXcom::hostListedViaRendezvousAsync(

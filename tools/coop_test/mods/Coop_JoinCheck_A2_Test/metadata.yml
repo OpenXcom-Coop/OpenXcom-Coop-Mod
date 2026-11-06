@@ -1,0 +1,7 @@
+id: Coop_JoinCheck_A_Test
+name: "Coop join check probe"
+version: "2.0"
+description: "Test-only fixture (lobby join checks). Version 2.0 of mod A: the same mod id as Coop_JoinCheck_A_Test with a different metadata version."
+author: coop harness
+
+master: xcom1

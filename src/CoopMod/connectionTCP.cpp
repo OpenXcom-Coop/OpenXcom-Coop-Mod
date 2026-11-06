@@ -126,6 +126,7 @@
 #include "../Mod/RuleInterface.h"                     // the debriefing interface's box colours
 
 #include "./connectionUDP/connection_rendezvous_glue.h"
+#include "./connectionUDP/rendezvous_config.h"
 
 #include "PasswordCheckMenu.h"
 #include "ModCheckMenu.h"
@@ -43978,14 +43979,12 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		Json::Value root;
 
 		// mod check
-		std::vector<std::string> mod_names = _game->getMod()->getCoopModList();
-
 		int index = 0;
 
-		for (auto mod_name : mod_names)
+		for (const auto& mod : getReportedMods(_game->getMod()->getCoopModList()))
 		{
 
-			root["mods"][index]["name"] = mod_name;
+			root["mods"][index]["name"] = mod.first;
 
 			index++;
 		}

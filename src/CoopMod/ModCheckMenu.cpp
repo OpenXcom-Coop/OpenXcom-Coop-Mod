@@ -406,4 +406,9 @@ void ModCheckMenu::disableSort()
 	_sortable = false;
 }
 
+std::string ModCheckMenu::getTitle() const
+{
+	return _txtTitle->getText();
+}
+
 }

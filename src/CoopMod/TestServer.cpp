@@ -204,7 +204,9 @@
 #include "ServerList.h"
 #include "connectionUDP/connection_rendezvous_glue.h" // join_rendezvous, get_coop rendezvousActive
 #include "connectionUDP/connection_udp_glue.h" // get_coop udpActive
+#include "connectionUDP/rendezvous_config.h" // set_reported_identity
 #include "PasswordCheckMenu.h"
+#include "ModCheckMenu.h"
 #include "../Engine/Screen.h"
 #include "../Basescape/BasescapeState.h"
 #include "../Basescape/MonthlyCostsState.h"
@@ -8890,6 +8892,9 @@ static void coopTestOpenSelectDestination(Game* game, const Json::Value& req, Js
 
 bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
+	// the join-check hooks ride this dispatcher so execute()'s own chain does not grow
+	if (executeJoinChecks14(cmd, req, resp))
+		return true;
 	// open_craft_info takes two request shapes: {craftId, craftType[, base]} is answered below, {base, craft_id}
 	// (a named base, which may be the other player's) by executeShared10.
 	if (cmd == "open_craft_info" && !req.isMember("craftId") && !req.isMember("craftType"))
@@ -13473,6 +13478,172 @@ static void describeEquipmentTemplates(SavedGame* save, Json::Value& out)
 	}
 	out["layouts"] = layouts;
 	out["crafts"] = crafts;
+}
+
+/**
+ * Join-check test hooks (server browser rows, the incompatible-mods screen, the
+ * reported build version and mod list), a further sub-dispatcher for the same
+ * C1061 reason as the others. Returns true if @a cmd was one of ours.
+ */
+bool TestServer::executeJoinChecks14(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	connectionTCP* coop = _game->getCoopMod();
+	if (cmd == "server_list_rows")
+	{
+		// The server browser's listed rows, in row order.
+		ServerList* browser = findState<ServerList>(_game);
+		if (!browser)
+		{
+			resp["error"] = "no ServerList in state stack";
+		}
+		else
+		{
+			Json::Value rows(Json::arrayValue);
+			for (const ServerInfo& s : browser->getServers())
+			{
+				Json::Value r;
+				r["id"] = s.id;
+				r["name"] = s.name;
+				r["player"] = s.player;
+				r["isUDP"] = s.isUDP;
+				r["added"] = s.added;
+				r["passwordRequired"] = s.passwordRequired;
+				r["modHash"] = s.modHash;
+				rows.append(r);
+			}
+			resp["rows"] = rows;
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "server_list_refresh")
+	{
+		// Press REFRESH in the server browser.
+		ServerList* browser = topState<ServerList>(_game);
+		if (!browser)
+		{
+			resp["error"] = "no ServerList on top";
+		}
+		else
+		{
+			browser->btnRefreshClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "server_list_join")
+	{
+		// Left-click the browser row whose room id is "room", as a player joins a listed game.
+		ServerList* browser = topState<ServerList>(_game);
+		std::string room = req.get("room", "").asString();
+		if (!browser)
+		{
+			resp["error"] = "no ServerList on top";
+		}
+		else
+		{
+			int row = -1;
+			const std::vector<ServerInfo>& servers = browser->getServers();
+			for (size_t i = 0; i < servers.size(); ++i)
+			{
+				if (servers[i].id == room)
+				{
+					row = static_cast<int>(i);
+					break;
+				}
+			}
+			if (row < 0)
+			{
+				resp["error"] = "server_list_join: no row for room '" + room + "'";
+			}
+			else
+			{
+				std::string player = req.get("player", "").asString();
+				if (!player.empty())
+				{
+					coop->setHostName(player);
+				}
+				coop->setCoopSession(false);
+				coop->setPlayerTurn(3);
+				browser->joinServer(row);
+				resp["row"] = row;
+				resp["ok"] = true;
+			}
+		}
+	}
+	else if (cmd == "mod_check_info")
+	{
+		// The incompatible-mods screen: whether it is up (and on top), its title and rows.
+		ModCheckMenu* menu = findState<ModCheckMenu>(_game);
+		resp["present"] = menu != nullptr;
+		resp["top"] = topState<ModCheckMenu>(_game) != nullptr;
+		if (menu)
+		{
+			resp["title"] = menu->getTitle();
+			resp["modHash"] = menu->getModHash();
+			Json::Value rows(Json::arrayValue);
+			for (const ModInfoCoop& m : menu->getRows())
+			{
+				Json::Value r;
+				r["name"] = m.modName;
+				r["status"] = m.modRequired;
+				rows.append(r);
+			}
+			resp["rows"] = rows;
+		}
+		resp["ok"] = true;
+	}
+	else if (cmd == "mod_check_close")
+	{
+		// Press CANCEL on the incompatible-mods screen.
+		ModCheckMenu* menu = topState<ModCheckMenu>(_game);
+		if (!menu)
+		{
+			resp["error"] = "no ModCheckMenu on top";
+		}
+		else
+		{
+			menu->btnCancelClick(nullptr);
+			resp["ok"] = true;
+		}
+	}
+	else if (cmd == "set_reported_identity")
+	{
+		// Replace the build version and/or mod list this game reports when it hosts or
+		// joins: "version" (a string, may be empty), "mods" ([[id, version], ...], may be
+		// empty). "clear": true puts both back to the real ones first.
+		if (req.get("clear", false).asBool())
+		{
+			clearReportedIdentityForTest();
+		}
+		if (req.isMember("version"))
+		{
+			setReportedGameVersionForTest(req["version"].asString());
+		}
+		if (req.isMember("mods"))
+		{
+			std::vector<std::pair<std::string, std::string>> mods;
+			for (const Json::Value& m : req["mods"])
+			{
+				mods.push_back(std::make_pair(m[0].asString(), m[1].asString()));
+			}
+			setReportedModsForTest(mods);
+		}
+		resp["version"] = getReportedGameVersion();
+		Json::Value mods(Json::arrayValue);
+		for (const auto& m : getReportedMods(_game->getMod()->getCoopModList()))
+		{
+			Json::Value e(Json::arrayValue);
+			e.append(m.first);
+			e.append(m.second);
+			mods.append(e);
+		}
+		resp["mods"] = mods;
+		resp["ok"] = true;
+	}
+	else
+	{
+		return false;
+	}
+	return true;
 }
 
 /**

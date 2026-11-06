@@ -1,0 +1,7 @@
+id: Coop_JoinCheck_B_Test
+name: "Coop join check probe"
+version: "1.0"
+description: "Test-only fixture (lobby join checks). A second mod, so two machines can load the same mods in a different order."
+author: coop harness
+
+master: xcom1
