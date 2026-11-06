@@ -13578,6 +13578,7 @@ bool TestServer::executeJoinChecks14(const std::string& cmd, const Json::Value& 
 		if (menu)
 		{
 			resp["title"] = menu->getTitle();
+			resp["buildLine"] = menu->getBuildLine();
 			resp["modHash"] = menu->getModHash();
 			Json::Value rows(Json::arrayValue);
 			for (const ModInfoCoop& m : menu->getRows())

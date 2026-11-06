@@ -48,6 +48,9 @@ bool lastJoinRefusedIncompatible();
 // was refused against, for the incompatible-mods screen; "" when unknown.
 std::string lastJoinRefusalHostMods();
 
+// That room's published build version: true and *version set when it is known.
+bool lastJoinRefusalHostVersion(std::string& version);
+
 // -----------------------------------------------------------------------------
 // Short UI-facing API.
 // Uses rendezvous_config.cpp for host, ports, game version and public keys.

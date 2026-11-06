@@ -40,7 +40,7 @@ def udp_lobby(host):
     return key
 
 
-def udp_cell(name, host, client, want, host_id=None, client_id=None):
+def udp_cell(name, kind, host, client, want, real_build, host_id=None, client_id=None):
     jc.to_menu(host, client)
     ids = {}
     if host_id is not None:
@@ -51,7 +51,8 @@ def udp_cell(name, host, client, want, host_id=None, client_id=None):
     client.ok({"cmd": "join_udp", "ip": "127.0.0.1", "port": key, "localport": "0", "player": "ClientPlayer",
                "password": UDP_SESSION, "campaign": True})
     outcome, seen, last = jc.watch(client, timeout=45)
-    return jc.judge(name, want, outcome, seen, last, client, extra={"identity": ids})
+    return jc.judge(name, want, outcome, seen, last, client, extra={"identity": ids},
+                    screen=jc.expected_screen(kind, real_build))
 
 
 def public_room(host, stub, password):
@@ -91,7 +92,7 @@ def listed(client, room, wait_s):
             time.sleep(0.05)
 
 
-def online_cell(name, host, client, stub, want, by_id=False, host_id=None, client_id=None):
+def online_cell(name, kind, host, client, stub, want, real_build, by_id=False, host_id=None, client_id=None):
     password = PASSWORD + "-" + name   # a room password of its own per cell, as in test_join_checks_tcp.py
     jc.to_menu(host, client)
     ids = {}
@@ -125,7 +126,9 @@ def online_cell(name, host, client, stub, want, by_id=False, host_id=None, clien
         retry, _, retry_last = jc.watch(client, timeout=45)
         extra["retryAfterPrompt"] = {"outcome": retry, "last": retry_last}
     extra["stubErrors"] = [e.get("message") for e in stub.events("ERROR")][e0:]
-    return jc.judge(name, want, outcome, seen, last, client, extra=extra)
+    # a click opens the screen from the browser row (no build version); a join by id from the refusal
+    return jc.judge(name, want, outcome, seen, last, client, extra=extra,
+                    screen=jc.expected_screen(kind, real_build, build_shown=by_id))
 
 
 def main():
@@ -144,21 +147,25 @@ def main():
         for gc in games:
             gc.spawn()
             gc.connect()
+        real = {}
         for gc in games:
-            jc.evidence("identity_" + gc.name, jc.identity(gc))
-        fails += udp_cell("udp_build", host, same, "refused", client_id={"version": jc.OTHER_BUILD})
-        fails += udp_cell("udp_empty_build", host, same, "refused", host_id={"version": ""})
-        fails += udp_cell("udp_empty_mods", host, same, "refused", host_id={"mods": []})
-        fails += udp_cell("udp_mod_version", host, modver, "refused")
-        fails += udp_cell("udp_load_order", host, order, "refused")
-        fails += udp_cell("udp_match", host, same, "joined")
-        fails += online_cell("online_build", host, same, stub, "refused", by_id=True,
+            real[gc.name] = jc.identity(gc)
+            jc.evidence("identity_" + gc.name, real[gc.name])
+        rb = real["host"]["version"]   # the build version every game here really reports
+        fails += udp_cell("udp_build", "build", host, same, "refused", rb, client_id={"version": jc.OTHER_BUILD})
+        fails += udp_cell("udp_empty_build", "empty_build", host, same, "refused", rb, host_id={"version": ""})
+        fails += udp_cell("udp_empty_mods", "empty_mods", host, same, "refused", rb, host_id={"mods": []})
+        fails += udp_cell("udp_mod_version", "mod_version", host, modver, "refused", rb)
+        fails += udp_cell("udp_load_order", "load_order", host, order, "refused", rb)
+        fails += udp_cell("udp_match", "match", host, same, "joined", rb)
+        fails += online_cell("online_build", "build", host, same, stub, "refused", rb, by_id=True,
                              client_id={"version": jc.OTHER_BUILD})
-        fails += online_cell("online_empty_build", host, same, stub, "refused", by_id=True, host_id={"version": ""})
-        fails += online_cell("online_empty_mods", host, same, stub, "refused", host_id={"mods": []})
-        fails += online_cell("online_mod_version", host, modver, stub, "refused")
-        fails += online_cell("online_load_order", host, order, stub, "refused")
-        fails += online_cell("online_match", host, same, stub, "joined")
+        fails += online_cell("online_empty_build", "empty_build", host, same, stub, "refused", rb, by_id=True,
+                             host_id={"version": ""})
+        fails += online_cell("online_empty_mods", "empty_mods", host, same, stub, "refused", rb, host_id={"mods": []})
+        fails += online_cell("online_mod_version", "mod_version", host, modver, stub, "refused", rb)
+        fails += online_cell("online_load_order", "load_order", host, order, stub, "refused", rb)
+        fails += online_cell("online_match", "match", host, same, stub, "joined", rb)
     except Exception as e:  # a staging step that could not run is a failure of the whole run
         fails.append("setup: %s" % e)
         print("FAIL setup: %s" % e, flush=True)

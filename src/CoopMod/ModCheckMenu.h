@@ -43,7 +43,7 @@ class ModCheckMenu : public State
 protected:
 	TextButton *_btnCancel;
 	Window *_window;
-	Text *_txtTitle, *_txtModName, *_txtModRequired;
+	Text *_txtTitle, *_txtBuild, *_txtModName, *_txtModRequired;
 	TextList *_lstMods;
 	ArrowButton *_sortModName, *_sortModRequired;
 	OptionsOrigin _origin;
@@ -54,8 +54,10 @@ protected:
 	void updateArrows();
 	void updateModList();
   public:
-	/// Creates the Saved Game state.
-	ModCheckMenu(std::string modHash);
+	/// Creates the incompatible-mods screen for a host's mod list (a
+	/// coopModListString). With showBuild, a line under the title names both
+	/// builds when the host's build version differs from this game's.
+	ModCheckMenu(std::string modHash, bool showBuild = false, std::string hostVersion = std::string());
 	/// Cleans up the Saved Game state.
 	virtual ~ModCheckMenu();
 	/// Sets up the mod list.
@@ -73,6 +75,7 @@ protected:
 	void disableSort();
 	/// Read-only access to the screen's title and rows (test harness).
 	std::string getTitle() const;
+	std::string getBuildLine() const;
 	const std::vector<ModInfoCoop>& getRows() const { return _mods; }
 	const std::string& getModHash() const { return _modHash; }
 };

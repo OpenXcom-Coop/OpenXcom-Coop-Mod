@@ -86,7 +86,7 @@ struct compareModRequired
  * @param firstValidRow First row containing saves.
  * @param autoquick Show auto/quick saved games?
  */
-ModCheckMenu::ModCheckMenu(std::string modHash) : _sortable(true), _modHash(modHash)
+ModCheckMenu::ModCheckMenu(std::string modHash, bool showBuild, std::string hostVersion) : _sortable(true), _modHash(modHash)
 {
 	_screen = false;
 
@@ -106,6 +106,7 @@ ModCheckMenu::ModCheckMenu(std::string modHash) : _sortable(true), _modHash(modH
 	_btnCancel = new TextButton(wCancel, h, x, y);
 
 	_txtTitle = new Text(310, 17, 5, 7);
+	_txtBuild = new Text(310, 9, 5, isMobile ? 27 : 23);
 	_txtModName = new Text(115, 9, 16, isMobile ? 40 : 32);
 	_txtModRequired = new Text(50, 9, 154, isMobile ? 40 : 32);
 	_lstMods = new TextList(298, isMobile ? 96 : 104, 8, isMobile ? 50 : 42);
@@ -119,6 +120,7 @@ ModCheckMenu::ModCheckMenu(std::string modHash) : _sortable(true), _modHash(modH
 	add(_window, "window", "saveMenus");
 	add(_btnCancel, "button", "saveMenus");
 	add(_txtTitle, "text", "saveMenus");
+	add(_txtBuild, "text", "saveMenus");
 	add(_txtModName, "text", "saveMenus");
 	add(_txtModRequired, "text", "saveMenus");
 	add(_lstMods, "list", "saveMenus");
@@ -145,6 +147,15 @@ ModCheckMenu::ModCheckMenu(std::string modHash) : _sortable(true), _modHash(modH
 	_txtTitle->setBig();
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setText("INCOMPATIBLE MODS");
+
+	// another build: name both (a host that reports none shows "unknown")
+	_txtBuild->setAlign(ALIGN_CENTER);
+	const std::string localVersion = getReportedGameVersion();
+	if (showBuild && hostVersion != localVersion)
+	{
+		_txtBuild->setText("Host build " + (hostVersion.empty() ? std::string("unknown") : hostVersion)
+			+ ", your build " + localVersion + ".");
+	}
 
 	_txtModName->setText("Mod Name");
 	_txtModRequired->setText("Status");
@@ -227,82 +238,86 @@ void ModCheckMenu::updateArrows()
 
 void ModCheckMenu::updateModList()
 {
-
 	_mods.clear();
 
-	// Local mods
-	std::vector<std::string> local_mod_names;
-	for (const auto& local : getReportedMods(_game->getMod()->getCoopModList()))
+	// a mod's name as the list shows it
+	auto shown = [](const std::string& id)
 	{
-		local_mod_names.push_back(local.first);
-	}
+		if (id == "xcom1")
+			return std::string("xcom1 (UFO Defense)");
+		if (id == "xcom2")
+			return std::string("xcom2 (Terror from the Deep)");
+		return id;
+	};
+
+	// Local mods, each (id, version) in load order
+	const std::vector<std::pair<std::string, std::string>> local = getReportedMods(_game->getMod()->getCoopModList());
 
 	if (_modHash != "")
 	{
-		// Required mods from the host/server (each "id:version", in load order)
-		std::vector<std::string> mods;
-		for (const auto& host : parseCoopModList(_modHash))
-		{
-			mods.push_back(host.first);
-		}
+		// Required mods from the host/server, each (id, version) in load order
+		const std::vector<std::pair<std::string, std::string>> host = parseCoopModList(_modHash);
 
-		// Check if any required mod is missing locally (by copy: the display
-		// names below must not change the list the extra-mod check reads)
-		for (auto mod : mods)
+		auto findIn = [](const std::vector<std::pair<std::string, std::string>>& list, const std::string& id)
 		{
-			if (mod == "")
+			return std::find_if(list.begin(), list.end(),
+				[&id](const std::pair<std::string, std::string>& m) { return m.first == id; });
+		};
+
+		// the mods both games load, each in its game's load order: a mod whose
+		// place differs between the two is loaded out of the host's order
+		std::vector<std::string> hostOrder, localOrder;
+		for (const auto& mod : host)
+		{
+			if (findIn(local, mod.first) != local.end())
+				hostOrder.push_back(mod.first);
+		}
+		for (const auto& mod : local)
+		{
+			if (findIn(host, mod.first) != host.end())
+				localOrder.push_back(mod.first);
+		}
+		auto place = [](const std::vector<std::string>& order, const std::string& id)
+		{
+			return std::find(order.begin(), order.end(), id) - order.begin();
+		};
+
+		// every host mod: missing here, at another version, out of order, or enabled
+		for (const auto& mod : host)
+		{
+			if (mod.first.empty())
 				continue;
 
-			bool found = std::find(
-							 local_mod_names.begin(),
-							 local_mod_names.end(),
-							 mod) != local_mod_names.end();
-
-			
-			if (mod == "xcom1")
+			auto here = findIn(local, mod.first);
+			std::string status;
+			if (here == local.end())
 			{
-				mod = "xcom1 (UFO Defense)";
+				status = "Required mod not enabled.";
 			}
-
-			if (mod == "xcom2")
+			else if (!mod.second.empty() && mod.second != here->second)
 			{
-				mod = "xcom2 (Terror from the Deep)";
+				status = "Different version (host " + mod.second + ").";
 			}
-
-			if (!found)
+			else if (place(hostOrder, mod.first) != place(localOrder, mod.first))
 			{
-				_mods.push_back(ModInfoCoop({mod, "Required mod not enabled."}));
+				status = "Different load order.";
 			}
 			else
 			{
-				_mods.push_back(ModInfoCoop({mod, "This mod is enabled."}));
+				status = "This mod is enabled.";
 			}
+			_mods.push_back(ModInfoCoop({shown(mod.first), status}));
 		}
 
 		// Check if local player has any extra mods
-		for (auto& local_mod : local_mod_names)
+		for (const auto& mod : local)
 		{
-			if (local_mod == "")
+			if (mod.first.empty())
 				continue;
 
-			bool found = std::find(
-							 mods.begin(),
-							 mods.end(),
-							 local_mod) != mods.end();
-
-			if (local_mod == "xcom1")
+			if (findIn(host, mod.first) == host.end())
 			{
-				local_mod = "xcom1 (UFO Defense)";
-			}
-
-			if (local_mod == "xcom2")
-			{
-				local_mod = "xcom2 (Terror from the Deep)";
-			}
-
-			if (!found)
-			{
-				_mods.push_back(ModInfoCoop({local_mod, "Disable extra mod."}));
+				_mods.push_back(ModInfoCoop({shown(mod.first), "Disable extra mod."}));
 			}
 		}
 	}
@@ -419,6 +434,11 @@ void ModCheckMenu::disableSort()
 std::string ModCheckMenu::getTitle() const
 {
 	return _txtTitle->getText();
+}
+
+std::string ModCheckMenu::getBuildLine() const
+{
+	return _txtBuild->getText();
 }
 
 }

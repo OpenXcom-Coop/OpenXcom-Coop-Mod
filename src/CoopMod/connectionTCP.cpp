@@ -37355,7 +37355,9 @@ void connectionTCP::updateCoopTask()
 		// the attempt is over: retire "Connecting..." and show what differs
 		closeConnectingDialog();
 
-		_game->pushState(new ModCheckMenu(lastJoinRefusalHostMods()));
+		std::string hostVersion;
+		const bool versionKnown = lastJoinRefusalHostVersion(hostVersion);
+		_game->pushState(new ModCheckMenu(lastJoinRefusalHostMods(), versionKnown, hostVersion));
 	}
 
 	// coop
@@ -40773,7 +40775,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			{
 				disconnectTCP();
 				closeConnectingDialog();
-				_game->pushState(new ModCheckMenu(hostMods));
+				_game->pushState(new ModCheckMenu(hostMods, true, hostVersion));
 				return;
 			}
 		}
@@ -43766,7 +43768,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// refused: the attempt is over
 			closeConnectingDialog();
 
-			_game->pushState(new ModCheckMenu(hostMods));
+			_game->pushState(new ModCheckMenu(hostMods, true, hostVersion));
 
 			return;
 		}
@@ -43865,7 +43867,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// refused: the attempt is over
 			closeConnectingDialog();
 
-			_game->pushState(new ModCheckMenu(hostMods));
+			_game->pushState(new ModCheckMenu(hostMods, true, hostVersion));
 
 			return;
 		}

@@ -41,7 +41,7 @@ def host_lobby(host, password):
     return key
 
 
-def cell(name, host, client, want, password=False, host_id=None, client_id=None):
+def cell(name, kind, host, client, want, real_build, password=False, host_id=None, client_id=None):
     # a password of its own per cell: a client keeps the last password it typed, which would answer the next
     # host's challenge before it is asked
     password = PASSWORD + "-" + name if password else ""
@@ -67,7 +67,8 @@ def cell(name, host, client, want, password=False, host_id=None, client_id=None)
         client.ok({"cmd": "password_join", "password": password})
         retry, _, retry_last = jc.watch(client)
         extra["retryAfterPrompt"] = {"outcome": retry, "last": retry_last}
-    return jc.judge(name, want, outcome, seen, last, client, extra=extra)
+    return jc.judge(name, want, outcome, seen, last, client, extra=extra,
+                    screen=jc.expected_screen(kind, real_build))
 
 
 def main():
@@ -79,15 +80,20 @@ def main():
         for gc in games:
             gc.spawn()
             gc.connect()
+        real = {}
         for gc in games:
-            jc.evidence("identity_" + gc.name, jc.identity(gc))
+            real[gc.name] = jc.identity(gc)
+            jc.evidence("identity_" + gc.name, real[gc.name])
+        rb = real["host"]["version"]   # the build version every game here really reports
         for prefix, pw in (("tcp", False), ("pw", True)):
-            fails += cell(prefix + "_build", host, same, "refused", pw, client_id={"version": jc.OTHER_BUILD})
-            fails += cell(prefix + "_empty_build", host, same, "refused", pw, host_id={"version": ""})
-            fails += cell(prefix + "_empty_mods", host, same, "refused", pw, host_id={"mods": []})
-            fails += cell(prefix + "_mod_version", host, modver, "refused", pw)
-            fails += cell(prefix + "_load_order", host, order, "refused", pw)
-            fails += cell(prefix + "_match", host, same, "joined", pw)
+            fails += cell(prefix + "_build", "build", host, same, "refused", rb, pw,
+                          client_id={"version": jc.OTHER_BUILD})
+            fails += cell(prefix + "_empty_build", "empty_build", host, same, "refused", rb, pw,
+                          host_id={"version": ""})
+            fails += cell(prefix + "_empty_mods", "empty_mods", host, same, "refused", rb, pw, host_id={"mods": []})
+            fails += cell(prefix + "_mod_version", "mod_version", host, modver, "refused", rb, pw)
+            fails += cell(prefix + "_load_order", "load_order", host, order, "refused", rb, pw)
+            fails += cell(prefix + "_match", "match", host, same, "joined", rb, pw)
     except Exception as e:  # a staging step that could not run is a failure of the whole run
         fails.append("setup: %s" % e)
         print("FAIL setup: %s" % e, flush=True)

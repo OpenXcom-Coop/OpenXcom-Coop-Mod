@@ -12,7 +12,8 @@ reports about itself.
 
 Every cell starts with both machines on a fresh main menu (disconnect_to_menu), hosts a new lobby, joins once and
 watches the joiner's screen stack until it settles:
-  refused   ModCheckMenu on top, and LobbyMenu, Profile and PasswordCheckMenu never seen, and the session down
+  refused   ModCheckMenu on top, and LobbyMenu, Profile and PasswordCheckMenu never seen, and the session down;
+            the screen names what differs (expected_screen)
   joined    LobbyMenu or the join popup (Profile) seen
   password  PasswordCheckMenu on top (a refused cell must never show it)
 """
@@ -37,6 +38,28 @@ MOD_B1 = os.path.join(MODS, "Coop_JoinCheck_B_Test")
 OTHER_BUILD = "9.9.9.9"          # a build version no real game reports
 SETTLE_S = 1.0                   # after a refusal: the session must be down and no lobby may follow
 JOIN_WATCH_S = 20.0              # a TCP or UDP join settles well inside this on an idle machine
+
+ENABLED = "This mod is enabled."
+
+
+def expected_screen(kind, real_build, build_shown=True):
+    """What the incompatible-mods screen shows for a refused cell: {row name: status} and the line under the title.
+    kind is the cell's one difference; real_build is the build version both games really report. Every joiner loads
+    the host's mods by name, so no row is missing or extra. build_shown False: the screen was opened from the server
+    browser's row, which carries no build version (the list only shows rooms on the joiner's own build)."""
+    rows = {"xcom1 (UFO Defense)": ENABLED, "Coop_JoinCheck_A_Test": ENABLED, "Coop_JoinCheck_B_Test": ENABLED}
+    line = ""
+    if kind == "empty_mods":
+        rows = {}
+    elif kind == "mod_version":
+        rows["Coop_JoinCheck_A_Test"] = "Different version (host 1.0)."
+    elif kind == "load_order":
+        rows["Coop_JoinCheck_A_Test"] = rows["Coop_JoinCheck_B_Test"] = "Different load order."
+    elif kind == "build" and build_shown:
+        line = "Host build %s, your build %s." % (real_build, OTHER_BUILD)
+    elif kind == "empty_build" and build_shown:
+        line = "Host build unknown, your build %s." % real_build
+    return rows, line
 
 
 def machines(tag):
@@ -135,12 +158,14 @@ def settle_refused(gc, seen):
     return {k: c.get(k) for k in ("onConnect", "coopSession", "udpActive", "rendezvousActive")}
 
 
-def judge(name, want, outcome, seen, last, gc, extra=None):
-    """One cell's verdict line. want = "refused" or "joined". Returns the failure list."""
+def judge(name, want, outcome, seen, last, gc, extra=None, screen=None):
+    """One cell's verdict line. want = "refused" or "joined"; screen = expected_screen(...) for a refused cell.
+    Returns the failure list."""
     info = gc.cmd({"cmd": "mod_check_info"})
     coop = settle_refused(gc, seen) if outcome == "refused" else None
     rec = {"want": want, "outcome": outcome, "seen": sorted(seen), "last": last,
-           "modCheck": {k: info.get(k) for k in ("present", "top", "title", "modHash", "rows")}, "coop": coop}
+           "modCheck": {k: info.get(k) for k in ("present", "top", "title", "buildLine", "modHash", "rows")},
+           "coop": coop}
     if extra:
         rec.update(extra)
     evidence(name, rec)
@@ -153,11 +178,13 @@ def judge(name, want, outcome, seen, last, gc, extra=None):
                 f.append("%s shown" % s)
         if coop and (coop.get("coopSession") or coop.get("onConnect") == 1):
             f.append("session still up after the refusal: %s" % coop)
-        # every joiner loads the host's mods by name: each host mod is listed once, as enabled
+        # the screen names what differs: each host mod once with its status, and the build line
+        want_rows, want_line = screen
         rows = [(r.get("name"), r.get("status")) for r in (info.get("rows") or [])]
-        names = [n for n, _ in rows]
-        if len(set(names)) != len(names) or any(s != "This mod is enabled." for _, s in rows):
-            f.append("screen rows %s (want each host mod once, 'This mod is enabled.')" % rows)
+        if len(rows) != len(want_rows) or dict(rows) != want_rows:
+            f.append("screen rows %s (want %s)" % (rows, sorted(want_rows.items())))
+        if (info.get("buildLine") or "") != want_line:
+            f.append("screen build line %r (want %r)" % (info.get("buildLine"), want_line))
     elif outcome != "joined":
         f.append("matching games did not join: outcome %s, stack %s" % (outcome, last))
     print("%s %s%s" % ("PASS" if not f else "FAIL", name, "" if not f else ": " + "; ".join(f)), flush=True)

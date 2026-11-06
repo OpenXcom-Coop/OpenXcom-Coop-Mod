@@ -88,6 +88,8 @@ namespace
     std::atomic<bool> g_joinRefusedIncompatible(false);
     std::mutex g_joinRefusalMutex;
     std::string g_joinRefusalHostMods;
+    bool g_joinRefusalVersionKnown = false;
+    std::string g_joinRefusalHostVersion;
 }
 
 bool lastJoinRefusedIncompatible()
@@ -101,21 +103,33 @@ std::string lastJoinRefusalHostMods()
     return g_joinRefusalHostMods;
 }
 
+bool lastJoinRefusalHostVersion(std::string& version)
+{
+    std::lock_guard<std::mutex> lock(g_joinRefusalMutex);
+    version = g_joinRefusalHostVersion;
+    return g_joinRefusalVersionKnown;
+}
+
 // A join attempt starts: no refusal yet.
 static void clearJoinRefusal()
 {
     g_joinRefusedIncompatible.store(false);
     std::lock_guard<std::mutex> lock(g_joinRefusalMutex);
     g_joinRefusalHostMods.clear();
+    g_joinRefusalVersionKnown = false;
+    g_joinRefusalHostVersion.clear();
 }
 
-// Refused for another build version or mod list. The host's mod list is stored
-// before onConnect turns -4, which is when the main thread reads it.
-static void refuseJoinAsIncompatible(const std::string& hostMods)
+// Refused for another build version or mod list. The host's build version and
+// mod list are stored before onConnect turns -4, which is when the main thread
+// reads them.
+static void refuseJoinAsIncompatible(const std::string& hostVersion, const std::string& hostMods)
 {
     {
         std::lock_guard<std::mutex> lock(g_joinRefusalMutex);
         g_joinRefusalHostMods = hostMods;
+        g_joinRefusalVersionKnown = true;
+        g_joinRefusalHostVersion = hostVersion;
     }
     g_joinRefusedIncompatible.store(true);
     g_rendezvousFlowActive.store(false);
@@ -235,8 +249,9 @@ static void setOnConnectFromRendezvousJoinError(const std::string& err)
 }
 
 // The rendezvous server refused a join as "incompatible mods" (another build
-// version or mod list). Look the room up, so the incompatible-mods screen can list its mods;
-// a room the list does not return leaves the list empty.
+// version or mod list). Look the room up, so the incompatible-mods screen can
+// name its build and list its mods; a room the list does not return leaves both
+// unknown.
 static void rememberRefusedRoom(const RendezvousClient::CommonConfig& joinCfg, const std::string& roomId)
 {
     RendezvousClient::ListConfig lc;
@@ -246,7 +261,8 @@ static void rememberRefusedRoom(const RendezvousClient::CommonConfig& joinCfg, c
 
     std::vector<RendezvousClient::RoomInfo> rooms;
     std::string err;
-    std::string hostMods;
+    std::string hostMods, hostVersion;
+    bool found = false;
     if (RendezvousClient::listRooms(lc, rooms, &err))
     {
         for (const auto& room : rooms)
@@ -254,12 +270,16 @@ static void rememberRefusedRoom(const RendezvousClient::CommonConfig& joinCfg, c
             if (room.roomId == roomId)
             {
                 hostMods = room.modHash;
+                hostVersion = room.gameVersion;
+                found = true;
                 break;
             }
         }
     }
     std::lock_guard<std::mutex> lock(g_joinRefusalMutex);
     g_joinRefusalHostMods = hostMods;
+    g_joinRefusalVersionKnown = found;
+    g_joinRefusalHostVersion = hostVersion;
 }
 
 static void clearRendezvousFlowAfterFailedJoin(const std::string& err)
@@ -1005,7 +1025,7 @@ bool joinLanRoomByAddressViaRendezvous(const std::string& hostLanIp,
     if (!isCoopJoinCompatible(room.gameVersion, room.modHash, cfg.gameVersion, modHash))
     {
         DebugLog(("LAN direct connect: incompatible build or mods for room=" + room.roomId + "\n").c_str());
-        refuseJoinAsIncompatible(room.modHash);
+        refuseJoinAsIncompatible(room.gameVersion, room.modHash);
         return false;
     }
 
