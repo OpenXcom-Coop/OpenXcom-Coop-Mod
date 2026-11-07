@@ -3,8 +3,9 @@ to the host, which applies an entry only for a soldier the sending seat owns; bo
 (layout, personal layout, its armor); the partner's soldiers go back to their gear at open. Without the fix nothing
 carries it.
 The SHARED boot: bring_up("shared_base_equip_shared", (48704, 48705, 47922)), oxceAlternateCraftEquipmentManagement OFF
-on both. H / C / C2 = the first HostBase soldier (base_report order) owned by the host's localSeat / the first / second
-owned by the client's (names roll per boot). rec(gc, n) = n's soldier_layouts {base: HostBase} entry on gc; whole
+on both, harness.NO_AUTO_EQUIP (the soldiers carry nothing until a row stages an item). H / C / C2 = the first
+HostBase soldier (base_report order) owned by the host's localSeat / the first / second owned by the client's (names
+roll per boot). rec(gc, n) = n's soldier_layouts {base: HostBase} entry on gc; whole
 record = (layout, personal, personalArmor), exact. W = 10 s at 0.25 s polls; partner-unchanged cells read at once.
   base_equip_1 host: soldier screen, inventory_move {H, STR_PISTOL, left}, close. Non-vacuity: moved, host pistols in
         H 0 -> 1. (A) the client's whole record of H == the host's within W; (B) the host's records of the client's
@@ -36,6 +37,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import session  # noqa: E402
 import shared_fixture  # noqa: E402
+from harness import NO_AUTO_EQUIP  # noqa: E402
 
 TAG_SHARED, PORTS_SHARED = "shared_base_equip_shared", (48704, 48705, 47922)
 HB, OPT, ITEM = "HostBase", "oxceAlternateCraftEquipmentManagement", "STR_PISTOL"
@@ -171,13 +173,19 @@ def open_soldier_screen(r, gc, base=HB):
 
 
 def close_soldier_screen(r, gc):
-    """battle_inventory ok -> InventoryState gone -> soldiers_ok -> SoldiersState gone."""
+    """battle_inventory ok -> InventoryState gone -> SoldiersState on top -> soldiers_ok -> SoldiersState gone.
+    soldiers_ok presses OK on a SoldiersState found anywhere in the stack, and OK closes whatever screen is on top, so
+    it is pressed only once SoldiersState is the top screen, as a player sees it. The cell keeps the stack before and
+    after the press (one run once left a SoldiersState open after soldiers_ok replied ok)."""
     rep = q(gc, {"cmd": "battle_inventory", "action": "ok"})
     r.cell(f"guard: {gc.name} battle_inventory ok",
            rep.get("ok") and wait_until(lambda: "InventoryState" not in stack(gc), 30), [rep, stack(gc)])
-    rep = q(gc, {"cmd": "soldiers_ok"})
+    on_top = wait_until(lambda: (stack(gc) or [""])[-1] == "SoldiersState", 30)
+    before = stack(gc)
+    rep = q(gc, {"cmd": "soldiers_ok"}) if on_top else {"error": "SoldiersState not on top within 30 s"}
     r.cell(f"guard: {gc.name} soldiers_ok",
-           rep.get("ok") and wait_until(lambda: "SoldiersState" not in stack(gc), 30), [rep, stack(gc)])
+           rep.get("ok") and wait_until(lambda: "SoldiersState" not in stack(gc), 30),
+           {"reply": rep, "stack before": before, "stack after": stack(gc)})
 
 
 def open_craft_screen(r, x, gc):
@@ -413,7 +421,7 @@ def boot_shared(results, walls):
     t0, js, x = time.time(), None, None
     try:
         try:
-            js = shared_fixture.bring_up(TAG_SHARED, PORTS_SHARED)
+            js = shared_fixture.bring_up(TAG_SHARED, PORTS_SHARED, host_options=NO_AUTO_EQUIP, client_options=NO_AUTO_EQUIP)
             x = X(js.host, js.client, js)
             setup(x)
             walls["SHARED boot"] = round(time.time() - t0, 1)

@@ -29,7 +29,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 import geo
-from harness import LAND_LON, LAND_LAT
+from harness import LAND_LON, LAND_LAT, NO_AUTO_EQUIP
 import test_coop_transferred_equipment as T
 import test_coop_peer_equip_screens as P
 
@@ -146,12 +146,21 @@ def assert_screens_agree(base_g, craft_g, who, label):
     print(f"PASS {label}: full loadout {T.items_only(base_lo)}, both screens agree")
 
 
-def equip_by_hand(gc, base_name, crew_limit=3):
-    """Really drag items onto the first soldiers of the base inventory, the way
-    a player does."""
+def equip_by_hand(gc, base_name, target, crew_limit=3):
+    """Really drag GEAR onto `target`, then items onto the first soldiers of the
+    base inventory, the way a player does. The boot hands out no starting gear,
+    so every GEAR drag changes the target's record, and the OK always sends that
+    record (with the target's new name) to the other machine: it sends only the
+    records the screen changed."""
     P.open_base_inventory(gc, base_name)
     g = gc.ok({"cmd": "inventory_ground"})
     moved = 0
+    for item, slot, qty in GEAR:
+        for _ in range(qty):
+            r = gc.cmd({"cmd": "inventory_move", "name": target, "item": item, "slot": slot})
+            assert r.get("moved") and r.get("landedSlot") == T.SLOT_ID[slot], (
+                f"{gc.name}: {item} did not land in {target}'s {slot}: {r}")
+            moved += 1
     for unit in g["soldiers"][:crew_limit]:
         for item, slot in DRAGS:
             r = gc.cmd({"cmd": "inventory_move", "name": unit["name"], "item": item, "slot": slot})
@@ -162,7 +171,7 @@ def equip_by_hand(gc, base_name, crew_limit=3):
 
 
 def main():
-    js = shared_fixture.bring_up("jxfer", (48690, 48691, 47990))
+    js = shared_fixture.bring_up("jxfer", (48690, 48691, 47990), host_options=NO_AUTO_EQUIP, client_options=NO_AUTO_EQUIP)
     host, client = js.host, js.client
     try:
         for gc in (host, client):
@@ -198,12 +207,9 @@ def main():
                 timeout=30)
         host.ok({"cmd": "rename_soldier", "name": target["name"], "newName": "Zzz Shared"})
         print(f"host seat={seat}, target='{target['name']}' owner={target['owner']}")
-        for item, slot, qty in GEAR:
-            host.ok({"cmd": "give_layout", "item": item, "slot": slot,
-                     "name": "Zzz", "count": 1, "qty": qty})
 
-        # 1. really drag gear onto the local crew (populates the coopItems manifest)
-        moved = equip_by_hand(host, hb)
+        # 1. really drag gear onto the target and the local crew (populates the coopItems manifest)
+        moved = equip_by_hand(host, hb, "Zzz Shared")
         print(f"host equipped {moved} items by hand at {hb}")
         assert moved > 0, f"the host equipped nothing by hand at {hb} (inventory_move)"
 

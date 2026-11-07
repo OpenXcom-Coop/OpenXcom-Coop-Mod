@@ -512,7 +512,7 @@ def main(tag=TAG, ports=PORTS, extra=None):
     crash0 = session._crash_log_snapshot()
     try:
         try:
-            js = shared_fixture.bring_up(tag, ports)
+            js = shared_fixture.bring_up(tag, ports, host_options=harness.NO_AUTO_EQUIP, client_options=harness.NO_AUTO_EQUIP)
             x = sbe.X(js.host, js.client, js)
             x.crash0, x.lift_drop_seen, x.n0 = crash0, False, None
             spine(x)

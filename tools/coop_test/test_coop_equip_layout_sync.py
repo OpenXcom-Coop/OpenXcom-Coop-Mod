@@ -62,6 +62,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import shared_fixture
 import test_coop_transferred_equipment as T
 import test_coop_peer_equip_screens as P
+from harness import NO_AUTO_EQUIP
 
 DRAG = ("STR_SMALL_ROCKET", "backpack")
 
@@ -205,7 +206,7 @@ def armor_ctrl_click(gc, host, client, base, cid, sid, want, label):
 
 
 def separate_rows():
-    js = T.bring_up("xeqsync")
+    js = T.bring_up("xeqsync", NO_AUTO_EQUIP)
     host, client = js.host, js.client
     try:
         T.set_alt(host, client, True)
@@ -330,7 +331,7 @@ def separate_rows():
 
 
 def shared_row():
-    js = shared_fixture.bring_up("jeqsync", T.PORTS)
+    js = shared_fixture.bring_up("jeqsync", T.PORTS, host_options=NO_AUTO_EQUIP, client_options=NO_AUTO_EQUIP)
     host, client = js.host, js.client
     try:
         base = "HostBase"
