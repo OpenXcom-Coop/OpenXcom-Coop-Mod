@@ -971,6 +971,26 @@ void BattlescapeGenerator::run()
 }
 
 /**
+ * Lists a container's items for the starting-gear pool.
+ * A container is keyed by item rule pointer, so its own order follows memory addresses, which differ
+ * between game launches and between the two co-op machines. Base screens list the items by item id
+ * instead, so every launch and both machines hand each soldier the same starting gear.
+ * @param items The container.
+ * @param byItemId Whether to order the items by item id.
+ * @return The items and their quantities.
+ */
+static std::vector<std::pair<const RuleItem*, int>> poolItems(const ItemContainer *items, bool byItemId)
+{
+	std::vector<std::pair<const RuleItem*, int>> list(items->getContents()->begin(), items->getContents()->end());
+	if (byItemId)
+	{
+		std::sort(list.begin(), list.end(),
+			[](const std::pair<const RuleItem*, int>& a, const std::pair<const RuleItem*, int>& b) { return a.first->getType() < b.first->getType(); });
+	}
+	return list;
+}
+
+/**
  * Deploys all the X-COM units and equipment based on the Geoscape base / craft.
  */
 void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondition, const RuleEnviroEffects* enviro)
@@ -1320,7 +1340,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 	if (_craft != 0)
 	{
 		// add items that are in the craft
-		for (const auto& pair : *_craft->getItems()->getContents())
+		for (const auto& pair : poolItems(_craft->getItems(), _baseInventory))
 		{
 			if (startingCondition != 0 && !startingCondition->isItemPermitted(pair.first->getType(), _game->getMod(), _craft))
 			{
@@ -1339,7 +1359,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		// (setInventoryStoreItems).
 		if (_baseInventory && _inventoryStoreItems)
 		{
-			for (const auto& pair : *_inventoryStoreItems->getContents())
+			for (const auto& pair : poolItems(_inventoryStoreItems, _baseInventory))
 			{
 				for (int count = 0; count < pair.second; count++)
 				{
@@ -1354,9 +1374,9 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		if (_game->getSavedGame()->getMonthsPassed() != -1)
 		{
 			// add items that are in the base
-			for (auto i = _base->getStorageItems()->getContents()->begin(); i != _base->getStorageItems()->getContents()->end();)
+			for (const auto& pair : poolItems(_base->getStorageItems(), _baseInventory))
 			{
-				const RuleItem *rule = i->first;
+				const RuleItem *rule = pair.first;
 				if (
 					// is item allowed in base defense?
 					rule->canBeEquippedBeforeBaseDefense() &&
@@ -1368,20 +1388,14 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 					// we know how to use this item
 					_game->getSavedGame()->isResearched(rule->getRequirements()))
 				{
-					for (int count = 0; count < i->second; count++)
+					for (int count = 0; count < pair.second; count++)
 					{
-						_save->createItemForTile(i->first, poolTile(i->first));
+						_save->createItemForTile(rule, poolTile(rule));
 					}
-					auto tmp = i; // copy
-					++i;
 					if (!_baseInventory)
 					{
-						_base->getStorageItems()->removeItem(tmp->first, tmp->second);
+						_base->getStorageItems()->removeItem(rule, pair.second);
 					}
-				}
-				else
-				{
-					++i;
 				}
 			}
 		}
@@ -1390,7 +1404,7 @@ void BattlescapeGenerator::deployXCOM(const RuleStartingCondition* startingCondi
 		{
 			if (craft->getStatus() == "STR_OUT")
 				continue;
-			for (const auto& pair : *craft->getItems()->getContents())
+			for (const auto& pair : poolItems(craft->getItems(), _baseInventory))
 			{
 				for (int count = 0; count < pair.second; count++)
 				{
