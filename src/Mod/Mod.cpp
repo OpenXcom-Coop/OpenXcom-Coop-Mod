@@ -4793,6 +4793,19 @@ const YAML::YamlString& Mod::getStartingBase(GameDifficulty diff) const
 }
 
 /**
+ * Checks whether any difficulty level has its own starting base
+ * (startingBaseBeginner ... startingBaseSuperhuman). Mods such as 40K
+ * use this to turn the difficulty choice into a faction choice.
+ * @return True if at least one per-difficulty starting base is defined.
+ */
+bool Mod::hasDifficultyStartingBases() const
+{
+	return _startingBaseBeginner.yaml != "" || _startingBaseExperienced.yaml != ""
+		|| _startingBaseVeteran.yaml != "" || _startingBaseGenius.yaml != ""
+		|| _startingBaseSuperhuman.yaml != "";
+}
+
+/**
  * Gets the defined starting time.
  * @return The time the game starts in.
  */

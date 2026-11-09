@@ -1,4 +1,5 @@
-"""Fresh Separate clients must choose their own difficulty/faction."""
+"""Fresh Separate clients choose their own difficulty/faction when the mod gives a
+difficulty its own starting base."""
 
 from pathlib import Path
 
@@ -8,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main():
     tcp = (ROOT / "src/CoopMod/connectionTCP.cpp").read_text(encoding="utf-8")
+    mod_h = (ROOT / "src/Mod/Mod.h").read_text(encoding="utf-8")
     state_h = (ROOT / "src/Menu/NewGameState.h").read_text(encoding="utf-8")
     state_cpp = (ROOT / "src/Menu/NewGameState.cpp").read_text(encoding="utf-8")
     session = (ROOT / "tools/coop_test/session.py").read_text(encoding="utf-8")
@@ -15,8 +17,10 @@ def main():
     start = tcp.index('stateString == "campaign_start"')
     end = tcp.index('stateString == "campaign_resume"', start)
     campaign_start = tcp[start:end]
-    assert 'activeMaster == "xcom1" || activeMaster == "xcom2"' in campaign_start
-    assert "&& !vanillaCampaign" in campaign_start
+    assert "bool hasDifficultyStartingBases() const;" in mod_h
+    assert "_game->getMod()->hasDifficultyStartingBases()" in campaign_start
+    assert "&& factionChoice" in campaign_start
+    assert "getActiveMaster" not in campaign_start
     selector = campaign_start.index(
         "new NewGameState(true, CoopCampaignType::Separate")
     inherited_save = campaign_start.index(
@@ -30,7 +34,7 @@ def main():
     assert "beginInitialBasePlacement(_game, gs, base)" in state_cpp
     assert 'client.wait_for("client difficulty"' not in session
 
-    print("PASS modded Separate clients choose faction; vanilla xcom1/xcom2 skip the extra dialog")
+    print("PASS Separate clients choose a faction only when a difficulty has its own starting base")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,7 @@
+id: Coop_MasterOneBase_Test
+name: "Coop master with one starting base"
+version: "1.0"
+description: "Test-only fixture (Separate campaign start). A master mod on top of xcom1 with one string and no rules, like X-Com Files has one starting base for every difficulty, so a joining Separate client must start on the host's difficulty and never see the difficulty screen. The string is there because the game skips a mod folder that holds only metadata.yml."
+author: coop harness
+isMaster: true
+master: xcom1
