@@ -1044,6 +1044,8 @@ public:
 	/// Gets the player starting base.
 	const YAML::YamlString& getDefaultStartingBase() const;
 	const YAML::YamlString& getStartingBase(GameDifficulty diff) const;
+	/// Does any difficulty level have its own starting base?
+	bool hasDifficultyStartingBases() const;
 	/// Gets the game starting time.
 	const GameTime &getStartingTime() const;
 	/// Gets the game starting difficulty.

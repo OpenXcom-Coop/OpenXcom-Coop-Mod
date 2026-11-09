@@ -1,0 +1,7 @@
+id: Coop_FactionBases_Test
+name: "Coop per-difficulty starting base"
+version: "1.0"
+description: "Test-only fixture (Separate campaign start). Gives the Veteran difficulty its own starting base (a copy of the xcom1 one), the way 40K turns each difficulty into a faction, so a joining Separate client must choose its own difficulty."
+author: coop harness
+
+master: xcom1

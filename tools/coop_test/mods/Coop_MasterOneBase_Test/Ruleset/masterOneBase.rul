@@ -1,0 +1,4 @@
+extraStrings:
+  - type: en-US
+    strings:
+      STR_COOP_MASTER_ONE_BASE: "Master with one starting base"

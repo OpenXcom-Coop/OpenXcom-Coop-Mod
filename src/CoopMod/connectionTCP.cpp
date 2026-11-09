@@ -40870,15 +40870,17 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		CoopCampaignType campaignType =
 			static_cast<CoopCampaignType>(obj.get("campaignType", 0).asInt());
 
-		const std::string activeMaster = Options::getActiveMaster();
-		const bool vanillaCampaign = activeMaster == "xcom1" || activeMaster == "xcom2";
+		// Mods that give a difficulty level its own starting base (40K, ROSIGMA)
+		// use the difficulty choice as a faction choice. Read that from the
+		// loaded rules, not from the master mod's id: total conversions such as
+		// X-Com Files are masters too but have one starting base.
+		const bool factionChoice = _game->getMod()->hasDifficultyStartingBases();
 		if (campaignType == CoopCampaignType::Separate && !connectionTCP::no_bases
 			&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3
-			&& !vanillaCampaign)
+			&& factionChoice)
 		{
-			// Mod campaigns may use difficulty as a faction selector (for example
-			// Rosigma). Their Separate clients choose independently. Vanilla xcom1
-			// and xcom2 retain the streamlined host-difficulty startup below.
+			// Each Separate client chooses its own faction. Every other campaign
+			// starts the client on the host's difficulty below.
 			_game->pushState(new NewGameState(true, CoopCampaignType::Separate,
 				true, players));
 			return;
