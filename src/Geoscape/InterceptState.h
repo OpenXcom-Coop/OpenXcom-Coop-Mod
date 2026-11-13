@@ -68,6 +68,8 @@ public:
 	void lstCraftsMiddleClick(Action *action);
 	/// Test hook (PRD-J08): the crafts this list shows, in row order.
 	const std::vector<Craft*>& harnessListedCrafts() const { return _crafts; }
+	/// Test probe: whether Go to Base is shown.
+	bool harnessGotoBaseVisible() const;
 };
 
 }

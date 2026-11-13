@@ -55,6 +55,7 @@
 #include "../Engine/Screen.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/CoopSide.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -1765,11 +1766,11 @@ void Globe::drawFlights()
  */
 void Globe::drawTarget(Target *target, Surface *surface)
 {
-	if (target->getMarker() != -1 && !pointBack(target->getLongitude(), target->getLatitude()))
+	const int i = markerFor(target);
+	if (i != -1 && !pointBack(target->getLongitude(), target->getLatitude()))
 	{
 		Sint16 x, y;
 		polarToCart(target->getLongitude(), target->getLatitude(), &x, &y);
-		auto i = target->getMarker();
 		auto marker = _markerSet->getFrame(i);
 		ShaderMove<const Uint8> surf{ marker, x - marker->getWidth() / 2, y - marker->getHeight() / 2 };
 		ShaderMove<Uint8> dest{ surface };
@@ -1911,6 +1912,14 @@ bool Globe::isWaypointVisible(const Waypoint *waypoint) const
 	// Ordinary mission waypoints remain visible. Only a route point belonging
 	// exclusively to another player's craft is private.
 	return !foreignFollower || localFollower;
+}
+
+int Globe::markerFor(Target *target) const
+{
+	SavedGame *save = _game->getSavedGame();
+	if (save && CoopAlienView::active(save))
+		return CoopAlienView::marker(save, target);
+	return target->getMarker();
 }
 
 /**

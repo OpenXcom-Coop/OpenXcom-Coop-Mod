@@ -1,0 +1,9 @@
+alienDeployments:
+  - type: STR_ALIEN_BASE_ASSAULT
+    baseDetectionRange: 600
+    baseDetectionChance: 0
+crafts:
+  - type: STR_SKYRANGER
+    sightRange: 0
+  - type: STR_INTERCEPTOR
+    sightRange: 0

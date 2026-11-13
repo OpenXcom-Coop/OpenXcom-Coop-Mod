@@ -188,6 +188,8 @@ public:
 	void drawDetail();
 	/// Draws all the markers over the globe.
 	void drawMarkers();
+	/// The marker this globe draws for a target (-1 = none); on the alien player's machine its view decides.
+	int markerFor(Target *target) const;
 	/// Separate campaign presentation: whether this seat may see a craft's route.
 	bool isCraftFlightVisible(const Craft *craft) const;
 	/// Separate campaign presentation: hides waypoints used only by foreign crafts.

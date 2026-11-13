@@ -555,4 +555,9 @@ void InterceptState::lstCraftsMiddleClick(Action *)
 	}
 }
 
+bool InterceptState::harnessGotoBaseVisible() const
+{
+	return _btnGotoBase->getVisible();
+}
+
 }

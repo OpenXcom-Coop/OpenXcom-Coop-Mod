@@ -360,6 +360,7 @@
     <ClCompile Include="CoopMod\SharedEcon.cpp" />
     <ClCompile Include="CoopMod\SeparateEcon.cpp" />
     <ClCompile Include="CoopMod\CoopSide.cpp" />
+    <ClCompile Include="CoopMod\CoopAlienView.cpp" />
     <ClCompile Include="CoopMod\SeparateResearchModeWarningState.cpp" />
     <ClCompile Include="CoopMod\TestServer.cpp" />
     <ClCompile Include="CoopMod\VoteMenu.cpp" />
@@ -823,6 +824,7 @@
     <ClInclude Include="CoopMod\SharedEcon.h" />
     <ClInclude Include="CoopMod\SeparateEcon.h" />
     <ClInclude Include="CoopMod\CoopSide.h" />
+    <ClInclude Include="CoopMod\CoopAlienView.h" />
     <ClInclude Include="CoopMod\SeparateResearchModeWarningState.h" />
     <ClInclude Include="CoopMod\TestServer.h" />
     <ClInclude Include="CoopMod\VoteMenu.h" />

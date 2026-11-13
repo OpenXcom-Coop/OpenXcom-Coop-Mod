@@ -249,6 +249,7 @@
 #include "SharedEcon.h"
 #include "SeparateEcon.h"
 #include "CoopSide.h"
+#include "CoopAlienView.h"
 #include "CoopState.h"
 // The battle-lane introspection surface below needs the real APIs it reports on.
 #include "BattleAuthority.h"
@@ -13658,6 +13659,8 @@ bool TestServer::executeJoinChecks14(const std::string& cmd, const Json::Value& 
  */
 bool TestServer::executeSides15(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
+	if (executeAlienGlobe16(cmd, req, resp))
+		return true;
 	if (cmd == "coop_sides")
 	{
 		connectionTCP* coop = _game->getCoopMod();
@@ -13704,6 +13707,205 @@ bool TestServer::executeSides15(const std::string& cmd, const Json::Value& req, 
 		resp["ok"] = true;
 		resp["oneWorldHostPlaysXcom"] = CoopSide::pvpOneWorldEnabled(2);
 		resp["oneWorldHostPlaysAliens"] = CoopSide::pvpOneWorldEnabled(3);
+		return true;
+	}
+	return false;
+}
+
+
+/**
+ * The alien player's Geoscape in a PvP campaign. globe_view is a pure read of what this machine's globe draws
+ * and of the open UFO or intercept window. The others are TEST-ONLY inputs: alien_view shows this machine's
+ * Geoscape as the alien player sees it (any campaign) and sets each rule's switch; xcom_base_found sets an
+ * X-COM base's retaliation-target flag as a UFO that finds the base does; place_craft parks an X-COM craft in
+ * flight at a point; xcom_detect_ufo is the outcome of X-COM's radar detecting a UFO on the machine that runs
+ * the world (the flag and the window, as GeoscapeState::ufoDetection does). Same C1061 reason as above.
+ * Returns true if @a cmd was one of ours.
+ */
+bool TestServer::executeAlienGlobe16(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	SavedGame* save = _game->getSavedGame();
+	if (cmd == "globe_view")
+	{
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		if (!save || !geo)
+		{
+			resp["error"] = "no geoscape";
+			return true;
+		}
+		Globe* globe = geo->getGlobe();
+		resp["alienView"] = CoopAlienView::active(save);
+		resp["forced"] = CoopAlienView::forced();
+		resp["ruleAlienActivity"] = CoopAlienView::rule(CoopAlienView::ALIEN_ACTIVITY);
+		resp["ruleXcomSightings"] = CoopAlienView::rule(CoopAlienView::XCOM_SIGHTINGS);
+		resp["ruleAlienBases"] = CoopAlienView::rule(CoopAlienView::ALIEN_BASES);
+		Json::Value ufos(Json::arrayValue);
+		for (Ufo* u : *save->getUfos())
+		{
+			Json::Value j;
+			j["id"] = u->getId();
+			j["uniqueId"] = u->getUniqueId();
+			j["type"] = u->getRules()->getType();
+			j["lon"] = u->getLongitude();
+			j["lat"] = u->getLatitude();
+			j["status"] = (int)u->getStatus();
+			j["detected"] = u->getDetected();
+			j["hyperDetected"] = u->getHyperDetected();
+			j["radarRange"] = u->getCraftStats().radarRange;
+			j["drawn"] = u->getStatus() != Ufo::IGNORE_ME && globe->markerFor(u) != -1;
+			j["details"] = CoopAlienView::showsUfoDetails(save, u);
+			ufos.append(j);
+		}
+		resp["ufos"] = ufos;
+		Json::Value sites(Json::arrayValue);
+		for (MissionSite* s : *save->getMissionSites())
+		{
+			Json::Value j;
+			j["id"] = s->getId();
+			j["lon"] = s->getLongitude();
+			j["lat"] = s->getLatitude();
+			j["detected"] = s->getDetected();
+			j["drawn"] = globe->markerFor(s) != -1;
+			sites.append(j);
+		}
+		resp["sites"] = sites;
+		Json::Value alienBases(Json::arrayValue);
+		for (AlienBase* ab : *save->getAlienBases())
+		{
+			Json::Value j;
+			j["id"] = ab->getId();
+			j["lon"] = ab->getLongitude();
+			j["lat"] = ab->getLatitude();
+			j["discovered"] = ab->isDiscovered();
+			j["detectionRange"] = ab->getDeployment()->getBaseDetectionRange();
+			j["drawn"] = globe->markerFor(ab) != -1;
+			alienBases.append(j);
+		}
+		resp["alienBases"] = alienBases;
+		Json::Value bases(Json::arrayValue);
+		Json::Value crafts(Json::arrayValue);
+		for (Base* b : *save->getBases())
+		{
+			Json::Value j;
+			j["name"] = b->getName();
+			j["owner"] = b->getOwnerPlayerName();
+			j["lon"] = b->getLongitude();
+			j["lat"] = b->getLatitude();
+			j["retaliationTarget"] = b->getRetaliationTarget();
+			j["drawn"] = globe->markerFor(b) != -1;
+			bases.append(j);
+			for (Craft* c : *b->getCrafts())
+			{
+				Json::Value k;
+				k["id"] = c->getId();
+				k["type"] = c->getRules()->getType();
+				k["base"] = b->getName();
+				k["status"] = c->getStatus();
+				k["lon"] = c->getLongitude();
+				k["lat"] = c->getLatitude();
+				k["drawn"] = globe->markerFor(c) != -1;
+				k["sighting"] = CoopAlienView::craftSighting(save, c);
+				k["routeDrawn"] = c->getStatus() == "STR_OUT" && c->getDestination() != nullptr && globe->isCraftFlightVisible(c);
+				crafts.append(k);
+			}
+		}
+		resp["xcomBases"] = bases;
+		resp["crafts"] = crafts;
+		Json::Value win;
+		win["state"] = "";
+		if (UfoDetectedState* ud = findState<UfoDetectedState>(_game))
+		{
+			win["state"] = "ufo";
+			win["hyperwave"] = ud->harnessHyperwave();
+			// found by pointer in this world's list; the window's pointer is never dereferenced
+			for (Ufo* u : *save->getUfos())
+			{
+				if (u != ud->coopHeldUfo())
+					continue;
+				win["ufoId"] = u->getId();
+				win["ufoUniqueId"] = u->getUniqueId();
+				win["ufoLon"] = u->getLongitude();
+				win["ufoLat"] = u->getLatitude();
+			}
+		}
+		else if (InterceptState* is = findState<InterceptState>(_game))
+		{
+			win["state"] = "intercept";
+			win["gotoBase"] = is->harnessGotoBaseVisible();
+			win["crafts"] = (int)is->harnessListedCrafts().size();
+		}
+		resp["window"] = win;
+		resp["ok"] = true;
+		return true;
+	}
+	if (cmd == "alien_view")
+	{
+		if (req.isMember("on"))
+			CoopAlienView::setForced(req["on"].asBool());
+		if (req.isMember("alienActivity"))
+			CoopAlienView::setRule(CoopAlienView::ALIEN_ACTIVITY, req["alienActivity"].asBool());
+		if (req.isMember("xcomSightings"))
+			CoopAlienView::setRule(CoopAlienView::XCOM_SIGHTINGS, req["xcomSightings"].asBool());
+		if (req.isMember("alienBases"))
+			CoopAlienView::setRule(CoopAlienView::ALIEN_BASES, req["alienBases"].asBool());
+		resp["forced"] = CoopAlienView::forced();
+		resp["alienView"] = CoopAlienView::active(save);
+		resp["ok"] = true;
+		return true;
+	}
+	if (cmd == "xcom_base_found" || cmd == "place_craft")
+	{
+		const std::string name = req.get("base", "").asString();
+		Base* base = nullptr;
+		if (save)
+			for (Base* b : *save->getBases())
+				if (b->getName() == name)
+					base = b;
+		if (!base)
+		{
+			resp["error"] = "base not found";
+			return true;
+		}
+		if (cmd == "xcom_base_found")
+		{
+			base->setRetaliationTarget(req.get("on", true).asBool());
+			resp["ok"] = true;
+			return true;
+		}
+		Craft* craft = nullptr;
+		const std::string craftType = req.get("craft_type", "").asString();
+		for (Craft* c : *base->getCrafts())
+			if (c->getId() == req.get("craft_id", -1).asInt() && (craftType.empty() || c->getRules()->getType() == craftType))
+				craft = c;
+		if (!craft)
+		{
+			resp["error"] = "craft not found";
+			return true;
+		}
+		// in flight with no destination: it holds its position, as a craft on patrol does
+		craft->setDestination(nullptr);
+		craft->setStatus("STR_OUT");
+		craft->setLongitude(req.get("lon", 0.0).asDouble());
+		craft->setLatitude(req.get("lat", 0.0).asDouble());
+		resp["ok"] = true;
+		return true;
+	}
+	if (cmd == "xcom_detect_ufo")
+	{
+		GeoscapeState* geo = findState<GeoscapeState>(_game);
+		Ufo* ufo = nullptr;
+		if (save)
+			for (Ufo* u : *save->getUfos())
+				if (u->getUniqueId() == req.get("unique_id", -1).asInt())
+					ufo = u;
+		if (!geo || !ufo)
+		{
+			resp["error"] = "no geoscape or ufo";
+			return true;
+		}
+		ufo->setDetected(true);
+		geo->popup(new UfoDetectedState(ufo, geo, true, ufo->getHyperDetected()));
+		resp["ok"] = true;
 		return true;
 	}
 	return false;
