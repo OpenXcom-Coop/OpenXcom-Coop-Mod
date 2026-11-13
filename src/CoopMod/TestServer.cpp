@@ -14891,6 +14891,8 @@ std::string TestServer::execute(const std::string& line)
 				time["minute"] = t->getMinute();
 				resp["time"] = time;
 				resp["funds"] = Json::Value::Int64(sg->getFunds());
+				// the world's own funds: funds above is what this machine's player sees
+				resp["worldFunds"] = Json::Value::Int64(sg->getFundsList().empty() ? 0 : sg->getFundsList().back());
 				// the base the geoscape BASES button opens (SavedGame::_selectedBase)
 				resp["selectedBase"] = sg->getBases()->empty() ? std::string() : sg->getSelectedBase()->getName(_game->getLanguage());
 				resp["monthsPassed"] = sg->getMonthsPassed();

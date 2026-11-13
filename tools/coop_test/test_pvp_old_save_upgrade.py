@@ -36,7 +36,9 @@ battle keys and units) are read from the source files at run time and printed in
   alien_host_untouched    upgrade_detect of the game-mode-3 battle save: current (its one-world switch is off)
   xcom_host_loads         load_save_menu of the upgraded Geoscape save: HostMenu within LOAD_S, no ErrorMessageState,
                           no SaveUpgradeDialogState; get_coop.gamemode 2; geo_state: every base's ownerPlayerName is
-                          the first roster name, funds == the source's last funds
+                          the first roster name, worldFunds (the world's own funds: before START HOST this machine is
+                          not seat 0 yet, so geo_state.funds shows the alien player's amount) == the source's last
+                          funds
   xcom_host_battle_loads  disconnect_to_menu, then load_save_menu of the upgraded battle save: HostMenu within LOAD_S;
                           ONE conversion line whose counts == GM2_CONVERT; no refusal line
   common                  0 new crash files; the host alive; every placed file's sha256 unchanged; every other file in
@@ -127,9 +129,13 @@ def sha(path):
 
 
 def read_save(path):
-    """(header, body) of a two-document save file."""
+    """(header, body) of a two-document save file. The upgrade writes a battle's tile-size bytes (written "\\x04" by
+    the game) as raw control bytes inside their quotes, which the game reads back but PyYAML refuses: they are put
+    back as escapes first."""
     with open(path, encoding="utf-8") as f:
-        docs = [d for d in yaml.load_all(f, Loader=LOADER)]
+        text = f.read()
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", lambda m: "\\x%02x" % ord(m.group()), text)
+    docs = list(yaml.load_all(text, Loader=LOADER))
     return (docs[0] or {}), ((docs[1] or {}) if len(docs) > 1 else {})
 
 
@@ -354,12 +360,13 @@ def row_loads(x, ev):
         c = host.cmd({"cmd": "get_coop"})
         g = host.cmd({"cmd": "geo_state"})
         owners = [b.get("ownerPlayerName") for b in g.get("bases") or []]
-        ev["geoLoad"].update({"gamemode": c.get("gamemode"), "owners": owners, "funds": g.get("funds"),
-                              "geoError": g.get("error")})
+        ev["geoLoad"].update({"gamemode": c.get("gamemode"), "owners": owners, "worldFunds": g.get("worldFunds"),
+                              "funds": g.get("funds"), "localSeat": c.get("localSeat"), "geoError": g.get("error")})
         bad += [] if c.get("gamemode") == 2 else [f"get_coop.gamemode {c.get('gamemode')!r} (want 2)"]
         bad += [] if owners and all(o == x["geoOwner"] for o in owners) else \
             [f"geo_state base owners {owners} (want each {x['geoOwner']!r})"]
-        bad += [] if g.get("funds") == x["geoFunds"] else [f"geo_state funds {g.get('funds')!r} (want {x['geoFunds']})"]
+        bad += [] if g.get("worldFunds") == x["geoFunds"] else \
+            [f"geo_state worldFunds {g.get('worldFunds')!r} (want {x['geoFunds']})"]
     x["loaded"] = True
     cell("xcom_host_loads", not bad, "; ".join(bad) or
          f"HostMenu after {ev['geoLoad']['s']} s; game mode 2; every base owned by {x['geoOwner']}; funds {x['geoFunds']}")
