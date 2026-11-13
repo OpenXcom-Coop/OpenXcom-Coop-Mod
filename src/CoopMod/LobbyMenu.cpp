@@ -559,6 +559,8 @@ public:
  * stays a Custom Battle mode. One OK button closes it; the pick itself was refused (LobbyMenu::setPlayerTeam). File-local, as
  * ConfirmStartCampaignState.
  * coop: RESUME of a co-op campaign save played in PvE2 opens it too (LobbyMenu::resumeCampaign); OK returns to that lobby.
+ * coop: a NEW Shared campaign lobby opens it with its own message when a pick would put either player on the Alien team.
+ * @param messageId The language string the dialog shows.
  */
 class CampaignTeamRefusedState : public State
 {
@@ -567,7 +569,7 @@ private:
 	Text *_txtMessage;
 	TextButton *_btnOk;
 public:
-	CampaignTeamRefusedState()
+	explicit CampaignTeamRefusedState(const std::string &messageId)
 	{
 		_screen = false;
 
@@ -587,7 +589,7 @@ public:
 
 		_txtMessage->setAlign(ALIGN_CENTER);
 		_txtMessage->setWordWrap(true);
-		_txtMessage->setText(tr("STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER"));
+		_txtMessage->setText(tr(messageId));
 
 		_btnOk->setText("OK");
 		_btnOk->onMouseClick((ActionHandler)&CampaignTeamRefusedState::btnOkClick);
@@ -723,7 +725,7 @@ void LobbyMenu::resumeCampaign()
 	if (_game->getCoopMod()->inCoopCampaignContext() && _game->getSavedGame()->getCoopLoadedGamemode() == 4)
 	{
 		Log(LOG_INFO) << "[coop] campaign RESUME refused: the save was played in PvE2 (game mode 4)";
-		_game->pushState(new CampaignTeamRefusedState());
+		_game->pushState(new CampaignTeamRefusedState("STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER"));
 		return;
 	}
 
@@ -1425,13 +1427,31 @@ bool LobbyMenu::setPlayerTeam(int row, const std::string& team)
 			current_gamemode = 3;
 		}
 
+		// coop: a Shared campaign is one X-COM world for both players, so a NEW Shared campaign lobby refuses every pick that
+		// would put a player on the Alien team: the row keeps its team, the game mode stays, nothing is sent, and a small
+		// dialog points to a Separate campaign. The campaign type is read as the lobby title reads it.
+		if (connectionTCP::session.lobbyMode == 1 && (isHostAlien || isClientAlien))
+		{
+			int campaignType = connectionTCP::_lobbyCampaignType;
+			if (_game->getCoopMod()->getServerOwner() == true && _game->getSavedGame())
+			{
+				campaignType = static_cast<int>(_game->getSavedGame()->getCampaignType());
+			}
+			if (campaignType == static_cast<int>(CoopCampaignType::Shared))
+			{
+				Log(LOG_INFO) << "[coop] Shared campaign lobby: an Alien team pick is refused";
+				_game->pushState(new CampaignTeamRefusedState("STR_COOP_SHARED_CAMPAIGN_NO_ALIEN_TEAM"));
+				return true;
+			}
+		}
+
 		// coop: no PvE2 (game mode 4) campaigns - a NEW campaign lobby refuses the pick that would put
 		// both players on the Alien team: the row keeps its team, nothing is sent, and a small dialog says why. A Custom Battle lobby
 		// (lobbyMode 0) keeps PvE2; a resume lobby never re-derives the mode from the teams (below).
 		if (connectionTCP::session.lobbyMode == 1 && current_gamemode == 4)
 		{
 			Log(LOG_INFO) << "[coop] campaign lobby: the second Alien pick is refused";
-			_game->pushState(new CampaignTeamRefusedState());
+			_game->pushState(new CampaignTeamRefusedState("STR_COOP_CAMPAIGN_NEEDS_XCOM_PLAYER"));
 			return true;
 		}
 
