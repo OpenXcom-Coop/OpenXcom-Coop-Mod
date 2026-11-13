@@ -40856,7 +40856,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		int difficulty = obj["difficulty"].asInt();
 		connectionTCP::_coopGamemode = obj["gamemode"].asInt();
-		if (connectionTCP::_coopGamemode == 2)
+		// The alien player of a game mode played on two worlds keeps a world without bases. On one world it holds
+		// a replica of the host's world instead.
+		if (connectionTCP::_coopGamemode == 2 && !CoopSide::pvpOneWorldEnabled(2))
 			connectionTCP::no_bases = true;
 		connectionTCP::saveID = obj["saveID"].asInt64();
 		connectionTCP::session.campaignStarted();
@@ -40887,7 +40889,10 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			return;
 		}
 
-		if (campaignType == CoopCampaignType::Shared)
+		// The alien player of a PvP campaign on one world holds no world of its own: like a SHARED client it waits
+		// for the host's settled world and adopts it as its replica (no base placement, no contribution).
+		const bool alienReplica = CoopSide::pvpOneWorld(nullptr) && CoopSide::thisMachinePlaysAliens(nullptr);
+		if (campaignType == CoopCampaignType::Shared || alienReplica)
 		{
 			// a SHARED client is a replica - it never builds its own
 			// world. Do NOT run beginInitialBasePlacement. Hold the wait dialog
@@ -40895,6 +40900,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			// authoritative world (streamSharedWorldToClient ->
 			// MAP_RESULT_LOAD_PROGRESS), which the client then adopts exactly
 			// like a resume. The roster/type ride the streamed save's header.
+			// The alien player of a PvP campaign on one world takes this branch too.
 			connectionTCP::session.markLobbyClosed();
 			connectionTCP::session.resumeAck = false;
 			_game->pushState(new CoopState(COOP_DLG_CLIENT_LOAD_WAIT));
@@ -40931,16 +40937,9 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			}
 			else
 			{
-				// PvP: the alien side has no bases.  This writes the client's
-				// world into its OWN process-local coopFilesClient map
-				// (getServerOwner()==false here); that blob never reaches the
-				// host, so it can NOT drive a host-side rejoin.  On rejoin the
-				// HOST supplies the client world instead: it embeds a minimal
-				// no_bases stub in its .sav (SavedGame::save -> buildCoopStub)
-				// and synthesizes the same stub in LobbyMenu::resumeCampaign.
-				// The WAIT_BASES dialog always shows BEGIN regardless of blob
-				// arrival (see CoopState::waitSatisfied); this local save is
-				// not needed for the initial session start.
+				// PvP on two worlds: the alien side has no bases. This writes the client's world into its OWN
+				// process-local coopFilesClient map (getServerOwner()==false here); that blob never reaches the host.
+				// The WAIT_BASES dialog always shows BEGIN for this mode (CoopState::waitSatisfied).
 				std::string blobKey = pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
 				try
 				{
@@ -41750,24 +41749,6 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 				_game->getSavedGame()->saveCoopToMemory("coop_geoscape_return", _game->getMod(), "coop_geoscape_return");
 				_game->getSavedGame()->reattachBattleGame(keepBattle);
 				Log(LOG_INFO) << "[coop] F3 battle resume: stashed geoscape-only coop_geoscape_return for mission-end restore";
-			}
-
-			// coop: the gm2 alien player never pushes a world of its own (no_bases), so without this its rejoin in a live campaign would find none
-			// here and be answered with a NEW campaign (base placement on the alien side). Serve it the stub a resume serves
-			// (LobbyMenu::resumeCampaign, SavedGame::buildCoopStub): its alien role comes back with it.
-			if (connectionTCP::_coopGamemode == 2 && !hasCoopFile(pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName())))
-			{
-				try
-				{
-					std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
-					std::lock_guard<std::mutex> lk(coopFilesMutex);
-					coopFilesHost[pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName())] = std::move(stub);
-					Log(LOG_INFO) << "[coop] gm2 rejoin: stub no_bases blob for " << _game->getCoopMod()->getCurrentClientName();
-				}
-				catch (const std::exception& e)
-				{
-					Log(LOG_ERROR) << "[coop] gm2 rejoin stub build failed: " << e.what();
-				}
 			}
 
 			std::string filename = pvpHostWorldKey(_game->getCoopMod()->getCurrentClientName());
@@ -42929,6 +42910,49 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 					std::lock_guard<std::mutex> lk(sharedLiveSiteIdsMutex);
 					sharedLiveSiteIds = std::move(liveSiteIds);
 					sharedLiveSiteIdsValid = true;
+				}
+			}
+
+			// alien bases (sent only to the alien player of a PvP campaign on one world): create-or-update by coop id,
+			// because an undiscovered base's display id is 0. An alien base leaves the world only through a battle,
+			// whose restream replaces this world, so none is removed here.
+			if (obj.isMember("alienBases"))
+			{
+				for (Json::ArrayIndex i = 0; i < obj["alienBases"].size(); i++)
+				{
+					const Json::Value& ja = obj["alienBases"][i];
+					const int coopId = ja.get("coopId", 0).asInt();
+					if (coopId == 0) continue;
+					AlienBase* ab = nullptr;
+					for (auto* b : *sg->getAlienBases())
+						if (b->_coop_alienbase_id == coopId) { ab = b; break; }
+					if (!ab)
+					{
+						AlienDeployment* dep = _game->getMod()->getDeployment(ja.get("deployment", "").asString(), false);
+						if (!dep) continue;
+						ab = new AlienBase(dep, ja.get("startMonth", 0).asInt());
+						ab->_coop_alienbase_id = coopId;
+						sg->getAlienBases()->push_back(ab);
+					}
+					ab->setId(ja.get("id", 0).asInt());
+					ab->setLongitude(ja["lon"].asDouble());
+					ab->setLatitude(ja["lat"].asDouble());
+					ab->setAlienRace(ja.get("race", "").asString());
+					ab->setPactCountry(ja.get("pactCountry", "").asString());
+					ab->setOwnerPlayerName(ja.get("ownerPlayerName", "").asString());
+					ab->setDiscovered(ja.get("discovered", false).asBool());
+				}
+			}
+
+			// X-COM bases a UFO has found (sent with the alien bases): the replica keeps the host's flag.
+			if (obj.isMember("basesFound"))
+			{
+				for (const Json::Value& jb : obj["basesFound"])
+				{
+					const int coopBaseId = jb.get("coopBaseId", 0).asInt();
+					for (auto* xbase : *sg->getBases())
+						if (xbase->_coop_base_id == coopBaseId)
+							xbase->setRetaliationTarget(jb.get("found", false).asBool());
 				}
 			}
 		}

@@ -87,6 +87,8 @@ private:
 	bool executeSides15(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 	/// The alien player's globe probes (globe_view, alien_view, xcom_base_found, place_craft, xcom_detect_ufo).
 	bool executeAlienGlobe16(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// PvP one-world probes (pvp_funds_shown, send_peer_message, pvp_bases_found). executeSides15 tries it first.
+	bool executePvpWorld16(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

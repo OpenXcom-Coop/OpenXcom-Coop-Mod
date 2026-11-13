@@ -277,11 +277,6 @@ private:
 	void loadUfopediaRuleStatus(const YAML::YamlNodeReader& reader);
 	/// Saves a saved game to YAML.
 	void saveCoopToMemory(const std::string& filename, Mod* mod, const std::string& key) const;
-	/// coop (PvP P4): build a minimal no_bases client stub blob (one unplaced,
-	/// unnamed EMPTY base + empty roster + no_bases:true) as a serialized 2-doc
-	/// save string. Pure builder: touches no coop map and takes no lock, so it
-	/// is safe to call while coopFilesMutex is already held.
-	std::string buildCoopStub(Mod* mod) const;
 	void save(const std::string &filename, Mod *mod) const;
 	/// Gets the game name.
 	std::string getName() const;
@@ -375,6 +370,14 @@ private:
 	std::vector<const RuleResearch*> getResearchedTopics(const Mod *mod) const;
 	/// Gets the current funds.
 	int64_t getFunds() const;
+	/// Returns the funds this machine's player is shown (a fixed 1,000 for the alien player of a PvP campaign on one world).
+	int64_t getFundsShown() const;
+	/// Returns the balance this machine's player is shown for one month of the funds history (the finance graph).
+	int64_t getFundsHistoryShown(size_t month) const;
+	/// coop: this machine's player is the alien player of a PvP campaign on the host's one world.
+	bool pvpOneWorldAlienHere() const;
+	/// coop: the other player is the alien player of a PvP campaign on the host's one world.
+	bool pvpOneWorldAlienPeer() const;
 	/// Select the Separate player wallet used during an authoritative command.
 	void setSeparateFundsContext(const std::string& playerName) { _separateFundsContext = playerName; }
 	void clearSeparateFundsContext() { _separateFundsContext.clear(); }

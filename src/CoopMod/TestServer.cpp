@@ -13661,6 +13661,8 @@ bool TestServer::executeSides15(const std::string& cmd, const Json::Value& req, 
 {
 	if (executeAlienGlobe16(cmd, req, resp))
 		return true;
+	if (executePvpWorld16(cmd, req, resp))
+		return true;
 	if (cmd == "coop_sides")
 	{
 		connectionTCP* coop = _game->getCoopMod();
@@ -13905,6 +13907,72 @@ bool TestServer::executeAlienGlobe16(const std::string& cmd, const Json::Value& 
 		}
 		ufo->setDetected(true);
 		geo->popup(new UfoDetectedState(ufo, geo, true, ufo->getHyperDetected()));
+		resp["ok"] = true;
+		return true;
+	}
+	return false;
+}
+
+/**
+ * PvP one-world probes. pvp_funds_shown and pvp_bases_found are pure reads. send_peer_message is TEST-ONLY: it sends
+ * <message> (an object with a "state") to the other machine as this machine's own packet. Same C1061 reason as the
+ * dispatchers above. Returns true if @a cmd was one of ours.
+ */
+bool TestServer::executePvpWorld16(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	if (cmd == "pvp_funds_shown")
+	{
+		SavedGame* save = _game->getSavedGame();
+		if (!save)
+		{
+			resp["error"] = "no saved game";
+			return true;
+		}
+		resp["funds"] = Json::Value::Int64(save->getFunds());
+		resp["fundsShown"] = Json::Value::Int64(save->getFundsShown());
+		// the finance graph's balance line: the funds history and what each month is shown as
+		Json::Value history(Json::arrayValue), shown(Json::arrayValue);
+		for (size_t i = 0; i < save->getFundsList().size(); ++i)
+		{
+			history.append(Json::Value::Int64(save->getFundsList().at(i)));
+			shown.append(Json::Value::Int64(save->getFundsHistoryShown(i)));
+		}
+		resp["fundsList"] = history;
+		resp["fundsListShown"] = shown;
+		resp["alienHere"] = save->pvpOneWorldAlienHere();
+		resp["alienPeer"] = save->pvpOneWorldAlienPeer();
+		resp["ok"] = true;
+		return true;
+	}
+	if (cmd == "send_peer_message")
+	{
+		const Json::Value& message = req["message"];
+		if (!message.isObject() || !message.isMember("state"))
+		{
+			resp["error"] = "send_peer_message needs message.state";
+			return true;
+		}
+		_game->getCoopMod()->sendTCPPacketData(message.toStyledString());
+		resp["ok"] = true;
+		return true;
+	}
+	if (cmd == "pvp_bases_found")
+	{
+		// Pure read: each base of this machine's world and whether a UFO has found it (retaliation target).
+		SavedGame* save = _game->getSavedGame();
+		Json::Value bases(Json::arrayValue);
+		if (save)
+		{
+			for (Base* xbase : *save->getBases())
+			{
+				Json::Value row;
+				row["name"] = xbase->getName(_game->getLanguage());
+				row["coopBaseId"] = xbase->_coop_base_id;
+				row["found"] = xbase->getRetaliationTarget();
+				bases.append(row);
+			}
+		}
+		resp["bases"] = bases;
 		resp["ok"] = true;
 		return true;
 	}

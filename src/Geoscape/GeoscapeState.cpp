@@ -1870,7 +1870,10 @@ void GeoscapeState::think()
 						// side in PvP) and for an older host, the UFO's flag decides.
 						const bool hyperDetected = (campaignWorld && it->hyperDetected.has_value())
 							? *it->hyperDetected : match->getHyperDetected();
-						popup(new UfoDetectedState(match, this, true, hyperDetected, true));
+						// The alien player of a PvP campaign on one world knows its own UFOs completely: its window
+						// carries the hyper-wave details whatever X-COM's radar decoded.
+						popup(new UfoDetectedState(match, this, true,
+							hyperDetected || _game->getSavedGame()->pvpOneWorldAlienHere(), true));
 						it = alerts.erase(it);
 					}
 					else
@@ -2270,6 +2273,40 @@ void GeoscapeState::think()
 				}
 				jroot["missions"] = jsites;
 
+				// The alien player of a PvP campaign on one world is shown every alien base, found or not, so its
+				// replica must hold each one. Other replicas get alien bases with the world stream and alien_base_found.
+				if (_game->getSavedGame()->pvpOneWorldAlienPeer())
+				{
+					Json::Value jalienBases(Json::arrayValue);
+					for (auto* ab : *_game->getSavedGame()->getAlienBases())
+					{
+						Json::Value ja;
+						ja["id"] = ab->getId();
+						ja["coopId"] = ab->_coop_alienbase_id;
+						ja["deployment"] = ab->getDeployment()->getType();
+						ja["race"] = ab->getAlienRace();
+						ja["pactCountry"] = ab->getPactCountry();
+						ja["discovered"] = ab->isDiscovered();
+						ja["lon"] = ab->getLongitude();
+						ja["lat"] = ab->getLatitude();
+						ja["startMonth"] = ab->getStartMonth();
+						ja["ownerPlayerName"] = ab->getOwnerPlayerName();
+						jalienBases.append(ja);
+					}
+					jroot["alienBases"] = jalienBases;
+
+					// X-COM bases a UFO has found (vanilla's retaliation target): shown to the alien player.
+					Json::Value jfound(Json::arrayValue);
+					for (auto* xbase : *_game->getSavedGame()->getBases())
+					{
+						Json::Value jb;
+						jb["coopBaseId"] = xbase->_coop_base_id;
+						jb["found"] = xbase->getRetaliationTarget();
+						jfound.append(jb);
+					}
+					jroot["basesFound"] = jfound;
+				}
+
 				_game->getCoopMod()->sendCoopSnapshot(SNAP_GEO_POSITIONS, jroot.toStyledString());
 				if (_game->getCoopMod()->geoMembershipChanged(jroot))
 				{
@@ -2493,7 +2530,7 @@ void GeoscapeState::timeDisplay()
 		}
 		else
 		{
-			_txtFunds->setText(Unicode::formatFunding(_game->getSavedGame()->getFunds()));
+			_txtFunds->setText(Unicode::formatFunding(_game->getSavedGame()->getFundsShown()));
 		}
 	}
 
@@ -5534,7 +5571,9 @@ void GeoscapeState::time1MonthCoop()
 	// ONLY _funds.back() (no net-inference nudge of the graph series); the income/
 	// expenditure/maintenance tails are then set from the host's values directly, so
 	// the replica's Graphs->Finance series match the host across the month boundary.
-	if (_game->getCoopMod()->isSharedCampaign()
+	// A PvP campaign on one world keeps one wallet as SHARED does, so its replica adopts the host's settlement the same way.
+	if ((_game->getCoopMod()->isSharedCampaign()
+		|| (_game->getCoopMod()->isSeparateCampaign() && !_game->getCoopMod()->isSeparateEconomy()))
 		&& _game->getCoopMod()->isSharedReplica()
 		&& _game->getCoopMod()->sharedMonthlyPending)
 	{
