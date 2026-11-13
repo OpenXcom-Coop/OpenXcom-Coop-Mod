@@ -14,7 +14,7 @@ The rules, with the view on:
 The view is read-only: no row changes X-COM's research or funds.
 
 Rows and cells (one line per assertion; "off" lines are the controls with the view off):
-  host_world: stage, pedia_control, pedia_starting_set, pedia_screen, tech_tree, tech_tree_key, funding_real,
+  host_world: setup, pedia_control, pedia_starting_set, pedia_screen, tech_tree, tech_tree_key, funding_real,
     lists_closed, notes_closed, world_unchanged (after every row);
   host_battle (the host's own battle, entered from the campaign): notes_closed.
 
@@ -188,8 +188,8 @@ class AlienScreens:
 
     # ---- rows -----------------------------------------------------------------------------
 
-    def stage(self):
-        cell = "stage"
+    def setup(self):
+        cell = "setup"
         self.view(False)
         before = self.screens(ARTICLE_CANDIDATES)["ids"]
         for a in ARTICLE_CANDIDATES:
@@ -455,10 +455,10 @@ class AlienScreens:
 
     def run(self):
         self.bring_up()
-        self.stage()
+        self.setup()
         self.funds = self.world()
         self.evidence(f"world at start {self.funds}")
-        self.world_unchanged("stage")
+        self.world_unchanged("setup")
         for row in (self.pedia_control, self.pedia_starting_set, self.pedia_screen, self.tech_tree, self.tech_tree_key,
                     self.funding_real, self.lists_closed, self.notes_closed):
             self.back_to("GeoscapeState", f"before {row.__name__}")
