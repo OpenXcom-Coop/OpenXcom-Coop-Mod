@@ -13,11 +13,12 @@ alien killed by a test command, END TURN, both debriefings, both OKs).
               line
   gm2_resume  both inBattle, phase Active, battleId equal and non-zero; turn / side == GM2_TURN; both tops
               BattlescapeState
-  gm2_mode    get_coop.gamemode 2 on both; noBases host false / client2 true; host battle_state.coopGamemode 2
+  gm2_mode    get_coop.gamemode 2 on both; coop_sides playsAliens host false / client2 true and oneWorld true on
+              both; host battle_state.coopGamemode 2
   gm2_seats   both machines: faction 0 == XCOM_IDS on seat 0; faction 1 == ALIEN_IDS on seat 1 without AI;
               originalFaction == faction; no other faction; the two lists equal
   gm2_win     resume_gm2's win_cell (host "Aliens defeated", client2's display-only copy, both back on a clean geoscape,
-              no CoopState 994)
+              client2 a replica of the host's world, no CoopState 994)
   gm2_common  0 new crash files, both processes alive, client2 zero-disk; desyncSeen false and hash_now full EQUAL once
               in battle
 Boot pve2_refused (key 48246, after gm2_resumes; dirs old_pvp_pve2_host / old_pvp_pve2_client2): the save is
@@ -106,8 +107,8 @@ def log_text(gc):
 
 
 def coop(gc):
-    c = gc.cmd({"cmd": "get_coop"})
-    return {"gamemode": c.get("gamemode"), "noBases": c.get("noBases")}
+    c, s = gc.cmd({"cmd": "get_coop"}), gc.cmd({"cmd": "coop_sides"})
+    return {"gamemode": c.get("gamemode"), "playsAliens": s.get("playsAliens"), "oneWorld": s.get("oneWorld")}
 
 
 def units(gc):
@@ -221,11 +222,14 @@ def row_gm2_resumes(x, ev):
             cv = [coop(host), coop(c2)]
             ev["coop"] = cv
             mbad = [f"{nm} gamemode {v['gamemode']!r} (want 2)" for nm, v in zip(("host", "client2"), cv) if v["gamemode"] != 2]
-            mbad += [f"noBases host / client2 {[cv[0]['noBases'], cv[1]['noBases']]} (want [False, True])"] \
-                if [cv[0]["noBases"], cv[1]["noBases"]] != [False, True] else []
+            mbad += [f"playsAliens host / client2 {[cv[0]['playsAliens'], cv[1]['playsAliens']]} (want [False, True])"] \
+                if [cv[0]["playsAliens"], cv[1]["playsAliens"]] != [False, True] else []
+            mbad += [f"oneWorld host / client2 {[cv[0]['oneWorld'], cv[1]['oneWorld']]} (want [True, True])"] \
+                if [cv[0]["oneWorld"], cv[1]["oneWorld"]] != [True, True] else []
             mbad += [f"host battle_state.coopGamemode {res[0]['coopGamemode']!r} (want 2)"] if res[0]["coopGamemode"] != 2 else []
             cell("gm2_mode", not mbad,
-                 "; ".join(mbad) or "gamemode 2 on both; noBases host false / client2 true; host coopGamemode 2")
+                 "; ".join(mbad) or "gamemode 2 on both; playsAliens host false / client2 true, one world on both; host "
+                 "coopGamemode 2")
             cen = [units(host), units(c2)]
             ev["census"] = cen
             sbad = seats_bad(cen)

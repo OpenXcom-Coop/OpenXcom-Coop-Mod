@@ -228,9 +228,11 @@ def win_cell(host, c2, ev):
     pk = BES.press_ok(c2)
     BES.drain(c2, timeout=OK_S)
     gok, gs = wait(lambda: BES.geo_clean(c2), OK_S)
-    c2v = view(c2)
+    c2v = G2F.coop(c2)
+    c2v["realBases"], hbases = G2F.geo_view(c2)["realBases"], G2F.geo_view(host)["realBases"]
     bad += [] if gok else [f"client2 not geo_clean within {OK_S} s of its OK (stack {stack(c2)})"]
-    bad += [f"client2 {k} {c2v[k]!r} (want {w!r})" for k, w in (("noBases", True), ("funds", STUB_FUNDS)) if c2v[k] != w]
+    bad += [f"client2 {b[len('client '):]}" for b in G2F.alien_bad(c2v)]
+    bad += [f"client2 real bases {c2v['realBases']} (want the host's {hbases})"] if c2v["realBases"] != hbases else []
     watch = []
     while time.time() - t_ok < WATCH994_S:
         if top(host) == "CoopState" and dlg(host).get("code") == 994:
@@ -240,15 +242,18 @@ def win_cell(host, c2, ev):
     hk = BES.press_ok(host)
     hreached, hscreens, on994 = G2F.drain_host(host)
     hok, hs = wait(lambda: BES.geo_clean(host), DRAIN_S) if hreached else (False, 0)
-    hv2 = view(host)
+    hv2 = G2F.coop(host)
     bad += [f"host CoopState 994 {watch} s after client2's OK"] if watch or on994 else []
     bad += [] if hok else [f"host not geo_clean within {DRAIN_S} s of its OK (stack {stack(host)}, screens {hscreens})"]
-    bad += [f"host noBases {hv2['noBases']!r} (want false)"] if hv2["noBases"] is not False else []
+    bad += [f"host playsAliens {hv2['playsAliens']!r} (want false)"] if hv2["playsAliens"] is not False else []
+    same, chk_s, chk_diff = G2F.checksums_equal(host, c2, G2F.ADOPT_S)
+    bad += [] if same else [f"world checksums differ {G2F.ADOPT_S} s after the host's OK (host, client2): {chk_diff}"]
     ev.update(hostDebrief={k: hdeb.get(k) for k in ("title", "displayOnly", "rating", "total")}, clientDebriefS=csecs, debriefS=secs,
-              client2Ok={"press": pk, "geoS": gs, "view": c2v}, hostOk={"press": hk, "screens": hscreens, "geoS": hs, "view": hv2})
+              client2Ok={"press": pk, "geoS": gs, "view": c2v}, hostOk={"press": hk, "screens": hscreens, "geoS": hs, "view": hv2},
+              checksum={"equal": same, "s": chk_s, "diff": chk_diff})
     cell("resumed_win", not bad, "; ".join(bad) or f"host DebriefingState {secs} s, {TITLE_WIN!r}; client2 display-only "
-         f"debriefing equal; client2 OK -> geo_clean, noBases true, funds {STUB_FUNDS}; host OK -> geo_clean, noBases "
-         "false, no 994")
+         f"debriefing equal; client2 OK -> geo_clean, plays the aliens, a replica holding the host's bases, shown "
+         f"{G2F.SHOWN_FUNDS}; host OK -> geo_clean, plays X-COM, no 994; world checksums equal {chk_s} s later")
 
 
 def row_battle_resume(x, ev):

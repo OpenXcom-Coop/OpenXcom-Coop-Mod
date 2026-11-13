@@ -1,7 +1,7 @@
 """PvP campaign (host X-COM, client alien): the host's saves complete after the alien player rejoins.
 
-In gamemode 2 the alien player has no world of its own: it never places a base, and the host's
-save embeds a stand-in world for it. A host save must not wait on the alien machine. Before the
+In gamemode 2 the alien player has no world of its own: it never places a base, and the alien
+player holds the host's world as a replica. A host save must not wait on the alien machine. Before the
 alien player has ever rejoined, a save writes at once. This test checks that it still does after
 the alien client crashes and rejoins the running campaign, and after both players reload the
 host's save.
@@ -161,20 +161,21 @@ class Run:
         gm = pvp_fixture.start_pvp_campaign(self.host, self.client, PORT, alien_player="client")
         if gm != 2:
             raise RuntimeError(f"expected gamemode 2, got {gm}")
-        coop = self.client.ok({"cmd": "get_coop"})
-        if not coop.get("noBases"):
-            raise RuntimeError(f"the alien client is not on the alien side: {coop}")
+        sides = self.client.ok({"cmd": "coop_sides"})
+        if not sides.get("playsAliens"):
+            raise RuntimeError(f"the alien client is not on the alien side: {sides}")
         self.quick_save("fresh")
         self.rejoin(PORT)
         self.quick_save("rejoin")
         self.auto_save("autosave")
         self.menu_save("menu")
         self.reload(MENU_SAVE + ".sav", RELOAD_PORT)
-        coop = self.client.ok({"cmd": "get_coop"})
-        if coop.get("noBases") and coop.get("gamemode") == 2:
+        sides = self.client.ok({"cmd": "coop_sides"})
+        if sides.get("playsAliens") and sides.get("gamemode") == 2:
             print("PASS reload: the client came back on the alien side", flush=True)
         else:
-            msg = f"the client came back from the save off the alien side: noBases {coop.get('noBases')} gamemode {coop.get('gamemode')}"
+            msg = (f"the client came back from the save off the alien side: playsAliens {sides.get('playsAliens')} "
+                   f"gamemode {sides.get('gamemode')}")
             print(f"  FAIL reload: {msg}", flush=True)
             self.fails.append(f"reload: {msg}")
         self.quick_save("reload")
