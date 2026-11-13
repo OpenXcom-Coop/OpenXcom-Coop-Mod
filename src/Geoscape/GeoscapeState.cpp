@@ -2047,7 +2047,9 @@ void GeoscapeState::think()
 					root["ufos"][ufo_index]["isHunterKiller"] = ufo->isHunterKiller();
 					root["ufos"][ufo_index]["isEscort"] = ufo->isEscort();
 
-					if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
+					// On one world the alien player's replica keeps the host's detection state (its globe shows every UFO anyway).
+					if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false
+						&& !_game->getSavedGame()->pvpOneWorldAlienHere())
 					{
 
 						if (ufo->getDetected() == true)
