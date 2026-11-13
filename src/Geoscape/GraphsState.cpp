@@ -1073,7 +1073,7 @@ void GraphsState::drawFinanceLines()
 	{
 		size_t invertedEntry = _game->getSavedGame()->getFundsList().size() - (1 + entry);
 		maintTotals[entry] += _game->getSavedGame()->getMaintenances().at(invertedEntry) / 1000;
-		balanceTotals[entry] = _game->getSavedGame()->getFundsList().at(invertedEntry) / 1000;
+		balanceTotals[entry] = _game->getSavedGame()->getFundsHistoryShown(invertedEntry) / 1000;
 		scoreTotals[entry] = _game->getSavedGame()->getResearchScores().at(invertedEntry);
 
 		for (auto* region : *_game->getSavedGame()->getRegions())

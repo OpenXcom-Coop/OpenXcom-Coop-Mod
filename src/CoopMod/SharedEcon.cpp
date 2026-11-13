@@ -3892,6 +3892,7 @@ void patrolPromptApply(Game* game, Json::Value& payload, Base* base, int /*seat*
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	GeoscapeState* gs = findGeoState(game);
 	if (!craft || !gs) return;
+	if (!SeparateEcon::showsHostNotices(game)) return; // the patrol prompt belongs to the craft's X-COM player
 	gs->clientCraftReachedWaypoint(craft);
 }
 
@@ -3964,7 +3965,10 @@ void alienBaseFoundApply(Game* game, Json::Value& payload, Base* /*base*/, int /
 	AlienBase* found = nullptr;
 	for (auto* ab : *save->getAlienBases())
 	{
-		if (ab->getId() == id)
+		// A replica may already hold the base under its coop id (a world stream or, for the alien player of a PvP
+		// campaign on one world, the position snapshot) while its display id was still 0.
+		const int coopId = payload.get("coopId", 0).asInt();
+		if (ab->getId() == id || (coopId != 0 && ab->_coop_alienbase_id == coopId))
 		{
 			found = ab;
 			break;
@@ -3987,7 +3991,8 @@ void alienBaseFoundApply(Game* game, Json::Value& payload, Base* /*base*/, int /
 	found->setAlienRace(payload.get("race", "").asString());
 	found->setOwnerPlayerName(payload.get("ownerPlayerName", "").asString());
 	found->setDiscovered(true);
-	gs->popup(new AlienBaseState(found, gs));
+	if (SeparateEcon::showsHostNotices(game))
+		gs->popup(new AlienBaseState(found, gs));
 }
 
 // ---- generic informational-alert replication --------------------------------
@@ -4014,6 +4019,7 @@ void alertApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 	if (connectionTCP::getHost()) return; // the host already popped its own copy
 	GeoscapeState* gs = findGeoState(game);
 	if (!gs || !game->getSavedGame()) return;
+	if (!SeparateEcon::showsHostNotices(game)) return; // X-COM's alerts are not the alien player's
 	Mod* mod = game->getMod();
 	const std::string cls = payload.get("cls", "").asString();
 	const std::string msg = payload.isMember("text") ? textRender(game, payload["text"]) : payload.get("msg", "").asString(); // this machine's language
@@ -4168,6 +4174,7 @@ std::vector<QueuedEventWindow> g_eventWindows; // replica: windows waiting for t
 // (a SHARED client's debriefing OK replaces its stack with a new GeoscapeState, which would drop a queued popup).
 void showEventWindow(Game* game, GeoscapeState* gs, const RuleEvent& rule, const CoopEventPicks& picks)
 {
+	if (!SeparateEcon::showsHostNotices(game)) return; // nor X-COM's event windows (none is queued)
 	bool debrief = false;
 	for (auto* st : game->getStates()) debrief = debrief || dynamic_cast<DebriefingState*>(st) != nullptr;
 	if (!gs || debrief)
@@ -5284,6 +5291,17 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	{
 		++g_unknownN;
 		rejectHostCmd(game, pc, "unknown command: " + pc.cmd);
+		return;
+	}
+
+	// The alien player of a PvP campaign commands nothing in the X-COM world: the host refuses every command that
+	// arrives from it, whatever its screens allowed. A remote command always comes from the other player, so the side
+	// is the peer's, never the seat the message names.
+	if (pc.remote && game->getSavedGame() && game->getSavedGame()->pvpOneWorldAlienPeer())
+	{
+		rejectHostCmd(game, pc, "STR_COOP_ACTION_REFUSED");
+		setLastFail("alien player command refused");
+		Log(LOG_INFO) << "[SHARED] " << pc.cmd << " refused: sent by the alien player";
 		return;
 	}
 

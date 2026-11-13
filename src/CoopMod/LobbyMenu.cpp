@@ -751,39 +751,6 @@ void LobbyMenu::resumeCampaign()
 	// stream it (streamSharedWorldToClient). Never build a fresh client world.
 	std::string clientName = _game->getCoopMod()->getCurrentClientName();
 
-	// PvP gamemode 2: the alien client has no_bases, so no world blob was
-	// ever transferred to the host.  Synthesize a minimal one-shot blob
-	// now so the resume-campaign path below takes the campaign_resume
-	// branch instead of falling through to campaign_start (which starts a
-	// fresh world that another campaign_start in request_load_progress
-	// would overwrite, never arming sendFileClient).
-	if (connectionTCP::_coopGamemode == 2
-		&& !connectionTCP::hasPvpClientWorld(clientName))
-	{
-		try
-		{
-			// PvP P4: the gm2 alien client never sends a world blob to the host
-			// (its own coopFilesClient world is process-local). Build a MINIMAL
-			// no_bases stub - one unplaced/unnamed EMPTY base, empty roster - and
-			// store it under the client's pvpHostWorldKey so the campaign_resume branch
-			// below fires. Replaces the former full-world synthesis (host bases +
-			// host roster stamped no_bases via a temporary global flip), which
-			// leaked the host's placed bases and named roster into the client's
-			// rejoin world. buildCoopStub reads no global flag, so there is no flip.
-			std::string key = connectionTCP::pvpHostWorldKey(clientName);
-			std::string stub = _game->getSavedGame()->buildCoopStub(_game->getMod());
-			{
-				std::lock_guard<std::mutex> lk(connectionTCP::coopFilesMutex);
-				connectionTCP::coopFilesHost[key] = std::move(stub);
-			}
-			Log(LOG_INFO) << "[coop] gm2 resume: stub no_bases blob for " << clientName;
-		}
-		catch (const std::exception& e)
-		{
-			Log(LOG_ERROR) << "[coop] gm2 resume stub build failed: " << e.what();
-		}
-	}
-
 	if ((_game->getCoopMod()->isSharedCampaign() || _game->getCoopMod()->isSeparateCampaign())
 		|| connectionTCP::hasPvpClientWorld(clientName))
 	{
@@ -925,7 +892,9 @@ void LobbyMenu::startCampaign()
 	if (!CoopSide::thisMachinePlaysAliens(_game->getSavedGame()))
 	{
 		const int gamemode = _game->getCoopMod()->getCoopGamemode();
-		if (gamemode != 2 && gamemode != 3)
+		// A PvP campaign on one world names the X-COM player on every base; here the host plays X-COM.
+		if ((gamemode != 2 && gamemode != 3)
+			|| (CoopSide::pvpOneWorldEnabled(gamemode) && !CoopSide::hostPlaysAliens(gamemode)))
 			_game->getSavedGame()->getBases()->back()->setOwnerPlayerName(_game->getCoopMod()->getHostName());
 		_game->getCoopMod()->refreshSeparateBaseOwnership();
 		beginInitialBasePlacement(_game, gs, _game->getSavedGame()->getBases()->back());

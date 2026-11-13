@@ -11,8 +11,8 @@ namespace CoopSide
 
 namespace
 {
-// The one-world layout of each PvP game mode: [0] = game mode 2, [1] = game mode 3.
-bool g_pvpOneWorld[2] = { false, false };
+// The one-world layout of each PvP game mode: [0] = game mode 2 (the host plays X-COM; on), [1] = game mode 3.
+bool g_pvpOneWorld[2] = { true, false };
 }
 
 bool isPvpMode(int gamemode)

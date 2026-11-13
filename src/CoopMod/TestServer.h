@@ -89,6 +89,8 @@ private:
 	bool executeAlienGlobe16(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 	/// The alien player's information screens probe (alien_screens). executeSides15 tries it first.
 	bool executeAlienScreens17(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// PvP one-world probes (pvp_funds_shown, send_peer_message, pvp_bases_found). executeSides15 tries it first.
+	bool executePvpWorld16(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

@@ -243,6 +243,9 @@ std::vector<Soldier*> spawnedSoldiers(Game* game, Base* base, const std::vector<
 /// Whether this local seat owns a base-scoped notification (production,
 /// construction, and owner-less legacy arrivals).
 bool showBaseNotification(Game* game, const Base* base);
+/// False on the machine of a PvP campaign's alien player on one world: X-COM's notices (research, production,
+/// arrivals, base and craft alerts, events, UFO lost) are not shown there. True everywhere else.
+bool showsHostNotices(Game* game);
 /// Consume a Shared Research prerequisite from whichever Separate base owns it.
 bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	const RuleResearch* research);

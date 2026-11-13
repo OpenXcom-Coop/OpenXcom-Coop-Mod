@@ -466,7 +466,7 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 					// The replica only shows the host's result. Constructing the
 					// window must not run eventLogic here: that would apply funds,
 					// transfers, mission rolls and RNG to the replica a second time.
-					if (owner.empty() || owner == connectionTCP::seatName(connectionTCP::localSeat()))
+					if ((owner.empty() || owner == connectionTCP::seatName(connectionTCP::localSeat())) && showsHostNotices(game))
 					{
 						GeoscapeEventDisplay display;
 						display.place = obj.get("place", "").asString();
@@ -522,6 +522,13 @@ bool onMessage(Game* game, const std::string& state, const Json::Value& obj)
 	}
 	if (state == "separate_cydonia_request")
 	{
+		// The alien player of a PvP campaign commands no X-COM craft: the host ignores its request.
+		if (game && game->getSavedGame() && game->getCoopMod() && game->getCoopMod()->getServerOwner()
+			&& game->getSavedGame()->pvpOneWorldAlienPeer())
+		{
+			Log(LOG_INFO) << "[coop] final mission request refused: sent by the alien player";
+			return true;
+		}
 		if (game && game->getCoopMod() && game->getCoopMod()->getServerOwner())
 		{
 			Craft* craft = resolveCraft(game, obj);
@@ -625,6 +632,8 @@ bool showResearchCompletion(Game* game, const Base* base)
 	// shared, a completed topic belongs to both player profiles and both players
 	// receive the same completion dialog as Shared Campaign. In private mode the
 	// host still simulates every base, but only that base's owner is notified.
+	if (!showsHostNotices(game))
+		return false;
 	return game->getCoopMod()->_enable_research_sync || !base->_isForeignBase;
 }
 
@@ -668,11 +677,18 @@ bool showBaseNotification(Game* game, const Base* base)
 	if (!game || !base || !game->getCoopMod()
 		|| !game->getCoopMod()->isSeparateCampaign())
 		return true;
+	if (!showsHostNotices(game))
+		return false;
 	const std::string localName = connectionTCP::seatName(connectionTCP::localSeat());
 	const std::string ownerName = base->getOwnerPlayerName();
 	// Current Separate saves always have a persistent name. Keep _isForeignBase
 	// only as a safe fallback for an old save while it is being upgraded.
 	return ownerName.empty() ? !base->_isForeignBase : ownerName == localName;
+}
+
+bool showsHostNotices(Game* game)
+{
+	return !(game && game->getSavedGame() && game->getSavedGame()->pvpOneWorldAlienHere());
 }
 
 bool consumeSharedResearchItem(Game* game, Base* projectBase,
