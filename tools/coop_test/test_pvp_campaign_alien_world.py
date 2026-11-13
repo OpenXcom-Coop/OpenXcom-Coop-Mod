@@ -288,7 +288,7 @@ class Run:
             bad.append(f"host fundsShown {hf.get('fundsShown')} != host funds {hf.get('funds')}")
         return bad, ev
 
-    def object_checks(self):
+    def object_checks(self, staged=True):
         """(ufo problems, site problems, alien base problems, evidence) comparing every host object with the client."""
         hg, cg = geo_state(self.host), geo_state(self.client)
         ha = self.host.ok({"cmd": "alien_base_state"}).get("alienBases", [])
@@ -347,7 +347,7 @@ class Run:
         spawned = self.spawned.get("alienBases") or []
         if spawned and len([a for a in ha if a.get("id") in spawned]) != len(spawned):
             ab_bad.append(f"precondition: spawned alien bases {spawned} not all on the host {ha}")
-        if spawned and not any(not a.get("discovered") for a in ha):
+        if staged and spawned and not any(not a.get("discovered") for a in ha):
             ab_bad.append(f"precondition: no undiscovered alien base on the host {ha}")
         ev = {"hostUfos": [{k: u.get(k) for k in ("uniqueId", "coopId", "id", "type", "detected", "coop")}
                            for u in hg.get("ufos", [])],
@@ -359,10 +359,12 @@ class Run:
               "hostAlienBases": ha, "clientAlienBases": ca}
         return ufo_bad, site_bad, ab_bad, ev
 
-    def wait_objects(self, bound=OBJECTS_S):
+    def wait_objects(self, bound=OBJECTS_S, staged=True):
+        """staged: right after the objects row staged them (one alien base still undiscovered); later rows let the
+        month end discover it."""
         t0 = time.time()
         while True:
-            u, s, a, ev = self.object_checks()
+            u, s, a, ev = self.object_checks(staged)
             if not (u or s or a) or time.time() - t0 > bound:
                 ev["waitedS"] = round(time.time() - t0, 2)
                 return u, s, a, ev
@@ -677,7 +679,7 @@ class Run:
             return
         bad, ev["replica"] = self.check_replica()
         cbad, ev["checksum"] = self.check_checksum()
-        u, s, a, ev["objects"] = self.wait_objects()
+        u, s, a, ev["objects"] = self.wait_objects(staged=False)
         cell_bad("rejoin_replica", bad + cbad + u + s + a, "the rejoined alien client is a replica of the host's "
                  "world: bases, checksum, UFOs, sites and alien bases")
         # The host's copy of the alien player's world, and the client's own world as a two-world start keeps it. The
