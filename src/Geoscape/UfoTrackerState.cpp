@@ -36,6 +36,7 @@
 #include "UfoDetectedState.h"
 #include "TargetInfoState.h"
 #include "../Ufopaedia/Ufopaedia.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -124,7 +125,7 @@ UfoTrackerState::UfoTrackerState(GeoscapeState *state, Globe *globe) : _state(st
 	int row = 0;
 	for (auto* site : *_game->getSavedGame()->getMissionSites())
 	{
-		if (!site->getDetected())
+		if (!CoopAlienView::showsSite(_game->getSavedGame(), site))
 			continue;
 
 		_objects.push_back(site);
@@ -135,7 +136,7 @@ UfoTrackerState::UfoTrackerState(GeoscapeState *state, Globe *globe) : _state(st
 
 	for (auto* ufo : *_game->getSavedGame()->getUfos())
 	{
-		if (!ufo->getDetected() || ufo->getStatus() == Ufo::IGNORE_ME)
+		if (!CoopAlienView::showsUfo(_game->getSavedGame(), ufo) || ufo->getStatus() == Ufo::IGNORE_ME)
 			continue;
 
 		std::ostringstream ss1;
@@ -153,7 +154,7 @@ UfoTrackerState::UfoTrackerState(GeoscapeState *state, Globe *globe) : _state(st
 		ss4 << Unicode::formatNumber(ufo->getSpeed());
 
 		_objects.push_back(ufo);
-		_lstObjects->addRow(5, ufo->getName(_game->getLanguage()).c_str(), ss1.str().c_str(), ss2.str().c_str(), ss3.str().c_str(), ss4.str().c_str());
+		_lstObjects->addRow(5, CoopAlienView::targetName(_game->getSavedGame(), ufo, _game->getLanguage()).c_str(), ss1.str().c_str(), ss2.str().c_str(), ss3.str().c_str(), ss4.str().c_str());
 		if (altitude == "STR_GROUNDED")
 		{
 			_lstObjects->setCellColor(row, 2, _lstObjects->getSecondaryColor());
@@ -163,7 +164,7 @@ UfoTrackerState::UfoTrackerState(GeoscapeState *state, Globe *globe) : _state(st
 
 	for (auto* ab : *_game->getSavedGame()->getAlienBases())
 	{
-		if (!ab->isDiscovered())
+		if (!CoopAlienView::showsAlienBase(_game->getSavedGame(), ab))
 			continue;
 
 		_objects.push_back(ab);
@@ -206,7 +207,7 @@ void UfoTrackerState::popupTarget(Target *target)
 		// coop
 		if (u->getCoop() == false)
 		{
-			_game->pushState(new UfoDetectedState(u, _state, false, u->getHyperDetected()));
+			_game->pushState(new UfoDetectedState(u, _state, false, CoopAlienView::showsUfoDetails(_game->getSavedGame(), u)));
 		}
 		else
 		{
@@ -258,7 +259,7 @@ void UfoTrackerState::lstObjectsMiddleClick(Action *)
 	{
 		Ufo* u = dynamic_cast<Ufo*>(t);
 
-		if (u != 0 && u->getHyperDetected())
+		if (u != 0 && CoopAlienView::showsUfoDetails(_game->getSavedGame(), u))
 		{
 			std::string articleId = u->getRules()->getType();
 			Ufopaedia::openArticle(_game, articleId);

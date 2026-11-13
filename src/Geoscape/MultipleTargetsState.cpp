@@ -39,6 +39,7 @@
 #include "../Engine/Logger.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/CoopAlienView.h"
 #include "CraftErrorState.h"
 
 namespace OpenXcom
@@ -80,7 +81,7 @@ MultipleTargetsState::MultipleTargetsState(std::vector<Target*> targets, std::ve
 		for (size_t i = 0; i < _targets.size(); ++i)
 		{
 			TextButton *button = new TextButton(116, BUTTON_HEIGHT, 70, y);
-			button->setText(_targets[i]->getName(_game->getLanguage()));
+			button->setText(CoopAlienView::targetName(_game->getSavedGame(), _targets[i], _game->getLanguage()));
 			button->onMouseClick((ActionHandler)&MultipleTargetsState::btnTargetClick);
 			add(button, "button", "multipleTargets");
 
@@ -143,7 +144,8 @@ void MultipleTargetsState::popupTarget(Target *target)
 			// Shared and Separate campaigns keep every real base in the current
 			// world. Opening another player's base therefore uses the normal base
 			// selection flow; no base file is downloaded or swapped in.
-			if (_game->getCoopMod()->isSeparateCampaign()
+			if (!CoopAlienView::active(_game->getSavedGame())
+				&& _game->getCoopMod()->isSeparateCampaign()
 				&& !b->getOwnerPlayerName().empty()
 				&& !b->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat())))
 			{
@@ -184,7 +186,7 @@ void MultipleTargetsState::popupTarget(Target *target)
 			// coop
 			if (u)
 			{
-				_game->pushState(new UfoDetectedState(u, _state, false, u->getHyperDetected()));
+				_game->pushState(new UfoDetectedState(u, _state, false, CoopAlienView::showsUfoDetails(_game->getSavedGame(), u)));
 			}
 			else
 			{

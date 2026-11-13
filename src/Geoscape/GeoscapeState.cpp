@@ -151,6 +151,7 @@
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -5841,7 +5842,8 @@ void GeoscapeState::openGlobeTargets(const std::vector<Target*>& targets)
 	// A Separate foreign base is an explicit Basescape shortcut. Craft returning
 	// to that base can temporarily occupy the same globe point; it must not turn
 	// the click into a base/craft target chooser or expose the foreign craft menu.
-	if (_game->getCoopMod()->isSeparateCampaign())
+	// The alien player's view never opens an X-COM base: its click reaches the intercept window.
+	if (_game->getCoopMod()->isSeparateCampaign() && !CoopAlienView::active(_game->getSavedGame()))
 	{
 		for (Target* target : targets)
 		{

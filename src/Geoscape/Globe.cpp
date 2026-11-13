@@ -799,7 +799,7 @@ std::vector<Target*> Globe::getTargets(int x, int y, bool craft, Craft *currentC
 			if (xbase->getLongitude() == 0.0 && xbase->getLatitude() == 0.0)
 				continue;
 
-			if (targetNear(xbase, x, y))
+			if (targetNear(xbase, x, y) && CoopAlienView::showsXcomBase(_game->getSavedGame(), xbase))
 			{
 				v.push_back(xbase);
 			}
@@ -807,6 +807,8 @@ std::vector<Target*> Globe::getTargets(int x, int y, bool craft, Craft *currentC
 			for (auto* xcraft : *xbase->getCrafts())
 			{
 				if (xcraft == currentCraft)
+					continue;
+				if (!CoopAlienView::showsXcomCraft(_game->getSavedGame(), xcraft))
 					continue;
 				if (xcraft->getLongitude() == xbase->getLongitude() && xcraft->getLatitude() == xbase->getLatitude() && xcraft->getDestination() == 0)
 					continue;
@@ -820,7 +822,7 @@ std::vector<Target*> Globe::getTargets(int x, int y, bool craft, Craft *currentC
 	}
 	for (auto* ufo : *_game->getSavedGame()->getUfos())
 	{
-		if (!ufo->getDetected() || ufo->getStatus() == Ufo::IGNORE_ME)
+		if (!CoopAlienView::showsUfo(_game->getSavedGame(), ufo) || ufo->getStatus() == Ufo::IGNORE_ME)
 			continue;
 
 		if (targetNear(ufo, x, y))
@@ -839,6 +841,8 @@ std::vector<Target*> Globe::getTargets(int x, int y, bool craft, Craft *currentC
 	}
 	for (auto* site : *_game->getSavedGame()->getMissionSites())
 	{
+		if (CoopAlienView::active(_game->getSavedGame()) && !CoopAlienView::showsSite(_game->getSavedGame(), site))
+			continue;
 		if (targetNear(site, x, y))
 		{
 			v.push_back(site);
@@ -846,7 +850,7 @@ std::vector<Target*> Globe::getTargets(int x, int y, bool craft, Craft *currentC
 	}
 	for (auto* ab : *_game->getSavedGame()->getAlienBases())
 	{
-		if (!ab->isDiscovered())
+		if (!CoopAlienView::showsAlienBase(_game->getSavedGame(), ab))
 		{
 			continue;
 		}
@@ -1208,8 +1212,13 @@ void Globe::drawRadars()
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 
-		// coop
-		if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
+		// coop: the alien player sees an X-COM base, and its radar, once a UFO has found it; its crafts count one by one
+		bool baseShown = true;
+		if (CoopAlienView::active(_game->getSavedGame()))
+		{
+			baseShown = CoopAlienView::showsXcomBase(_game->getSavedGame(), xbase);
+		}
+		else if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1229,7 +1238,7 @@ void Globe::drawRadars()
 		lat = xbase->getLatitude();
 		lon = xbase->getLongitude();
 		// Cheap hack to hide bases when they haven't been placed yet
-		if (( !(AreSame(lon, 0.0) && AreSame(lat, 0.0)) )/* &&
+		if (baseShown && ( !(AreSame(lon, 0.0) && AreSame(lat, 0.0)) )/* &&
 			!pointBack(xbase->getLongitude(), xbase->getLatitude())*/)
 		{
 			if (_hover && Options::globeAllRadarsOnBaseBuild)
@@ -1266,6 +1275,8 @@ void Globe::drawRadars()
 		{
 			if (xcraft->getStatus() != "STR_OUT")
 				continue;
+			if (!CoopAlienView::showsXcomCraft(_game->getSavedGame(), xcraft))
+				continue;
 			lat = xcraft->getLatitude();
 			lon = xcraft->getLongitude();
 			range = Nautical(xcraft->getCraftStats().radarRange);
@@ -1279,9 +1290,9 @@ void Globe::drawRadars()
 		// Draw radars around UFO hunter-killers
 		for (auto* ufo : *_game->getSavedGame()->getUfos())
 		{
-			if (ufo->isHunterKiller() && ufo->getDetected() && ufo->getStatus() != Ufo::IGNORE_ME)
+			if (ufo->isHunterKiller() && CoopAlienView::showsUfo(_game->getSavedGame(), ufo) && ufo->getStatus() != Ufo::IGNORE_ME)
 			{
-				if (_game->getMod()->getDrawEnemyRadarCircles() == 1 && !ufo->getHyperDetected())
+				if (_game->getMod()->getDrawEnemyRadarCircles() == 1 && !CoopAlienView::showsUfoDetails(_game->getSavedGame(), ufo))
 				{
 					continue;
 				}
@@ -1296,7 +1307,7 @@ void Globe::drawRadars()
 		// Draw radars around alien bases
 		for (auto* ab : *_game->getSavedGame()->getAlienBases())
 		{
-			if (ab->getDeployment()->getBaseDetectionRange() > 0 && ab->isDiscovered())
+			if (ab->getDeployment()->getBaseDetectionRange() > 0 && CoopAlienView::showsAlienBase(_game->getSavedGame(), ab))
 			{
 				lat = ab->getLatitude();
 				lon = ab->getLongitude();
@@ -1528,7 +1539,15 @@ void Globe::drawDetail()
 		{
 
 			// coop
-			if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
+			if (CoopAlienView::active(_game->getSavedGame()))
+			{
+				// the alien player sees an X-COM base once a UFO has found it
+				if (!CoopAlienView::showsXcomBase(_game->getSavedGame(), xbase))
+				{
+					continue;
+				}
+			}
+			else if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -1745,7 +1764,7 @@ void Globe::drawFlights()
 	// Draw the hunting UFO flight paths
 	for (auto* ufo : *_game->getSavedGame()->getUfos())
 	{
-		if (ufo->getDestination() && (ufo->isHunting() || _game->getSavedGame()->getDebugMode()) && ufo->getDetected() && ufo->getStatus() != Ufo::IGNORE_ME)
+		if (ufo->getDestination() && (ufo->isHunting() || _game->getSavedGame()->getDebugMode()) && CoopAlienView::showsUfo(_game->getSavedGame(), ufo) && ufo->getStatus() != Ufo::IGNORE_ME)
 		{
 			double lon1 = ufo->getLongitude();
 			double lon2 = ufo->getDestination()->getLongitude();
@@ -1819,7 +1838,15 @@ void Globe::drawMarkers()
 	{
 
 		// coop
-		if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
+		if (CoopAlienView::active(_game->getSavedGame()))
+		{
+			// the alien player sees an X-COM base once a UFO has found it
+			if (!CoopAlienView::showsXcomBase(_game->getSavedGame(), xbase))
+			{
+				continue;
+			}
+		}
+		else if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1879,6 +1906,9 @@ void Globe::drawMarkers()
 
 bool Globe::isCraftFlightVisible(const Craft *craft) const
 {
+	// the alien player never sees where an X-COM craft is going
+	if (craft && CoopAlienView::active(_game->getSavedGame()))
+		return false;
 	if (!craft || !_game->getCoopMod()->isSeparateCampaign())
 		return true;
 

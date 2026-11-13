@@ -1,8 +1,11 @@
 #pragma once
 
+#include <string>
+
 namespace OpenXcom
 {
 
+class Language;
 class SavedGame;
 class Target;
 class Ufo;
@@ -49,6 +52,9 @@ bool showsXcomCraft(SavedGame* save, Craft* craft);
 int craftSighting(SavedGame* save, Craft* craft);
 /// The globe marker of @a target as these rules show it (-1 = not shown).
 int marker(SavedGame* save, Target* target);
+/// The name a window or list shows for @a target. In the alien player's view a UFO that X-COM has not numbered
+/// shows its craft type ("SMALL SCOUT"): a UFO gets its number only when X-COM detects it.
+std::string targetName(const SavedGame* save, Target* target, Language* lang);
 
 }
 

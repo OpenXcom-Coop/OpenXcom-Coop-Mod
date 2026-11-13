@@ -37,6 +37,7 @@
 #include "CraftErrorState.h"
 #include "../CoopMod/SeparateEcon.h"
 #include "../CoopMod/CoopSide.h"
+#include "../CoopMod/CoopAlienView.h"
 #include "../Mod/RuleCraft.h"
 
 #include "../Savegame/MissionSite.h"
@@ -55,8 +56,14 @@ namespace OpenXcom
 UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected, bool hyperwave, bool coop) : _ufo(ufo), _state(state), _hyperwave(hyperwave)
 {
 
+	// coop: the alien player sees UFOs X-COM has not detected; only a detection gives a UFO its number
+	const bool numbers = detected || !CoopAlienView::active(_game->getSavedGame());
+	// coop: the alien player's view shows every UFO's hyper-wave details (the relay below keeps X-COM's own)
+	if (CoopAlienView::active(_game->getSavedGame()) && CoopAlienView::showsUfoDetails(_game->getSavedGame(), _ufo))
+		_hyperwave = true;
+
 	// Generate UFO ID
-	if (_ufo->getId() == 0)
+	if (numbers && _ufo->getId() == 0)
 	{
 		_ufo->setId(_game->getSavedGame()->getId("STR_UFO"));
 
@@ -67,7 +74,7 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 		}
 
 	}
-	if (_ufo->getAltitude() == "STR_GROUND" && _ufo->getLandId() == 0)
+	if (numbers && _ufo->getAltitude() == "STR_GROUND" && _ufo->getLandId() == 0)
 	{
 		_ufo->setLandId(_game->getSavedGame()->getId("STR_LANDING_SITE"));
 	}
@@ -75,7 +82,7 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 	_screen = false;
 
 	// Create objects
-	if (hyperwave)
+	if (_hyperwave)
 	{
 		_window = new Window(this, 224, 180, 16, 10, POPUP_BOTH);
 	}
@@ -92,7 +99,7 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 	_lstInfo = new TextList(217, 32, 28, 80);
 	_lstInfo2 = new TextList(217, 32, 28, 96);
 
-	if (hyperwave)
+	if (_hyperwave)
 	{
 		_btnIntercept->setY(136);
 		_btnCentre->setY(152);
@@ -108,7 +115,7 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 	}
 
 	// Set palette
-	setInterface("UFOInfo", hyperwave);
+	setInterface("UFOInfo", _hyperwave);
 
 	add(_window, "window", "UFOInfo");
 	add(_btnIntercept, "button", "UFOInfo");
@@ -172,7 +179,7 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 	_txtHyperwave->setText(tr("STR_HYPER_WAVE_TRANSMISSIONS_ARE_DECODED"));
 
 	_txtUfo->setBig();
-	_txtUfo->setText(_ufo->getName(_game->getLanguage()));
+	_txtUfo->setText(CoopAlienView::targetName(_game->getSavedGame(), _ufo, _game->getLanguage()));
 
 	_lstInfo->setColumns(2, 77, 140);
 	_lstInfo->setDot(true);

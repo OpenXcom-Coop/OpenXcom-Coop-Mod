@@ -40,6 +40,7 @@
 #include "Globe.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SharedEcon.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -276,7 +277,7 @@ GeoscapeCraftState::GeoscapeCraftState(Craft *craft, Globe *globe, Waypoint *way
 		&& craftBase && !craftBase->getOwnerPlayerName().empty()
 		&& !craftBase->isOwnedByPlayer(
 			connectionTCP::seatName(connectionTCP::localSeat()));
-	if (foreignSeparateCraft
+	if (foreignSeparateCraft || CoopAlienView::active(_game->getSavedGame())
 		|| (!_game->getCoopMod()->isSharedCampaign() && _craft->coop)
 		|| _craft->getLowFuel() || _craft->getMissionComplete())
 	{

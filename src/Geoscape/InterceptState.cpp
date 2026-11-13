@@ -42,6 +42,7 @@
 #include "../Mod/RuleInterface.h"
 #include "../CoopMod/connectionTCP.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -74,12 +75,15 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 	int extraRows = Clamp(Options::oxceInterceptTableSize, 8, 80) - 8;
 	int extraHeight = 8 * extraRows;
 	int offset = extraHeight / 2;
+	// coop: over an X-COM base the alien player's window offers only Cancel and lists no craft
+	const bool alienView = CoopAlienView::active(_game->getSavedGame());
+	const bool gotoBase = _base != 0 && !alienView;
 
 	// Create objects
 	if (Options::oxceInterceptGuiMaintenanceTime > 0)
 	{
 		_window = new Window(this, 320, 140 + extraHeight, 0, 30 - offset, POPUP_HORIZONTAL);
-		_btnCancel = new TextButton(_base ? 142 : 288, 16, 16, 146 + offset);
+		_btnCancel = new TextButton(gotoBase ? 142 : 288, 16, 16, 146 + offset);
 		_btnGotoBase = new TextButton(142, 16, 162, 146 + offset);
 		_txtTitle = new Text(300, 17, 10, 46 - offset);
 		int x = 14;
@@ -95,7 +99,7 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 	else
 	{
 		_window = new Window(this, 320, 140 + extraHeight, 0, 30 - offset, POPUP_HORIZONTAL);
-		_btnCancel = new TextButton(_base ? 142 : 288, 16, 16, 146 + offset);
+		_btnCancel = new TextButton(gotoBase ? 142 : 288, 16, 16, 146 + offset);
 		_btnGotoBase = new TextButton(142, 16, 162, 146 + offset);
 		_txtTitle = new Text(300, 17, 10, 46 - offset);
 		_txtCraft = new Text(86, 9, 14, 70 - offset);
@@ -130,7 +134,7 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 
 	_btnGotoBase->setText(tr("STR_GO_TO_BASE"));
 	_btnGotoBase->onMouseClick((ActionHandler)&InterceptState::btnGotoBaseClick);
-	_btnGotoBase->setVisible(_base != 0);
+	_btnGotoBase->setVisible(gotoBase);
 
 	_txtTitle->setAlign(ALIGN_CENTER);
 	_txtTitle->setBig();
@@ -178,6 +182,8 @@ InterceptState::InterceptState(Globe *globe, bool useCustomSound, Base *base, Ta
 	for (auto* xbase : *_game->getSavedGame()->getBases())
 	{
 		if (_base != 0 && xbase != _base)
+			continue;
+		if (alienView)
 			continue;
 		// Separate campaigns expose one world, but interception commands remain
 		// player-owned. Never offer another player's craft in this local menu.

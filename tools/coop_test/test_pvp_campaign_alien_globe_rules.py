@@ -409,6 +409,10 @@ class AlienGlobe:
         opened, tries = self.click(u["lon"], u["lat"])
         win = self.gv()["window"] if opened == "UfoDetectedState" else {"state": opened or "nothing", "tries": tries}
         if opened == "UfoDetectedState":
+            # the window's title and first line, for the record
+            win["texts"] = [w.get("text") for w in self.host.ok({"cmd": "list_widgets"}).get("widgets", [])
+                            if w.get("text") and w.get("visible") is True
+                            and not str(w.get("type", "")).endswith("::TextButton")][:2]
             self.close("CANCEL")
         elif opened:
             self.to_geo(f"after the click on {key}")
