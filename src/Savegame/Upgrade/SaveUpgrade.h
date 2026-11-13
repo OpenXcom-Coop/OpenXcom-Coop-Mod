@@ -40,6 +40,7 @@
 #include <vector>
 
 #include "../../version.h" // SAVE_SCHEMA_CURRENT
+#include "../../CoopMod/CoopSide.h" // CoopSide::pvpOneWorldEnabled
 
 namespace OpenXcom
 {
@@ -53,16 +54,19 @@ namespace SaveUpgrade
 {
 
 /// The schema a save of the given game mode is written at, and the schema an
-/// upgrade of such a save ends at. Only the cooperative Separate campaign
-/// moved to the one-world layout of SAVE_SCHEMA_CURRENT; solo, SHARED and PvP
-/// saves (PvP's embedded player worlds included) keep SAVE_SCHEMA_OTHER_MODES.
-/// coop is the header "coop" flag, campaignType the header coopCampaignType
-/// (0 Separate, 1 SHARED) and gamemode the body coop_gamemode (2/3 = PvP).
+/// upgrade of such a save ends at. The cooperative Separate campaign is one
+/// world at SAVE_SCHEMA_SEPARATE. A PvP campaign (game mode 2 or 3) is one world
+/// at SAVE_SCHEMA_CURRENT once its game mode plays as one world, and keeps one
+/// world per player at SAVE_SCHEMA_OTHER_MODES until then. Solo and SHARED saves
+/// stay at SAVE_SCHEMA_OTHER_MODES. coop is the header "coop" flag, campaignType
+/// the header coopCampaignType (0 Separate, 1 SHARED) and gamemode the body
+/// coop_gamemode.
 inline int schemaForMode(bool coop, int campaignType, int gamemode)
 {
-	const bool separateCampaign = coop && campaignType == 0
-		&& gamemode != 2 && gamemode != 3;
-	return separateCampaign ? SAVE_SCHEMA_CURRENT : SAVE_SCHEMA_OTHER_MODES;
+	const bool separateType = coop && campaignType == 0;
+	if (separateType && (gamemode == 2 || gamemode == 3))
+		return CoopSide::pvpOneWorldEnabled(gamemode) ? SAVE_SCHEMA_CURRENT : SAVE_SCHEMA_OTHER_MODES;
+	return separateType ? SAVE_SCHEMA_SEPARATE : SAVE_SCHEMA_OTHER_MODES;
 }
 
 /// Which schema-1 sub-variant a legacy save is - i.e. WHERE the client world

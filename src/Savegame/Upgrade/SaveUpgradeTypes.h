@@ -183,6 +183,8 @@ public:
 const SchemaStep* step_1_to_2();
 /// Schema 2 separate-world blobs -> schema 3 unified host world.
 const SchemaStep* step_2_to_3();
+/// Schema 3 PvP campaign kept as one world per player -> schema 4 one world (the X-COM player's).
+const SchemaStep* step_3_to_4();
 
 /// All registered steps, ordered so a chain can be built by (from == schema).
 const std::vector<const SchemaStep*>& getSchemaSteps();

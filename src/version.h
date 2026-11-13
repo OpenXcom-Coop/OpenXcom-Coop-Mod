@@ -24,12 +24,13 @@
 // changes; every save writes it into the header as "saveSchema". The in-game
 // Save Upgrader (src/Savegame/Upgrade/) detects older schemas and migrates
 // them up one step at a time to the schema of the save's game mode.
-// SAVE_SCHEMA_CURRENT is the newest schema this build reads and writes: the
-// cooperative Separate campaign's one-world layout. Solo, SHARED and PvP saves
-// did not change with it and are still written at SAVE_SCHEMA_OTHER_MODES, so
-// a build that only knows that schema can still open them.
-// SaveUpgrade::schemaForMode picks between the two.
-#define SAVE_SCHEMA_CURRENT 3
+// SAVE_SCHEMA_CURRENT is the newest schema this build reads and writes: a PvP
+// campaign kept as one world. SAVE_SCHEMA_SEPARATE is the cooperative Separate
+// campaign's one-world layout. Solo and SHARED saves did not change and are
+// still written at SAVE_SCHEMA_OTHER_MODES, so a build that only knows that
+// schema can still open them. SaveUpgrade::schemaForMode picks between them.
+#define SAVE_SCHEMA_CURRENT 4
+#define SAVE_SCHEMA_SEPARATE 3
 #define SAVE_SCHEMA_OTHER_MODES 2
 
 #define OPENXCOM_VERSION_ENGINE "Extended"

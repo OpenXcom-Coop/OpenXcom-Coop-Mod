@@ -445,7 +445,9 @@ bool postflightVerify(const std::string& stream, std::string& why)
 		}
 		const long long gamemode = yamlutil::getInt(body, "coop_gamemode", 0);
 		// Every world in the save carries its game mode's schema: 3 for a
-		// Separate campaign, 2 for SHARED and for PvP and its embedded worlds.
+		// Separate campaign, 4 for a PvP campaign kept as one world, 2 for SHARED
+		// and for a PvP campaign kept as one world per player and its embedded
+		// worlds.
 		const int modeSchema = schemaForMode(true, static_cast<int>(campaignType), static_cast<int>(gamemode));
 		if (yamlutil::getInt(header, "saveSchema", 0) != modeSchema)
 		{
@@ -485,6 +487,46 @@ bool postflightVerify(const std::string& stream, std::string& why)
 					return false;
 				}
 			}
+		}
+		// A PvP campaign kept as one world: the X-COM player's world only, every
+		// base owned by that player by name.
+		const bool pvpOneWorldSave = campaignType == 0 && (gamemode == 2 || gamemode == 3)
+			&& modeSchema == SAVE_SCHEMA_CURRENT;
+		if (pvpOneWorldSave)
+		{
+			if (!seq.invalid() && seq.num_children() != 0)
+			{
+				why = "one-world PvP save still contains player-world blobs";
+				return false;
+			}
+			if (yamlutil::hasKey(header, "coopPvpBorrowed"))
+			{
+				why = "one-world PvP save still carries a borrowed-battle record";
+				return false;
+			}
+			ryml::ConstNodeRef roster = header.find_child("coopPlayers");
+			const size_t xcomSeat = gamemode == 2 ? 0 : 1;
+			std::string xcomName;
+			if (!roster.invalid() && roster.is_seq() && roster.num_children() > xcomSeat
+				&& roster.child(xcomSeat).has_val())
+				xcomName = std::string(roster.child(xcomSeat).val().str, roster.child(xcomSeat).val().len);
+			if (xcomName.empty())
+			{
+				why = "one-world PvP save has no X-COM player name";
+				return false;
+			}
+			ryml::ConstNodeRef bases = body.find_child("bases");
+			if (bases.invalid() || !bases.is_seq() || bases.num_children() == 0)
+			{
+				why = "one-world PvP save has no base";
+				return false;
+			}
+			for (ryml::ConstNodeRef base : bases.children())
+				if (yamlutil::getStr(base, "ownerplayername", std::string()) != xcomName)
+				{
+					why = "a base of the one-world PvP save is not the X-COM player's";
+					return false;
+				}
 		}
 		if (!seq.invalid())
 		{
@@ -671,9 +713,23 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 	d.gamemode = body["coop_gamemode"].readVal<int>(0);
 	// The schema an upgrade of this save ends at. Only a co-op save is ever
 	// upgraded (every Legacy kind below is co-op by its own signal), so the
-	// target is the co-op mode's schema: 3 for a Separate campaign, 2 for
-	// SHARED and PvP.
+	// target is the co-op mode's schema (schemaForMode).
 	d.target = schemaForMode(true, header["coopCampaignType"].readVal<int>(0), d.gamemode);
+	// A PvP campaign (game mode 2 or 3 in a Separate-type save) that this build
+	// plays as one world ends at SAVE_SCHEMA_CURRENT. A file that still holds the
+	// other player's world, or the record of a battle the alien host played in
+	// the X-COM player's world, keeps one world per player whatever its stamp.
+	const bool pvpSave = header["coopCampaignType"].readVal<int>(0) == 0
+		&& (d.gamemode == 2 || d.gamemode == 3);
+	const bool pvpToOneWorld = pvpSave && d.target == SAVE_SCHEMA_CURRENT;
+	bool pvpTwoWorldContent = static_cast<bool>(header["coopPvpBorrowed"]);
+	{
+		YAML::YamlNodeReader worlds = body["coopClientSaves"];
+		if (worlds && worlds.isSeq())
+			for (const YAML::YamlNodeReader& entry : worlds.children())
+				if (entry["blob"])
+					pvpTwoWorldContent = true;
+	}
 
 	// Detector v2.3 (PRD 3.1): a save is CO-OP iff a POSITIVE signal holds. There is
 	// no ambiguous/weak tier and no bare coop_gamemode/saveID rule - the fork build
@@ -692,14 +748,35 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			d.kind = DetectedSchema::UnknownFuture;
 			return d;
 		}
-		if (s == SAVE_SCHEMA_CURRENT)
+		// A one-world PvP save on a build that still plays its game mode as
+		// one world per player.
+		if (pvpSave && s > d.target)
+		{
+			d.kind = DetectedSchema::UnknownFuture;
+			return d;
+		}
+		if (pvpToOneWorld)
+		{
+			if (s == SAVE_SCHEMA_CURRENT && !pvpTwoWorldContent)
+			{
+				d.kind = DetectedSchema::Current;
+				return d;
+			}
+			// Every older PvP save is the host's world plus, at most, the other
+			// player's world embedded in it: never the separate-file picker.
+			d.kind = DetectedSchema::Legacy;
+			d.variant = SchemaVariant::Embed;
+			d.schema = s >= SAVE_SCHEMA_SEPARATE ? SAVE_SCHEMA_SEPARATE : 2;
+			return d;
+		}
+		if (s == SAVE_SCHEMA_CURRENT || s == SAVE_SCHEMA_SEPARATE)
 		{
 			d.kind = DetectedSchema::Current;
 			return d;
 		}
 		stampedOld = true; // s < CURRENT: an older stamped schema, resolve variant below
-		// PvP (game mode 2/3) keeps one world per player. Schema 2 is the
-		// current PvP layout, coopClientSaves included, and 2->3 only unifies
+		// A PvP save of a game mode this build still plays as one world per player:
+		// schema 2 is that layout, coopClientSaves included, and 2->3 only unifies
 		// the cooperative Separate campaign. Load it as it is.
 		const int gamemode = body["coop_gamemode"].readVal<int>(0);
 		if (s == 2 && (gamemode == 2 || gamemode == 3))
@@ -739,8 +816,8 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			if (entry["blob"])
 			{
 				d.schema = 2;
-				// PvP still keeps one embedded world per player at schema 2:
-				// that is its own layout, so there is nothing to upgrade.
+				// A PvP save of a game mode this build still plays as one world
+				// per player is at its own layout, so there is nothing to upgrade.
 				if (d.schema >= d.target)
 				{
 					d.kind = DetectedSchema::Current;
@@ -753,11 +830,20 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		}
 	}
 
+	// An unstamped PvP save of a game mode this build plays as one world.
+	if (!schemaNode && pvpToOneWorld && header["coop"].readVal(false))
+	{
+		d.kind = DetectedSchema::Legacy;
+		d.variant = SchemaVariant::Embed;
+		d.schema = 2;
+		return d;
+	}
+
 	// 3. Unstamped host-authoritative save: current, re-stamped on next save.
 	if (!schemaNode && header["coop"].readVal(false))
 	{
 		d.kind = DetectedSchema::Current;
-		d.schema = SAVE_SCHEMA_CURRENT;
+		d.schema = SAVE_SCHEMA_SEPARATE;
 		return d;
 	}
 
@@ -811,7 +897,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 		if (!header["coop"].readVal(false))
 		{
 			d.kind = DetectedSchema::Solo;
-			d.schema = SAVE_SCHEMA_CURRENT;
+			d.schema = SAVE_SCHEMA_SEPARATE;
 			d.variant = SchemaVariant::None;
 			return d;
 		}
@@ -825,7 +911,7 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 
 	// 8. No co-op trace at all: an ordinary solo save (gains the stamp on next save).
 	d.kind = DetectedSchema::Solo;
-	d.schema = SAVE_SCHEMA_CURRENT;
+	d.schema = SAVE_SCHEMA_SEPARATE;
 	return d;
 }
 
@@ -861,6 +947,7 @@ const std::vector<const SchemaStep*>& getSchemaSteps()
 	static const std::vector<const SchemaStep*> steps = {
 		step_1_to_2(),
 		step_2_to_3(),
+		step_3_to_4(),
 	};
 	return steps;
 }
@@ -1183,7 +1270,7 @@ bool runSelfTest(std::vector<std::string>& log)
 
 		// 3. Merge the schema-2 client world into the authoritative host world.
 		step_2_to_3()->apply(set, in);
-		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != SAVE_SCHEMA_CURRENT
+		if (yamlutil::getInt(set.host.header(), "saveSchema", 0) != SAVE_SCHEMA_SEPARATE
 			|| !set.clients.empty())
 		{
 			log.push_back("FAIL: 2->3 did not stamp current schema and remove client worlds");

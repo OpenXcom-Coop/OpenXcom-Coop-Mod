@@ -438,6 +438,7 @@ set ( savegame_src
   Savegame/Upgrade/SaveUpgrade.cpp
   Savegame/Upgrade/SchemaStep1to2.cpp
   Savegame/Upgrade/SchemaStep2to3.cpp
+  Savegame/Upgrade/SchemaStep3to4.cpp
   Savegame/Vehicle.cpp
   Savegame/Waypoint.cpp
   Savegame/WeightedOptions.cpp

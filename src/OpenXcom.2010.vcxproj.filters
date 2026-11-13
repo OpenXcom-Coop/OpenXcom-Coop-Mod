@@ -158,6 +158,9 @@
     <ClCompile Include="Savegame\Upgrade\SchemaStep2to3.cpp">
       <Filter>Savegame\Upgrade</Filter>
     </ClCompile>
+    <ClCompile Include="Savegame\Upgrade\SchemaStep3to4.cpp">
+      <Filter>Savegame\Upgrade</Filter>
+    </ClCompile>
     <ClCompile Include="Savegame\Soldier.cpp">
       <Filter>Savegame</Filter>
     </ClCompile>
