@@ -153,6 +153,7 @@
 #include "CoopSyncedOptions.h" // synced game options (the layer state, the probe view)
 #include "SeparateEcon.h"
 #include "CoopSide.h"
+#include "CoopAlienView.h"
 #include "../Menu/StatisticsState.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
@@ -8158,6 +8159,9 @@ bool coopArticleAvailableFor(Game* game, const BattleUnit* unit, ArticleDefiniti
 // coopSeatArticleAvailable() locks per article.
 bool coopViewerArticleAvailable(SavedGame* save, ArticleDefinition* article)
 {
+	// The alien player of a PvP campaign reads only the articles that need no research, whatever X-COM researched.
+	if (CoopAlienView::active(save))
+		return CoopAlienView::showsArticle(article);
 	if (isCoopBattle())
 	{
 		SavedBattleGame* b = connectionTCP::getStaticBattle();

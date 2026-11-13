@@ -11,6 +11,7 @@
 #include "../Mod/RuleUfo.h"
 #include "../Mod/RuleCraft.h"
 #include "../Mod/AlienDeployment.h"
+#include "../Mod/ArticleDefinition.h"
 #include "../Engine/Language.h"
 #include "../Engine/Unicode.h"
 
@@ -151,6 +152,12 @@ std::string targetName(const SavedGame* save, Target* target, Language* lang)
 		return type;
 	}
 	return target->getName(lang);
+}
+
+bool showsArticle(const ArticleDefinition* article)
+{
+	// no research is done in this view, so nothing an article requires is met and nothing disables one
+	return article != nullptr && article->_requires.empty();
 }
 
 }

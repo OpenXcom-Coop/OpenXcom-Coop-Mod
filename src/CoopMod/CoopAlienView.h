@@ -13,6 +13,7 @@ class Base;
 class Craft;
 class AlienBase;
 class MissionSite;
+class ArticleDefinition;
 
 /**
  * What the alien player's Geoscape shows in a PvP campaign played on the host's one world.
@@ -26,6 +27,7 @@ class MissionSite;
  *   ALIEN_BASES     every alien base, whether X-COM has found it or not.
  * With a switch off, that kind of object shows as X-COM's flags say (ALIEN_ACTIVITY, ALIEN_BASES) or always
  * (XCOM_SIGHTINGS). Away from the alien player's view every helper returns what the world's flags say.
+ * Beyond the globe, the alien player's Ufopaedia and tech tree show no research as done (showsArticle).
  */
 namespace CoopAlienView
 {
@@ -52,6 +54,9 @@ bool showsXcomCraft(SavedGame* save, Craft* craft);
 int craftSighting(SavedGame* save, Craft* craft);
 /// The globe marker of @a target as these rules show it (-1 = not shown).
 int marker(SavedGame* save, Target* target);
+/// The Ufopaedia of the alien player's view lists an article only when it needs no research (the starting set),
+/// whatever X-COM has researched.
+bool showsArticle(const ArticleDefinition* article);
 /// The name a window or list shows for @a target. In the alien player's view a UFO that X-COM has not numbered
 /// shows its craft type ("SMALL SCOUT"): a UFO gets its number only when X-COM detects it.
 std::string targetName(const SavedGame* save, Target* target, Language* lang);

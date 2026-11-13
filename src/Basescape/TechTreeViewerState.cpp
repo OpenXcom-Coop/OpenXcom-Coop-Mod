@@ -17,6 +17,7 @@
  * along with OpenXcom.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include "TechTreeViewerState.h"
+#include "../CoopMod/CoopAlienView.h"
 #include "TechTreeSelectState.h"
 #include "../Engine/Action.h"
 #include "../Engine/Game.h"
@@ -157,30 +158,39 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 		return;
 	}
 
+	// coop: the alien player of a PvP campaign sees no research as done, whatever X-COM researched
+	const bool alienView = CoopAlienView::active(_game->getSavedGame());
+	auto shownResearched = [&](const auto& requirements)
+	{
+		return alienView ? requirements.empty() : _game->getSavedGame()->isResearched(requirements);
+	};
 	int discoveredSum = 0;
 	// pre-calculate globally
-	for (auto* discoveredResearchRule : _game->getSavedGame()->getResearchedTopics(_game->getMod()))
+	if (!alienView)
 	{
-		_alreadyAvailableResearch.insert(discoveredResearchRule->getName());
-		discoveredSum += discoveredResearchRule->getCost();
-	}
-	for (auto& info : _game->getSavedGame()->getResearchRuleStatusRaw())
-	{
-		if (info.second == RuleResearch::RESEARCH_STATUS_DISABLED)
+		for (auto* discoveredResearchRule : _game->getSavedGame()->getResearchedTopics(_game->getMod()))
 		{
-			auto* rr = _game->getMod()->getResearch(info.first, false);
-			if (rr)
+			_alreadyAvailableResearch.insert(discoveredResearchRule->getName());
+			discoveredSum += discoveredResearchRule->getCost();
+		}
+		for (auto& info : _game->getSavedGame()->getResearchRuleStatusRaw())
+		{
+			if (info.second == RuleResearch::RESEARCH_STATUS_DISABLED)
 			{
-				_disabledResearch.insert(rr->getName());
+				auto* rr = _game->getMod()->getResearch(info.first, false);
+				if (rr)
+				{
+					_disabledResearch.insert(rr->getName());
+				}
 			}
 		}
-	}
-	if (_game->getSavedGame()->usesSeparatePrivateResearch())
-	{
-		// Topics the local player's own discoveries disabled.
-		for (const auto& name : _game->getMod()->getResearchList())
-			if (_game->getSavedGame()->isResearchRuleStatusDisabled(name))
-				_disabledResearch.insert(name);
+		if (_game->getSavedGame()->usesSeparatePrivateResearch())
+		{
+			// Topics the local player's own discoveries disabled.
+			for (const auto& name : _game->getMod()->getResearchList())
+				if (_game->getSavedGame()->isResearchRuleStatusDisabled(name))
+					_disabledResearch.insert(name);
+		}
 	}
 
 	int totalSum = 0;
@@ -198,7 +208,7 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 	for (auto& manuf : _game->getMod()->getManufactureList())
 	{
 		manRule = _game->getMod()->getManufacture(manuf);
-		if (_game->getSavedGame()->isResearched(manRule->getRequirements()))
+		if (shownResearched(manRule->getRequirements()))
 		{
 			_alreadyAvailableManufacture.insert(manRule->getName());
 		}
@@ -208,7 +218,7 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 	for (auto& facType : _game->getMod()->getBaseFacilitiesList())
 	{
 		facRule = _game->getMod()->getBaseFacility(facType);
-		if (_game->getSavedGame()->isResearched(facRule->getRequirements()))
+		if (shownResearched(facRule->getRequirements()))
 		{
 			_alreadyAvailableFacilities.insert(facRule->getType());
 		}
@@ -221,7 +231,7 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 		if (!itemRule->getRequirements().empty() || !itemRule->getBuyRequirements().empty())
 		{
 			_protectedItems.insert(itemRule->getType());
-			if (_game->getSavedGame()->isResearched(itemRule->getRequirements()) && _game->getSavedGame()->isResearched(itemRule->getBuyRequirements()))
+			if (shownResearched(itemRule->getRequirements()) && shownResearched(itemRule->getBuyRequirements()))
 			{
 				_alreadyAvailableItems.insert(itemRule->getType());
 			}
@@ -232,7 +242,7 @@ TechTreeViewerState::TechTreeViewerState(const RuleResearch *r, const RuleManufa
 	for (auto& craftType : _game->getMod()->getCraftsList())
 	{
 		craftRule = _game->getMod()->getCraft(craftType);
-		if (_game->getSavedGame()->isResearched(craftRule->getRequirements()))
+		if (shownResearched(craftRule->getRequirements()))
 		{
 			_alreadyAvailableCrafts.insert(craftRule->getType());
 		}
