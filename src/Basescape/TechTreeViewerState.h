@@ -77,6 +77,12 @@ public:
 	void setSelectedTopic(const std::string &selectedTopic, TTVMode topicType);
 	/// Gets the color coding for the given research topic.
 	Uint8 getResearchColor(const std::string &topic) const;
+	/// Test probe: how many topics, productions, facilities, items and crafts this screen marks as available.
+	int harnessResearchCount() const { return (int)_alreadyAvailableResearch.size(); }
+	int harnessManufactureCount() const { return (int)_alreadyAvailableManufacture.size(); }
+	int harnessFacilityCount() const { return (int)_alreadyAvailableFacilities.size(); }
+	int harnessItemCount() const { return (int)_alreadyAvailableItems.size(); }
+	int harnessCraftCount() const { return (int)_alreadyAvailableCrafts.size(); }
 	Uint8 getAltResearchColor(const std::string &topic) const;
 	/// Is given research topic discovered/available?
 	bool isDiscoveredResearch(const std::string &topic) const;

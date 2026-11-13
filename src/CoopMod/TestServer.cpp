@@ -250,6 +250,7 @@
 #include "SeparateEcon.h"
 #include "CoopSide.h"
 #include "CoopAlienView.h"
+#include "../Basescape/TechTreeViewerState.h" // alien_screens: what the tech tree marks as available
 #include "CoopState.h"
 // The battle-lane introspection surface below needs the real APIs it reports on.
 #include "BattleAuthority.h"
@@ -13659,6 +13660,8 @@ bool TestServer::executeJoinChecks14(const std::string& cmd, const Json::Value& 
  */
 bool TestServer::executeSides15(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
+	if (executeAlienScreens17(cmd, req, resp))
+		return true;
 	if (executeAlienGlobe16(cmd, req, resp))
 		return true;
 	if (cmd == "coop_sides")
@@ -13909,6 +13912,110 @@ bool TestServer::executeAlienGlobe16(const std::string& cmd, const Json::Value& 
 		return true;
 	}
 	return false;
+}
+
+/**
+ * The alien player's information screens. alien_screens is a pure read: every Ufopaedia article this machine lists
+ * (each section as UfopaediaSelectState builds it), the starting set (articles needing no research), for each
+ * requested id whether it is listed and whether the world's research releases it, what a tech tree viewer built
+ * now marks as available (built off the stack and deleted, never shown), and the rows of the top screen's lists.
+ * Same C1061 reason as above. Returns true if @a cmd was one of ours.
+ */
+bool TestServer::executeAlienScreens17(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	if (cmd != "alien_screens")
+		return false;
+	SavedGame* save = _game->getSavedGame();
+	if (!save)
+	{
+		resp["error"] = "no saved game";
+		return true;
+	}
+	Mod* mod = _game->getMod();
+	std::vector<std::string> sections;
+	int startingSet = 0;
+	for (const auto& id : mod->getUfopaediaList())
+	{
+		ArticleDefinition* a = mod->getUfopaediaArticle(id, false);
+		if (!a)
+			continue;
+		if (std::find(sections.begin(), sections.end(), a->section) == sections.end())
+			sections.push_back(a->section);
+		if (a->section != UFOPAEDIA_NOT_AVAILABLE && a->_requires.empty() && !Ufopaedia::isCommendationArticleInvisible(save, a))
+			++startingSet;
+	}
+	Json::Value listed(Json::arrayValue);
+	Json::Value perSection(Json::objectValue);
+	std::set<std::string> listedIds;
+	int needsResearch = 0;
+	for (const auto& section : sections)
+	{
+		ArticleDefinitionList data;
+		Ufopaedia::list(save, mod, section, data);
+		perSection[section] = (int)data.size();
+		for (ArticleDefinition* a : data)
+		{
+			listed.append(a->id);
+			listedIds.insert(a->id);
+			if (!a->_requires.empty())
+				++needsResearch;
+		}
+	}
+	Json::Value ids(Json::objectValue);
+	for (const auto& idV : req["ids"])
+	{
+		Json::Value e(Json::objectValue);
+		ArticleDefinition* a = mod->getUfopaediaArticle(idV.asString(), false);
+		if (!a)
+			e["error"] = "no article";
+		else
+		{
+			e["listed"] = listedIds.count(a->id) > 0;
+			e["worldReleases"] = Ufopaedia::isArticleAvailable(save, a);
+			e["section"] = a->section;
+			const std::string sectionText = _game->getLanguage()->getString(a->section);
+			e["sectionText"] = sectionText;
+			Json::Value needs(Json::arrayValue);
+			for (const auto& r : a->_requires)
+				needs.append(r);
+			e["requires"] = needs;
+		}
+		ids[idV.asString()] = e;
+	}
+	TechTreeViewerState* tree = new TechTreeViewerState();
+	Json::Value techTree(Json::objectValue);
+	techTree["research"] = tree->harnessResearchCount();
+	techTree["manufacture"] = tree->harnessManufactureCount();
+	techTree["facilities"] = tree->harnessFacilityCount();
+	techTree["items"] = tree->harnessItemCount();
+	techTree["crafts"] = tree->harnessCraftCount();
+	techTree["disabledByOption"] = Options::oxceDisableTechTreeViewer;
+	delete tree;
+	// the top screen's lists, first two cells of each row (FundingState: country and funding)
+	State* top = _game->getStates().empty() ? nullptr : _game->getStates().back();
+	Json::Value topRows(Json::arrayValue);
+	if (top)
+	{
+		for (auto* s : top->getSurfaces())
+		{
+			auto* tl = dynamic_cast<TextList*>(s);
+			if (!tl)
+				continue;
+			for (size_t r = 0; r < tl->getTexts(); ++r)
+				topRows.append(tl->getCellText(r, 0) + "|" + tl->getCellText(r, 1));
+		}
+	}
+	resp["top"] = top ? typeid(*top).name() : "";
+	resp["topRows"] = topRows;
+	resp["alienView"] = CoopAlienView::active(save);
+	resp["articles"] = listed;
+	resp["articlesPerSection"] = perSection;
+	resp["listedNeedingResearch"] = needsResearch;
+	resp["startingSet"] = startingSet;
+	resp["ids"] = ids;
+	resp["techTree"] = techTree;
+	resp["ok"] = true;
+	return true;
 }
 
 /**
