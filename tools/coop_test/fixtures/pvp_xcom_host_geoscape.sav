@@ -1,0 +1,1283 @@
+name: _autogeo_.asav
+version: Extended 8.4.2
+engine: Extended
+build: " (v2025-10-06)"
+saveSchema: 2
+time: {second: 20,minute: 0,hour: 11,weekday: 2,day: 11,month: 1,year: 1999}
+mods:
+  - 'xcom1 ver: 8.4.1'
+coop: true
+coopPlayers:
+  - HostPlayer
+  - ClientPlayer
+coopCampaignType: 0
+---
+difficulty: 0
+end: 0
+saveID: 20261113035414
+coop_gamemode: 2
+coop_save_owner_player_id: 0
+no_bases: false
+coopClientSaves:
+  - key: host_20261113035414_ClientPlayer.data
+    blob: bmFtZTogX2F1dG9nZW9fLmFzYXYKdmVyc2lvbjogRXh0ZW5kZWQgOC40LjIKZW5naW5lOiBFeHRlbmRlZApidWlsZDogIiAodjIwMjUtMTAtMDYpIgpzYXZlU2NoZW1hOiAyCnRpbWU6IHtzZWNvbmQ6IDIwLG1pbnV0ZTogMCxob3VyOiAxMSx3ZWVrZGF5OiAyLGRheTogMTEsbW9udGg6IDEseWVhcjogMTk5OX0KbW9kczoKICAtICd4Y29tMSB2ZXI6IDguNC4xJwpjb29wOiB0cnVlCmNvb3BQbGF5ZXJzOgogIC0gSG9zdFBsYXllcgogIC0gQ2xpZW50UGxheWVyCmNvb3BDYW1wYWlnblR5cGU6IDAKLS0tCmRpZmZpY3VsdHk6IDAKZW5kOiAwCnNhdmVJRDogMjAyNjExMTMwMzU0MTQKY29vcF9nYW1lbW9kZTogMgpjb29wX3NhdmVfb3duZXJfcGxheWVyX2lkOiAwCm5vX2Jhc2VzOiB0cnVlCm1vbnRoc1Bhc3NlZDogMApkYXlzUGFzc2VkOiAxMQp2ZWhpY2xlc0xvc3Q6IDAKY3JhZnRMb3N0TWlzc2lvbjogMApncmFwaFJlZ2lvblRvZ2dsZXM6ICcnCmdyYXBoQ291bnRyeVRvZ2dsZXM6ICcnCmdyYXBoRmluYW5jZVRvZ2dsZXM6ICcnCnJuZzogNDk0NDk3ODI3MTU0MzQ0ODkxOApmdW5kczoKICAtIDQxMzEwMDAKbWFpbnRlbmFuY2U6CiAgLSAwCnVzZXJOb3RlczogW10KZ2Vvc2NhcGVEZWJ1Z0xvZzoKICAtICdtb250aDogMCBzY3JpcHQ6IGdhbWVTdGFydCBpZDogMSB0eXBlOiBTVFJfQUxJRU5fUkVTRUFSQ0ggcmFjZTogU1RSX1NFQ1RPSUQgcmVnaW9uOiBTVFJfQ0VOVFJBTF9BU0lBIHRhcmdldFpvbmU6IC0xIHRhcmdldEFyZWE6IC0xJwogIC0gJ21vbnRoOiAwIHNjcmlwdDogcmVjdXJyaW5nVGVycm9yIGlkOiAyIHR5cGU6IFNUUl9BTElFTl9URVJST1IgcmFjZTogU1RSX1NFQ1RPSUQgcmVnaW9uOiBTVFJfRVVST1BFIHRhcmdldFpvbmU6IDMgdGFyZ2V0QXJlYTogMycKICAtICdnYW1lVGltZTogMTk5OS0wMS0wMSAxNDowMDowMCB1Zm9JZDogMSB1Zm9UeXBlOiBTVFJfU01BTExfU0NPVVQgcmFjZTogU1RSX1NFQ1RPSUQgcmVnaW9uOiBTVFJfQ0VOVFJBTF9BU0lBIHRyYWplY3Rvcnk6IFAwIG1pc3Npb25JZDogMSBtaXNzaW9uVHlwZTogU1RSX0FMSUVOX1JFU0VBUkNIJwogIC0gJ2dhbWVUaW1lOiAxOTk5LTAxLTAxIDE0OjMwOjAwIHVmb0lkOiAyIHVmb1R5cGU6IFNUUl9NRURJVU1fU0NPVVQgcmFjZTogU1RSX1NFQ1RPSUQgcmVnaW9uOiBTVFJfRVVST1BFIHRyYWplY3Rvcnk6IFAxIG1pc3Npb25JZDogMiBtaXNzaW9uVHlwZTogU1RSX0FMSUVOX1RFUlJPUicKICAtICdnYW1lVGltZTogMTk5OS0wMS0wOCAwNDozMDowMCB1Zm9JZDogMyB1Zm9UeXBlOiBTVFJfTUVESVVNX1NDT1VUIHJhY2U6IFNUUl9TRUNUT0lEIHJlZ2lvbjogU1RSX0NFTlRSQUxfQVNJQSB0cmFqZWN0b3J5OiBQMiBtaXNzaW9uSWQ6IDEgbWlzc2lvblR5cGU6IFNUUl9BTElFTl9SRVNFQVJDSCcKICAtICdnYW1lVGltZTogMTk5OS0wMS0xMCAxNzowMDowMCB1Zm9JZDogNCB1Zm9UeXBlOiBTVFJfTEFSR0VfU0NPVVQgcmFjZTogU1RSX1NFQ1RPSUQgcmVnaW9uOiBTVFJfRVVST1BFIHRyYWplY3Rvcnk6IFAxIG1pc3Npb25JZDogMiBtaXNzaW9uVHlwZTogU1RSX0FMSUVOX1RFUlJPUicKcmVzZWFyY2hTY29yZXM6CiAgLSAwCmluY29tZXM6CiAgLSA2MDAwMDAwCmV4cGVuZGl0dXJlczoKICAtIDE4NjkwMDAKd2FybmVkOiBmYWxzZQp0b2dnbGVQZXJzb25hbExpZ2h0OiB0cnVlCnRvZ2dsZU5pZ2h0VmlzaW9uOiBmYWxzZQp0b2dnbGVCcmlnaHRuZXNzOiAwCmdsb2JlTG9uOiAwCmdsb2JlTGF0OiAwCmdsb2JlWm9vbTogMAppZHM6CiAgQUxJRU5fTUlTU0lPTlM6IDMKICBTVFJfSU5URVJDRVBUT1I6IDMKICBTVFJfTEFORElOR19TSVRFOiAzCiAgU1RSX1NLWVJBTkdFUjogMgogIFNUUl9TT0xESUVSOiA5CiAgU1RSX1VGTzogNAogIFNUUl9VRk9fVU5JUVVFOiA1CmNvdW50cmllczoKICAtIHR5cGU6IFNUUl9VU0EKICAgIGZ1bmRpbmc6CiAgICAgIC0gNzU3MDAwCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAwCiAgLSB0eXBlOiBTVFJfUlVTU0lBCiAgICBmdW5kaW5nOgogICAgICAtIDM5OTAwMAogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gOAogIC0gdHlwZTogU1RSX1VLCiAgICBmdW5kaW5nOgogICAgICAtIDMxMjAwMAogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gMzgKICAtIHR5cGU6IFNUUl9GUkFOQ0UKICAgIGZ1bmRpbmc6CiAgICAgIC0gNTM0MDAwCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAxCiAgLSB0eXBlOiBTVFJfR0VSTUFOWQogICAgZnVuZGluZzoKICAgICAgLSA0MTcwMDAKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDQKICAtIHR5cGU6IFNUUl9JVEFMWQogICAgZnVuZGluZzoKICAgICAgLSAxNjcwMDAKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDEKICAtIHR5cGU6IFNUUl9TUEFJTgogICAgZnVuZGluZzoKICAgICAgLSAxOTQwMDAKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDM1CiAgLSB0eXBlOiBTVFJfQ0hJTkEKICAgIGZ1bmRpbmc6CiAgICAgIC0gMzA4MDAwCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSA2CiAgLSB0eXBlOiBTVFJfSkFQQU4KICAgIGZ1bmRpbmc6CiAgICAgIC0gNjk0MDAwCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAwCiAgLSB0eXBlOiBTVFJfSU5ESUEKICAgIGZ1bmRpbmc6CiAgICAgIC0gMTg0MDAwCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAzCiAgLSB0eXBlOiBTVFJfQlJBWklMCiAgICBmdW5kaW5nOgogICAgICAtIDM4MjAwMAogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gMgogIC0gdHlwZTogU1RSX0FVU1RSQUxJQQogICAgZnVuZGluZzoKICAgICAgLSA0NzYwMDAKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDAKICAtIHR5cGU6IFNUUl9OSUdFUklBCiAgICBmdW5kaW5nOgogICAgICAtIDI0NjAwMAogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gMAogIC0gdHlwZTogU1RSX1NPVVRIX0FGUklDQQogICAgZnVuZGluZzoKICAgICAgLSAyOTUwMDAKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDAKICAtIHR5cGU6IFNUUl9FR1lQVAogICAgZnVuZGluZzoKICAgICAgLSAzMTAwMDAKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDAKICAtIHR5cGU6IFNUUl9DQU5BREEKICAgIGZ1bmRpbmc6CiAgICAgIC0gMzI1MDAwCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAwCnJlZ2lvbnM6CiAgLSB0eXBlOiBTVFJfTk9SVEhfQU1FUklDQQogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gMAogIC0gdHlwZTogU1RSX0FSQ1RJQwogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gMAogIC0gdHlwZTogU1RSX0FOVEFSQ1RJQ0EKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDIKICAtIHR5cGU6IFNUUl9TT1VUSF9BTUVSSUNBCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAzCiAgLSB0eXBlOiBTVFJfRVVST1BFCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAxNTMKICAtIHR5cGU6IFNUUl9OT1JUSF9BRlJJQ0EKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDIKICAtIHR5cGU6IFNUUl9TT1VUSEVSTl9BRlJJQ0EKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDAKICAtIHR5cGU6IFNUUl9DRU5UUkFMX0FTSUEKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDQzCiAgLSB0eXBlOiBTVFJfU09VVEhfRUFTVF9BU0lBCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSA3CiAgLSB0eXBlOiBTVFJfU0lCRVJJQQogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gMgogIC0gdHlwZTogU1RSX0FVU1RSQUxBU0lBCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAxCiAgLSB0eXBlOiBTVFJfUEFDSUZJQwogICAgYWN0aXZpdHlYY29tOgogICAgICAtIDAKICAgIGFjdGl2aXR5QWxpZW46CiAgICAgIC0gNAogIC0gdHlwZTogU1RSX05PUlRIX0FUTEFOVElDCiAgICBhY3Rpdml0eVhjb206CiAgICAgIC0gMAogICAgYWN0aXZpdHlBbGllbjoKICAgICAgLSAxCiAgLSB0eXBlOiBTVFJfU09VVEhfQVRMQU5USUMKICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDMKICAtIHR5cGU6IFNUUl9JTkRJQU5fT0NFQU4KICAgIGFjdGl2aXR5WGNvbToKICAgICAgLSAwCiAgICBhY3Rpdml0eUFsaWVuOgogICAgICAtIDAKYmFzZXM6CiAgLSBsb246IDAKICAgIGxhdDogMAogICAgY29vcGJhc2VpZDogMTI0MDkKICAgIGl0ZW1zOiB7fQogICAgc2NpZW50aXN0czogMAogICAgZW5naW5lZXJzOiAwCmFsaWVuTWlzc2lvbnM6CiAgLSB0eXBlOiBTVFJfQUxJRU5fUkVTRUFSQ0gKICAgIHJlZ2lvbjogU1RSX0NFTlRSQUxfQVNJQQogICAgcmFjZTogU1RSX1NFQ1RPSUQKICAgIG5leHRXYXZlOiAyCiAgICBuZXh0VWZvQ291bnRlcjogMAogICAgc3Bhd25Db3VudGRvd246IDc0MTAKICAgIGxpdmVVZm9zOiAwCiAgICB1bmlxdWVJRDogMQogICAgbWlzc2lvblNpdGVab25lOiAtMQogIC0gdHlwZTogU1RSX0FMSUVOX1RFUlJPUgogICAgcmVnaW9uOiBTVFJfRVVST1BFCiAgICByYWNlOiBTVFJfU0VDVE9JRAogICAgbmV4dFdhdmU6IDIKICAgIG5leHRVZm9Db3VudGVyOiAwCiAgICBzcGF3bkNvdW50ZG93bjogMTQ2NDAKICAgIGxpdmVVZm9zOiAxCiAgICB1bmlxdWVJRDogMgogICAgbWlzc2lvblNpdGVab25lOiAzCnVmb3M6CiAgLSBsb246IDAuNDExODExNTAxMzQ2MzE3NQogICAgbGF0OiAtMC43Nzk1NjU1NDE3ODU2MDA3CiAgICBpZDogMwogICAgZGVzdDoKICAgICAgbG9uOiAyLjY4NDAyNDUzNTg2NTYyOQogICAgICBsYXQ6IC0xLjQ3NTY1MzQwNDc1MDkzNwogICAgICB0eXBlOiBTVFJfV0FZX1BPSU5UCiAgICAgIGlkOiAwCiAgICBzcGVlZExvbjogMAogICAgc3BlZWRMYXQ6IC0wCiAgICBzcGVlZFJhZGlhbjogMAogICAgc3BlZWQ6IDAKICAgIHR5cGU6IFNUUl9MQVJHRV9TQ09VVAogICAgdW5pcXVlSWQ6IDQKICAgIG1pc3Npb25XYXZlTnVtYmVyOiAxCiAgICBsYW5kSWQ6IDIKICAgIGRhbWFnZTogMAogICAgc2hpZWxkOiAwCiAgICBzaGllbGRSZWNoYXJnZUhhbmRsZTogMAogICAgYWx0aXR1ZGU6IFNUUl9HUk9VTkQKICAgIGRpcmVjdGlvbjogU1RSX05PTkVfVUMKICAgIHN0YXR1czogMQogICAgZGV0ZWN0ZWQ6IHRydWUKICAgIHNlY29uZHNSZW1haW5pbmc6IDQ4MjAKICAgIGh1bnRNb2RlOiAwCiAgICBodW50QmVoYXZpb3I6IDAKICAgIG1pc3Npb246IDIKICAgIHRyYWplY3Rvcnk6IFAxCiAgICB0cmFqZWN0b3J5UG9pbnQ6IDcKICAgIGZpcmVDb3VudGRvd246IDAKICAgIGVzY2FwZUNvdW50ZG93bjogMAogICAgY29vcFVmb0lkOiA4MjU0CmdlbmVyYXRlZEV2ZW50czoge30KdWZvcGVkaWFSdWxlU3RhdHVzOiB7fQptYW51ZmFjdHVyZVJ1bGVTdGF0dXM6IHt9CnJlc2VhcmNoUnVsZVN0YXR1czoge30KbW9udGhseVB1cmNoYXNlTGltaXRMb2c6IHt9CmhpZGRlblB1cmNoYXNlSXRlbXM6IHt9CmN1c3RvbVJ1bGVDcmFmdERlcGxveW1lbnRzOiB7fQphbGllblN0cmF0ZWd5OgogIHJlZ2lvbnM6CiAgICBTVFJfQU5UQVJDVElDQTogNAogICAgU1RSX0FSQ1RJQzogNAogICAgU1RSX0FVU1RSQUxBU0lBOiAxMAogICAgU1RSX0NFTlRSQUxfQVNJQTogMTIKICAgIFNUUl9FVVJPUEU6IDE2CiAgICBTVFJfTk9SVEhfQUZSSUNBOiAxMgogICAgU1RSX05PUlRIX0FNRVJJQ0E6IDE4CiAgICBTVFJfUEFDSUZJQzogNQogICAgU1RSX1NJQkVSSUE6IDEwCiAgICBTVFJfU09VVEhFUk5fQUZSSUNBOiA4CiAgICBTVFJfU09VVEhfQU1FUklDQTogMTAKICAgIFNUUl9TT1VUSF9FQVNUX0FTSUE6IDE1CiAgcG9zc2libGVNaXNzaW9uczoKICAgIC0gcmVnaW9uOiBTVFJfQU5UQVJDVElDQQogICAgICBtaXNzaW9uczoKICAgICAgICBTVFJfQUxJRU5fQkFTRTogMzUKICAgICAgICBTVFJfQUxJRU5fUkVTRUFSQ0g6IDI1CiAgICAtIHJlZ2lvbjogU1RSX0FSQ1RJQwogICAgICBtaXNzaW9uczoKICAgICAgICBTVFJfQUxJRU5fQkFTRTogMzUKICAgICAgICBTVFJfQUxJRU5fUkVTRUFSQ0g6IDI1CiAgICAtIHJlZ2lvbjogU1RSX0FVU1RSQUxBU0lBCiAgICAgIG1pc3Npb25zOgogICAgICAgIFNUUl9BTElFTl9BQkRVQ1RJT046IDQKICAgICAgICBTVFJfQUxJRU5fQkFTRTogMTYKICAgICAgICBTVFJfQUxJRU5fSEFSVkVTVDogMTEKICAgICAgICBTVFJfQUxJRU5fSU5GSUxUUkFUSU9OOiA4CiAgICAgICAgU1RSX0FMSUVOX1JFU0VBUkNIOiAxNQogICAgLSByZWdpb246IFNUUl9DRU5UUkFMX0FTSUEKICAgICAgbWlzc2lvbnM6CiAgICAgICAgU1RSX0FMSUVOX0FCRFVDVElPTjogNgogICAgICAgIFNUUl9BTElFTl9CQVNFOiA4CiAgICAgICAgU1RSX0FMSUVOX0hBUlZFU1Q6IDUKICAgICAgICBTVFJfQUxJRU5fSU5GSUxUUkFUSU9OOiAxMAogICAgLSByZWdpb246IFNUUl9FVVJPUEUKICAgICAgbWlzc2lvbnM6CiAgICAgICAgU1RSX0FMSUVOX0FCRFVDVElPTjogMTUKICAgICAgICBTVFJfQUxJRU5fQkFTRTogNgogICAgICAgIFNUUl9BTElFTl9IQVJWRVNUOiAxMAogICAgICAgIFNUUl9BTElFTl9JTkZJTFRSQVRJT046IDIwCiAgICAgICAgU1RSX0FMSUVOX1JFU0VBUkNIOiAxMAogICAgLSByZWdpb246IFNUUl9JTkRJQU5fT0NFQU4KICAgICAgbWlzc2lvbnM6IH4KICAgIC0gcmVnaW9uOiBTVFJfTk9SVEhfQUZSSUNBCiAgICAgIG1pc3Npb25zOgogICAgICAgIFNUUl9BTElFTl9BQkRVQ1RJT046IDgKICAgICAgICBTVFJfQUxJRU5fQkFTRTogMTkKICAgICAgICBTVFJfQUxJRU5fSEFSVkVTVDogOAogICAgICAgIFNUUl9BTElFTl9JTkZJTFRSQVRJT046IDgKICAgICAgICBTVFJfQUxJRU5fUkVTRUFSQ0g6IDgKICAgIC0gcmVnaW9uOiBTVFJfTk9SVEhfQU1FUklDQQogICAgICBtaXNzaW9uczoKICAgICAgICBTVFJfQUxJRU5fQUJEVUNUSU9OOiAyMAogICAgICAgIFNUUl9BTElFTl9CQVNFOiAyMAogICAgICAgIFNUUl9BTElFTl9IQVJWRVNUOiAxNwogICAgICAgIFNUUl9BTElFTl9JTkZJTFRSQVRJT046IDIwCiAgICAgICAgU1RSX0FMSUVOX1JFU0VBUkNIOiAxNAogICAgLSByZWdpb246IFNUUl9OT1JUSF9BVExBTlRJQwogICAgICBtaXNzaW9uczogfgogICAgLSByZWdpb246IFNUUl9QQUNJRklDCiAgICAgIG1pc3Npb25zOgogICAgICAgIFNUUl9BTElFTl9CQVNFOiAyNwogICAgICAgIFNUUl9BTElFTl9SRVNFQVJDSDogMTUKICAgIC0gcmVnaW9uOiBTVFJfU0lCRVJJQQogICAgICBtaXNzaW9uczoKICAgICAgICBTVFJfQUxJRU5fQUJEVUNUSU9OOiA0CiAgICAgICAgU1RSX0FMSUVOX0JBU0U6IDkKICAgICAgICBTVFJfQUxJRU5fUkVTRUFSQ0g6IDYKICAgIC0gcmVnaW9uOiBTVFJfU09VVEhFUk5fQUZSSUNBCiAgICAgIG1pc3Npb25zOgogICAgICAgIFNUUl9BTElFTl9BQkRVQ1RJT046IDgKICAgICAgICBTVFJfQUxJRU5fQkFTRTogOQogICAgICAgIFNUUl9BTElFTl9IQVJWRVNUOiA4CiAgICAgICAgU1RSX0FMSUVOX0lORklMVFJBVElPTjogOAogICAgICAgIFNUUl9BTElFTl9SRVNFQVJDSDogNwogICAgLSByZWdpb246IFNUUl9TT1VUSF9BTUVSSUNBCiAgICAgIG1pc3Npb25zOgogICAgICAgIFNUUl9BTElFTl9BQkRVQ1RJT046IDEyCiAgICAgICAgU1RSX0FMSUVOX0JBU0U6IDIyCiAgICAgICAgU1RSX0FMSUVOX0hBUlZFU1Q6IDI0CiAgICAgICAgU1RSX0FMSUVOX0lORklMVFJBVElPTjogMTgKICAgICAgICBTVFJfQUxJRU5fUkVTRUFSQ0g6IDEwCiAgICAtIHJlZ2lvbjogU1RSX1NPVVRIX0FUTEFOVElDCiAgICAgIG1pc3Npb25zOiB+CiAgICAtIHJlZ2lvbjogU1RSX1NPVVRIX0VBU1RfQVNJQQogICAgICBtaXNzaW9uczoKICAgICAgICBTVFJfQUxJRU5fQUJEVUNUSU9OOiAyMQogICAgICAgIFNUUl9BTElFTl9CQVNFOiA4CiAgICAgICAgU1RSX0FMSUVOX0hBUlZFU1Q6IDEzCiAgICAgICAgU1RSX0FMSUVOX0lORklMVFJBVElPTjogMTMKICAgICAgICBTVFJfQUxJRU5fUkVTRUFSQ0g6IDgKICBtaXNzaW9uTG9jYXRpb25zOiB7fQogIG1pc3Npb25zUnVuOiB7fQpvcHRpb25zOgogIGRpc3BsYXlXaWR0aDogNjQwCiAgZGlzcGxheUhlaWdodDogNDAwCiAgZnVsbHNjcmVlbjogZmFsc2UKICBhc3luY0JsaXQ6IHRydWUKICBrZXlib2FyZE1vZGU6IDEKICBtYXhGcmFtZVNraXA6IDAKICB0cmFjZUFJOiBmYWxzZQogIHZlcmJvc2VMb2dnaW5nOiBmYWxzZQogIFN0ZXJlb1NvdW5kOiB0cnVlCiAgZ2Vvc2NhcGVTY2FsZTogMAogIGJhdHRsZXNjYXBlU2NhbGU6IDAKICB1c2VTY2FsZUZpbHRlcjogZmFsc2UKICB1c2VIUVhGaWx0ZXI6IGZhbHNlCiAgdXNlWEJSWkZpbHRlcjogZmFsc2UKICB1c2VPcGVuR0w6IGZhbHNlCiAgY2hlY2tPcGVuR0xFcnJvcnM6IGZhbHNlCiAgdXNlT3BlbkdMU2hhZGVyOiBTaGFkZXJzL1Jhdy5PcGVuR0wuc2hhZGVyCiAgdXNlT3BlbkdMU21vb3RoaW5nOiB0cnVlCiAgZGVidWc6IGZhbHNlCiAgZGVidWdVaTogZmFsc2UKICBzb3VuZFZvbHVtZTogMAogIG11c2ljVm9sdW1lOiAwCiAgdWlWb2x1bWU6IDAKICBsYW5ndWFnZTogZW4tVVMKICBiYXR0bGVTY3JvbGxTcGVlZDogOAogIGJhdHRsZUVkZ2VTY3JvbGw6IDAKICBiYXR0bGVEcmFnU2Nyb2xsQnV0dG9uOiAwCiAgZHJhZ1Njcm9sbFRpbWVUb2xlcmFuY2U6IDMwMAogIGRyYWdTY3JvbGxQaXhlbFRvbGVyYW5jZTogMTAKICBiYXR0bGVGaXJlU3BlZWQ6IDYKICBiYXR0bGVYY29tU3BlZWQ6IDMwCiAgYmF0dGxlQWxpZW5TcGVlZDogMzAKICBiYXR0bGVOZXdQcmV2aWV3UGF0aDogMAogIGZwc0NvdW50ZXI6IGZhbHNlCiAgZ2xvYmVEZXRhaWw6IHRydWUKICBnbG9iZVJhZGFyTGluZXM6IHRydWUKICBnbG9iZUZsaWdodFBhdGhzOiB0cnVlCiAgZ2xvYmVBbGxSYWRhcnNPbkJhc2VCdWlsZDogdHJ1ZQogIGF1ZGlvU2FtcGxlUmF0ZTogMjIwNTAKICBhdWRpb0JpdERlcHRoOiAxNgogIGF1ZGlvQ2h1bmtTaXplOiAxMDI0CiAgcGF1c2VNb2RlOiAwCiAgYmF0dGxlTm90aWZ5RGVhdGg6IGZhbHNlCiAgc2hvd0Z1bmRzT25HZW9zY2FwZTogZmFsc2UKICBhbGxvd1Jlc2l6ZTogZmFsc2UKICB3aW5kb3dlZE1vZGVQb3NpdGlvblg6IDAKICB3aW5kb3dlZE1vZGVQb3NpdGlvblk6IDAKICBib3JkZXJsZXNzOiBmYWxzZQogIGNhcHR1cmVNb3VzZTogZmFsc2UKICBiYXR0bGVUb29sdGlwczogdHJ1ZQogIGtlZXBBc3BlY3RSYXRpbzogdHJ1ZQogIG5vblNxdWFyZVBpeGVsUmF0aW86IGZhbHNlCiAgY3Vyc29ySW5CbGFja0JhbmRzSW5GdWxsc2NyZWVuOiBmYWxzZQogIGN1cnNvckluQmxhY2tCYW5kc0luV2luZG93OiB0cnVlCiAgY3Vyc29ySW5CbGFja0JhbmRzSW5Cb3JkZXJsZXNzV2luZG93OiBmYWxzZQogIHNhdmVPcmRlcjogMwogIGdlb0Nsb2NrU3BlZWQ6IDgwCiAgZG9nZmlnaHRTcGVlZDogMzAKICBnZW9TY3JvbGxTcGVlZDogMjAKICBnZW9EcmFnU2Nyb2xsQnV0dG9uOiAyCiAgcHJlZmVycmVkTXVzaWM6IDAKICBwcmVmZXJyZWRTb3VuZDogMAogIHByZWZlcnJlZFZpZGVvOiAwCiAgd29yZHdyYXA6IDAKICBtdXNpY0Fsd2F5c0xvb3A6IGZhbHNlCiAgdG91Y2hFbmFibGVkOiBmYWxzZQogIHJvb3RXaW5kb3dlZE1vZGU6IGZhbHNlCiAgYmFja2dyb3VuZE11dGU6IGZhbHNlCiAgc29sZGllckRpYXJpZXM6IHRydWUKICBwbGF5SW50cm86IGZhbHNlCiAgYXV0b3NhdmU6IHRydWUKICBhdXRvc2F2ZUZyZXF1ZW5jeTogNQogIG5ld1NlZWRPbkxvYWQ6IGZhbHNlCiAgbGF6eUxvYWRSZXNvdXJjZXM6IHRydWUKICBtb3VzZXdoZWVsU3BlZWQ6IDMKICBjaGFuZ2VWYWx1ZUJ5TW91c2VXaGVlbDogMAogIG1heGltaXplSW5mb1NjcmVlbnM6IGZhbHNlCiAgRlBTOiA2MAogIEZQU0luYWN0aXZlOiAzMAogIHZTeW5jRm9yT3BlbkdMOiB0cnVlCiAgZ2VvRHJhZ1Njcm9sbEludmVydDogZmFsc2UKICBhZ2dyZXNzaXZlUmV0YWxpYXRpb246IGZhbHNlCiAgY3VzdG9tSW5pdGlhbEJhc2U6IGZhbHNlCiAgYWxsb3dCdWlsZGluZ1F1ZXVlOiBmYWxzZQogIGNyYWZ0TGF1bmNoQWx3YXlzOiBmYWxzZQogIHN0b3JhZ2VMaW1pdHNFbmZvcmNlZDogZmFsc2UKICBjYW5TZWxsTGl2ZUFsaWVuczogZmFsc2UKICBhbnl0aW1lUHNpVHJhaW5pbmc6IGZhbHNlCiAgZ2xvYmVTZWFzb25zOiBmYWxzZQogIGdsb2JlU3VyZmFjZUNhY2hlOiB0cnVlCiAgcHNpU3RyZW5ndGhFdmFsOiBmYWxzZQogIGNhblRyYW5zZmVyQ3JhZnRzV2hpbGVBaXJib3JuZTogZmFsc2UKICByZXRhaW5Db3Jwc2VzOiBmYWxzZQogIGZpZWxkUHJvbW90aW9uczogZmFsc2UKICBiYXR0bGVEcmFnU2Nyb2xsSW52ZXJ0OiBmYWxzZQogIHNuZWFreUFJOiBmYWxzZQogIGJhdHRsZVVGT0V4dGVuZGVyQWNjdXJhY3k6IGZhbHNlCiAgc2hvd01vcmVTdGF0c0luSW52ZW50b3J5VmlldzogZmFsc2UKICBiYXR0bGVIYWlyQmxlYWNoOiB0cnVlCiAgYmF0dGxlSW5zdGFudEdyZW5hZGU6IGZhbHNlCiAgaW5jbHVkZVByaW1lU3RhdGVJblNhdmVkTGF5b3V0OiBmYWxzZQogIGJhdHRsZUV4cGxvc2lvbkhlaWdodDogMAogIGJhdHRsZUF1dG9FbmQ6IGZhbHNlCiAgYmF0dGxlU21vb3RoQ2FtZXJhOiBmYWxzZQogIGRpc2FibGVBdXRvRXF1aXA6IGZhbHNlCiAgYmF0dGxlQ29uZmlybUZpcmVNb2RlOiBmYWxzZQogIHdlYXBvblNlbGZEZXN0cnVjdGlvbjogZmFsc2UKICBhbGxvd1BzaW9uaWNDYXB0dXJlOiBmYWxzZQogIGFsbG93UHNpU3RyZW5ndGhJbXByb3ZlbWVudDogZmFsc2UKICBzdHJhZmU6IGZhbHNlCiAgZm9yY2VGaXJlOiB0cnVlCiAgc2tpcE5leHRUdXJuU2NyZWVuOiBmYWxzZQogIG5vQWxpZW5QYW5pY01lc3NhZ2VzOiBmYWxzZQogIGFsaWVuQmxlZWRpbmc6IGZhbHNlCiAga2V5T2s6IDEzCiAga2V5Q2FuY2VsOiAyNwogIGtleVNjcmVlbnNob3Q6IDI5MwogIGtleUZwczogMjg4CiAga2V5UXVpY2tTYXZlOiAyODYKICBrZXlRdWlja0xvYWQ6IDI5MAogIGtleUdlb0xlZnQ6IDI3NgogIGtleUdlb1JpZ2h0OiAyNzUKICBrZXlHZW9VcDogMjczCiAga2V5R2VvRG93bjogMjc0CiAga2V5R2VvWm9vbUluOiA0MwogIGtleUdlb1pvb21PdXQ6IDQ1CiAga2V5R2VvU3BlZWQxOiA0OQogIGtleUdlb1NwZWVkMjogNTAKICBrZXlHZW9TcGVlZDM6IDUxCiAga2V5R2VvU3BlZWQ0OiA1MgogIGtleUdlb1NwZWVkNTogNTMKICBrZXlHZW9TcGVlZDY6IDU0CiAga2V5R2VvSW50ZXJjZXB0OiAxMDUKICBrZXlHZW9CYXNlczogOTgKICBrZXlHZW9HcmFwaHM6IDEwMwogIGtleUdlb1Vmb3BlZGlhOiAxMTcKICBrZXlHZW9PcHRpb25zOiAyNwogIGtleUdlb0Z1bmRpbmc6IDEwMgogIGtleUdlb1RvZ2dsZURldGFpbDogOQogIGtleUdlb1RvZ2dsZVJhZGFyOiAxMTQKICBrZXlCYXNlU2VsZWN0MTogNDkKICBrZXlCYXNlU2VsZWN0MjogNTAKICBrZXlCYXNlU2VsZWN0MzogNTEKICBrZXlCYXNlU2VsZWN0NDogNTIKICBrZXlCYXNlU2VsZWN0NTogNTMKICBrZXlCYXNlU2VsZWN0NjogNTQKICBrZXlCYXNlU2VsZWN0NzogNTUKICBrZXlCYXNlU2VsZWN0ODogNTYKICBrZXlCYXR0bGVMZWZ0OiAyNzYKICBrZXlCYXR0bGVSaWdodDogMjc1CiAga2V5QmF0dGxlVXA6IDI3MwogIGtleUJhdHRsZURvd246IDI3NAogIGtleUJhdHRsZUxldmVsVXA6IDI4MAogIGtleUJhdHRsZUxldmVsRG93bjogMjgxCiAga2V5QmF0dGxlQ2VudGVyVW5pdDogMjc4CiAga2V5QmF0dGxlUHJldlVuaXQ6IDAKICBrZXlCYXR0bGVOZXh0VW5pdDogOQogIGtleUJhdHRsZURlc2VsZWN0VW5pdDogOTIKICBrZXlCYXR0bGVVc2VMZWZ0SGFuZDogMTEzCiAga2V5QmF0dGxlVXNlUmlnaHRIYW5kOiAxMDEKICBrZXlCYXR0bGVJbnZlbnRvcnk6IDEwNQogIGtleUJhdHRsZU1hcDogMTA5CiAga2V5QmF0dGxlT3B0aW9uczogMjcKICBrZXlCYXR0bGVFbmRUdXJuOiA4CiAga2V5QmF0dGxlQWJvcnQ6IDk3CiAga2V5QmF0dGxlU3RhdHM6IDExNQogIGtleUJhdHRsZUtuZWVsOiAxMDcKICBrZXlCYXR0bGVSZWxvYWQ6IDExNAogIGtleUJhdHRsZVBlcnNvbmFsTGlnaHRpbmc6IDEwOAogIGtleUJhdHRsZVJlc2VydmVOb25lOiAyODIKICBrZXlCYXR0bGVSZXNlcnZlU25hcDogMjgzCiAga2V5QmF0dGxlUmVzZXJ2ZUFpbWVkOiAyODQKICBrZXlCYXR0bGVSZXNlcnZlQXV0bzogMjg1CiAga2V5QmF0dGxlUmVzZXJ2ZUtuZWVsOiAxMDYKICBrZXlCYXR0bGVaZXJvVFVzOiAxMjcKICBrZXlCYXR0bGVDZW50ZXJFbmVteTE6IDQ5CiAga2V5QmF0dGxlQ2VudGVyRW5lbXkyOiA1MAogIGtleUJhdHRsZUNlbnRlckVuZW15MzogNTEKICBrZXlCYXR0bGVDZW50ZXJFbmVteTQ6IDUyCiAga2V5QmF0dGxlQ2VudGVyRW5lbXk1OiA1MwogIGtleUJhdHRsZUNlbnRlckVuZW15NjogNTQKICBrZXlCYXR0bGVDZW50ZXJFbmVteTc6IDU1CiAga2V5QmF0dGxlQ2VudGVyRW5lbXk4OiA1NgogIGtleUJhdHRsZUNlbnRlckVuZW15OTogNTcKICBrZXlCYXR0bGVDZW50ZXJFbmVteTEwOiA0OAogIGtleUJhdHRsZVZveGVsVmlldzogMjkxCiAga2V5SW52Q3JlYXRlVGVtcGxhdGU6IDk5CiAga2V5SW52QXBwbHlUZW1wbGF0ZTogMTE4CiAga2V5SW52Q2xlYXI6IDEyMAogIGtleUludkF1dG9FcXVpcDogMTIyCiAgb3hjZU1vZFZhbGlkYXRpb25MZXZlbDogMgogIG94Y2VSYXdTY3JlZW5TaG90czogZmFsc2UKICBveGNlRmlyc3RQZXJzb25WaWV3RmlzaGV5ZVByb2plY3Rpb246IGZhbHNlCiAgb3hjZVRodW1iQnV0dG9uczogdHJ1ZQogIG94Y2VUaHJvdHRsZU1vdXNlTW92ZUV2ZW50OiAwCiAgb3hjZURpc2FibGVUaGlua2luZ1Byb2dyZXNzQmFyOiBmYWxzZQogIG94Y2VFbWJlZGRlZE9ubHk6IGZhbHNlCiAgb3hjZUxpc3RWRlNDb250ZW50czogZmFsc2UKICBveGNlRW5hYmxlUGFsZXR0ZUZsaWNrZXJGaXg6IGZhbHNlCiAgb3hjZVJlY29tbWVuZGVkT3B0aW9uc1dlcmVTZXQ6IGZhbHNlCiAgcGFzc3dvcmQ6IHNlY3JldAogIG94Y2VTdGFydFVwVGV4dE1vZGU6IDAKICBveGNlR2Vvc2NhcGVEZWJ1Z0xvZ01heEVudHJpZXM6IDEwMDAKICBveGNlR2VvU2xvd2Rvd25GYWN0b3I6IDEKICBveGNlR2VvU2hvd1Njb3JlSW5zdGVhZE9mRnVuZHM6IGZhbHNlCiAgb3hjZUdlb0VuYWJsZVRyYWluaW5nSW5kaWNhdG9yOiBmYWxzZQogIG94Y2VHZW9TdXBwcmVzc1JlZHVuZGFudEhLQWxlcnQ6IHRydWUKICBveGNlR2VvU3VwcHJlc3NMYW5kaW5nV2l0aG91dEVxdWlwbWVudDogZmFsc2UKICBveGNlR2VvR29Ub05lYXJlc3RCYXNlOiBmYWxzZQogIG94Y2VHZW9Tb3J0Q3JhZnRCeURpc3RhbmNlVG9UYXJnZXQ6IGZhbHNlCiAgb3hjZUJhc2VJbmZvRGVmZW5zZVNjYWxlTXVsdGlwbGllcjogMTAwCiAgb3hjZUJhc2VTb2xkaWVyVHJhbnNmb3JtYXRpb25TaG93T25seUVsaWdpYmxlOiBmYWxzZQogIG94Y2VCYXNlRmlsdGVyUmVzZWFyY2hhYmxlOiBmYWxzZQogIG94Y2VCYXNlTWFudWZhY3R1cmVGYWxsYmFja0J1dHRvbjogZmFsc2UKICBveGNlQmFzZU1hbnVmYWN0dXJlSW5maW5pdHlCdXR0b246IGZhbHNlCiAgb3hjZUJhc2VUb3VjaEJ1dHRvbnM6IGZhbHNlCiAgb3hjZURpc2FibGVBbGllbkludmVudG9yeTogZmFsc2UKICBveGNlRGlzYWJsZUhpdExvZzogZmFsc2UKICBveGNlRGlzYWJsZUludmVudG9yeVR1Q29zdDogZmFsc2UKICBveGNlRGlzYWJsZVByb2R1Y3Rpb25EZXBlbmRlbmN5VHJlZTogZmFsc2UKICBveGNlRGlzYWJsZVN0YXRzRm9yTmVyZHM6IGZhbHNlCiAgb3hjZURpc2FibGVUZWNoVHJlZVZpZXdlcjogZmFsc2UKICBveGNlVG9nZ2xlUGVyc29uYWxMaWdodFR5cGU6IDEKICBveGNlVG9nZ2xlTmlnaHRWaXNpb25UeXBlOiAxCiAgb3hjZVRvZ2dsZUJyaWdodG5lc3NUeXBlOiAwCiAgb3hjZVNob3dCdXJuaW5nQXNXb3VuZGVkOiBmYWxzZQogIG94Y2VEaXNhYmxlSW5mb09uVGhyb3dDdXJzb3I6IGZhbHNlCiAgb3hjZVN3YXBEb250UmVzZWxlY3RBY3Rpb25zOiBmYWxzZQogIG94Y2VFbmFibGVVbml0UmVzcG9uc2VTb3VuZHM6IHRydWUKICBveGNlSGlkZGVuTW92ZW1lbnRCYWNrZ3JvdW5kQ2hhbmdlRnJlcXVlbmN5OiAxCiAgb3hjZUludmVudG9yeVNob3dVbml0U2xvdDogZmFsc2UKICBveGNlUmVwbGFjZU5vdGVzTGluazogZmFsc2UKICBveGNlSW52ZW50b3J5U3BsaXRTY3JvbGxCdXR0b246IGZhbHNlCiAgb3hjZUludmVudG9yeURyb3BJdGVtT3ZlclBhcGVyZG9sbDogZmFsc2UKICBveGNlSW52ZW50b3J5VW5sb2FkRml4ZWRXZWFwb25zOiBmYWxzZQogIG94Y2VNYXhFcXVpcG1lbnRMYXlvdXRUZW1wbGF0ZXM6IDIwCiAgb3hjZVVwZGF0ZUNoZWNrOiBmYWxzZQogIGF1dG9zYXZlU2xvdHM6IDEKICBveGNlR2VvQXV0b3NhdmVGcmVxdWVuY3k6IDAKICBveGNlR2VvQXV0b3NhdmVTbG90czogMQogIG94Y2VMaW5rczogZmFsc2UKICBveGNlTGlua3NEaXNhYmxlVGV4dEVkaXQ6IGZhbHNlCiAgb3hjZUZhdEZpbmdlckxpbmtzOiBmYWxzZQogIG94Y2VCYXR0bGVUb3VjaEJ1dHRvbnNFbmFibGVkOiBmYWxzZQogIG94Y2VRdWlja1NlYXJjaEJ1dHRvbjogZmFsc2UKICBveGNlSGlnaGxpZ2h0TmV3VG9waWNzOiB0cnVlCiAgb3hjZVBlZGlhU2hvd0NsaXBTaXplOiBmYWxzZQogIG94Y2VJbnRlcmNlcHRUYWJsZVNpemU6IDgKICBveGNlRW5hYmxlU2xhY2tpbmdJbmRpY2F0b3I6IHRydWUKICBveGNlSW50ZXJjZXB0R3VpTWFpbnRlbmFuY2VUaW1lOiAyCiAgb3hjZVNob3dFVEFNb2RlOiAwCiAgb3hjZVVmb0xhbmRpbmdBbGVydDogZmFsc2UKICBveGNlUmVtZW1iZXJEaXNhYmxlZENyYWZ0V2VhcG9uczogZmFsc2UKICBveGNlR2Vvc2NhcGVFdmVudHNJbnN0YW50RGVsaXZlcnk6IHRydWUKICBveGNlU2hvd0Jhc2VOYW1lSW5Qb3B1cHM6IGZhbHNlCiAgb3hjZUFsdGVybmF0ZUNyYWZ0RXF1aXBtZW50TWFuYWdlbWVudDogZmFsc2UKICBveGNlQmFzZUluZm9TY2FsZUVuYWJsZWQ6IGZhbHNlCiAgb3hjZVJlc2VhcmNoU2Nyb2xsU3BlZWQ6IDEKICBveGNlUmVzZWFyY2hTY3JvbGxTcGVlZFdpdGhDdHJsOiAxMAogIG94Y2VNYW51ZmFjdHVyZUZpbHRlclN1cHBsaWVzT0s6IGZhbHNlCiAgb3hjZU1hbnVmYWN0dXJlU2Nyb2xsU3BlZWQ6IDEKICBveGNlTWFudWZhY3R1cmVTY3JvbGxTcGVlZFdpdGhDdHJsOiAxMAogIG94Y2VQZXJzb25hbExheW91dEluY2x1ZGluZ0FybW9yOiB0cnVlCiAgb3hjZU1hbnVhbFByb21vdGlvbnM6IGZhbHNlCiAgb3hjZVdvdW5kZWREZWZlbmRCYXNlSWY6IDEwMAogIG94Y2VQbGF5QnJpZWZpbmdNdXNpY0R1cmluZ0VxdWlwbWVudDogZmFsc2UKICBveGNlTmlnaHRWaXNpb25Db2xvcjogNQogIG94Y2VBdXRvTmlnaHRWaXNpb25UaHJlc2hvbGQ6IDE1CiAgb3hjZVNob3dBY2N1cmFjeU9uQ3Jvc3NoYWlyOiAxCiAgb3hjZVJlYWN0aW9uRmlyZVRocmVzaG9sZDogMAogIG94Y2VBdXRvU2VsbDogZmFsc2UKICBveGNlQXV0b21hdGljUHJvbW90aW9uczogdHJ1ZQogIG94Y2VFbmFibGVPZmZDZW50cmVTaG9vdGluZzogZmFsc2UKICBveGNlVW5pZm9ybVNob290aW5nU3ByZWFkOiBmYWxzZQogIG94Y2VDcmFzaGVkT3JMYW5kZWQ6IDAKICBrZXlUb2dnbGVRdWlja1NlYXJjaDogMTEzCiAga2V5SW5zdGFTYXZlOiAyODcKICBrZXlHZW9VZm9UcmFja2VyOiAxMTYKICBrZXlHZW9UZWNoVHJlZVZpZXdlcjogMTEzCiAga2V5R2VvR2xvYmFsUHJvZHVjdGlvbjogMTEyCiAga2V5R2VvR2xvYmFsUmVzZWFyY2g6IDk5CiAga2V5R2VvR2xvYmFsQWxpZW5Db250YWlubWVudDogMTA2CiAga2V5R2VvRGFpbHlQaWxvdEV4cGVyaWVuY2U6IDEwMQogIGtleUdyYXBoc1pvb21JbjogMjcwCiAga2V5R3JhcGhzWm9vbU91dDogMjY5CiAga2V5QmFzZXNjYXBlQnVpbGROZXdCYXNlOiAxMTAKICBrZXlCYXNlc2NhcGVCYXNlSW5mb3JtYXRpb246IDEwNQogIGtleUJhc2VzY2FwZVNvbGRpZXJzOiAxMTUKICBrZXlCYXNlc2NhcGVFcXVpcENyYWZ0OiAxMDEKICBrZXlCYXNlc2NhcGVCdWlsZEZhY2lsaXRpZXM6IDEwMgogIGtleUJhc2VzY2FwZVJlc2VhcmNoOiAxMTQKICBrZXlCYXNlc2NhcGVNYW51ZmFjdHVyZTogMTA5CiAga2V5QmFzZXNjYXBlVHJhbnNmZXI6IDExNgogIGtleUJhc2VzY2FwZVB1cmNoYXNlOiAxMTIKICBrZXlCYXNlc2NhcGVTZWxsOiAxMDgKICBrZXlSZW1vdmVTb2xkaWVyc0Zyb21UcmFpbmluZzogMTIwCiAga2V5QWRkU29sZGllcnNUb1RyYWluaW5nOiAxMjIKICBrZXlDcmFmdExvYWRvdXRTYXZlOiAyODYKICBrZXlDcmFmdExvYWRvdXRMb2FkOiAyOTAKICBrZXlSZW1vdmVTb2xkaWVyc0Zyb21BbGxDcmFmdHM6IDEyMAogIGtleVJlbW92ZVNvbGRpZXJzRnJvbUNyYWZ0OiAxMjIKICBrZXlSZW1vdmVFcXVpcG1lbnRGcm9tQ3JhZnQ6IDEyMAogIGtleVJlbW92ZUFybW9yRnJvbUFsbENyYWZ0czogMTIwCiAga2V5UmVtb3ZlQXJtb3JGcm9tQ3JhZnQ6IDEyMgogIGtleUludmVudG9yeVNhdmU6IDI4NgogIGtleUludmVudG9yeUxvYWQ6IDI5MAogIGtleUludlNhdmVQZXJzb25hbEVxdWlwbWVudDogMTE1CiAga2V5SW52TG9hZFBlcnNvbmFsRXF1aXBtZW50OiAxMDgKICBrZXlJbnZTaG93UGVyc29uYWxFcXVpcG1lbnQ6IDExMgogIGtleUludmVudG9yeUFybW9yOiA5NwogIGtleUludmVudG9yeUF2YXRhcjogMTA5CiAga2V5SW52ZW50b3J5RGlhcnlMaWdodDogMTAwCiAga2V5U2VsbEFsbDogMTIwCiAga2V5U2VsbEFsbEJ1dE9uZTogMTIyCiAga2V5VHJhbnNmZXJBbGw6IDEyMAogIGtleU1hcmtBbGxBc1NlZW46IDEyMAogIGtleUJhdHRsZVVuaXRVcDogMAogIGtleUJhdHRsZVVuaXREb3duOiAwCiAga2V5QmF0dGxlU2hvd0xheWVyczogMAogIGtleUJhdHRsZVVzZVNwZWNpYWw6IDExOQogIGtleUJhdHRsZUFjdGlvbkl0ZW0xOiA0OQogIGtleUJhdHRsZUFjdGlvbkl0ZW0yOiA1MAogIGtleUJhdHRsZUFjdGlvbkl0ZW0zOiA1MQogIGtleUJhdHRsZUFjdGlvbkl0ZW00OiA1MgogIGtleUJhdHRsZUFjdGlvbkl0ZW01OiA1MwogIGtleU5pZ2h0VmlzaW9uVG9nZ2xlOiAzMDIKICBrZXlOaWdodFZpc2lvbkhvbGQ6IDMyCiAga2V5U2VsZWN0TXVzaWNUcmFjazogMjc5CiAgRW5hYmxlSG9zdE9ubHlUaW1lU3BlZWQ6IGZhbHNlCiAgRW5hYmxlUmVzZWFyY2hTeW5jOiBmYWxzZQogIFVuYmFsYW5jZWRDcmFmdFNvbGRpZXJzTGltaXQ6IGZhbHNlCiAgRW5hYmxlUmVhY3Rpb25GaXJlUHZwOiB0cnVlCiAgRW5hYmxlT3RoZXJQbGF5ZXJGb290c3RlcHM6IHRydWUKICBjb29wRm9sbG93UGVlckFjdGlvbnM6IGZhbHNlCiAgRW5hYmxlWGNvbUVxdWlwbWVudEFsaWVuc1BWUDogdHJ1ZQogIGRlYnVnTW9kZTogdHJ1ZQogIGxvZ0luZm9Ub0ZpbGU6IGZhbHNlCiAgbG9nUGFja2V0TWVzc2FnZXM6IGZhbHNlCiAgRW5hYmxlSG90c2VhdERlYnVnTW9kZTogZmFsc2UKICBjb29wQ2FuY2VsT25FbmVteVNwb3R0ZWQ6IHRydWUKICBjb29wQ2FuY2VsT25Pd25Vbml0SGl0OiB0cnVlCiAgY29vcENhbmNlbE9uVmlzaWJpbGl0eUdhaW46IHRydWUKICBjb29wQ2FuY2VsT25BbnlQYXJ0bmVyQWN0aW9uOiBmYWxzZQogIGNvb3BJbnRlbnRUaW1lb3V0U2Vjb25kczogMTAKICBDb29wVHVybk1vZGU6IHBhcmFsbGVsCiAgY29vcEdob3N0U3RlcHBlcjogdHJ1ZQogIGtleUNoYXQ6IDI1NwogIGdpdmVVbml0OiAyNTgK
+monthsPassed: 0
+daysPassed: 11
+vehiclesLost: 0
+craftLostMission: 0
+graphRegionToggles: ''
+graphCountryToggles: ''
+graphFinanceToggles: ''
+rng: 4944978271543448918
+funds:
+  - 4131000
+maintenance:
+  - 0
+userNotes: []
+geoscapeDebugLog:
+  - 'month: 0 script: gameStart id: 1 type: STR_ALIEN_RESEARCH race: STR_SECTOID region: STR_CENTRAL_ASIA targetZone: -1 targetArea: -1'
+  - 'month: 0 script: recurringTerror id: 2 type: STR_ALIEN_TERROR race: STR_SECTOID region: STR_EUROPE targetZone: 3 targetArea: 3'
+  - 'gameTime: 1999-01-01 14:00:00 ufoId: 1 ufoType: STR_SMALL_SCOUT race: STR_SECTOID region: STR_CENTRAL_ASIA trajectory: P0 missionId: 1 missionType: STR_ALIEN_RESEARCH'
+  - 'gameTime: 1999-01-01 14:30:00 ufoId: 2 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_EUROPE trajectory: P1 missionId: 2 missionType: STR_ALIEN_TERROR'
+  - 'gameTime: 1999-01-08 04:30:00 ufoId: 3 ufoType: STR_MEDIUM_SCOUT race: STR_SECTOID region: STR_CENTRAL_ASIA trajectory: P2 missionId: 1 missionType: STR_ALIEN_RESEARCH'
+  - 'gameTime: 1999-01-10 17:00:00 ufoId: 4 ufoType: STR_LARGE_SCOUT race: STR_SECTOID region: STR_EUROPE trajectory: P1 missionId: 2 missionType: STR_ALIEN_TERROR'
+researchScores:
+  - 0
+incomes:
+  - 6000000
+expenditures:
+  - 1869000
+warned: false
+togglePersonalLight: true
+toggleNightVision: false
+toggleBrightness: 0
+globeLon: 0
+globeLat: 0
+globeZoom: 0
+ids:
+  ALIEN_MISSIONS: 3
+  STR_INTERCEPTOR: 3
+  STR_LANDING_SITE: 3
+  STR_SKYRANGER: 2
+  STR_SOLDIER: 9
+  STR_UFO: 4
+  STR_UFO_UNIQUE: 5
+countries:
+  - type: STR_USA
+    funding:
+      - 757000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_RUSSIA
+    funding:
+      - 399000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 8
+  - type: STR_UK
+    funding:
+      - 312000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 38
+  - type: STR_FRANCE
+    funding:
+      - 534000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 1
+  - type: STR_GERMANY
+    funding:
+      - 417000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 4
+  - type: STR_ITALY
+    funding:
+      - 167000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 1
+  - type: STR_SPAIN
+    funding:
+      - 194000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 35
+  - type: STR_CHINA
+    funding:
+      - 308000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 6
+  - type: STR_JAPAN
+    funding:
+      - 694000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_INDIA
+    funding:
+      - 184000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 3
+  - type: STR_BRAZIL
+    funding:
+      - 382000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 2
+  - type: STR_AUSTRALIA
+    funding:
+      - 476000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_NIGERIA
+    funding:
+      - 246000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SOUTH_AFRICA
+    funding:
+      - 295000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_EGYPT
+    funding:
+      - 310000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_CANADA
+    funding:
+      - 325000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+regions:
+  - type: STR_NORTH_AMERICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_ARCTIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_ANTARCTICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 2
+  - type: STR_SOUTH_AMERICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 3
+  - type: STR_EUROPE
+    activityXcom:
+      - 0
+    activityAlien:
+      - 153
+  - type: STR_NORTH_AFRICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 2
+  - type: STR_SOUTHERN_AFRICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_CENTRAL_ASIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 43
+  - type: STR_SOUTH_EAST_ASIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 7
+  - type: STR_SIBERIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 2
+  - type: STR_AUSTRALASIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 1
+  - type: STR_PACIFIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 4
+  - type: STR_NORTH_ATLANTIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 1
+  - type: STR_SOUTH_ATLANTIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 3
+  - type: STR_INDIAN_OCEAN
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+bases:
+  - lon: 0.7063353365604198
+    lat: -0.5070346730015731
+    name: XcomBase
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 2
+        y: 2
+      - type: STR_HANGAR
+        x: 2
+        y: 0
+      - type: STR_HANGAR
+        x: 0
+        y: 4
+      - type: STR_HANGAR
+        x: 4
+        y: 4
+      - type: STR_LIVING_QUARTERS
+        x: 3
+        y: 2
+      - type: STR_GENERAL_STORES
+        x: 2
+        y: 3
+      - type: STR_LABORATORY
+        x: 3
+        y: 3
+      - type: STR_WORKSHOP
+        x: 4
+        y: 3
+      - type: STR_SMALL_RADAR_SYSTEM
+        x: 1
+        y: 3
+    soldiers:
+      - type: STR_SOLDIER
+        id: 1
+        name: Sinead Doyle
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Sinead Doyle
+        ownerplayerid: 999
+        nationality: 18
+        initialStats:
+          tu: 55
+          stamina: 52
+          health: 33
+          bravery: 40
+          reactions: 36
+          firing: 52
+          throwing: 60
+          strength: 36
+          psiStrength: 30
+          psiSkill: 0
+          melee: 38
+          mana: 0
+        currentStats:
+          tu: 55
+          stamina: 52
+          health: 33
+          bravery: 40
+          reactions: 36
+          firing: 52
+          throwing: 60
+          strength: 36
+          psiStrength: 30
+          psiSkill: 0
+          melee: 38
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 0
+        lookVariant: 32
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 2
+        name: Stefan Richter
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Stefan Richter
+        ownerplayerid: 999
+        nationality: 14
+        initialStats:
+          tu: 57
+          stamina: 55
+          health: 40
+          bravery: 60
+          reactions: 32
+          firing: 42
+          throwing: 69
+          strength: 30
+          psiStrength: 87
+          psiSkill: 0
+          melee: 28
+          mana: 0
+        currentStats:
+          tu: 57
+          stamina: 55
+          health: 40
+          bravery: 60
+          reactions: 32
+          firing: 42
+          throwing: 69
+          strength: 30
+          psiStrength: 87
+          psiSkill: 0
+          melee: 28
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 53
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 3
+        name: Monica Rocha
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Monica Rocha
+        ownerplayerid: 999
+        nationality: 27
+        initialStats:
+          tu: 54
+          stamina: 60
+          health: 32
+          bravery: 20
+          reactions: 31
+          firing: 56
+          throwing: 62
+          strength: 40
+          psiStrength: 57
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 60
+          health: 32
+          bravery: 20
+          reactions: 31
+          firing: 56
+          throwing: 62
+          strength: 40
+          psiStrength: 57
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 1
+        lookVariant: 39
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 4
+        name: Henrique Barata
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Henrique Barata
+        ownerplayerid: 999
+        nationality: 27
+        initialStats:
+          tu: 55
+          stamina: 56
+          health: 39
+          bravery: 40
+          reactions: 59
+          firing: 68
+          throwing: 65
+          strength: 39
+          psiStrength: 32
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        currentStats:
+          tu: 55
+          stamina: 56
+          health: 39
+          bravery: 40
+          reactions: 59
+          firing: 68
+          throwing: 65
+          strength: 39
+          psiStrength: 32
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 1
+        lookVariant: 58
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 5
+        name: Liam Hunter
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Liam Hunter
+        ownerplayerid: 999
+        nationality: 4
+        initialStats:
+          tu: 50
+          stamina: 60
+          health: 27
+          bravery: 30
+          reactions: 48
+          firing: 49
+          throwing: 66
+          strength: 35
+          psiStrength: 31
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        currentStats:
+          tu: 50
+          stamina: 60
+          health: 27
+          bravery: 30
+          reactions: 48
+          firing: 49
+          throwing: 66
+          strength: 35
+          psiStrength: 31
+          psiSkill: 0
+          melee: 33
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 45
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 6
+        name: Thomas Viklund
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Thomas Viklund
+        ownerplayerid: 999
+        nationality: 32
+        initialStats:
+          tu: 59
+          stamina: 47
+          health: 29
+          bravery: 30
+          reactions: 35
+          firing: 62
+          throwing: 69
+          strength: 28
+          psiStrength: 74
+          psiSkill: 0
+          melee: 23
+          mana: 0
+        currentStats:
+          tu: 59
+          stamina: 47
+          health: 29
+          bravery: 30
+          reactions: 35
+          firing: 62
+          throwing: 69
+          strength: 28
+          psiStrength: 74
+          psiSkill: 0
+          melee: 23
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 3
+        lookVariant: 15
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 7
+        name: Eduardo Rodriguez
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Eduardo Rodriguez
+        ownerplayerid: 999
+        nationality: 2
+        initialStats:
+          tu: 56
+          stamina: 60
+          health: 40
+          bravery: 50
+          reactions: 60
+          firing: 52
+          throwing: 73
+          strength: 39
+          psiStrength: 53
+          psiSkill: 0
+          melee: 36
+          mana: 0
+        currentStats:
+          tu: 56
+          stamina: 60
+          health: 40
+          bravery: 50
+          reactions: 60
+          firing: 52
+          throwing: 73
+          strength: 39
+          psiStrength: 53
+          psiSkill: 0
+          melee: 36
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 1
+        lookVariant: 19
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 8
+        name: Aurora Giordano
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Aurora Giordano
+        ownerplayerid: 999
+        nationality: 19
+        initialStats:
+          tu: 56
+          stamina: 60
+          health: 37
+          bravery: 50
+          reactions: 32
+          firing: 70
+          throwing: 61
+          strength: 33
+          psiStrength: 85
+          psiSkill: 0
+          melee: 40
+          mana: 0
+        currentStats:
+          tu: 56
+          stamina: 60
+          health: 37
+          bravery: 50
+          reactions: 32
+          firing: 70
+          throwing: 61
+          strength: 33
+          psiStrength: 85
+          psiSkill: 0
+          melee: 40
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0.7063353365604198
+          lat: -0.5070346730015731
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 1
+        lookVariant: 25
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+    coopbaseid: 43782
+    crafts:
+      - lon: 0.7063353365604198
+        lat: -0.5070346730015731
+        id: 1
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_SKYRANGER
+        fuel: 1500
+        damage: 0
+        shield: 0
+        items:
+          STR_GRENADE: 8
+          STR_HC_AP_AMMO: 2
+          STR_HC_HE_AMMO: 2
+          STR_HEAVY_CANNON: 1
+          STR_PISTOL: 3
+          STR_PISTOL_CLIP: 5
+          STR_RIFLE: 6
+          STR_RIFLE_CLIP: 12
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+      - lon: 0.7063353365604198
+        lat: -0.5070346730015731
+        id: 1
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_INTERCEPTOR
+        fuel: 1000
+        damage: 0
+        shield: 0
+        weapons:
+          - type: STR_STINGRAY
+            ammo: 6
+          - type: STR_CANNON_UC
+            ammo: 200
+        items: {}
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+      - lon: 0.7063353365604198
+        lat: -0.5070346730015731
+        id: 2
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_INTERCEPTOR
+        fuel: 1000
+        damage: 0
+        shield: 0
+        weapons:
+          - type: STR_STINGRAY
+            ammo: 6
+          - type: STR_CANNON_UC
+            ammo: 200
+        items: {}
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+    items:
+      STR_AC_AP_AMMO: 6
+      STR_AUTO_CANNON: 1
+      STR_AVALANCHE_LAUNCHER: 1
+      STR_AVALANCHE_MISSILES: 10
+      STR_CANNON: 2
+      STR_CANNON_ROUNDS_X50: 1
+      STR_GRENADE: 5
+      STR_HC_AP_AMMO: 6
+      STR_HEAVY_CANNON: 1
+      STR_PISTOL: 2
+      STR_PISTOL_CLIP: 8
+      STR_RIFLE: 2
+      STR_RIFLE_CLIP: 8
+      STR_ROCKET_LAUNCHER: 1
+      STR_SMALL_ROCKET: 4
+      STR_SMOKE_GRENADE: 5
+      STR_STINGRAY_LAUNCHER: 1
+      STR_STINGRAY_MISSILES: 25
+    scientists: 10
+    engineers: 10
+alienMissions:
+  - type: STR_ALIEN_RESEARCH
+    region: STR_CENTRAL_ASIA
+    race: STR_SECTOID
+    nextWave: 2
+    nextUfoCounter: 0
+    spawnCountdown: 7410
+    liveUfos: 0
+    uniqueID: 1
+    missionSiteZone: -1
+  - type: STR_ALIEN_TERROR
+    region: STR_EUROPE
+    race: STR_SECTOID
+    nextWave: 2
+    nextUfoCounter: 0
+    spawnCountdown: 14640
+    liveUfos: 1
+    uniqueID: 2
+    missionSiteZone: 3
+ufos:
+  - lon: 0.4118115013463175
+    lat: -0.7795655417856007
+    id: 3
+    dest:
+      lon: 2.684024535865629
+      lat: -1.475653404750937
+      type: STR_WAY_POINT
+      id: 0
+    speedLon: 0
+    speedLat: -0
+    speedRadian: 0
+    speed: 0
+    type: STR_LARGE_SCOUT
+    uniqueId: 4
+    missionWaveNumber: 1
+    landId: 2
+    damage: 0
+    shield: 0
+    shieldRechargeHandle: 0
+    altitude: STR_GROUND
+    direction: STR_NONE_UC
+    status: 1
+    detected: true
+    secondsRemaining: 4820
+    huntMode: 0
+    huntBehavior: 0
+    mission: 2
+    trajectory: P1
+    trajectoryPoint: 7
+    fireCountdown: 0
+    escapeCountdown: 0
+    coopUfoId: 8254
+generatedEvents: {}
+ufopediaRuleStatus: {}
+manufactureRuleStatus: {}
+researchRuleStatus: {}
+monthlyPurchaseLimitLog: {}
+hiddenPurchaseItems: {}
+customRuleCraftDeployments: {}
+alienStrategy:
+  regions:
+    STR_ANTARCTICA: 4
+    STR_ARCTIC: 4
+    STR_AUSTRALASIA: 10
+    STR_CENTRAL_ASIA: 12
+    STR_EUROPE: 16
+    STR_NORTH_AFRICA: 12
+    STR_NORTH_AMERICA: 18
+    STR_PACIFIC: 5
+    STR_SIBERIA: 10
+    STR_SOUTHERN_AFRICA: 8
+    STR_SOUTH_AMERICA: 10
+    STR_SOUTH_EAST_ASIA: 15
+  possibleMissions:
+    - region: STR_ANTARCTICA
+      missions:
+        STR_ALIEN_BASE: 35
+        STR_ALIEN_RESEARCH: 25
+    - region: STR_ARCTIC
+      missions:
+        STR_ALIEN_BASE: 35
+        STR_ALIEN_RESEARCH: 25
+    - region: STR_AUSTRALASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 4
+        STR_ALIEN_BASE: 16
+        STR_ALIEN_HARVEST: 11
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 15
+    - region: STR_CENTRAL_ASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 6
+        STR_ALIEN_BASE: 8
+        STR_ALIEN_HARVEST: 5
+        STR_ALIEN_INFILTRATION: 10
+    - region: STR_EUROPE
+      missions:
+        STR_ALIEN_ABDUCTION: 15
+        STR_ALIEN_BASE: 6
+        STR_ALIEN_HARVEST: 10
+        STR_ALIEN_INFILTRATION: 20
+        STR_ALIEN_RESEARCH: 10
+    - region: STR_INDIAN_OCEAN
+      missions: ~
+    - region: STR_NORTH_AFRICA
+      missions:
+        STR_ALIEN_ABDUCTION: 8
+        STR_ALIEN_BASE: 19
+        STR_ALIEN_HARVEST: 8
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 8
+    - region: STR_NORTH_AMERICA
+      missions:
+        STR_ALIEN_ABDUCTION: 20
+        STR_ALIEN_BASE: 20
+        STR_ALIEN_HARVEST: 17
+        STR_ALIEN_INFILTRATION: 20
+        STR_ALIEN_RESEARCH: 14
+    - region: STR_NORTH_ATLANTIC
+      missions: ~
+    - region: STR_PACIFIC
+      missions:
+        STR_ALIEN_BASE: 27
+        STR_ALIEN_RESEARCH: 15
+    - region: STR_SIBERIA
+      missions:
+        STR_ALIEN_ABDUCTION: 4
+        STR_ALIEN_BASE: 9
+        STR_ALIEN_RESEARCH: 6
+    - region: STR_SOUTHERN_AFRICA
+      missions:
+        STR_ALIEN_ABDUCTION: 8
+        STR_ALIEN_BASE: 9
+        STR_ALIEN_HARVEST: 8
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 7
+    - region: STR_SOUTH_AMERICA
+      missions:
+        STR_ALIEN_ABDUCTION: 12
+        STR_ALIEN_BASE: 22
+        STR_ALIEN_HARVEST: 24
+        STR_ALIEN_INFILTRATION: 18
+        STR_ALIEN_RESEARCH: 10
+    - region: STR_SOUTH_ATLANTIC
+      missions: ~
+    - region: STR_SOUTH_EAST_ASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 21
+        STR_ALIEN_BASE: 8
+        STR_ALIEN_HARVEST: 13
+        STR_ALIEN_INFILTRATION: 13
+        STR_ALIEN_RESEARCH: 8
+  missionLocations: {}
+  missionsRun: {}
+options:
+  displayWidth: 640
+  displayHeight: 400
+  fullscreen: false
+  asyncBlit: true
+  keyboardMode: 1
+  maxFrameSkip: 0
+  traceAI: false
+  verboseLogging: false
+  StereoSound: true
+  geoscapeScale: 0
+  battlescapeScale: 0
+  useScaleFilter: false
+  useHQXFilter: false
+  useXBRZFilter: false
+  useOpenGL: false
+  checkOpenGLErrors: false
+  useOpenGLShader: Shaders/Raw.OpenGL.shader
+  useOpenGLSmoothing: true
+  debug: false
+  debugUi: false
+  soundVolume: 0
+  musicVolume: 0
+  uiVolume: 0
+  language: en-US
+  battleScrollSpeed: 8
+  battleEdgeScroll: 0
+  battleDragScrollButton: 0
+  dragScrollTimeTolerance: 300
+  dragScrollPixelTolerance: 10
+  battleFireSpeed: 6
+  battleXcomSpeed: 30
+  battleAlienSpeed: 30
+  battleNewPreviewPath: 0
+  fpsCounter: false
+  globeDetail: true
+  globeRadarLines: true
+  globeFlightPaths: true
+  globeAllRadarsOnBaseBuild: true
+  audioSampleRate: 22050
+  audioBitDepth: 16
+  audioChunkSize: 1024
+  pauseMode: 0
+  battleNotifyDeath: false
+  showFundsOnGeoscape: false
+  allowResize: false
+  windowedModePositionX: 0
+  windowedModePositionY: 0
+  borderless: false
+  captureMouse: false
+  battleTooltips: true
+  keepAspectRatio: true
+  nonSquarePixelRatio: false
+  cursorInBlackBandsInFullscreen: false
+  cursorInBlackBandsInWindow: true
+  cursorInBlackBandsInBorderlessWindow: false
+  saveOrder: 3
+  geoClockSpeed: 80
+  dogfightSpeed: 30
+  geoScrollSpeed: 20
+  geoDragScrollButton: 2
+  preferredMusic: 0
+  preferredSound: 0
+  preferredVideo: 0
+  wordwrap: 0
+  musicAlwaysLoop: false
+  touchEnabled: false
+  rootWindowedMode: false
+  backgroundMute: false
+  soldierDiaries: true
+  playIntro: false
+  autosave: true
+  autosaveFrequency: 5
+  newSeedOnLoad: false
+  lazyLoadResources: true
+  mousewheelSpeed: 3
+  changeValueByMouseWheel: 0
+  maximizeInfoScreens: false
+  FPS: 60
+  FPSInactive: 30
+  vSyncForOpenGL: true
+  geoDragScrollInvert: false
+  aggressiveRetaliation: false
+  customInitialBase: false
+  allowBuildingQueue: false
+  craftLaunchAlways: false
+  storageLimitsEnforced: false
+  canSellLiveAliens: false
+  anytimePsiTraining: false
+  globeSeasons: false
+  globeSurfaceCache: true
+  psiStrengthEval: false
+  canTransferCraftsWhileAirborne: false
+  retainCorpses: false
+  fieldPromotions: false
+  battleDragScrollInvert: false
+  sneakyAI: false
+  battleUFOExtenderAccuracy: false
+  showMoreStatsInInventoryView: false
+  battleHairBleach: true
+  battleInstantGrenade: false
+  includePrimeStateInSavedLayout: false
+  battleExplosionHeight: 0
+  battleAutoEnd: false
+  battleSmoothCamera: false
+  disableAutoEquip: false
+  battleConfirmFireMode: false
+  weaponSelfDestruction: false
+  allowPsionicCapture: false
+  allowPsiStrengthImprovement: false
+  strafe: false
+  forceFire: true
+  skipNextTurnScreen: false
+  noAlienPanicMessages: false
+  alienBleeding: false
+  keyOk: 13
+  keyCancel: 27
+  keyScreenshot: 293
+  keyFps: 288
+  keyQuickSave: 286
+  keyQuickLoad: 290
+  keyGeoLeft: 276
+  keyGeoRight: 275
+  keyGeoUp: 273
+  keyGeoDown: 274
+  keyGeoZoomIn: 43
+  keyGeoZoomOut: 45
+  keyGeoSpeed1: 49
+  keyGeoSpeed2: 50
+  keyGeoSpeed3: 51
+  keyGeoSpeed4: 52
+  keyGeoSpeed5: 53
+  keyGeoSpeed6: 54
+  keyGeoIntercept: 105
+  keyGeoBases: 98
+  keyGeoGraphs: 103
+  keyGeoUfopedia: 117
+  keyGeoOptions: 27
+  keyGeoFunding: 102
+  keyGeoToggleDetail: 9
+  keyGeoToggleRadar: 114
+  keyBaseSelect1: 49
+  keyBaseSelect2: 50
+  keyBaseSelect3: 51
+  keyBaseSelect4: 52
+  keyBaseSelect5: 53
+  keyBaseSelect6: 54
+  keyBaseSelect7: 55
+  keyBaseSelect8: 56
+  keyBattleLeft: 276
+  keyBattleRight: 275
+  keyBattleUp: 273
+  keyBattleDown: 274
+  keyBattleLevelUp: 280
+  keyBattleLevelDown: 281
+  keyBattleCenterUnit: 278
+  keyBattlePrevUnit: 0
+  keyBattleNextUnit: 9
+  keyBattleDeselectUnit: 92
+  keyBattleUseLeftHand: 113
+  keyBattleUseRightHand: 101
+  keyBattleInventory: 105
+  keyBattleMap: 109
+  keyBattleOptions: 27
+  keyBattleEndTurn: 8
+  keyBattleAbort: 97
+  keyBattleStats: 115
+  keyBattleKneel: 107
+  keyBattleReload: 114
+  keyBattlePersonalLighting: 108
+  keyBattleReserveNone: 282
+  keyBattleReserveSnap: 283
+  keyBattleReserveAimed: 284
+  keyBattleReserveAuto: 285
+  keyBattleReserveKneel: 106
+  keyBattleZeroTUs: 127
+  keyBattleCenterEnemy1: 49
+  keyBattleCenterEnemy2: 50
+  keyBattleCenterEnemy3: 51
+  keyBattleCenterEnemy4: 52
+  keyBattleCenterEnemy5: 53
+  keyBattleCenterEnemy6: 54
+  keyBattleCenterEnemy7: 55
+  keyBattleCenterEnemy8: 56
+  keyBattleCenterEnemy9: 57
+  keyBattleCenterEnemy10: 48
+  keyBattleVoxelView: 291
+  keyInvCreateTemplate: 99
+  keyInvApplyTemplate: 118
+  keyInvClear: 120
+  keyInvAutoEquip: 122
+  oxceModValidationLevel: 2
+  oxceRawScreenShots: false
+  oxceFirstPersonViewFisheyeProjection: false
+  oxceThumbButtons: true
+  oxceThrottleMouseMoveEvent: 0
+  oxceDisableThinkingProgressBar: false
+  oxceEmbeddedOnly: false
+  oxceListVFSContents: false
+  oxceEnablePaletteFlickerFix: false
+  oxceRecommendedOptionsWereSet: false
+  password: secret
+  oxceStartUpTextMode: 0
+  oxceGeoscapeDebugLogMaxEntries: 1000
+  oxceGeoSlowdownFactor: 1
+  oxceGeoShowScoreInsteadOfFunds: false
+  oxceGeoEnableTrainingIndicator: false
+  oxceGeoSuppressRedundantHKAlert: true
+  oxceGeoSuppressLandingWithoutEquipment: false
+  oxceGeoGoToNearestBase: false
+  oxceGeoSortCraftByDistanceToTarget: false
+  oxceBaseInfoDefenseScaleMultiplier: 100
+  oxceBaseSoldierTransformationShowOnlyEligible: false
+  oxceBaseFilterResearchable: false
+  oxceBaseManufactureFallbackButton: false
+  oxceBaseManufactureInfinityButton: false
+  oxceBaseTouchButtons: false
+  oxceDisableAlienInventory: false
+  oxceDisableHitLog: false
+  oxceDisableInventoryTuCost: false
+  oxceDisableProductionDependencyTree: false
+  oxceDisableStatsForNerds: false
+  oxceDisableTechTreeViewer: false
+  oxceTogglePersonalLightType: 1
+  oxceToggleNightVisionType: 1
+  oxceToggleBrightnessType: 0
+  oxceShowBurningAsWounded: false
+  oxceDisableInfoOnThrowCursor: false
+  oxceSwapDontReselectActions: false
+  oxceEnableUnitResponseSounds: true
+  oxceHiddenMovementBackgroundChangeFrequency: 1
+  oxceInventoryShowUnitSlot: false
+  oxceReplaceNotesLink: false
+  oxceInventorySplitScrollButton: false
+  oxceInventoryDropItemOverPaperdoll: false
+  oxceInventoryUnloadFixedWeapons: false
+  oxceMaxEquipmentLayoutTemplates: 20
+  oxceUpdateCheck: false
+  autosaveSlots: 1
+  oxceGeoAutosaveFrequency: 0
+  oxceGeoAutosaveSlots: 1
+  oxceLinks: false
+  oxceLinksDisableTextEdit: false
+  oxceFatFingerLinks: false
+  oxceBattleTouchButtonsEnabled: false
+  oxceQuickSearchButton: false
+  oxceHighlightNewTopics: true
+  oxcePediaShowClipSize: false
+  oxceInterceptTableSize: 8
+  oxceEnableSlackingIndicator: true
+  oxceInterceptGuiMaintenanceTime: 2
+  oxceShowETAMode: 0
+  oxceUfoLandingAlert: false
+  oxceRememberDisabledCraftWeapons: false
+  oxceGeoscapeEventsInstantDelivery: true
+  oxceShowBaseNameInPopups: false
+  oxceAlternateCraftEquipmentManagement: false
+  oxceBaseInfoScaleEnabled: false
+  oxceResearchScrollSpeed: 1
+  oxceResearchScrollSpeedWithCtrl: 10
+  oxceManufactureFilterSuppliesOK: false
+  oxceManufactureScrollSpeed: 1
+  oxceManufactureScrollSpeedWithCtrl: 10
+  oxcePersonalLayoutIncludingArmor: true
+  oxceManualPromotions: false
+  oxceWoundedDefendBaseIf: 100
+  oxcePlayBriefingMusicDuringEquipment: false
+  oxceNightVisionColor: 5
+  oxceAutoNightVisionThreshold: 15
+  oxceShowAccuracyOnCrosshair: 1
+  oxceReactionFireThreshold: 0
+  oxceAutoSell: false
+  oxceAutomaticPromotions: true
+  oxceEnableOffCentreShooting: false
+  oxceUniformShootingSpread: false
+  oxceCrashedOrLanded: 0
+  keyToggleQuickSearch: 113
+  keyInstaSave: 287
+  keyGeoUfoTracker: 116
+  keyGeoTechTreeViewer: 113
+  keyGeoGlobalProduction: 112
+  keyGeoGlobalResearch: 99
+  keyGeoGlobalAlienContainment: 106
+  keyGeoDailyPilotExperience: 101
+  keyGraphsZoomIn: 270
+  keyGraphsZoomOut: 269
+  keyBasescapeBuildNewBase: 110
+  keyBasescapeBaseInformation: 105
+  keyBasescapeSoldiers: 115
+  keyBasescapeEquipCraft: 101
+  keyBasescapeBuildFacilities: 102
+  keyBasescapeResearch: 114
+  keyBasescapeManufacture: 109
+  keyBasescapeTransfer: 116
+  keyBasescapePurchase: 112
+  keyBasescapeSell: 108
+  keyRemoveSoldiersFromTraining: 120
+  keyAddSoldiersToTraining: 122
+  keyCraftLoadoutSave: 286
+  keyCraftLoadoutLoad: 290
+  keyRemoveSoldiersFromAllCrafts: 120
+  keyRemoveSoldiersFromCraft: 122
+  keyRemoveEquipmentFromCraft: 120
+  keyRemoveArmorFromAllCrafts: 120
+  keyRemoveArmorFromCraft: 122
+  keyInventorySave: 286
+  keyInventoryLoad: 290
+  keyInvSavePersonalEquipment: 115
+  keyInvLoadPersonalEquipment: 108
+  keyInvShowPersonalEquipment: 112
+  keyInventoryArmor: 97
+  keyInventoryAvatar: 109
+  keyInventoryDiaryLight: 100
+  keySellAll: 120
+  keySellAllButOne: 122
+  keyTransferAll: 120
+  keyMarkAllAsSeen: 120
+  keyBattleUnitUp: 0
+  keyBattleUnitDown: 0
+  keyBattleShowLayers: 0
+  keyBattleUseSpecial: 119
+  keyBattleActionItem1: 49
+  keyBattleActionItem2: 50
+  keyBattleActionItem3: 51
+  keyBattleActionItem4: 52
+  keyBattleActionItem5: 53
+  keyNightVisionToggle: 302
+  keyNightVisionHold: 32
+  keySelectMusicTrack: 279
+  EnableHostOnlyTimeSpeed: false
+  EnableResearchSync: false
+  UnbalancedCraftSoldiersLimit: false
+  EnableReactionFirePvp: true
+  EnableOtherPlayerFootsteps: true
+  coopFollowPeerActions: false
+  EnableXcomEquipmentAliensPVP: true
+  debugMode: true
+  logInfoToFile: false
+  logPacketMessages: false
+  EnableHotseatDebugMode: false
+  coopCancelOnEnemySpotted: true
+  coopCancelOnOwnUnitHit: true
+  coopCancelOnVisibilityGain: true
+  coopCancelOnAnyPartnerAction: false
+  coopIntentTimeoutSeconds: 10
+  CoopTurnMode: parallel
+  coopGhostStepper: true
+  keyChat: 257
+  giveUnit: 258
