@@ -1,9 +1,9 @@
 """test_campaign_battle_gm2.py: a gm2 PvP campaign battle end to end (host = X-COM, client = the aliens):
 entry with the right seats, the alien player moves an alien, an X-COM win and an X-COM loss, and after each the alien player sees
-the host's debriefing and returns to its own geoscape with its alien-side role intact (no bases, stub budget 1000, no sim of its own).
+the host's debriefing and returns to the host's world with its alien side intact (a replica, funds shown as $1 000).
 
-The pinned values below (seeds, map fingerprints, the alien A and its destination, the stub base, the debriefing
-titles) were each measured on two boots.
+The pinned values below (seeds, map fingerprints, the alien A and its destination, the debriefing titles) were each
+measured on two boots.
 
 The boot: gm2, lobby key 47938, user dirs campaign_battle_gm2_host / campaign_battle_gm2_client. Bring-up:
 PF.start_pvp_campaign(alien_player="client"); crash baseline; geo.slow_clock. A bring-up or entry landing step past
@@ -13,16 +13,20 @@ failure unless its precondition was never reached, then each of its cells FAILs 
   entry: squad of two, site, craft forced out, landing, host set_seed SEED_WIN, confirm_landing, both inBattle
      <= 180 s, session.briefings_to_battlescape.
      entry-gamemode (gamemode 2 on both, read at entry), entry-reached (the spine; turn 1 and MAP_FP_WIN on both),
-     entry-seats (entry census: faction 0 seat 0, faction 1 seat 1 without AI, equal on both), entry-role (noBases
-     client true / host false at entry), entry-walk (host END TURN; the client walks A to A_DEST: one new host
+     entry-seats (entry census: faction 0 seat 0, faction 1 seat 1 without AI, equal on both), entry-role (coop_sides:
+     playsAliens client true / host false, oneWorld true on both, at entry), entry-walk (host END TURN; the client walks A to A_DEST: one new host
      context {intent, walk, A}, A on A_DEST on both; client END TURN; side 0 turn 2).
   win, X-COM wins: host kill_unit_real every live alien, chain settled after each; host END TURN; the host's
-     NextTurnState closed. win-host, win-client, win-return, win-alien, win-no994 (no CoopState 994 on the host
-     after the client's OK; a 994 is never drained), win-hostok.
-  days, three game days pass: days-frozen.
+     NextTurnState closed. win-host, win-client, win-return (the client back on a clean geoscape holds the host's
+     bases, and once the host's OK is through both world checksums are equal), win-alien (the client plays the aliens,
+     is a replica and is shown $1 000), win-no994 (no CoopState 994 on the host after the client's OK; a 994 is never
+     drained), win-hostok.
+  days, three game days pass: days-frozen (the client still plays the aliens, is shown $1 000 and holds the host's
+     UFOs and mission sites; the host's days advance).
   loss, X-COM loses (a second battle, SEED_LOSS): host kill_unit_real every live X-COM unit (the last kill ends the
      X-COM side by itself: the wait stops at NextTurnState on both); host END TURN; NextTurnState closed.
-     loss-host, loss-client, loss-no994, loss-alien, loss-hostok.
+     loss-host, loss-client, loss-no994, loss-alien (as win-alien, and the client holds the host's bases),
+     loss-hostok.
   Each row's <row>-common cell: event_state.desyncSeen false on both, 0 new crash files in the row, in a battle
      hash_now EQUAL.
 A failure looks like this: the gm2 alien client's noBases flips at the battle-blob load, its entry snapshot fails
@@ -55,8 +59,7 @@ SEED_WIN = 1
 MAP_FP_WIN = 5.996615470105667e+18
 A_ID = 1000000                      # the lowest-id live alien at SEED_WIN
 A_DEST = (3, 15, 1)                 # A's first free floor neighbour (N holds an object part)
-STUB = [{"name": "", "lon": 0.0, "lat": 0.0, "soldiers": 8}]   # the gm2 alien client's real base
-STUB_FUNDS = 1000
+SHOWN_FUNDS = 1000                  # the funds the alien player is shown
 TITLE_WIN = "Aliens defeated"
 SEED_LOSS = 1
 MAP_FP_LOSS = -4.990271614617468e+18  # EVIDENCE only
@@ -69,6 +72,7 @@ LANDING_S = 180
 STEP_S = 60
 DEBRIEF_S = 60
 CLIENT_DEBRIEF_S = 20
+ADOPT_S = 20          # the client's world checksum equals the host's once it adopted the host's post-battle world
 OK_S = 10
 DRAIN_S = 60
 WATCH994_S = 3.0      # a host 994, when one appeared, showed 0.78 s / 1.14 s after the client's OK
@@ -121,17 +125,44 @@ def crash_set():
 
 def coop(gc):
     r = gc.cmd({"cmd": "get_coop"})
-    return {k: r.get(k) for k in ("gamemode", "noBases", "coopDialog")}
+    s = gc.cmd({"cmd": "coop_sides"})
+    f = gc.cmd({"cmd": "pvp_funds_shown"})
+    return {"gamemode": r.get("gamemode"), "coopDialog": r.get("coopDialog"), "campaignReplica": r.get("campaignReplica"),
+            "playsAliens": s.get("playsAliens"), "oneWorld": s.get("oneWorld"), "fundsShown": f.get("fundsShown")}
 
 
 def geo_view(gc):
     g = gc.ok({"cmd": "geo_state"})
     return {"funds": g.get("funds"),
-            "realBases": [{k: b.get(k) for k in ("name", "lon", "lat", "soldiers")} for b in g.get("bases", [])
-                          if not b.get("coopBase") and not b.get("coopIcon")],
-            "ownUfos": [u.get("id") for u in g.get("ufos", []) if not u.get("coop")],
-            "ownSites": [m.get("id") for m in g.get("missionSites", []) if not m.get("coop")],
+            # every base but a display copy of the other player's base (on one world the alien machine sees X-COM's
+            # bases as another player's, coopBase, and they are still real)
+            "realBases": [{k: (round(b.get(k), 6) if k in ("lon", "lat") else b.get(k)) for k in ("name", "lon", "lat", "coopBaseId")}
+                          for b in g.get("bases", []) if not b.get("coopIcon")],
+            "ufoUnique": sorted(u.get("uniqueId") for u in g.get("ufos", [])),
             "siteIds": [m.get("id") for m in g.get("missionSites", [])]}
+
+
+def alien_bad(c):
+    """The alien client's side after a return: it plays the aliens, is a replica and is shown SHOWN_FUNDS."""
+    bad = [f"client playsAliens {c.get('playsAliens')!r} (want true)"] if c.get("playsAliens") is not True else []
+    bad += [f"client campaignReplica {c.get('campaignReplica')!r} (want true)"] if c.get("campaignReplica") is not True else []
+    bad += [f"client fundsShown {c.get('fundsShown')!r} (want {SHOWN_FUNDS})"] if c.get("fundsShown") != SHOWN_FUNDS else []
+    return bad
+
+
+def checksums_equal(host, client, bound):
+    """(equal, seconds, diff): wait until both world checksums are equal."""
+    def chk(gc):
+        return {k: v for k, v in gc.cmd({"cmd": "shared_checksum"}).items() if k.startswith("chk")}
+    t0 = time.time()
+    while True:
+        h, c = chk(host), chk(client)
+        if h and h == c:
+            return True, round(time.time() - t0, 2), {}
+        if time.time() - t0 > bound:
+            return False, round(time.time() - t0, 2), {k: (h.get(k), c.get(k)) for k in sorted(set(h) | set(c))
+                                                         if h.get(k) != c.get(k)}
+        time.sleep(0.25)
 
 
 def census(gc):
@@ -327,35 +358,23 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
     reached, screens = BES.drain(client, timeout=OK_S)
     gok, gsecs = BES.wait_until(lambda: BES.geo_clean(client), OK_S)
     g, c = geo_view(client), coop(client)
-    sep = BES.record(client).get("sepReturn") or {}
+    hbases = geo_view(host)["realBases"]
     ev["clientReturn"] = {"ok": pk, "drain": screens, "geoS": round(time.time() - t_ok, 2), "stack": stack(client), "coop": c,
-                          "geo": g, "sepReturn": sep}
+                          "geo": g, "hostBases": hbases}
     rbad = []
     if not pk.get("pressed") or (pk.get("resp") or {}).get("handled") != "DebriefingState":
         rbad.append(f"client OK {pk}")
     if not gok:
         rbad.append(f"client not geo_clean within {OK_S} s of its OK (stack {stack(client)})")
+    if g["realBases"] != hbases:
+        rbad.append(f"client real bases {g['realBases']} (want the host's {hbases})")
     if row == "win":
-        bad_sep = {k: (sep.get(k), w) for k, w in (("ownLoaded", 1), ("guestsApplied", 0), ("guestsMissing", 0))
-                   if sep.get(k) != w}
-        if bad_sep:
-            rbad.append(f"sepReturn (got, want) {bad_sep}")
-        if g["realBases"] != STUB:
-            rbad.append(f"client real bases {g['realBases']} (want STUB {STUB})")
-        cell("win-return", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; sepReturn ownLoaded 1, "
-             f"guestsApplied 0, guestsMissing 0; real bases == STUB")
-        abad = [f"client noBases {c.get('noBases')!r} (want true)"] if c.get("noBases") is not True else []
-        abad += [f"client funds {g['funds']!r} (want {STUB_FUNDS})"] if g["funds"] != STUB_FUNDS else []
-        cell("win-alien", not abad, "; ".join(abad) or f"client noBases true, funds {STUB_FUNDS}")
+        abad = alien_bad(c)
+        cell("win-alien", not abad, "; ".join(abad) or f"client plays the aliens, is a replica, shown {SHOWN_FUNDS}")
     else:
-        if c.get("noBases") is not True:
-            rbad.append(f"client noBases {c.get('noBases')!r} (want true)")
-        if g["funds"] != STUB_FUNDS:
-            rbad.append(f"client funds {g['funds']!r} (want {STUB_FUNDS})")
-        if g["realBases"] != STUB:
-            rbad.append(f"client real bases {g['realBases']} (want STUB {STUB})")
-        cell("loss-alien", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; noBases true, funds "
-             f"{STUB_FUNDS}, real bases == STUB")
+        rbad += alien_bad(c)
+        cell("loss-alien", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK; plays the aliens, is a "
+             f"replica, shown {SHOWN_FUNDS}; real bases == the host's")
     # watch the host, never drain a 994
     watch, tw = [], time.time()
     while time.time() - t_ok < WATCH994_S:
@@ -394,6 +413,13 @@ def battle_end_cells(row, host, client, title, site_id, ev, soldiers0=None):
         cell("loss-host", not hbad, "; ".join(hbad) or f"host DebriefingState, title {title!r}; soldiers {soldiers0} "
              f"-> {soldiers0 - SQUAD}")
     cell(f"{row}-hostok", not kbad, "; ".join(kbad) or f"host geo_clean {gsecs} s after its OK; site {site_id} gone")
+    if row == "win":
+        same, secs, d = checksums_equal(host, client, ADOPT_S)
+        ev["checksum"] = {"equal": same, "s": secs, "diff": d}
+        if not same:
+            rbad.append(f"world checksums differ {ADOPT_S} s after the host's OK (host, client): {d}")
+        cell("win-return", not rbad, "; ".join(rbad) or f"client geo_clean {gsecs} s after its OK holding the host's bases; "
+             f"world checksums equal {secs} s after the host's OK")
 
 
 def run(host, client):
@@ -403,13 +429,13 @@ def run(host, client):
         gm = PF.start_pvp_campaign(host, client, KEY, alien_player="client")
     except Exception as e:  # noqa: BLE001
         capture_boot(f"PF.start_pvp_campaign: {e}", host, client)
-    stub = geo_view(client)["realBases"]
+    bases0 = geo_view(client)["realBases"]
     geo.slow_clock(host, client)
-    print(f"[bring-up] gamemode {gm}; client STUB {stub}", flush=True)
+    print(f"[bring-up] gamemode {gm}; client real bases {bases0}", flush=True)
 
     # ===== entry =====
     names = ["entry-gamemode", "entry-reached", "entry-seats", "entry-role", "entry-walk", "entry-common"]
-    crash0, ev = crash_set(), {"stub": stub}
+    crash0, ev = crash_set(), {"clientBases": bases0}
     site1 = to_battle(host, client, 0.35, SEED_WIN, ev, boot=True)
     ch, cc = coop(host), coop(client)
     hcen, ccen = census(host), census(client)
@@ -441,9 +467,11 @@ def run(host, client):
         sbad.append(f"census (id, faction, seat) host {key(hcen)} != client {key(ccen)}")
     cell("entry-seats", not sbad, "; ".join(sbad) or f"entry census equal on both: faction 0 seat 0, faction 1 seat 1 without AI "
          f"({len(hcen)} units)")
-    rbad = [f"client noBases {cc.get('noBases')!r} (want true)"] if cc.get("noBases") is not True else []
-    rbad += [f"host noBases {ch.get('noBases')!r} (want false)"] if ch.get("noBases") is not False else []
-    cell("entry-role", not rbad, "; ".join(rbad) or "noBases client true, host false at the battle entry")
+    rbad = [f"client playsAliens {cc.get('playsAliens')!r} (want true)"] if cc.get("playsAliens") is not True else []
+    rbad += [f"host playsAliens {ch.get('playsAliens')!r} (want false)"] if ch.get("playsAliens") is not False else []
+    rbad += [f"{nm} oneWorld {x.get('oneWorld')!r} (want true)" for nm, x in (("host", ch), ("client", cc))
+             if x.get("oneWorld") is not True]
+    cell("entry-role", not rbad, "; ".join(rbad) or "playsAliens client true, host false, one world on both at the battle entry")
     in_battle = None
     if not ebad:
         try:
@@ -506,16 +534,17 @@ def run(host, client):
         d0 = host.ok({"cmd": "research_probe", "names": [], "tail": 0}).get("daysPassed")
         r = geo.skip_ingame_time(host, client, minutes=4320, speed_idx=5, real_timeout=60)
         d1 = host.ok({"cmd": "research_probe", "names": [], "tail": 0}).get("daysPassed")
-        g, c = geo_view(client), coop(client)
+        g, c, hg = geo_view(client), coop(client), geo_view(host)
         clean = [BES.geo_clean(host), BES.geo_clean(client)]
-        ev = {"days": [d0, d1], "skip": {k: r.get(k) for k in ("game_minutes", "timed_out", "dismissed")}, "client": g, "coop": c}
-        fbad = [f"client noBases {c.get('noBases')!r} (want true)"] if c.get("noBases") is not True else []
-        fbad += [f"client funds {g['funds']!r} (want {STUB_FUNDS})"] if g["funds"] != STUB_FUNDS else []
-        fbad += [f"client own UFOs {g['ownUfos']} (want none)"] if g["ownUfos"] else []
-        fbad += [f"client own mission sites {g['ownSites']} (want none)"] if g["ownSites"] else []
+        ev = {"days": [d0, d1], "skip": {k: r.get(k) for k in ("game_minutes", "timed_out", "dismissed")}, "client": g, "coop": c,
+              "host": hg}
+        fbad = [f"client playsAliens {c.get('playsAliens')!r} (want true)"] if c.get("playsAliens") is not True else []
+        fbad += [f"client fundsShown {c.get('fundsShown')!r} (want {SHOWN_FUNDS})"] if c.get("fundsShown") != SHOWN_FUNDS else []
+        fbad += [f"client UFOs {g['ufoUnique']} != host UFOs {hg['ufoUnique']}"] if g["ufoUnique"] != hg["ufoUnique"] else []
+        fbad += [f"client mission sites {g['siteIds']} != host sites {hg['siteIds']}"] if g["siteIds"] != hg["siteIds"] else []
         fbad += [f"host daysPassed {d0} -> {d1} (want >= +3)"] if not (isinstance(d0, int) and isinstance(d1, int) and d1 - d0 >= 3) else []
         fbad += [f"geo_clean host/client {clean} (stacks {stack(host)} / {stack(client)})"] if clean != [True, True] else []
-        cell("days-frozen", not fbad, "; ".join(fbad) or f"client noBases true, funds {STUB_FUNDS}, 0 own UFOs / sites; host "
+        cell("days-frozen", not fbad, "; ".join(fbad) or f"client plays the aliens, shown {SHOWN_FUNDS}, holds the host's UFOs / sites; host "
              f"days {d0} -> {d1}; both on a clean geoscape")
         common("days", host, client, crash0, None, ctx)
         evidence("days", ev)

@@ -23,8 +23,9 @@ Covers (PRD save-upgrader.md 9):
   client's profile set, the host world's slots stay the host's own
 - save version per game mode: real campaigns of every mode saved on this build.
   Only the cooperative Separate campaign (one host-owned world) is written at
-  schema 3; solo, SHARED and PvP saves, PvP's embedded player worlds included,
-  stay at schema 2 so the previous release can still open them. Every one of
+  schema 3; solo, SHARED and PvP saves stay at schema 2 so the previous release
+  can still open them. A PvP campaign where the host plays X-COM is one world:
+  its save embeds no player world and names the host on every base. Every one of
   those saves loads back on this build with no upgrade dialog.
 
 Run:  python tools/coop_test/test_save_upgrade.py
@@ -96,8 +97,8 @@ def save_coop_mode(mode, port):
     try:
         host.spawn(); client.spawn(); host.connect(); client.connect()
         if mode == "pvp":
-            # Host plays X-COM, the client the aliens: the host save embeds the
-            # client's world in coopClientSaves.
+            # Host plays X-COM, the client the aliens: one world, the client holds
+            # the host's world, so the host save embeds no player world.
             gamemode = pvp_fixture.start_pvp_campaign(host, client, port, alien_player="client")
             assert gamemode == 2, f"pvp: expected game mode 2, got {gamemode}"
         else:
@@ -147,14 +148,16 @@ def check_mode_stamp(mode, path, fails):
         print(f"PASS stamp {mode}: saveSchema {got}")
     if mode == "pvp":
         worlds = embedded_world_schemas(body)
-        if not worlds:
-            fails.append("stamp pvp: the PvP save embeds no player world")
+        roster = header.get("coopPlayers") or []
+        owners = [(b.get("name"), b.get("ownerplayername")) for b in body.get("bases") or []]
+        if worlds:
+            fails.append(f"stamp pvp: the PvP save embeds {len(worlds)} player world(s) (saveSchema {worlds})")
             print("FAIL " + fails[-1])
-        elif any(s != want for s in worlds):
-            fails.append(f"stamp pvp: embedded player world saveSchema {worlds}, expected {want}")
+        elif not roster or not owners or any(o != roster[0] for _, o in owners):
+            fails.append(f"stamp pvp: base owners {owners}, expected every base named for {roster[:1]}")
             print("FAIL " + fails[-1])
         else:
-            print(f"PASS stamp pvp embedded worlds: saveSchema {worlds}")
+            print(f"PASS stamp pvp one world: no embedded player world, every base named for {roster[0]}")
 
 
 def check_mode_loads(mode, path, fails):
