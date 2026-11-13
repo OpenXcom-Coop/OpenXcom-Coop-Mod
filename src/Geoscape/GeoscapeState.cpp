@@ -5924,6 +5924,9 @@ void GeoscapeState::btnSelectMusicTrackClick(Action *)
  */
 void GeoscapeState::btnGlobalProductionClick(Action *)
 {
+	// coop: the alien player of a PvP campaign opens none of X-COM's lists (as Intercept and Bases)
+	if (CoopAlienView::active(_game->getSavedGame()))
+		return;
 	_game->pushState(new GlobalManufactureState(false));
 }
 
@@ -5933,6 +5936,9 @@ void GeoscapeState::btnGlobalProductionClick(Action *)
  */
 void GeoscapeState::btnGlobalResearchClick(Action *)
 {
+	// coop: the alien player of a PvP campaign opens none of X-COM's lists (as Intercept and Bases)
+	if (CoopAlienView::active(_game->getSavedGame()))
+		return;
 	_game->pushState(new GlobalResearchState(false));
 }
 
@@ -5942,6 +5948,9 @@ void GeoscapeState::btnGlobalResearchClick(Action *)
  */
 void GeoscapeState::btnGlobalAlienContainmentClick(Action *)
 {
+	// coop: the alien player of a PvP campaign opens none of X-COM's lists (as Intercept and Bases)
+	if (CoopAlienView::active(_game->getSavedGame()))
+		return;
 	_game->pushState(new GlobalAlienContainmentState(false));
 }
 
@@ -5951,6 +5960,9 @@ void GeoscapeState::btnGlobalAlienContainmentClick(Action *)
  */
 void GeoscapeState::btnDogfightExperienceClick(Action *)
 {
+	// coop: the alien player of a PvP campaign opens none of X-COM's lists (as Intercept and Bases)
+	if (CoopAlienView::active(_game->getSavedGame()))
+		return;
 	_game->pushState(new DogfightExperienceState());
 }
 

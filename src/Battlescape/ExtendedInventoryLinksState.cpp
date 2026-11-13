@@ -28,6 +28,7 @@
 #include "../Interface/TextButton.h"
 #include "../Menu/NotesState.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -175,6 +176,9 @@ void ExtendedInventoryLinksState::btnPersonalLoadClick(Action *)
 void ExtendedInventoryLinksState::btnNotesClick(Action *)
 {
 	_game->popState();
+	// coop: X-COM's notes are not the alien player's
+	if (CoopAlienView::active(_game->getSavedGame()))
+		return;
 	_game->pushState(new NotesState(OPT_BATTLESCAPE));
 }
 

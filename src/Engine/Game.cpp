@@ -52,6 +52,7 @@
 #include "../CoopMod/GiftSoldierMenu.h" // coop
 #include "../CoopMod/TestServer.h" // coop test automation
 #include "../CoopMod/CoopArbiter.h" // coop: the covered-battle driver
+#include "../CoopMod/CoopAlienView.h" // coop: the alien player's view (notes closed)
 #include "../CoopMod/connectionUDP/connection_udp_glue.h" // coop UDP transport (shutdown)
 
 namespace OpenXcom
@@ -418,7 +419,8 @@ void Game::run()
 							// "ctrl-n" notes UI
 							else if (action.getDetails()->key.keysym.sym == SDLK_n && isCtrlPressed() && !isAltPressed())
 							{
-								if (_save && !containsNotesState())
+								// coop: X-COM's notes are not the alien player's
+								if (_save && !containsNotesState() && !CoopAlienView::active(_save))
 								{
 									if (_save->getSavedBattle())
 									{

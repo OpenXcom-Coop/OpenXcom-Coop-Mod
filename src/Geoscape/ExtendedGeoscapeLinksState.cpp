@@ -30,6 +30,7 @@
 #include "../Interface/TextButton.h"
 #include "../Menu/NotesState.h"
 #include "../Menu/TestState.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -185,6 +186,9 @@ void ExtendedGeoscapeLinksState::btnPilotExpClick(Action *)
 void ExtendedGeoscapeLinksState::btnNotesClick(Action *)
 {
 	_game->popState();
+	// coop: X-COM's notes are not the alien player's
+	if (CoopAlienView::active(_game->getSavedGame()))
+		return;
 	_game->pushState(new NotesState(OPT_GEOSCAPE));
 }
 

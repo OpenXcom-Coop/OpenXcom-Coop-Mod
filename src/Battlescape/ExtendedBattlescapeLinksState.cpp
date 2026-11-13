@@ -36,6 +36,7 @@
 #include "../Mod/Mod.h"
 #include "../Savegame/HitLog.h"
 #include "../Savegame/SavedBattleGame.h"
+#include "../CoopMod/CoopAlienView.h"
 
 namespace OpenXcom
 {
@@ -194,7 +195,8 @@ void ExtendedBattlescapeLinksState::btnNotesClick(Action *)
 
 	if (Options::oxceReplaceNotesLink)
 		_game->pushState(new NoExperienceState());
-	else
+	// coop: X-COM's notes are not the alien player's
+	else if (!CoopAlienView::active(_game->getSavedGame()))
 		_game->pushState(new NotesState(OPT_BATTLESCAPE));
 }
 
