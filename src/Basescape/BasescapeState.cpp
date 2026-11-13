@@ -65,6 +65,7 @@
 #include "../Engine/Sound.h"
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/CoopSide.h"
 
 namespace OpenXcom
 {
@@ -530,7 +531,7 @@ void BasescapeState::sharedRefresh()
 void BasescapeState::updateFundsLabel()
 {
 	int64_t funds = _game->getSavedGame()->getFunds();
-	if (_base && _game->getCoopMod()->isSeparateCampaign()
+	if (_base && _game->getCoopMod()->isSeparateEconomy()
 		&& !_base->getOwnerPlayerName().empty())
 	{
 		funds = _game->getSavedGame()->getSeparatePlayerFunds(
@@ -654,7 +655,7 @@ void BasescapeState::updateBaseAccessButtons()
 		// PvP marker bases are display-only and keep their stricter old rules.
 		if (_game->getCoopMod()->getCoopGamemode() == 2
 			|| _game->getCoopMod()->getCoopGamemode() == 3
-			|| connectionTCP::no_bases)
+			|| CoopSide::thisMachinePlaysAliens(_game->getSavedGame()))
 		{
 			_btnPurchase->setVisible(false);
 			_btnSoldiers->setVisible(false);
@@ -810,7 +811,7 @@ void BasescapeState::viewLeftClick(Action *)
 			if (fac->getRules()->isLift() && _base->getFacilities()->size() > 1)
 			{
 				// Note: vehicles will not be deployed in the base preview
-				if (_base->getAvailableSoldiers(true, true) > 0 || connectionTCP::no_bases == true || _game->getCoopMod()->getCoopStatic() == true  /* || !_base->getVehicles()->empty()*/)
+				if (_base->getAvailableSoldiers(true, true) > 0 || CoopSide::thisMachinePlaysAliens(_game->getSavedGame()) || _game->getCoopMod()->getCoopStatic() == true  /* || !_base->getVehicles()->empty()*/)
 				{
 					int texture, shade;
 					_globe->getPolygonTextureAndShade(_base->getLongitude(), _base->getLatitude(), &texture, &shade);
@@ -1310,7 +1311,7 @@ int BasescapeState::coopDropStashedMirror(int coopBaseId)
 
 int64_t BasescapeState::harnessDisplayedFunds() const
 {
-	if (_base && _game->getCoopMod()->isSeparateCampaign()
+	if (_base && _game->getCoopMod()->isSeparateEconomy()
 		&& !_base->getOwnerPlayerName().empty())
 	{
 		return _game->getSavedGame()->getSeparatePlayerFunds(

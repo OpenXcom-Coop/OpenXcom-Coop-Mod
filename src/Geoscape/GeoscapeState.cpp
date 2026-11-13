@@ -147,6 +147,7 @@
 #include "../CoopMod/SharedEcon.h"
 #include "../CoopMod/CoopBattleSetup.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/CoopSide.h"
 #include "../Savegame/CraftWeapon.h"
 #include "../Savegame/MissionStatistics.h"
 #include "../Mod/RuleCraftWeapon.h"
@@ -1484,7 +1485,7 @@ void GeoscapeState::init()
 		SavedGame* save = _game->getSavedGame();
 		Base* initialBase = save->getBases()->front();
 		int initialMaintenance = save->getBaseMaintenance();
-		if (_game->getCoopMod()->isSeparateCampaign())
+		if (_game->getCoopMod()->isSeparateEconomy())
 		{
 			// Each Separate player starts with an equal player-count share of their
 			// own vanilla opening balance: (full starting funds - that player's
@@ -1518,7 +1519,7 @@ void GeoscapeState::init()
 		// selected the same faction. Month-zero arc scripts have only now settled
 		// the host's real starting profile. Copy that baseline once, before the
 		// authoritative world is streamed; subsequent research remains private.
-		if (_game->getCoopMod()->isSeparateCampaign()
+		if (_game->getCoopMod()->isSeparateEconomy()
 			&& !_game->getSavedGame()->getSeparateCampaign().isResearchSharingEnabled())
 		{
 			SeparateEcon::CampaignData& separate = _game->getSavedGame()->getSeparateCampaign();
@@ -2779,10 +2780,12 @@ void GeoscapeState::timeAdvance()
 		// popup hold. In SHARED and PvP the host freezes on a stale client heartbeat, or on the client's popup
 		// hold. A SHARED client's open dogfight window reports focus 0 while it stays on the geoscape, and time
 		// keeps running through it.
+		// A PvP campaign on one world takes the Separate rule only when the peer plays X-COM (the host plays the aliens);
+		// when the peer plays the aliens its screens never stop the clock, only its popups do.
 		const Uint32 grace = 1000; // ms; comfortably above the per-frame heartbeat gap
 		const bool peerStale =
 			SDL_GetTicks() - _game->getCoopMod()->lastPeerTimePacketMs.load() > grace;
-		if (_game->getCoopMod()->isSeparateCampaign())
+		if (_game->getCoopMod()->isSeparateCampaign() && !CoopSide::peerPlaysAliens(_game->getSavedGame()))
 		{
 			// The client's popup push reports focus 0 on the reliable queue, while its last heartbeat (focus -1,
 			// hold set) rides the snapshot slot; the send thread can deliver them in either order. The hold flag
@@ -4275,11 +4278,7 @@ void GeoscapeState::fireGeoscapeEvent(GeoscapeEvent* ge)
 	if (_game->getCoopMod()->getCoopStatic() == true)
 	{
 
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-		{
-			interrupted = true;
-		}
-		else if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+		if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()))
 		{
 			interrupted = true;
 		}
@@ -5349,7 +5348,7 @@ void GeoscapeState::time1Day()
 				SharedEcon::textLiteral(Unicode::formatFunding(projection))});
 		};
 		const std::vector<std::string>& players = _game->getSavedGame()->getCoopPlayers();
-		if (_game->getCoopMod()->isSeparateCampaign() && !players.empty())
+		if (_game->getCoopMod()->isSeparateEconomy() && !players.empty())
 		{
 			// Separate: each player's own wallet and maintenance, shown only to
 			// that player. The month end credits every wallet with an equal share
@@ -5556,7 +5555,7 @@ void GeoscapeState::time1MonthCoop()
 			sg->getResearchScores()[sg->getResearchScores().size() - 2] = _game->getCoopMod()->sharedMonthlyResearchScoreEnded; // coop
 		_game->getCoopMod()->sharedMonthlyPending = false;
 	}
-	else if (_game->getCoopMod()->isSeparateCampaign()
+	else if (_game->getCoopMod()->isSeparateEconomy()
 		&& !_game->getCoopMod()->getServerOwner()
 		&& _game->getCoopMod()->separateMonthlyPending)
 	{
@@ -5872,22 +5871,13 @@ void GeoscapeState::openGlobeTargets(const std::vector<Target*>& targets)
  */
 void GeoscapeState::btnInterceptClick(Action *)
 {
-	sendCoopFocus(0); // coop: tell the ally we're looking at Intercept
-
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-	{
-		return;
-	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	// coop: the alien player's Intercept button does nothing. On one world it does not tell the ally either, so the
+	// X-COM player's clock and ally marker never react to it.
+	const bool alienSide = CoopSide::thisMachinePlaysAliens(_game->getSavedGame())
+		|| CoopSide::missionRolePlaysAliens(_game->getSavedGame());
+	if (!alienSide || !CoopSide::pvpOneWorld(_game->getSavedGame()))
+		sendCoopFocus(0); // coop: tell the ally we're looking at Intercept
+	if (alienSide)
 	{
 		return;
 	}
@@ -5989,22 +5979,13 @@ void GeoscapeState::btnDebugClick(Action *)
  */
 void GeoscapeState::btnBasesClick(Action *)
 {
-	sendCoopFocus(1); // coop: tell the ally we're looking at Bases
-
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		return;
-	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-	{
-		return;
-	}
-
-	// coop
-	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	// coop: the alien player's Bases button does nothing. On one world it does not tell the ally either, so the
+	// X-COM player's clock and ally marker never react to it.
+	const bool alienSide = CoopSide::thisMachinePlaysAliens(_game->getSavedGame())
+		|| CoopSide::missionRolePlaysAliens(_game->getSavedGame());
+	if (!alienSide || !CoopSide::pvpOneWorld(_game->getSavedGame()))
+		sendCoopFocus(1); // coop: tell the ally we're looking at Bases
+	if (alienSide)
 	{
 		return;
 	}
@@ -7349,7 +7330,7 @@ void GeoscapeState::determineAlienMissions(bool isNewMonth, const RuleEvent* eve
 	std::string missionOwner;
 	bool forcedFactionRecheck = false;
 	GameDifficulty missionDifficulty = save->getDifficulty();
-	if (_game->getCoopMod()->isSeparateCampaign())
+	if (_game->getCoopMod()->isSeparateEconomy())
 	{
 		// Owners are roster names: every consumer (event popups, mission access,
 		// arrivals) compares them with seatName(). Profiles are reconciled to the

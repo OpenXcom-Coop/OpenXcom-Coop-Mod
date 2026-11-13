@@ -248,6 +248,7 @@
 #include "../Mod/Armor.h"
 #include "SharedEcon.h"
 #include "SeparateEcon.h"
+#include "CoopSide.h"
 #include "CoopState.h"
 // The battle-lane introspection surface below needs the real APIs it reports on.
 #include "BattleAuthority.h"
@@ -4434,7 +4435,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 			Options::EnableResearchSync = enabled;
 			_game->getCoopMod()->_enable_research_sync = enabled;
 			_game->getCoopMod()->waitedResearch.clear();
-			if (_game->getSavedGame() && _game->getCoopMod()->isSeparateCampaign())
+			if (_game->getSavedGame() && _game->getCoopMod()->isSeparateEconomy())
 				_game->getSavedGame()->setSeparateResearchSharingEnabled(enabled, _game->getMod());
 			resp["value"] = enabled;
 			resp["ok"] = true;
@@ -5460,7 +5461,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		SavedGame* sg = _game->getSavedGame();
 		const std::string owner = req.get("owner", "").asString();
 		const bool victory = req.get("victory", false).asBool();
-		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+		if (!sg || !_game->getCoopMod()->isSeparateEconomy())
 			resp["error"] = "no Separate campaign";
 		else
 		{
@@ -5519,7 +5520,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	{
 		SavedGame* sg = _game->getSavedGame();
 		const std::string playerName = req.get("player", "").asString();
-		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+		if (!sg || !_game->getCoopMod()->isSeparateEconomy())
 			resp["error"] = "no Separate campaign";
 		else if (std::find(sg->getCoopPlayers().begin(), sg->getCoopPlayers().end(), playerName)
 			== sg->getCoopPlayers().end())
@@ -5583,7 +5584,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 	else if (cmd == "separate_profile_roundtrip")
 	{
 		SavedGame* sg = _game->getSavedGame();
-		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+		if (!sg || !_game->getCoopMod()->isSeparateEconomy())
 			resp["error"] = "no Separate campaign";
 		else
 		{
@@ -5651,7 +5652,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 		const std::string research = req.get("research", "").asString();
 		const std::string player = req.get("player", "").asString();
 		const std::string baseName = req.get("base", "").asString();
-		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+		if (!sg || !_game->getCoopMod()->isSeparateEconomy())
 			resp["error"] = "no Separate campaign";
 		else if (research.empty())
 			resp["error"] = "research is required";
@@ -5697,7 +5698,7 @@ bool TestServer::executeShared11(const std::string& cmd, const Json::Value& req,
 					research = entry.second;
 					break;
 				}
-		if (!sg || !_game->getCoopMod()->isSeparateCampaign())
+		if (!sg || !_game->getCoopMod()->isSeparateEconomy())
 			resp["error"] = "no Separate campaign";
 		else if (!base)
 			resp["error"] = "base not found";
@@ -13487,6 +13488,9 @@ static void describeEquipmentTemplates(SavedGame* save, Json::Value& out)
  */
 bool TestServer::executeJoinChecks14(const std::string& cmd, const Json::Value& req, Json::Value& resp)
 {
+	// the side probes ride this dispatcher so execute()'s own chain does not grow
+	if (executeSides15(cmd, req, resp))
+		return true;
 	connectionTCP* coop = _game->getCoopMod();
 	if (cmd == "server_list_rows")
 	{
@@ -13645,6 +13649,64 @@ bool TestServer::executeJoinChecks14(const std::string& cmd, const Json::Value& 
 		return false;
 	}
 	return true;
+}
+
+/**
+ * PvP side and one-world layout probes. coop_sides is a pure read. pvp_one_world is TEST-ONLY: it turns a PvP
+ * game mode's one-world layout on or off in this process; set it on both machines before a campaign starts,
+ * never during one. Same C1061 reason as the dispatchers above. Returns true if @a cmd was one of ours.
+ */
+bool TestServer::executeSides15(const std::string& cmd, const Json::Value& req, Json::Value& resp)
+{
+	if (cmd == "coop_sides")
+	{
+		connectionTCP* coop = _game->getCoopMod();
+		SavedGame* save = _game->getSavedGame();
+		const int mode = CoopSide::gamemode(save);
+		resp["ok"] = true;
+		resp["gamemode"] = mode;
+		resp["sessionGamemode"] = connectionTCP::getCoopGamemode();
+		resp["worldGamemode"] = save ? save->getWorldGamemode() : 0;
+		resp["pvp"] = CoopSide::isPvpMode(mode);
+		resp["hostPlaysAliens"] = CoopSide::hostPlaysAliens(mode);
+		resp["playsAliens"] = CoopSide::thisMachinePlaysAliens(save);
+		resp["missionRolePlaysAliens"] = CoopSide::missionRolePlaysAliens(save);
+		resp["peerPlaysAliens"] = CoopSide::peerPlaysAliens(save);
+		resp["oneWorld"] = CoopSide::pvpOneWorld(save);
+		resp["oneWorldHostPlaysXcom"] = CoopSide::pvpOneWorldEnabled(2);
+		resp["oneWorldHostPlaysAliens"] = CoopSide::pvpOneWorldEnabled(3);
+		resp["separateCampaign"] = coop->isSeparateCampaign();
+		resp["separateEconomy"] = coop->isSeparateEconomy();
+		resp["separateSingleWorld"] = save != nullptr && save->isSeparateSingleWorld();
+		Json::Value seats(Json::arrayValue);
+		if (save)
+		{
+			for (const std::string& name : save->getCoopPlayers())
+			{
+				Json::Value row;
+				row["name"] = name;
+				row["playsAliens"] = CoopSide::playerPlaysAliens(save, name);
+				seats.append(row);
+			}
+		}
+		resp["seats"] = seats;
+		return true;
+	}
+	if (cmd == "pvp_one_world")
+	{
+		const int mode = req.get("gamemode", 0).asInt();
+		if (!CoopSide::isPvpMode(mode) || !req.isMember("on"))
+		{
+			resp["error"] = "pvp_one_world needs gamemode 2 or 3 and on";
+			return true;
+		}
+		CoopSide::setPvpOneWorldEnabled(mode, req["on"].asBool());
+		resp["ok"] = true;
+		resp["oneWorldHostPlaysXcom"] = CoopSide::pvpOneWorldEnabled(2);
+		resp["oneWorldHostPlaysAliens"] = CoopSide::pvpOneWorldEnabled(3);
+		return true;
+	}
+	return false;
 }
 
 /**

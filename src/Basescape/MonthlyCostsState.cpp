@@ -108,7 +108,7 @@ MonthlyCostsState::MonthlyCostsState(Base *base) : _base(base), _displayedMainte
 
 	std::ostringstream ss2;
 	int maintenance = SeparateEcon::localPlayerMaintenance(_game);
-	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign()
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateEconomy()
 		&& !_base->getOwnerPlayerName().empty())
 	{
 		maintenance = SeparateEcon::playerMaintenance(

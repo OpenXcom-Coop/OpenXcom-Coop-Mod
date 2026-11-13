@@ -151,6 +151,7 @@ set(coopmod_src
   CoopMod/ServerList.cpp
   CoopMod/SharedEcon.cpp
   CoopMod/SeparateEcon.cpp
+  CoopMod/CoopSide.cpp
   CoopMod/SeparateResearchModeWarningState.cpp
 
   CoopMod/connectionUDP/connection_lan_discovery.cpp

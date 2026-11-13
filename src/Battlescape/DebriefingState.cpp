@@ -535,7 +535,7 @@ void DebriefingState::init()
 		? _game->getSavedGame()->getSavedBattle()->getFactionScoreOwnerPlayerName()
 		: std::string();
 	const bool privateFactionMissionScore = !factionScoreOwner.empty()
-		&& _game->getCoopMod()->isSeparateCampaign()
+		&& _game->getCoopMod()->isSeparateEconomy()
 		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
 	if (privateFactionMissionScore)
 	{

@@ -29,6 +29,7 @@
 #include "InterceptState.h"
 #include "CraftErrorState.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/CoopSide.h"
 #include "../Engine/LocalizedText.h"
 #include "../Mod/AlienDeployment.h"
 
@@ -102,7 +103,7 @@ MissionDetectedState::MissionDetectedState(MissionSite *mission, GeoscapeState *
 	_txtCity->setText(cityText);
 
 	// coop
-	if (connectionTCP::no_bases == true)
+	if (CoopSide::thisMachinePlaysAliens(_game->getSavedGame()))
 	{
 		_btnIntercept->setVisible(false);
 	}

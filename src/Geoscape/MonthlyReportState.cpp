@@ -164,7 +164,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 	// different factions. Show the local player's effective score while keeping
 	// council funding and game-over decisions on the common campaign score.
 	int displayedRatingTotal = _ratingTotal;
-	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign())
+	if (_game->getCoopMod() && _game->getCoopMod()->isSeparateEconomy())
 	{
 		const size_t scoreCount = _game->getSavedGame()->getResearchScores().size();
 		const size_t scoreIndex = scoreCount > 1 ? scoreCount - 2 : 0;
@@ -233,7 +233,7 @@ MonthlyReportState::MonthlyReportState(Globe *globe) : _gameOver(0), _ratingTota
 		<< Unicode::formatFunding(SeparateEcon::localPlayerMaintenance(_game));
 	_txtMaintenance->setText(ss2.str());
 
-	const bool separate = _game->getCoopMod() && _game->getCoopMod()->isSeparateCampaign();
+	const bool separate = _game->getCoopMod() && _game->getCoopMod()->isSeparateEconomy();
 	if (separate)
 	{
 		std::ostringstream playerCosts;
@@ -580,7 +580,7 @@ void MonthlyReportState::calculateChanges()
 
 	// Separate: settle the bonus and the debt verdict before the monthly packet,
 	// so the client adopts the same wallets and the same verdict.
-	if (_game->getCoopMod()->isSeparateCampaign() && _game->getCoopMod()->getServerOwner())
+	if (_game->getCoopMod()->isSeparateEconomy() && _game->getCoopMod()->getServerOwner())
 	{
 		settleSeparateMonth();
 	}
@@ -713,7 +713,7 @@ void MonthlyReportState::calculateChanges()
 			root["sharedExpenditure"] = Json::Value::Int64(
 				hostExpenditures.empty() ? 0 : hostExpenditures.back());
 			root["sharedResearchScore"] = 0; // new month starts at 0 (matches the roll)
-			if (_game->getCoopMod()->isSeparateCampaign())
+			if (_game->getCoopMod()->isSeparateEconomy())
 			{
 				Json::Value playerFunds(Json::objectValue);
 				Json::Value playerCosts(Json::objectValue);

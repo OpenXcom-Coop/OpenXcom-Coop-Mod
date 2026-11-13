@@ -73,6 +73,7 @@
 #include "RankCount.h"
 
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopSide.h"
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 #include "Upgrade/SaveUpgrade.h"
@@ -117,7 +118,7 @@ bool haveReserchVector(const std::vector<const RuleResearch*> &vec,  const std::
 int saveSchemaStamp(const SavedGame& save)
 {
 	return SaveUpgrade::schemaForMode(save.isCoopSave(),
-		static_cast<int>(save.getCampaignType()), connectionTCP::_coopGamemode);
+		static_cast<int>(save.getCampaignType()), CoopSide::gamemode(&save));
 }
 
 }
@@ -377,12 +378,14 @@ void SavedGame::loadCoopSaveFromMemory(const std::string& filename, Mod* mod, La
 			connectionTCP::saveID = blobSaveId;
 	}
 	reader.tryRead("coop_gamemode", connectionTCP::_coopGamemode);
+	_worldGamemode = 0;
+	reader.tryRead("coop_gamemode", _worldGamemode);
 	{
 		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
 		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
 		connectionTCP::coop_save_owner_player_id = connectionTCP::loadedSaveOwnerId(
 			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
-				|| isSeparateCoopCampaign()));
+				|| isSeparateSingleWorld()));
 	}
 	// Player profiles are the one-world Separate model; PvP keeps none.
 	if (isSeparateCoopCampaign())
@@ -997,12 +1000,13 @@ void SavedGame::load(const std::string &filename, Mod *mod, Language *lang)
 	// coop: the mode this save was played in, kept on the save itself - the host window resets the live
 	// mode of every resume that is not PvP to 1 (HostMenu::hostTCPGame), so LobbyMenu::resumeCampaign reads this, never the global.
 	reader.tryRead("coop_gamemode", _coopLoadedGamemode);
+	_worldGamemode = _coopLoadedGamemode;
 	{
 		int storedOwnerId = connectionTCP::coop_save_owner_player_id;
 		reader.tryRead("coop_save_owner_player_id", storedOwnerId);
 		connectionTCP::coop_save_owner_player_id = connectionTCP::loadedSaveOwnerId(
 			storedOwnerId, _coop && (_campaignType == CoopCampaignType::Shared
-				|| isSeparateCoopCampaign()));
+				|| isSeparateSingleWorld()));
 	}
 	// Player profiles are the one-world Separate model; PvP keeps none.
 	if (isSeparateCoopCampaign())
@@ -1469,7 +1473,7 @@ const std::map<std::string, RuleCraftDeployment>& SavedGame::getCraftDeployments
 {
 	// Separate: the world's own map is this machine's player's; another
 	// player's craft uses the deployments kept in that player's profile.
-	if (craft && craft->getBase() && craft->getBase()->_isForeignBase && isSeparateCoopCampaign())
+	if (craft && craft->getBase() && craft->getBase()->_isForeignBase && isSeparateSingleWorld())
 	{
 		static const std::map<std::string, RuleCraftDeployment> none;
 		const SeparateEcon::CampaignData::PlayerState* profile =
@@ -1579,7 +1583,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 	// marker above, so the two can never disagree (fixes C1).
 	if (_coop)
 		writer.write("saveID", connectionTCP::saveID);
-	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("coop_gamemode", CoopSide::gamemode(this));
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	writer.write("no_bases", connectionTCP::no_bases);
 
@@ -1635,7 +1639,7 @@ void SavedGame::saveCoopToMemory(const std::string& filename, Mod* mod, const st
 		// the current seat's foreign-base UI flag and may still reflect the seat
 		// used while the disk save was loaded, before hosting/joining starts.
 		if (base->_isForeignBase == false
-			|| (isSeparateCoopCampaign()
+			|| (isSeparateSingleWorld()
 				&& !base->getOwnerPlayerName().empty()))
 		{
 			found = true;
@@ -1846,7 +1850,7 @@ std::string SavedGame::buildCoopStub(Mod* mod) const
 
 	if (_coop)
 		writer.write("saveID", connectionTCP::saveID);
-	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("coop_gamemode", CoopSide::gamemode(this));
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	// P4: literal true - the client that loads this stub must run in no_bases
 	// mode. We do NOT read/flip the process-global connectionTCP::no_bases.
@@ -2118,7 +2122,7 @@ void SavedGame::save(const std::string &filename, Mod *mod) const
 	// marker above, so the two can never disagree (fixes C1).
 	if (_coop)
 		writer.write("saveID", connectionTCP::saveID);
-	writer.write("coop_gamemode", connectionTCP::_coopGamemode);
+	writer.write("coop_gamemode", CoopSide::gamemode(this));
 	writer.write("coop_save_owner_player_id", connectionTCP::coop_save_owner_player_id);
 	writer.write("no_bases", connectionTCP::no_bases);
 	// PvP still owns distinct player worlds. Campaign modes do not embed client
@@ -2445,7 +2449,7 @@ int64_t SavedGame::getFunds() const
 {
 
 	// coop
-	if (connectionTCP::no_bases == true)
+	if (CoopSide::thisMachinePlaysAliens(this))
 	{
 		return 1000;
 	}
@@ -2461,10 +2465,19 @@ int64_t SavedGame::getFunds() const
 
 bool SavedGame::isSeparateCoopCampaign() const
 {
-	// PvP (game mode 2/3) is stored with the Separate type but keeps the
-	// two-world rules: one wallet, global research, no named-owner profiles.
-	return _coop && _campaignType == CoopCampaignType::Separate
-		&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3;
+	// PvP (game mode 2/3) is stored with the Separate type but keeps one wallet, global research and no player
+	// profiles on either layout.
+	const int mode = CoopSide::gamemode(this);
+	return _coop && _campaignType == CoopCampaignType::Separate && mode != 2 && mode != 3;
+}
+
+bool SavedGame::isSeparateSingleWorld() const
+{
+	// A Separate campaign on the host's one world: a co-op Separate campaign, or a PvP campaign whose game mode
+	// plays on one world. Bases, crafts and soldiers belong to a player by name and the client is a replica.
+	if (isSeparateCoopCampaign())
+		return true;
+	return _coop && _campaignType == CoopCampaignType::Separate && CoopSide::pvpOneWorld(this);
 }
 
 std::string SavedGame::getSeparateFundsContextPlayer() const
@@ -2484,7 +2497,7 @@ bool SavedGame::usesSeparatePrivateResearch() const
 	// game modes 2 and 3) keeps its two worlds and the global list.
 	if (!_coop || _campaignType != CoopCampaignType::Separate)
 		return false;
-	if (connectionTCP::getCoopGamemode() == 2 || connectionTCP::getCoopGamemode() == 3)
+	if (CoopSide::isPvpMode(CoopSide::gamemode(this)))
 		return false;
 	return !_separateCampaign.isResearchSharingEnabled();
 }

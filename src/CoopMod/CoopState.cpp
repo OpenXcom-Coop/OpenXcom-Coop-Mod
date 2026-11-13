@@ -1355,7 +1355,7 @@ void CoopState::think()
 void CoopState::previous(Action *)
 {
 	const bool warnDifferentFactionResearch = global_state == COOP_DLG_WAIT_BASES
-		&& _game->getCoopMod()->isSeparateCampaign()
+		&& _game->getCoopMod()->isSeparateEconomy()
 		&& Options::EnableResearchSync
 		&& _game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
 

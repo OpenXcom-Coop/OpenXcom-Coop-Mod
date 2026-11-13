@@ -281,7 +281,7 @@ void Base::load(const YAML::YamlNodeReader& reader, SavedGame *save, bool newGam
 	// _isForeignBase UI restrictions/colour working by deriving that local-view flag
 	// from persistent ownership after deserialization.  Legacy saves have no
 	// ownerplayername. Non-campaign multiplayer modes keep their own protocol.
-	if (save && save->isSeparateCoopCampaign()
+	if (save && save->isSeparateSingleWorld()
 		&& !_ownerPlayerName.empty())
 	{
 		_isForeignBase = _ownerPlayerName != connectionTCP::seatName(connectionTCP::localSeat());

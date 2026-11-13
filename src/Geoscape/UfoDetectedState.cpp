@@ -36,6 +36,7 @@
 #include "InterceptState.h"
 #include "CraftErrorState.h"
 #include "../CoopMod/SeparateEcon.h"
+#include "../CoopMod/CoopSide.h"
 #include "../Mod/RuleCraft.h"
 
 #include "../Savegame/MissionSite.h"
@@ -124,19 +125,8 @@ UfoDetectedState::UfoDetectedState(Ufo *ufo, GeoscapeState *state, bool detected
 
 	centerAllSurfaces();
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		_btnIntercept->setVisible(false);
-	}
-
-	// PVP
-	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-	{
-		_btnIntercept->setVisible(false);
-	}
-
-	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	// coop: the alien player cannot intercept
+	if (CoopSide::thisMachinePlaysAliens(_game->getSavedGame()) || CoopSide::missionRolePlaysAliens(_game->getSavedGame()))
 	{
 		_btnIntercept->setVisible(false);
 	}

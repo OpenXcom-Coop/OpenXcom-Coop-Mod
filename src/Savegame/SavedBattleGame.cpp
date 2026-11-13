@@ -389,7 +389,7 @@ void SavedBattleGame::load(const YAML::YamlNodeReader& node, Mod *mod, SavedGame
 	// Save upgrade for ownerless player units spawned by a mod's craft map item.
 	// Older Separate battles stored them on side 0 even when the client's craft
 	// owned the mission. Unit-owned summons keep their summoner's side instead.
-	if (savedGame->isSeparateCoopCampaign() && !_battleOwnerPlayerName.empty())
+	if (savedGame->isSeparateSingleWorld() && !_battleOwnerPlayerName.empty())
 	{
 		int battleOwnerSeat = -1;
 		const std::vector<std::string>& players = savedGame->getCoopPlayers();
@@ -1569,7 +1569,7 @@ void SavedBattleGame::saveDummyCraftDeployment()
 {
 	auto* save = getGeoscapeSave();
 	// coop Separate: the deployment is this player's own, so only this player's crafts lose theirs
-	const bool ownCraftsOnly = save->isSeparateCoopCampaign();
+	const bool ownCraftsOnly = save->isSeparateSingleWorld();
 
 	// don't forget to invalidate custom deployments of all real craft of this type
 	for (auto* xbase : *save->getBases())

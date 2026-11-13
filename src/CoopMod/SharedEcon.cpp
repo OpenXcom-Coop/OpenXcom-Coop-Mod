@@ -2222,7 +2222,7 @@ void baseNewApply(Game* game, Json::Value& payload, Base* /*base*/, int seat)
 	Base* nb = new Base(mod); // ctor random-mints _coop_base_id
 	std::string ownerName = payload.get("ownerPlayerName", connectionTCP::seatName(seat)).asString();
 	nb->setOwnerPlayerName(ownerName);
-	if (save->isSeparateCoopCampaign())
+	if (save->isSeparateSingleWorld())
 		nb->_isForeignBase = !nb->isOwnedByPlayer(connectionTCP::seatName(connectionTCP::localSeat()));
 	nb->setFakeUnderwater(payload.get("fakeUnderwater", false).asBool());
 	nb->setLongitude(payload.get("lon", 0.0).asDouble());
@@ -2658,7 +2658,7 @@ bool craftAssignValidate(Game* game, const Json::Value& payload, Base* base, int
                          int64_t& cost, std::string& failReason)
 {
 	if (game && game->getSavedGame()
-		&& game->getSavedGame()->isSeparateCoopCampaign())
+		&& game->getSavedGame()->isSeparateSingleWorld())
 		return SeparateEcon::validateCraftAssign(
 			game, payload, base, seat, cost, failReason);
 
@@ -2771,7 +2771,7 @@ bool craftEquipValidate(Game* game, const Json::Value& payload, Base* base, int 
 	cost = 0; // no funds effect; broadcast still carries authoritative getFunds()
 	if (!base) { failReason = "base not found"; return false; }
 	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
-	if (game->getSavedGame()->isSeparateCoopCampaign())
+	if (game->getSavedGame()->isSeparateSingleWorld())
 		return SeparateEcon::validateCraftEquip(
 			game, payload, base, seat, cost, failReason);
 	const RuleItem* item = game->getMod()->getItem(payload.get("item", "").asString(), false);
@@ -2858,7 +2858,7 @@ void craftEquipApply(Game* game, Json::Value& payload, Base* base, int seat)
 	if (!craft || !item) return;
 	if (item->getVehicleUnit())
 	{
-		if (game->getSavedGame()->isSeparateCoopCampaign())
+		if (game->getSavedGame()->isSeparateSingleWorld())
 			SeparateEcon::applyVehicleEquip(game, payload, base, seat);
 		else
 			craftEquipVehicles(payload, base, craft, item); // HWPs: whole vehicles with their clip ammo
@@ -2921,7 +2921,7 @@ bool craftLoadoutValidate(Game* game, const Json::Value& payload, Base* base, in
 	if (!resolveOrderCraft(game, payload, base)) { failReason = "craft not found"; return false; }
 	if (!payload["listed"].isArray() || !payload["template"].isObject())
 		{ failReason = "bad craft loadout"; return false; }
-	if (game->getSavedGame()->isSeparateCoopCampaign()
+	if (game->getSavedGame()->isSeparateSingleWorld()
 		&& !base->isOwnedByPlayer(connectionTCP::seatName(seat)))
 		{ failReason = "Only the base owner can change craft equipment"; return false; }
 	return true;
@@ -2932,7 +2932,7 @@ void craftLoadoutApply(Game* game, Json::Value& payload, Base* base, int seat)
 	if (!base || !game->getSavedGame()) return;
 	Craft* craft = resolveOrderCraft(game, payload, base);
 	if (!craft) return;
-	const bool separate = game->getSavedGame()->isSeparateCoopCampaign();
+	const bool separate = game->getSavedGame()->isSeparateSingleWorld();
 	auto countOf = [&](const RuleItem* item)
 	{
 		if (!item->getVehicleUnit()) return craft->getItems()->getItem(item);
@@ -3390,7 +3390,7 @@ bool craftDeploymentValidate(Game* game, const Json::Value& payload, Base* /*bas
                              int64_t& cost, std::string& failReason)
 {
 	cost = 0;
-	if (game->getSavedGame() && game->getSavedGame()->isSeparateCoopCampaign() && connectionTCP::seatName(seat).empty())
+	if (game->getSavedGame() && game->getSavedGame()->isSeparateSingleWorld() && connectionTCP::seatName(seat).empty())
 	{
 		failReason = "Craft deployment from an unknown player.";
 		return false;
@@ -3403,7 +3403,7 @@ void craftDeploymentApply(Game* game, Json::Value& payload, Base* /*base*/, int 
 	SavedGame* sg = game ? game->getSavedGame() : nullptr;
 	const RuleCraft* rule = sg ? game->getMod()->getCraft(payload.get("craftType", "").asString(), false) : nullptr;
 	if (!rule) return;
-	const bool separate = sg->isSeparateCoopCampaign();
+	const bool separate = sg->isSeparateSingleWorld();
 	const std::string owner = separate ? connectionTCP::seatName(seat) : std::string();
 	for (auto* xbase : *sg->getBases())
 		if (!separate || xbase->isOwnedByPlayer(owner))
@@ -3689,7 +3689,7 @@ void soldierLayoutApply(Game* game, Json::Value& payload, Base* base, int /*seat
 	if (!base || !game->getSavedGame()) return;
 	SavedGame* save = game->getSavedGame();
 	if (isHost())
-		payload["moveGear"] = save->isSeparateCoopCampaign()
+		payload["moveGear"] = save->isSeparateSingleWorld()
 			&& Options::oxceAlternateCraftEquipmentManagement
 			&& save->getMonthsPassed() != -1;
 	const bool moveGear = payload.get("moveGear", false).asBool();
@@ -4583,7 +4583,7 @@ void prodDoneApply(Game* game, Json::Value& payload, Base* base, int /*seat*/)
 
 	// SHARED: every unit, sold or made, already reached this replica by prod_fx in the hour the host made it;
 	// prod_done only removes the production and shows the window. Separate: prod_done carries the units.
-	if (save->isSeparateCoopCampaign())
+	if (save->isSeparateSingleWorld())
 	{
 		// Materialize the deterministic output (items + crafts) where the host's
 		// Production::step() put it: the stores and the hangar, or a transfer when
@@ -5304,7 +5304,7 @@ void processHostCmd(Game* game, const PendingCmd& pc)
 	// an arrived soldier from the replica's Transfers list). Keep the distinction
 	// host-side so a stale or modified client UI can never bypass ownership.
 	if (pc.separateProtocol && base && game && game->getSavedGame()
-		&& game->getSavedGame()->isSeparateCoopCampaign())
+		&& game->getSavedGame()->isSeparateSingleWorld())
 	{
 		const std::string playerName = connectionTCP::seatName(pc.seat);
 		const bool foreign = !base->isOwnedByPlayer(playerName);
@@ -5478,7 +5478,7 @@ void processApply(Game* game, const Json::Value& ap)
 std::vector<Soldier*> promotionSoldiers(Game* game, const Soldier* soldier)
 {
 	std::vector<Soldier*> all = game->getSavedGame()->getAllActiveSoldiers();
-	if (!soldier || !game->getSavedGame()->isSeparateCoopCampaign()) return all;
+	if (!soldier || !game->getSavedGame()->isSeparateSingleWorld()) return all;
 	std::vector<Soldier*> own;
 	for (auto* s : all)
 		if (s->getOwnerPlayerId() == soldier->getOwnerPlayerId()) own.push_back(s);
@@ -5578,7 +5578,7 @@ int baseMoveTarget(Game* game, const Base* base)
 	const int from = baseIndex(game, base);
 	if (from <= 0) return -1;
 	SavedGame* save = game->getSavedGame();
-	if (!save->isSeparateCoopCampaign()) return from - 1;
+	if (!save->isSeparateSingleWorld()) return from - 1;
 	// The Separate strip lists each player's own bases together, so a base moves
 	// past the previous base of the same owner.
 	auto* bases = save->getBases();
@@ -7299,7 +7299,7 @@ void submitLoadoutTemplate(Game* game, Base* base, int index)
 void craftDeploymentSaved(Game* game, const std::string& craftType)
 {
 	if (!game || !game->getSavedGame() || game->getSavedGame()->getMonthsPassed() == -1 || !game->getCoopMod()
-		|| (!game->getCoopMod()->isSharedCampaign() && !game->getSavedGame()->isSeparateCoopCampaign())) return;
+		|| (!game->getCoopMod()->isSharedCampaign() && !game->getSavedGame()->isSeparateSingleWorld())) return;
 	const auto& data = game->getSavedGame()->getCustomRuleCraftDeployments();
 	const auto it = data.find(craftType);
 	Json::Value p(Json::objectValue);

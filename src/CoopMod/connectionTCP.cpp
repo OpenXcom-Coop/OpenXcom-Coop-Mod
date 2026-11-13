@@ -152,6 +152,7 @@
 #include "CoopDelta.h"
 #include "CoopSyncedOptions.h" // synced game options (the layer state, the probe view)
 #include "SeparateEcon.h"
+#include "CoopSide.h"
 #include "../Menu/StatisticsState.h"
 #include "VoteMenu.h"
 #include "connectionUDP/connection_udp_glue.h"
@@ -40000,7 +40001,7 @@ void connectionTCP::prepareLocalEndingFactionDisplayName()
 void connectionTCP::queueFactionFinaleVote(const std::string& ownerPlayerName)
 {
 	if (!_game || !_game->getSavedGame() || ownerPlayerName.empty()
-		|| !isSeparateCampaign()
+		|| !isSeparateEconomy()
 		|| !_game->getSavedGame()->getSeparateCampaign().haveDifferentFactions())
 		return;
 
@@ -40056,7 +40057,7 @@ bool connectionTCP::syncFactionFinaleFromSave()
 {
 	if (!getServerOwner() || !_game || !_game->getSavedGame())
 		return false;
-	const std::string saved = isSeparateCampaign()
+	const std::string saved = isSeparateEconomy()
 		? _game->getSavedGame()->getSeparateCampaign().getPendingFactionFinaleOwner()
 		: std::string();
 	if (saved == _pendingFactionFinaleOwner)
@@ -40068,7 +40069,7 @@ bool connectionTCP::syncFactionFinaleFromSave()
 
 void connectionTCP::storeFactionFinaleOwner(const std::string& owner)
 {
-	if (getServerOwner() && _game && _game->getSavedGame() && isSeparateCampaign())
+	if (getServerOwner() && _game && _game->getSavedGame() && isSeparateEconomy())
 		_game->getSavedGame()->getSeparateCampaign().setPendingFactionFinaleOwner(owner);
 }
 
@@ -40875,7 +40876,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// loaded rules, not from the master mod's id: total conversions such as
 		// X-Com Files are masters too but have one starting base.
 		const bool factionChoice = _game->getMod()->hasDifficultyStartingBases();
-		if (campaignType == CoopCampaignType::Separate && !connectionTCP::no_bases
+		if (campaignType == CoopCampaignType::Separate && !CoopSide::thisMachinePlaysAliens(_game->getSavedGame())
 			&& connectionTCP::_coopGamemode != 2 && connectionTCP::_coopGamemode != 3
 			&& factionChoice)
 		{
@@ -40903,6 +40904,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			SavedGame* save = _game->getMod()->newSave((GameDifficulty)difficulty);
 			save->setDifficulty((GameDifficulty)difficulty);
 			save->setCoopSave(true);
+			save->setWorldGamemode(connectionTCP::_coopGamemode);
 			save->setCoopPlayers(players);
 			// adopt the host's campaign economy model (default Separate).
 			save->setCampaignType(campaignType);
@@ -40916,7 +40918,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			_game->setState(gs);
 			gs->init();
 
-			if (!connectionTCP::no_bases)
+			if (!CoopSide::thisMachinePlaysAliens(_game->getSavedGame()))
 			{
 				if (isSeparateCampaign())
 				{
@@ -42226,7 +42228,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		{
 			waitedResearch.clear();
 		}
-		if (_game->getSavedGame() && isSeparateCampaign())
+		if (_game->getSavedGame() && isSeparateEconomy())
 			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 	}
 
@@ -42727,7 +42729,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 			sharedMonthlyResearchScoreEnded = obj.get("sharedResearchScoreEnded", 0).asInt();
 			sharedMonthlyPending = true;
 		}
-		if (obj.isMember("separatePlayerFunds") && isSeparateCampaign())
+		if (obj.isMember("separatePlayerFunds") && isSeparateEconomy())
 		{
 			separateMonthlyPlayerFunds = obj["separatePlayerFunds"];
 			separateMonthlyDebt = obj.get("separateDebt", false).asBool();
@@ -44142,7 +44144,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 
 		// research option
 		_enable_research_sync = Options::EnableResearchSync;
-		if (_game->getSavedGame() && isSeparateCampaign())
+		if (_game->getSavedGame() && isSeparateEconomy())
 			_game->getSavedGame()->setSeparateResearchSharingEnabled(_enable_research_sync, _game->getMod());
 		root["enable_research_sync"] = _enable_research_sync;
 
@@ -44285,7 +44287,7 @@ void connectionTCP::onTCPMessage(std::string stateString, Json::Value obj)
 		// session value.  Previously it continued to display the client's local
 		// default (YES), even when the host had sent NO.
 		Options::setSessionOverride(&Options::EnableResearchSync, enable_research_sync);
-		if (_game->getSavedGame() && isSeparateCampaign())
+		if (_game->getSavedGame() && isSeparateEconomy())
 			_game->getSavedGame()->setSeparateResearchSharingEnabled(enable_research_sync, _game->getMod());
 
 		// The legacy time-sync wire key is intentionally ignored. All current
@@ -45172,12 +45174,24 @@ bool connectionTCP::isSharedCampaign()
 // A negative SHARED test is not enough here: solo games, PvP/custom battles and
 // the pre-save lobby also are "not shared". Keep SEPARATE explicit so none of
 // those modes can accidentally enter the campaign save/economy protocol.
+// A PvP campaign whose game mode plays on one world is a Separate campaign here too (owners by name, a replica client); per-player economy rules test isSeparateEconomy().
 bool connectionTCP::isSeparateCampaign()
 {
 	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
 	return save && save->isCoopSave()
 		&& save->getCampaignType() == CoopCampaignType::Separate
-		&& (_coopGamemode == 0 || _coopGamemode == 1);
+		&& (CoopSide::gamemode(save) == 0 || CoopSide::gamemode(save) == 1 || CoopSide::pvpOneWorld(save));
+}
+
+// The per-player economy of a co-op Separate campaign: each player's wallet, research profile, faction, score
+// and mission ownership. A PvP campaign is stored as Separate too but keeps one wallet, global research and
+// vanilla score on either layout, so it never has one.
+bool connectionTCP::isSeparateEconomy()
+{
+	SavedGame* save = _game ? _game->getSavedGame() : nullptr;
+	return save && save->isCoopSave()
+		&& save->getCampaignType() == CoopCampaignType::Separate
+		&& (CoopSide::gamemode(save) == 0 || CoopSide::gamemode(save) == 1);
 }
 
 // Static mirror of isSharedCampaign() for engine-level callers that hold no CoopMod
@@ -45203,8 +45217,8 @@ bool connectionTCP::isCampaignReplica()
 	// whatever seat value a previous session or a loaded blob left behind.
 	if (getServerOwner())
 		return false;
-	// Only the single-world campaigns have replicas. PvP (game mode 2/3) keeps
-	// one independent world per player, which each machine simulates.
+	// Only the single-world campaigns have replicas. A PvP campaign on two worlds (its game mode's one-world layout off)
+	// keeps one independent world per player, which each machine simulates.
 	if (!isSharedCampaign() && !isSeparateCampaign())
 		return false;
 
@@ -45230,14 +45244,14 @@ bool connectionTCP::isSeparateCampaignStatic()
 	SavedGame* save = _staticGame ? _staticGame->getSavedGame() : nullptr;
 	return save && save->isCoopSave()
 		&& save->getCampaignType() == CoopCampaignType::Separate
-		&& (_coopGamemode == 0 || _coopGamemode == 1);
+		&& (CoopSide::gamemode(save) == 0 || CoopSide::gamemode(save) == 1 || CoopSide::pvpOneWorld(save));
 }
 
 // coop: see connectionTCP.h. The predicate mirrors GeoscapeState's time5Seconds..time1Day
 // returns (isSharedReplica(); no_bases on a non-host machine).
 bool connectionTCP::coopClientOwnClock()
 {
-	return getCoopStatic() && !getServerOwner() && !isSharedReplica() && !(no_bases && !getHost());
+	return getCoopStatic() && !getServerOwner() && !isSharedReplica() && !(CoopSide::thisMachinePlaysAliens(_game ? _game->getSavedGame() : nullptr) && !getHost());
 }
 
 int connectionTCP::coopClientPendingGeoTicks()

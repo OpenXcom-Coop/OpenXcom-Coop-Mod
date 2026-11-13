@@ -30,6 +30,7 @@
 #include "../Savegame/MissionSite.h"
 #include "../Engine/Options.h"
 #include "InterceptState.h"
+#include "../CoopMod/CoopSide.h"
 #include "../Engine/Action.h"
 #include "../Battlescape/BriefingLightState.h"
 
@@ -73,19 +74,8 @@ TargetInfoState::TargetInfoState(Target *target, Globe *globe) : _target(target)
 	// Set up objects
 	setWindowBackground(_window, "targetInfo");
 
-	// coop
-	if (connectionTCP::no_bases == true)
-	{
-		_btnIntercept->setVisible(false);
-	}
-
-	// PVP
-	if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false)
-	{
-		_btnIntercept->setVisible(false);
-	}
-
-	if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true)
+	// coop: the alien player cannot intercept
+	if (CoopSide::thisMachinePlaysAliens(_game->getSavedGame()) || CoopSide::missionRolePlaysAliens(_game->getSavedGame()))
 	{
 		_btnIntercept->setVisible(false);
 	}

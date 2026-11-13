@@ -38,6 +38,7 @@
 
 #include "HostMenu.h"
 #include "SeparateEcon.h"
+#include "CoopSide.h"
 #include "../Geoscape/GeoscapeState.h"
 #include "../Battlescape/BattlescapeState.h"
 #include "../Geoscape/Globe.h"
@@ -890,6 +891,7 @@ void LobbyMenu::startCampaign()
 	players.push_back(_game->getCoopMod()->getCurrentClientName());
 	_game->getSavedGame()->setCoopPlayers(players);
 	_game->getSavedGame()->setCoopSave(true);
+	_game->getSavedGame()->setWorldGamemode(connectionTCP::_coopGamemode);
 
 	// initial save right at START so a crash during base building resumes
 	// into base placement (D6). Direct write: the funnel's client-progress
@@ -920,7 +922,7 @@ void LobbyMenu::startCampaign()
 		}
 	}
 
-	if (!connectionTCP::no_bases)
+	if (!CoopSide::thisMachinePlaysAliens(_game->getSavedGame()))
 	{
 		const int gamemode = _game->getCoopMod()->getCoopGamemode();
 		if (gamemode != 2 && gamemode != 3)

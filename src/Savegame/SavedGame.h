@@ -176,6 +176,9 @@ private:
 	// coop: the game mode this loaded save was played in (its body's coop_gamemode, read by SavedGame::load); 0 for a world
 	// this process created or was served. Never written to a save.
 	int _coopLoadedGamemode = 0;
+	// coop: the game mode this world is played in, set when it is created, loaded from a file or adopted from the
+	// host (0 when unknown). Not a save key of its own: the body's coop_gamemode is written from CoopSide::gamemode().
+	int _worldGamemode = 0;
 	// SHARED vs SEPARATE economy model (PRD-J01); immutable after campaign start.
 	CoopCampaignType _campaignType;
 	std::vector<std::string> _coopPlayers;
@@ -307,6 +310,9 @@ private:
 	void setCoopSave(bool coop) { _coop = coop; }
 	/// coop: the game mode this save was played in, as SavedGame::load read it (0 for a new or served world).
 	int getCoopLoadedGamemode() const { return _coopLoadedGamemode; }
+	/// coop: the game mode this world is played in (0 when unknown); CoopSide::gamemode() reads it.
+	int getWorldGamemode() const { return _worldGamemode; }
+	void setWorldGamemode(int gamemode) { _worldGamemode = gamemode; }
 	/// SHARED/SEPARATE campaign economy model (PRD-J01). Immutable after start.
 	CoopCampaignType getCampaignType() const { return _campaignType; }
 	void setCampaignType(CoopCampaignType t) { _campaignType = t; }
@@ -316,6 +322,9 @@ private:
 	/// two-world rules, so every Separate-only rule must test this, never the
 	/// campaign type alone.
 	bool isSeparateCoopCampaign() const;
+	/// A Separate campaign on the host's one world: isSeparateCoopCampaign(), or a PvP campaign whose game mode plays
+	/// on one world. Ownership-by-name and single-world rules test this; the per-player economy tests isSeparateCoopCampaign().
+	bool isSeparateSingleWorld() const;
 	/// Playtest B4: in a SHARED campaign every soldier needs an explicit owner (seat).
 	/// Any soldier still left UNOWNED (ownerPlayerId 999) - the starting roster of a
 	/// fresh game, or a save created before the split existed - is assigned a seat by

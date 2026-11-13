@@ -757,6 +757,9 @@ class connectionTCP
 	// !isSharedCampaign(): that expression is also true in single-player, PvP,
 	// custom battles, and before an active co-op save has been installed.
 	bool isSeparateCampaign();
+	// The per-player economy of a co-op Separate campaign (wallets, research profiles, factions, scores, mission
+	// ownership). False for PvP on either layout. isSeparateCampaign() is the wider test: owners by name, replica client.
+	bool isSeparateEconomy();
 	// Static mirror for engine-level callers with no CoopMod instance (Craft capacity).
 	static bool isSharedCampaignStatic();
 	// Static mirror of isSeparateCampaign() for the same engine-level callers.

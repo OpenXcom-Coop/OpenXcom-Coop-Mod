@@ -126,7 +126,7 @@ void reconcileVehicleOwners(Craft* craft)
 void synchronizeVehicleOwners(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isSeparateCoopCampaign())
+	if (!save || !save->isSeparateSingleWorld())
 	{
 		return;
 	}
@@ -181,7 +181,7 @@ void trimInitialCraftCrews(Game* game)
 int normalizeSoldierIds(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isSeparateCoopCampaign())
+	if (!save || !save->isSeparateSingleWorld())
 	{
 		return 0;
 	}
@@ -253,7 +253,7 @@ int normalizeSoldierIds(Game* game)
 int normalizeCraftIds(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !save->isSeparateCoopCampaign() || save->getSavedBattle())
+	if (!save || !save->isSeparateSingleWorld() || save->getSavedBattle())
 	{
 		return 0;
 	}
@@ -336,7 +336,7 @@ int normalizeCraftIds(Game* game)
 int playerMaintenance(Game* game, const std::string& playerName)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign())
+	if (!save || !game->getCoopMod() || !game->getCoopMod()->isSeparateEconomy())
 		return save ? save->getBaseMaintenance() : 0;
 
 	int total = 0;
@@ -358,7 +358,7 @@ int playerMaintenance(Game* game, const std::string& playerName)
 int localPlayerMaintenance(Game* game)
 {
 	SavedGame* save = game ? game->getSavedGame() : nullptr;
-	if (!save || !game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign())
+	if (!save || !game->getCoopMod() || !game->getCoopMod()->isSeparateEconomy())
 		return save ? save->getBaseMaintenance() : 0;
 
 	const std::string playerName = connectionTCP::seatName(connectionTCP::localSeat());
@@ -541,7 +541,7 @@ void setUfopediaRuleStatus(Game* game, const std::string& rule, int status)
 {
 	if (!game || !game->getSavedGame() || rule.empty()) return;
 	game->getSavedGame()->setUfopediaRuleStatus(rule, status);
-	if (!game->getCoopMod() || !game->getCoopMod()->isSeparateCampaign()
+	if (!game->getCoopMod() || !game->getCoopMod()->isSeparateEconomy()
 		|| game->getCoopMod()->getServerOwner())
 		return;
 	Json::Value msg;
@@ -597,7 +597,7 @@ std::string missionTargetOwner(const Target* target)
 bool showMissionTargetOwner(Game* game)
 {
 	return game && game->getSavedGame() && game->getCoopMod()
-		&& game->getCoopMod()->isSeparateCampaign()
+		&& game->getCoopMod()->isSeparateEconomy()
 		&& game->getSavedGame()->getSeparateCampaign().haveDifferentFactions();
 }
 
@@ -631,7 +631,7 @@ bool showResearchCompletion(Game* game, const Base* base)
 std::string baseWalletOwner(Game* game, const Base* base)
 {
 	if (!game || !base || !game->getCoopMod()
-		|| !game->getCoopMod()->isSeparateCampaign())
+		|| !game->getCoopMod()->isSeparateEconomy())
 		return std::string();
 	return base->getOwnerPlayerName();
 }
@@ -685,7 +685,7 @@ bool consumeSharedResearchItem(Game* game, Base* projectBase,
 	SavedGame* save = game->getSavedGame();
 	if (!save) return false;
 
-	if (game->getCoopMod() && game->getCoopMod()->isSeparateCampaign()
+	if (game->getCoopMod() && game->getCoopMod()->isSeparateEconomy()
 		&& game->getCoopMod()->_enable_research_sync)
 	{
 		// Shared Research lets an item in any base unlock the topic. Take it from
@@ -1526,7 +1526,7 @@ void hostMissionResearch(Game* game, const AlienDeployment* deployment,
 	const std::string& ownerPlayerName)
 {
 	if (!game || !research || !deployment || !game->getCoopMod()
-		|| !game->getCoopMod()->isSeparateCampaign()
+		|| !game->getCoopMod()->isSeparateEconomy()
 		|| !game->getCoopMod()->getServerOwner())
 		return;
 	Json::Value msg;
@@ -1702,7 +1702,7 @@ int CampaignData::getFactionScore(const std::string& playerName, size_t historyI
 int localFactionScore(Game* game, size_t historyIndex)
 {
 	if (!game || !game->getSavedGame() || !game->getCoopMod()
-		|| !game->getCoopMod()->isSeparateCampaign()) return 0;
+		|| !game->getCoopMod()->isSeparateEconomy()) return 0;
 	const CampaignData& campaign = game->getSavedGame()->getSeparateCampaign();
 	if (!campaign.haveDifferentFactions()) return 0;
 	return campaign.getFactionScore(
@@ -2071,7 +2071,7 @@ bool resolveFactionFinalOutcome(Game* game, const std::string& ownerPlayerName,
 	bool victory)
 {
 	if (!game || !game->getSavedGame() || !game->getCoopMod()
-		|| !game->getCoopMod()->isSeparateCampaign() || ownerPlayerName.empty())
+		|| !game->getCoopMod()->isSeparateEconomy() || ownerPlayerName.empty())
 		return true;
 	CampaignData& campaign = game->getSavedGame()->getSeparateCampaign();
 	if (!campaign.haveDifferentFactions()) return true;
@@ -2090,7 +2090,7 @@ bool factionFinalOutcomeEndsCampaign(Game* game, const std::string& ownerPlayerN
 	bool victory)
 {
 	if (!game || !game->getSavedGame() || !game->getCoopMod()
-		|| !game->getCoopMod()->isSeparateCampaign() || ownerPlayerName.empty())
+		|| !game->getCoopMod()->isSeparateEconomy() || ownerPlayerName.empty())
 		return true;
 	const CampaignData& campaign = game->getSavedGame()->getSeparateCampaign();
 	if (!campaign.haveDifferentFactions() || !victory) return true;
@@ -2130,7 +2130,7 @@ std::string factionDisplayName(Game* game, const std::string& playerName)
 bool allowsFactionScript(Game* game, const std::string& ownerPlayerName)
 {
 	if (!game || !game->getSavedGame() || !game->getCoopMod()
-		|| !game->getCoopMod()->isSeparateCampaign() || ownerPlayerName.empty())
+		|| !game->getCoopMod()->isSeparateEconomy() || ownerPlayerName.empty())
 		return true;
 	return !game->getSavedGame()->getSeparateCampaign()
 		.isPlayerFactionCompleted(ownerPlayerName);

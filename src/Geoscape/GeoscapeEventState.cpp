@@ -185,7 +185,7 @@ void GeoscapeEventState::eventLogic()
 	const Mod *mod = _game->getMod();
 	const RuleEvent &rule = _eventRule;
 	const bool playerFactionScore = !_ownerPlayerName.empty()
-		&& _game->getCoopMod()->isSeparateCampaign()
+		&& _game->getCoopMod()->isSeparateEconomy()
 		&& save->getSeparateCampaign().haveDifferentFactions();
 	// coop Separate host: capture the rewards below for the replica.
 	const SharedEcon::EventRewardSnapshot rewardsBefore = SharedEcon::snapshotEventRewards(_game, hq);

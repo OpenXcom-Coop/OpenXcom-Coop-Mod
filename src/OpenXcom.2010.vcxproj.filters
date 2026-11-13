@@ -1271,6 +1271,9 @@
     <ClCompile Include="CoopMod\SeparateEcon.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
+    <ClCompile Include="CoopMod\CoopSide.cpp">
+      <Filter>CoopMod</Filter>
+    </ClCompile>
     <ClCompile Include="CoopMod\SeparateResearchModeWarningState.cpp">
       <Filter>CoopMod</Filter>
     </ClCompile>
@@ -2848,6 +2851,9 @@
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\SeparateEcon.h">
+      <Filter>CoopMod</Filter>
+    </ClInclude>
+    <ClInclude Include="CoopMod\CoopSide.h">
       <Filter>CoopMod</Filter>
     </ClInclude>
     <ClInclude Include="CoopMod\SeparateResearchModeWarningState.h">

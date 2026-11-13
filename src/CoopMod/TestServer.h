@@ -83,6 +83,8 @@ private:
 	/// Join-check hooks (server browser rows, the incompatible-mods screen, the
 	/// reported build version and mod list). executeIntrospect13 tries it first.
 	bool executeJoinChecks14(const std::string& cmd, const Json::Value& req, Json::Value& resp);
+	/// PvP side and one-world layout probes (coop_sides, pvp_one_world). executeJoinChecks14 tries it first.
+	bool executeSides15(const std::string& cmd, const Json::Value& req, Json::Value& resp);
 
 	Game* _game = nullptr;
 	std::thread _thread;

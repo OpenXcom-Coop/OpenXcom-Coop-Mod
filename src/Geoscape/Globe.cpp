@@ -54,6 +54,7 @@
 #include "../Interface/Cursor.h"
 #include "../Engine/Screen.h"
 #include "../CoopMod/connectionTCP.h"
+#include "../CoopMod/CoopSide.h"
 
 namespace OpenXcom
 {
@@ -1207,19 +1208,13 @@ void Globe::drawRadars()
 	{
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
+		if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
 
 		// coop
 		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == true && xbase->_coopIcon == true)
-		{
-			continue;
-		}
-
-		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
@@ -1532,19 +1527,13 @@ void Globe::drawDetail()
 		{
 
 			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
+			if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
 
 			// coop
 			if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == true && xbase->_coopIcon == true)
-			{
-				continue;
-			}
-
-			// coop
-			if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 			{
 				continue;
 			}
@@ -1829,19 +1818,13 @@ void Globe::drawMarkers()
 	{
 
 		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == false && xbase->_isForeignBase == false)
+		if (CoopSide::missionRolePlaysAliens(_game->getSavedGame()) && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
 
 		// coop
 		if (_game->getCoopMod()->getCoopGamemode() == 2 && _game->getCoopMod()->getHost() == true && xbase->_coopIcon == true)
-		{
-			continue;
-		}
-
-		// coop
-		if (_game->getCoopMod()->getCoopGamemode() == 3 && _game->getCoopMod()->getHost() == true && xbase->_isForeignBase == false)
 		{
 			continue;
 		}
