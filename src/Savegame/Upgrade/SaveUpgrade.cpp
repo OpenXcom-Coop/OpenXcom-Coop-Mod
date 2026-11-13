@@ -516,17 +516,22 @@ bool postflightVerify(const std::string& stream, std::string& why)
 				return false;
 			}
 			ryml::ConstNodeRef bases = body.find_child("bases");
-			if (bases.invalid() || !bases.is_seq() || bases.num_children() == 0)
+			const bool hasBases = !bases.invalid() && bases.is_seq() && bases.num_children() != 0;
+			// The host plays the aliens and the X-COM player has not placed its
+			// first base yet: the world waits for it at month -1.
+			const bool firstBasePending = gamemode == 3 && yamlutil::getInt(body, "monthsPassed", 0) == -1;
+			if (!hasBases && !firstBasePending)
 			{
 				why = "one-world PvP save has no base";
 				return false;
 			}
-			for (ryml::ConstNodeRef base : bases.children())
-				if (yamlutil::getStr(base, "ownerplayername", std::string()) != xcomName)
-				{
-					why = "a base of the one-world PvP save is not the X-COM player's";
-					return false;
-				}
+			if (hasBases)
+				for (ryml::ConstNodeRef base : bases.children())
+					if (yamlutil::getStr(base, "ownerplayername", std::string()) != xcomName)
+					{
+						why = "a base of the one-world PvP save is not the X-COM player's";
+						return false;
+					}
 		}
 		if (!seq.invalid())
 		{
@@ -729,6 +734,17 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 			for (const YAML::YamlNodeReader& entry : worlds.children())
 				if (entry["blob"])
 					pvpTwoWorldContent = true;
+	}
+
+	// A mid-battle save of a campaign whose host plays the aliens that this
+	// build's load refuses (made by an older version, or under another battle
+	// protocol) is never upgraded: the load refuses it with its own message.
+	if (pvpToOneWorld && d.gamemode == 3 && header["turn"]
+		&& header["coopBattleProtocol"].readVal<int>(-1) != 1)
+	{
+		d.kind = DetectedSchema::Current;
+		d.schema = header["saveSchema"].readVal<int>(0);
+		return d;
 	}
 
 	// Detector v2.3 (PRD 3.1): a save is CO-OP iff a POSITIVE signal holds. There is

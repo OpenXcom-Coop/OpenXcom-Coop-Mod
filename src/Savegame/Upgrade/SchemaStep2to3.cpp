@@ -395,7 +395,7 @@ public:
 		if (campaignType == 1)
 			return; // SHARED already is one world; only its schema stamp changes.
 		if (isPvp(set))
-			return; // PvP keeps one world per player; only the stamp changes.
+			return; // PvP: only the stamp changes here; the next step makes it one world.
 		// Older co-op builds swapped the host's own campaign out for a battle the
 		// other player's craft started. A save the host made during that battle
 		// holds only that player's world and names that player as its owner, so
@@ -465,11 +465,10 @@ public:
 		}
 		if (isPvp(set))
 		{
-			// PvP keeps two worlds: the client world stays embedded.
+			// PvP: the next step makes it one world, which its own lines report.
 			for (ClientWorld& client : set.clients)
 				setInt(client.world.header(), "saveSchema", 3);
 			set.schema = 3;
-			set.report.push_back("Schema 3: PvP campaign keeps one world per player.");
 			return;
 		}
 		// Some real intermediate embed saves predate the explicit campaign-type
