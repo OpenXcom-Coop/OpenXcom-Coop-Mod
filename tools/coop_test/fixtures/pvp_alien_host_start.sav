@@ -1,0 +1,1217 @@
+name: 
+version: Extended 8.4.2
+engine: Extended
+build: " (v2025-10-06)"
+saveSchema: 2
+time: {second: 0,minute: 0,hour: 12,weekday: 6,day: 1,month: 1,year: 1999}
+mods:
+  - 'xcom1 ver: 8.4.1'
+coop: true
+coopPlayers:
+  - HostPlayer
+  - ClientPlayer
+coopCampaignType: 0
+---
+difficulty: 0
+end: 0
+saveID: 20261113054036
+coop_gamemode: 3
+coop_save_owner_player_id: 0
+no_bases: true
+monthsPassed: -1
+daysPassed: 0
+vehiclesLost: 0
+craftLostMission: 0
+graphRegionToggles: ''
+graphCountryToggles: ''
+graphFinanceToggles: ''
+rng: 91405610100022500
+funds:
+  - 6013000
+maintenance:
+  - 0
+userNotes: []
+researchScores:
+  - 0
+incomes:
+  - 6013000
+expenditures:
+  - 0
+warned: false
+togglePersonalLight: true
+toggleNightVision: false
+toggleBrightness: 0
+globeLon: 0
+globeLat: 0
+globeZoom: 0
+ids:
+  STR_INTERCEPTOR: 3
+  STR_SKYRANGER: 2
+  STR_SOLDIER: 9
+countries:
+  - type: STR_USA
+    funding:
+      - 896000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_RUSSIA
+    funding:
+      - 274000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_UK
+    funding:
+      - 434000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_FRANCE
+    funding:
+      - 369000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_GERMANY
+    funding:
+      - 413000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_ITALY
+    funding:
+      - 193000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SPAIN
+    funding:
+      - 164000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_CHINA
+    funding:
+      - 228000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_JAPAN
+    funding:
+      - 761000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_INDIA
+    funding:
+      - 168000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_BRAZIL
+    funding:
+      - 371000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_AUSTRALIA
+    funding:
+      - 274000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_NIGERIA
+    funding:
+      - 273000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SOUTH_AFRICA
+    funding:
+      - 375000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_EGYPT
+    funding:
+      - 399000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_CANADA
+    funding:
+      - 421000
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+regions:
+  - type: STR_NORTH_AMERICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_ARCTIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_ANTARCTICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SOUTH_AMERICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_EUROPE
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_NORTH_AFRICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SOUTHERN_AFRICA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_CENTRAL_ASIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SOUTH_EAST_ASIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SIBERIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_AUSTRALASIA
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_PACIFIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_NORTH_ATLANTIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_SOUTH_ATLANTIC
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+  - type: STR_INDIAN_OCEAN
+    activityXcom:
+      - 0
+    activityAlien:
+      - 0
+bases:
+  - lon: 0
+    lat: 0
+    facilities:
+      - type: STR_ACCESS_LIFT
+        x: 2
+        y: 2
+      - type: STR_HANGAR
+        x: 2
+        y: 0
+      - type: STR_HANGAR
+        x: 0
+        y: 4
+      - type: STR_HANGAR
+        x: 4
+        y: 4
+      - type: STR_LIVING_QUARTERS
+        x: 3
+        y: 2
+      - type: STR_GENERAL_STORES
+        x: 2
+        y: 3
+      - type: STR_LABORATORY
+        x: 3
+        y: 3
+      - type: STR_WORKSHOP
+        x: 4
+        y: 3
+      - type: STR_SMALL_RADAR_SYSTEM
+        x: 1
+        y: 3
+    soldiers:
+      - type: STR_SOLDIER
+        id: 1
+        name: Holger Mueller
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Holger Mueller
+        ownerplayerid: 999
+        nationality: 14
+        initialStats:
+          tu: 56
+          stamina: 53
+          health: 34
+          bravery: 60
+          reactions: 50
+          firing: 53
+          throwing: 51
+          strength: 37
+          psiStrength: 54
+          psiSkill: 0
+          melee: 32
+          mana: 0
+        currentStats:
+          tu: 56
+          stamina: 53
+          health: 34
+          bravery: 60
+          reactions: 50
+          firing: 53
+          throwing: 51
+          strength: 37
+          psiStrength: 54
+          psiSkill: 0
+          melee: 32
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 46
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 2
+        name: Sobeslav Valenta
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Sobeslav Valenta
+        ownerplayerid: 999
+        nationality: 8
+        initialStats:
+          tu: 53
+          stamina: 61
+          health: 39
+          bravery: 60
+          reactions: 59
+          firing: 52
+          throwing: 64
+          strength: 37
+          psiStrength: 62
+          psiSkill: 0
+          melee: 37
+          mana: 0
+        currentStats:
+          tu: 53
+          stamina: 61
+          health: 39
+          bravery: 60
+          reactions: 59
+          firing: 52
+          throwing: 64
+          strength: 37
+          psiStrength: 62
+          psiSkill: 0
+          melee: 37
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 1
+        lookVariant: 34
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 3
+        name: Petra Schmitz
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Petra Schmitz
+        ownerplayerid: 999
+        nationality: 14
+        initialStats:
+          tu: 54
+          stamina: 68
+          health: 27
+          bravery: 40
+          reactions: 50
+          firing: 54
+          throwing: 61
+          strength: 26
+          psiStrength: 86
+          psiSkill: 0
+          melee: 30
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 68
+          health: 27
+          bravery: 40
+          reactions: 50
+          firing: 54
+          throwing: 61
+          strength: 26
+          psiStrength: 86
+          psiSkill: 0
+          melee: 30
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 0
+        lookVariant: 45
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 4
+        name: Mihaela Olteanu
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Mihaela Olteanu
+        ownerplayerid: 999
+        nationality: 28
+        initialStats:
+          tu: 54
+          stamina: 48
+          health: 27
+          bravery: 60
+          reactions: 31
+          firing: 51
+          throwing: 64
+          strength: 38
+          psiStrength: 48
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        currentStats:
+          tu: 54
+          stamina: 48
+          health: 27
+          bravery: 60
+          reactions: 31
+          firing: 51
+          throwing: 64
+          strength: 38
+          psiStrength: 48
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 1
+        lookVariant: 2
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 5
+        name: Aaron Prewitt
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Aaron Prewitt
+        ownerplayerid: 999
+        nationality: 0
+        initialStats:
+          tu: 51
+          stamina: 58
+          health: 39
+          bravery: 50
+          reactions: 30
+          firing: 64
+          throwing: 74
+          strength: 27
+          psiStrength: 0
+          psiSkill: 0
+          melee: 27
+          mana: 0
+        currentStats:
+          tu: 51
+          stamina: 58
+          health: 39
+          bravery: 50
+          reactions: 30
+          firing: 64
+          throwing: 74
+          strength: 27
+          psiStrength: 0
+          psiSkill: 0
+          melee: 27
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 0
+        lookVariant: 40
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 6
+        name: Engin Ersoy
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Engin Ersoy
+        ownerplayerid: 999
+        nationality: 33
+        initialStats:
+          tu: 60
+          stamina: 67
+          health: 30
+          bravery: 10
+          reactions: 45
+          firing: 61
+          throwing: 79
+          strength: 32
+          psiStrength: 63
+          psiSkill: 0
+          melee: 30
+          mana: 0
+        currentStats:
+          tu: 60
+          stamina: 67
+          health: 30
+          bravery: 10
+          reactions: 45
+          firing: 61
+          throwing: 79
+          strength: 32
+          psiStrength: 63
+          psiSkill: 0
+          melee: 30
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 0
+        look: 1
+        lookVariant: 17
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 7
+        name: Dalia Fitas
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Dalia Fitas
+        ownerplayerid: 999
+        nationality: 27
+        initialStats:
+          tu: 52
+          stamina: 58
+          health: 33
+          bravery: 20
+          reactions: 41
+          firing: 43
+          throwing: 80
+          strength: 35
+          psiStrength: 16
+          psiSkill: 0
+          melee: 38
+          mana: 0
+        currentStats:
+          tu: 52
+          stamina: 58
+          health: 33
+          bravery: 20
+          reactions: 41
+          firing: 43
+          throwing: 80
+          strength: 35
+          psiStrength: 16
+          psiSkill: 0
+          melee: 38
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 2
+        lookVariant: 58
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+      - type: STR_SOLDIER
+        id: 8
+        name: Oksana Nikitina
+        coopbase: -1
+        coop: 0
+        coopcraft: -1
+        coopcrafttype: ''
+        coopname: Oksana Nikitina
+        ownerplayerid: 999
+        nationality: 29
+        initialStats:
+          tu: 53
+          stamina: 48
+          health: 28
+          bravery: 10
+          reactions: 37
+          firing: 57
+          throwing: 64
+          strength: 25
+          psiStrength: 25
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        currentStats:
+          tu: 53
+          stamina: 48
+          health: 28
+          bravery: 10
+          reactions: 37
+          firing: 57
+          throwing: 64
+          strength: 25
+          psiStrength: 25
+          psiSkill: 0
+          melee: 34
+          mana: 0
+        rank: 0
+        craft:
+          lon: 0
+          lat: 0
+          type: STR_SKYRANGER
+          id: 1
+        gender: 1
+        look: 1
+        lookVariant: 45
+        missions: 0
+        kills: 0
+        stuns: 0
+        armor: STR_NONE_UC
+        improvement: 0
+        psiStrImprovement: 0
+    coopbaseid: 43016
+    crafts:
+      - lon: 0
+        lat: 0
+        id: 1
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_SKYRANGER
+        fuel: 1500
+        damage: 0
+        shield: 0
+        items:
+          STR_GRENADE: 8
+          STR_HC_AP_AMMO: 2
+          STR_HC_HE_AMMO: 2
+          STR_HEAVY_CANNON: 1
+          STR_PISTOL: 3
+          STR_PISTOL_CLIP: 5
+          STR_RIFLE: 6
+          STR_RIFLE_CLIP: 12
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+      - lon: 0
+        lat: 0
+        id: 1
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_INTERCEPTOR
+        fuel: 1000
+        damage: 0
+        shield: 0
+        weapons:
+          - type: STR_STINGRAY
+            ammo: 6
+          - type: STR_CANNON_UC
+            ammo: 200
+        items: {}
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+      - lon: 0
+        lat: 0
+        id: 2
+        speedLon: 0
+        speedLat: 0
+        speedRadian: 0
+        speed: 0
+        type: STR_INTERCEPTOR
+        fuel: 1000
+        damage: 0
+        shield: 0
+        weapons:
+          - type: STR_STINGRAY
+            ammo: 6
+          - type: STR_CANNON_UC
+            ammo: 200
+        items: {}
+        status: STR_READY
+        lonAuto: 0
+        latAuto: 0
+    items:
+      STR_AC_AP_AMMO: 6
+      STR_AUTO_CANNON: 1
+      STR_AVALANCHE_LAUNCHER: 1
+      STR_AVALANCHE_MISSILES: 10
+      STR_CANNON: 2
+      STR_CANNON_ROUNDS_X50: 1
+      STR_GRENADE: 5
+      STR_HC_AP_AMMO: 6
+      STR_HEAVY_CANNON: 1
+      STR_PISTOL: 2
+      STR_PISTOL_CLIP: 8
+      STR_RIFLE: 2
+      STR_RIFLE_CLIP: 8
+      STR_ROCKET_LAUNCHER: 1
+      STR_SMALL_ROCKET: 4
+      STR_SMOKE_GRENADE: 5
+      STR_STINGRAY_LAUNCHER: 1
+      STR_STINGRAY_MISSILES: 25
+    scientists: 10
+    engineers: 10
+generatedEvents: {}
+ufopediaRuleStatus: {}
+manufactureRuleStatus: {}
+researchRuleStatus: {}
+monthlyPurchaseLimitLog: {}
+hiddenPurchaseItems: {}
+customRuleCraftDeployments: {}
+alienStrategy:
+  regions:
+    STR_ANTARCTICA: 4
+    STR_ARCTIC: 4
+    STR_AUSTRALASIA: 10
+    STR_CENTRAL_ASIA: 12
+    STR_EUROPE: 16
+    STR_NORTH_AFRICA: 12
+    STR_NORTH_AMERICA: 18
+    STR_PACIFIC: 5
+    STR_SIBERIA: 10
+    STR_SOUTHERN_AFRICA: 8
+    STR_SOUTH_AMERICA: 10
+    STR_SOUTH_EAST_ASIA: 15
+  possibleMissions:
+    - region: STR_ANTARCTICA
+      missions:
+        STR_ALIEN_BASE: 35
+        STR_ALIEN_RESEARCH: 25
+    - region: STR_ARCTIC
+      missions:
+        STR_ALIEN_BASE: 35
+        STR_ALIEN_RESEARCH: 25
+    - region: STR_AUSTRALASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 4
+        STR_ALIEN_BASE: 16
+        STR_ALIEN_HARVEST: 11
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 15
+    - region: STR_CENTRAL_ASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 6
+        STR_ALIEN_BASE: 8
+        STR_ALIEN_HARVEST: 5
+        STR_ALIEN_INFILTRATION: 10
+        STR_ALIEN_RESEARCH: 5
+    - region: STR_EUROPE
+      missions:
+        STR_ALIEN_ABDUCTION: 15
+        STR_ALIEN_BASE: 6
+        STR_ALIEN_HARVEST: 10
+        STR_ALIEN_INFILTRATION: 20
+        STR_ALIEN_RESEARCH: 10
+    - region: STR_INDIAN_OCEAN
+      missions: ~
+    - region: STR_NORTH_AFRICA
+      missions:
+        STR_ALIEN_ABDUCTION: 8
+        STR_ALIEN_BASE: 19
+        STR_ALIEN_HARVEST: 8
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 8
+    - region: STR_NORTH_AMERICA
+      missions:
+        STR_ALIEN_ABDUCTION: 20
+        STR_ALIEN_BASE: 20
+        STR_ALIEN_HARVEST: 17
+        STR_ALIEN_INFILTRATION: 20
+        STR_ALIEN_RESEARCH: 14
+    - region: STR_NORTH_ATLANTIC
+      missions: ~
+    - region: STR_PACIFIC
+      missions:
+        STR_ALIEN_BASE: 27
+        STR_ALIEN_RESEARCH: 15
+    - region: STR_SIBERIA
+      missions:
+        STR_ALIEN_ABDUCTION: 4
+        STR_ALIEN_BASE: 9
+        STR_ALIEN_RESEARCH: 6
+    - region: STR_SOUTHERN_AFRICA
+      missions:
+        STR_ALIEN_ABDUCTION: 8
+        STR_ALIEN_BASE: 9
+        STR_ALIEN_HARVEST: 8
+        STR_ALIEN_INFILTRATION: 8
+        STR_ALIEN_RESEARCH: 7
+    - region: STR_SOUTH_AMERICA
+      missions:
+        STR_ALIEN_ABDUCTION: 12
+        STR_ALIEN_BASE: 22
+        STR_ALIEN_HARVEST: 24
+        STR_ALIEN_INFILTRATION: 18
+        STR_ALIEN_RESEARCH: 10
+    - region: STR_SOUTH_ATLANTIC
+      missions: ~
+    - region: STR_SOUTH_EAST_ASIA
+      missions:
+        STR_ALIEN_ABDUCTION: 21
+        STR_ALIEN_BASE: 8
+        STR_ALIEN_HARVEST: 13
+        STR_ALIEN_INFILTRATION: 13
+        STR_ALIEN_RESEARCH: 8
+  missionLocations: {}
+  missionsRun: {}
+options:
+  displayWidth: 640
+  displayHeight: 400
+  fullscreen: false
+  asyncBlit: true
+  keyboardMode: 1
+  maxFrameSkip: 0
+  traceAI: false
+  verboseLogging: false
+  StereoSound: true
+  geoscapeScale: 0
+  battlescapeScale: 0
+  useScaleFilter: false
+  useHQXFilter: false
+  useXBRZFilter: false
+  useOpenGL: false
+  checkOpenGLErrors: false
+  useOpenGLShader: Shaders/Raw.OpenGL.shader
+  useOpenGLSmoothing: true
+  debug: false
+  debugUi: false
+  soundVolume: 0
+  musicVolume: 0
+  uiVolume: 0
+  language: en-US
+  battleScrollSpeed: 8
+  battleEdgeScroll: 0
+  battleDragScrollButton: 0
+  dragScrollTimeTolerance: 300
+  dragScrollPixelTolerance: 10
+  battleFireSpeed: 6
+  battleXcomSpeed: 30
+  battleAlienSpeed: 30
+  battleNewPreviewPath: 0
+  fpsCounter: false
+  globeDetail: true
+  globeRadarLines: true
+  globeFlightPaths: true
+  globeAllRadarsOnBaseBuild: true
+  audioSampleRate: 22050
+  audioBitDepth: 16
+  audioChunkSize: 1024
+  pauseMode: 0
+  battleNotifyDeath: false
+  showFundsOnGeoscape: false
+  allowResize: false
+  windowedModePositionX: 0
+  windowedModePositionY: 0
+  borderless: false
+  captureMouse: false
+  battleTooltips: true
+  keepAspectRatio: true
+  nonSquarePixelRatio: false
+  cursorInBlackBandsInFullscreen: false
+  cursorInBlackBandsInWindow: true
+  cursorInBlackBandsInBorderlessWindow: false
+  saveOrder: 3
+  geoClockSpeed: 80
+  dogfightSpeed: 30
+  geoScrollSpeed: 20
+  geoDragScrollButton: 2
+  preferredMusic: 0
+  preferredSound: 0
+  preferredVideo: 0
+  wordwrap: 0
+  musicAlwaysLoop: false
+  touchEnabled: false
+  rootWindowedMode: false
+  backgroundMute: false
+  soldierDiaries: true
+  playIntro: false
+  autosave: true
+  autosaveFrequency: 5
+  newSeedOnLoad: false
+  lazyLoadResources: true
+  mousewheelSpeed: 3
+  changeValueByMouseWheel: 0
+  maximizeInfoScreens: false
+  FPS: 60
+  FPSInactive: 30
+  vSyncForOpenGL: true
+  geoDragScrollInvert: false
+  aggressiveRetaliation: false
+  customInitialBase: false
+  allowBuildingQueue: false
+  craftLaunchAlways: false
+  storageLimitsEnforced: false
+  canSellLiveAliens: false
+  anytimePsiTraining: false
+  globeSeasons: false
+  globeSurfaceCache: true
+  psiStrengthEval: false
+  canTransferCraftsWhileAirborne: false
+  retainCorpses: false
+  fieldPromotions: false
+  battleDragScrollInvert: false
+  sneakyAI: false
+  battleUFOExtenderAccuracy: false
+  showMoreStatsInInventoryView: false
+  battleHairBleach: true
+  battleInstantGrenade: false
+  includePrimeStateInSavedLayout: false
+  battleExplosionHeight: 0
+  battleAutoEnd: false
+  battleSmoothCamera: false
+  disableAutoEquip: false
+  battleConfirmFireMode: false
+  weaponSelfDestruction: false
+  allowPsionicCapture: false
+  allowPsiStrengthImprovement: false
+  strafe: false
+  forceFire: true
+  skipNextTurnScreen: false
+  noAlienPanicMessages: false
+  alienBleeding: false
+  keyOk: 13
+  keyCancel: 27
+  keyScreenshot: 293
+  keyFps: 288
+  keyQuickSave: 286
+  keyQuickLoad: 290
+  keyGeoLeft: 276
+  keyGeoRight: 275
+  keyGeoUp: 273
+  keyGeoDown: 274
+  keyGeoZoomIn: 43
+  keyGeoZoomOut: 45
+  keyGeoSpeed1: 49
+  keyGeoSpeed2: 50
+  keyGeoSpeed3: 51
+  keyGeoSpeed4: 52
+  keyGeoSpeed5: 53
+  keyGeoSpeed6: 54
+  keyGeoIntercept: 105
+  keyGeoBases: 98
+  keyGeoGraphs: 103
+  keyGeoUfopedia: 117
+  keyGeoOptions: 27
+  keyGeoFunding: 102
+  keyGeoToggleDetail: 9
+  keyGeoToggleRadar: 114
+  keyBaseSelect1: 49
+  keyBaseSelect2: 50
+  keyBaseSelect3: 51
+  keyBaseSelect4: 52
+  keyBaseSelect5: 53
+  keyBaseSelect6: 54
+  keyBaseSelect7: 55
+  keyBaseSelect8: 56
+  keyBattleLeft: 276
+  keyBattleRight: 275
+  keyBattleUp: 273
+  keyBattleDown: 274
+  keyBattleLevelUp: 280
+  keyBattleLevelDown: 281
+  keyBattleCenterUnit: 278
+  keyBattlePrevUnit: 0
+  keyBattleNextUnit: 9
+  keyBattleDeselectUnit: 92
+  keyBattleUseLeftHand: 113
+  keyBattleUseRightHand: 101
+  keyBattleInventory: 105
+  keyBattleMap: 109
+  keyBattleOptions: 27
+  keyBattleEndTurn: 8
+  keyBattleAbort: 97
+  keyBattleStats: 115
+  keyBattleKneel: 107
+  keyBattleReload: 114
+  keyBattlePersonalLighting: 108
+  keyBattleReserveNone: 282
+  keyBattleReserveSnap: 283
+  keyBattleReserveAimed: 284
+  keyBattleReserveAuto: 285
+  keyBattleReserveKneel: 106
+  keyBattleZeroTUs: 127
+  keyBattleCenterEnemy1: 49
+  keyBattleCenterEnemy2: 50
+  keyBattleCenterEnemy3: 51
+  keyBattleCenterEnemy4: 52
+  keyBattleCenterEnemy5: 53
+  keyBattleCenterEnemy6: 54
+  keyBattleCenterEnemy7: 55
+  keyBattleCenterEnemy8: 56
+  keyBattleCenterEnemy9: 57
+  keyBattleCenterEnemy10: 48
+  keyBattleVoxelView: 291
+  keyInvCreateTemplate: 99
+  keyInvApplyTemplate: 118
+  keyInvClear: 120
+  keyInvAutoEquip: 122
+  oxceModValidationLevel: 2
+  oxceRawScreenShots: false
+  oxceFirstPersonViewFisheyeProjection: false
+  oxceThumbButtons: true
+  oxceThrottleMouseMoveEvent: 0
+  oxceDisableThinkingProgressBar: false
+  oxceEmbeddedOnly: false
+  oxceListVFSContents: false
+  oxceEnablePaletteFlickerFix: false
+  oxceRecommendedOptionsWereSet: false
+  password: secret
+  oxceStartUpTextMode: 0
+  oxceGeoscapeDebugLogMaxEntries: 1000
+  oxceGeoSlowdownFactor: 1
+  oxceGeoShowScoreInsteadOfFunds: false
+  oxceGeoEnableTrainingIndicator: false
+  oxceGeoSuppressRedundantHKAlert: true
+  oxceGeoSuppressLandingWithoutEquipment: false
+  oxceGeoGoToNearestBase: false
+  oxceGeoSortCraftByDistanceToTarget: false
+  oxceBaseInfoDefenseScaleMultiplier: 100
+  oxceBaseSoldierTransformationShowOnlyEligible: false
+  oxceBaseFilterResearchable: false
+  oxceBaseManufactureFallbackButton: false
+  oxceBaseManufactureInfinityButton: false
+  oxceBaseTouchButtons: false
+  oxceDisableAlienInventory: false
+  oxceDisableHitLog: false
+  oxceDisableInventoryTuCost: false
+  oxceDisableProductionDependencyTree: false
+  oxceDisableStatsForNerds: false
+  oxceDisableTechTreeViewer: false
+  oxceTogglePersonalLightType: 1
+  oxceToggleNightVisionType: 1
+  oxceToggleBrightnessType: 0
+  oxceShowBurningAsWounded: false
+  oxceDisableInfoOnThrowCursor: false
+  oxceSwapDontReselectActions: false
+  oxceEnableUnitResponseSounds: true
+  oxceHiddenMovementBackgroundChangeFrequency: 1
+  oxceInventoryShowUnitSlot: false
+  oxceReplaceNotesLink: false
+  oxceInventorySplitScrollButton: false
+  oxceInventoryDropItemOverPaperdoll: false
+  oxceInventoryUnloadFixedWeapons: false
+  oxceMaxEquipmentLayoutTemplates: 20
+  oxceUpdateCheck: false
+  autosaveSlots: 1
+  oxceGeoAutosaveFrequency: 0
+  oxceGeoAutosaveSlots: 1
+  oxceLinks: false
+  oxceLinksDisableTextEdit: false
+  oxceFatFingerLinks: false
+  oxceBattleTouchButtonsEnabled: false
+  oxceQuickSearchButton: false
+  oxceHighlightNewTopics: true
+  oxcePediaShowClipSize: false
+  oxceInterceptTableSize: 8
+  oxceEnableSlackingIndicator: true
+  oxceInterceptGuiMaintenanceTime: 2
+  oxceShowETAMode: 0
+  oxceUfoLandingAlert: false
+  oxceRememberDisabledCraftWeapons: false
+  oxceGeoscapeEventsInstantDelivery: true
+  oxceShowBaseNameInPopups: false
+  oxceAlternateCraftEquipmentManagement: false
+  oxceBaseInfoScaleEnabled: false
+  oxceResearchScrollSpeed: 1
+  oxceResearchScrollSpeedWithCtrl: 10
+  oxceManufactureFilterSuppliesOK: false
+  oxceManufactureScrollSpeed: 1
+  oxceManufactureScrollSpeedWithCtrl: 10
+  oxcePersonalLayoutIncludingArmor: true
+  oxceManualPromotions: false
+  oxceWoundedDefendBaseIf: 100
+  oxcePlayBriefingMusicDuringEquipment: false
+  oxceNightVisionColor: 5
+  oxceAutoNightVisionThreshold: 15
+  oxceShowAccuracyOnCrosshair: 1
+  oxceReactionFireThreshold: 0
+  oxceAutoSell: false
+  oxceAutomaticPromotions: true
+  oxceEnableOffCentreShooting: false
+  oxceUniformShootingSpread: false
+  oxceCrashedOrLanded: 0
+  keyToggleQuickSearch: 113
+  keyInstaSave: 287
+  keyGeoUfoTracker: 116
+  keyGeoTechTreeViewer: 113
+  keyGeoGlobalProduction: 112
+  keyGeoGlobalResearch: 99
+  keyGeoGlobalAlienContainment: 106
+  keyGeoDailyPilotExperience: 101
+  keyGraphsZoomIn: 270
+  keyGraphsZoomOut: 269
+  keyBasescapeBuildNewBase: 110
+  keyBasescapeBaseInformation: 105
+  keyBasescapeSoldiers: 115
+  keyBasescapeEquipCraft: 101
+  keyBasescapeBuildFacilities: 102
+  keyBasescapeResearch: 114
+  keyBasescapeManufacture: 109
+  keyBasescapeTransfer: 116
+  keyBasescapePurchase: 112
+  keyBasescapeSell: 108
+  keyRemoveSoldiersFromTraining: 120
+  keyAddSoldiersToTraining: 122
+  keyCraftLoadoutSave: 286
+  keyCraftLoadoutLoad: 290
+  keyRemoveSoldiersFromAllCrafts: 120
+  keyRemoveSoldiersFromCraft: 122
+  keyRemoveEquipmentFromCraft: 120
+  keyRemoveArmorFromAllCrafts: 120
+  keyRemoveArmorFromCraft: 122
+  keyInventorySave: 286
+  keyInventoryLoad: 290
+  keyInvSavePersonalEquipment: 115
+  keyInvLoadPersonalEquipment: 108
+  keyInvShowPersonalEquipment: 112
+  keyInventoryArmor: 97
+  keyInventoryAvatar: 109
+  keyInventoryDiaryLight: 100
+  keySellAll: 120
+  keySellAllButOne: 122
+  keyTransferAll: 120
+  keyMarkAllAsSeen: 120
+  keyBattleUnitUp: 0
+  keyBattleUnitDown: 0
+  keyBattleShowLayers: 0
+  keyBattleUseSpecial: 119
+  keyBattleActionItem1: 49
+  keyBattleActionItem2: 50
+  keyBattleActionItem3: 51
+  keyBattleActionItem4: 52
+  keyBattleActionItem5: 53
+  keyNightVisionToggle: 302
+  keyNightVisionHold: 32
+  keySelectMusicTrack: 279
+  EnableHostOnlyTimeSpeed: false
+  EnableResearchSync: false
+  UnbalancedCraftSoldiersLimit: false
+  EnableReactionFirePvp: true
+  EnableOtherPlayerFootsteps: true
+  coopFollowPeerActions: false
+  EnableXcomEquipmentAliensPVP: true
+  debugMode: true
+  logInfoToFile: false
+  logPacketMessages: false
+  EnableHotseatDebugMode: false
+  coopCancelOnEnemySpotted: true
+  coopCancelOnOwnUnitHit: true
+  coopCancelOnVisibilityGain: true
+  coopCancelOnAnyPartnerAction: false
+  coopIntentTimeoutSeconds: 10
+  CoopTurnMode: parallel
+  coopGhostStepper: true
+  keyChat: 257
+  giveUnit: 258
