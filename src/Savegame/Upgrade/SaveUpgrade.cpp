@@ -724,7 +724,10 @@ DetectedSchema SchemaDetector::detectFromReaders(const YAML::YamlNodeReader& hea
 	// plays as one world ends at SAVE_SCHEMA_CURRENT. A file that still holds the
 	// other player's world, or the record of a battle the alien host played in
 	// the X-COM player's world, keeps one world per player whatever its stamp.
-	const bool pvpSave = header["coopCampaignType"].readVal<int>(0) == 0
+	// A PvP campaign save: a co-op campaign (header "coop"; a Custom Battle
+	// save carries none) of game mode 2 or 3 in a Separate-type save.
+	const bool pvpSave = header["coop"].readVal(false)
+		&& header["coopCampaignType"].readVal<int>(0) == 0
 		&& (d.gamemode == 2 || d.gamemode == 3);
 	const bool pvpToOneWorld = pvpSave && d.target == SAVE_SCHEMA_CURRENT;
 	bool pvpTwoWorldContent = static_cast<bool>(header["coopPvpBorrowed"]);
