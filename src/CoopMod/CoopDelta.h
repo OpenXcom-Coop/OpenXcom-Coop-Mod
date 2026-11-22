@@ -749,6 +749,12 @@ void coopDrawProbeProjectile(bool inFov);
 void coopDrawProbeFollow(bool moved, const Position& bulletTile);
 Json::Value coopDrawProbe();
 
+// ----- TEST-ONLY side-change reveal probe. The host's side_transition emit records, right before it builds the
+// envelope's hash, which reveal sets still hold bits the client has not been sent (the last 8: {turn, newSide, hostile,
+// player}); coopSideChangeRevealProbe() reads them (event_state `sideChangeReveal`). Probe storage only; never reset.
+void coopNoteSideChangeReveal(SavedBattleGame* save);
+Json::Value coopSideChangeRevealProbe();
+
 // ----- TEST-ONLY walk-pace probe. UnitWalkBState counts, per
 // walking unit, each step it starts animated (setNormalWalkSpeed) or instant (state interval 0); coopWalkPace() reads it
 // (event_state `walkPace` {id: {animated, instant}}). Probe storage only; never reset (cells read deltas).

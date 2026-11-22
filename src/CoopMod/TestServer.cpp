@@ -9265,6 +9265,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["projectileSkips"] = coopProjectileSkips();
 		// The TEST-ONLY draw probe (CoopDelta.h).
 		resp["drawProbe"] = coopDrawProbe();
+		resp["sideChangeReveal"] = coopSideChangeRevealProbe(); // the TEST-ONLY side-change reveal probe (CoopDelta.h)
 		resp["walkPace"] = coopWalkPace(); // the TEST-ONLY walk-pace probe (CoopDelta.h)
 		// Per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current

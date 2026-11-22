@@ -2187,6 +2187,29 @@ bool attachDelta(SavedBattleGame* battle, Json::Value& env)
 	return true;
 }
 
+void attachOtherSides(SavedBattleGame* battle, Json::Value& env)
+{
+	if (!battle || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	const CoopFog::Side acting = CoopFog::actingSide(battle);
+	static const CoopFog::Side kTracked[2] = { CoopFog::Side::Player, CoopFog::Side::Hostile };
+	std::lock_guard<std::mutex> lock(g_revealMutex);
+	for (const CoopFog::Side side : kTracked)
+	{
+		if (side == acting)
+			continue; // the acting side's delta is attachDelta()'s, at the emit choke
+		Json::Value delta(Json::objectValue);
+		if (!computeDelta(battle, &delta, side))
+			continue;
+		if (!delta.isMember("side"))
+			delta["side"] = CoopFog::sideName(side); // explicit inside revealOther
+		Log(LOG_INFO) << "[coop-reveal] attached reveal delta (" << (delta["add"].size() / 2u)
+			<< " tiles, side=" << CoopFog::sideName(side) << ") to "
+			<< env.get("kind", "-").asString() << " as revealOther";
+		env["revealOther"].append(delta);
+	}
+}
+
 void flushQuiescent()
 {
 	if (!isCoopBattle())
@@ -2355,17 +2378,10 @@ void armHostileBaseline()
 	g_hostileBaseNeeded = true;
 }
 
-void applyFrom(SavedBattleGame* battle, const Json::Value& env)
+/// CLIENT: apply ONE reveal delta object @a d (an envelope's `reveal`, or one entry of its `revealOther`).
+static void applyOneDelta(SavedBattleGame* battle, const Json::Value& d, std::uint32_t seq, const std::string& kind)
 {
-	if (!battle || !env.isMember("reveal") || !env["reveal"].isObject())
-		return;
-
-	const Json::Value& d = env["reveal"];
 	const int n = battle->getMapSizeXYZ();
-	const std::uint32_t seq = env.get("seq", 0u).asUInt();
-	const std::string kind = env.isMember("kind")
-		? env.get("kind", "?").asString()
-		: env.get("state", "?").asString();
 
 	// NO RECEIVE-SIDE FILTERING. Every machine applies EVERY delta into
 	// the set the delta NAMES - that is what keeps both sides' sets equal on both
@@ -2465,6 +2481,28 @@ void applyFrom(SavedBattleGame* battle, const Json::Value& env)
 		Log(LOG_INFO) << "[coop-reveal] applied add delta at seq " << seq << " (side="
 			<< CoopFog::sideName(side) << ", " << (add.size() / 2u) << " tiles, "
 			<< applied << " parts newly discovered)";
+	}
+}
+
+void applyFrom(SavedBattleGame* battle, const Json::Value& env)
+{
+	if (!battle)
+		return;
+	const std::uint32_t seq = env.get("seq", 0u).asUInt();
+	const std::string kind = env.isMember("kind")
+		? env.get("kind", "?").asString()
+		: env.get("state", "?").asString();
+	if (env.isMember("reveal") && env["reveal"].isObject())
+		applyOneDelta(battle, env["reveal"], seq, kind);
+	// A side change also carries every other side's bits still unpublished when its hash was built
+	// (attachOtherSides): applied with it, so this machine holds the sets that hash counts.
+	if (env.isMember("revealOther") && env["revealOther"].isArray())
+	{
+		for (const Json::Value& other : env["revealOther"])
+		{
+			if (other.isObject())
+				applyOneDelta(battle, other, seq, kind);
+		}
 	}
 }
 
@@ -9883,6 +9921,32 @@ Json::Value coopDrawProbe()
 	}
 	r["followTiles"] = ft;
 	return r;
+}
+
+// the TEST-ONLY side-change reveal probe - see CoopDelta.h. Main thread (the host's side-change emit and TestServer).
+// Never reset, so a test reads it after a desync repair has reloaded the battle.
+static std::deque<Json::Value> g_coopSideChangeReveal;
+
+void coopNoteSideChangeReveal(SavedBattleGame* save)
+{
+	if (!save)
+		return;
+	Json::Value r(Json::objectValue);
+	r["turn"] = save->getTurn();
+	r["newSide"] = (int)save->getSide();
+	r["hostile"] = CoopReveal::hasUnpublishedSide(save, CoopFog::Side::Hostile);
+	r["player"] = CoopReveal::hasUnpublishedSide(save, CoopFog::Side::Player);
+	g_coopSideChangeReveal.push_back(r);
+	while (g_coopSideChangeReveal.size() > 8)
+		g_coopSideChangeReveal.pop_front();
+}
+
+Json::Value coopSideChangeRevealProbe()
+{
+	Json::Value a(Json::arrayValue);
+	for (const Json::Value& r : g_coopSideChangeReveal)
+		a.append(r);
+	return a;
 }
 
 // the TEST-ONLY walk-pace probe - see CoopDelta.h. Main thread.
@@ -19460,7 +19524,12 @@ void coopEmitSideTransition(SavedBattleGame* save)
 	// no hash bucket.
 	payload["cheating"] = save->isCheating();
 
+	coopNoteSideChangeReveal(save); // coop: TEST-ONLY probe (what is still unpublished as the hash is built)
 	ev["h"] = coopBuildSideTransitionHash(save);
+	// Every reveal bit that hash counts must reach the client with this envelope: the acting side's rides it
+	// through the emit choke (attachDelta), every other side's here. Sent in a later envelope, the client would
+	// check this hash without them (e.g. alien sight re-swept here because endTurn turned the aliens' turrets back).
+	CoopReveal::attachOtherSides(save, ev);
 
 	CoopEmit::sendEv(ev);
 

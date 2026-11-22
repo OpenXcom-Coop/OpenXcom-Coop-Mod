@@ -107,6 +107,12 @@ bool hasUnpublishedSide(SavedBattleGame* battle, CoopFog::Side side);
 /// bt_action_end both get it with no per-atom code.
 bool attachDelta(SavedBattleGame* battle, Json::Value& env);
 
+/// HOST: a side change's envelope (coopEmitSideTransition) carries a hash of BOTH sets, so every bit that hash
+/// counts must reach the client with it. attachDelta() attaches the acting side's delta at the emit choke; this
+/// attaches every OTHER tracked side's live-vs-published delta to @a env as entries of `revealOther` (each with
+/// its `side`), marking those bits published. Called right after the hash is built, before CoopEmit::sendEv().
+void attachOtherSides(SavedBattleGame* battle, Json::Value& env);
+
 /// HOST: the standalone quiescent flush. Emits ONE
 /// bt_ev{kind:"reveal"} through the real CoopEmit::sendEv() (real seq, delta
 /// attached by attachDelta() above) when, and only when, all of: this is an
@@ -134,17 +140,16 @@ bool emitPendingBaseline();
 /// by CoopEmit::sendEv() right after the envelope it follows, and by
 /// flushQuiescent() when only a non-acting side owes bits. Idempotent.
 ///
-/// This is also the FLUSH-BEFORE-ANY-SWEEP-THAT-HASHES-THE-SET rule in
-/// practice: by the time an envelope has left this choke, BOTH sets' pending
-/// deltas are on the wire, so a boundary sweep whose `h` carries
-/// `revealHostile` can never race its own unpublished bits.
+/// These evs follow the envelope, so the client applies them AFTER it: an envelope whose `h` counts a
+/// non-acting side's set (a side change's `revealHostile`) must carry that side's bits itself -
+/// attachOtherSides().
 void emitPendingOtherSides();
 
 /// HOST: arm emitPendingBaseline(). Called once, when the host's battle reaches
 /// phase Active.
 void armHostileBaseline();
 
-/// CLIENT: apply @a env's `reveal` field to @a battle, if present.
+/// CLIENT: apply @a env's `reveal` field to @a battle, if present, then each entry of its `revealOther`.
 /// Handles both shapes: `add` (sparse delta) and
 /// `base` (absolute restate - `n` must equal getMapSizeXYZ() or this raises a
 /// desync and applies NOTHING). Safe to call for every applied envelope: a
