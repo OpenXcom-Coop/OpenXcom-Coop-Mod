@@ -128,6 +128,22 @@ void BattlescapeMessage::setProgressValue(int progress)
 }
 
 /**
+ * coop: the progress bar's value (TEST-ONLY battle_state probe).
+ */
+int BattlescapeMessage::getProgressValue() const
+{
+	return _progressBar->getValue();
+}
+
+/**
+ * coop: the progress bar's colour, 0 until a value was set through Map::refreshAIProgress (TEST-ONLY probe).
+ */
+Uint8 BattlescapeMessage::getProgressColor() const
+{
+	return _progressBar->getColor();
+}
+
+/**
  * Changes the various resources needed for text rendering.
  * The different fonts need to be passed in advance since the
  * text size can change mid-text, and the language affects

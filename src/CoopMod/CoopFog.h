@@ -267,9 +267,11 @@ bool coopTileDiscoveredHere(const Tile* tile, TilePart part);
 
 /// The side-relative
 /// replacement for `Tile::getVisible()` at Map::draw's projectile / explosion field-of-view tests. Vanilla's X-COM
-/// tile-sight count outside an active co-op battle, with the visibility rule test hook off and on a player-side seat (so
-/// single player and co-op are byte-identical); for a seat commanding a non-player side, one of its side's live units
-/// sees the tile now by vanilla's tile-sight geometry for that one tile. PRESENTATION-ONLY: reads positions, facings
+/// tile-sight count outside an active co-op battle, with the visibility rule test hook off and on a co-op host's
+/// player-side seat (so single player and the host are byte-identical); for a client's player-side seat, that count
+/// (a client never counts tile sight, so it holds only the tiles of spotted units) or its side's tile sight below; for
+/// a seat commanding a non-player side, one of its side's live units sees the tile now by vanilla's tile-sight
+/// geometry for that one tile. PRESENTATION-ONLY: reads positions, facings
 /// and the terrain-blockage cache, writes nothing, never authors discovered bits.
 bool coopTileSeenHere(const Tile* t);
 

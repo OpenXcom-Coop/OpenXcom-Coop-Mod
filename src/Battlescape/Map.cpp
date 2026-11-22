@@ -341,6 +341,7 @@ void Map::draw()
 		{
 			_projectileInFOV = true;
 		}
+		coopDrawProbeProjectile(_projectileInFOV); // coop: TEST-ONLY draw probe
 	}
 	_explosionInFOV = _save->getDebugMode();
 	if (!_explosions.empty())
@@ -395,6 +396,16 @@ void Map::refreshAIProgress(int progress)
 		_message->setProgressBarColor(_hostileBarColor, _borderBarColor);
 	}
 	_message->setProgressValue(progress);
+}
+
+int Map::getAIProgressValue() const
+{
+	return _message->getProgressValue();
+}
+
+int Map::getAIProgressColor() const
+{
+	return _message->getProgressColor();
 }
 
 /**
@@ -518,13 +529,18 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 		return;
 	}
 	BattleUnit* bu = unitTile->getOverlappingUnit(_save, TUO_ALWAYS);
-	if (!bu) bu = CoopGhost::trailingUnitOverTile(_save, unitTile); // coop ghost, no-op in SP
+	bool coopTrailing = false; // coop: a walk ghost's pass over the tile its unit has already left
+	if (!bu)
+	{
+		bu = CoopGhost::trailingUnitOverTile(_save, unitTile); // coop ghost, no-op in SP
+		coopTrailing = bu != nullptr;
+	}
 	Position unitOffset;
 	bool unitFromBelow = false;
 	bool unitFromAbove = false;
 	if (bu)
 	{
-		if (bu != unitTile->getUnit())
+		if (bu != unitTile->getUnit() && !coopTrailing) // coop: the trailing unit stands on its own level, not below
 		{
 			unitFromBelow = true;
 		}
@@ -558,6 +574,17 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	// battle, with the option off, or with no ghost running for `bu`.
 	CoopUnitDrawView view = CoopUnitDrawView::fromUnit(bu);
 	CoopGhost::view(bu, &view);
+	if (coopTrailing)
+	{
+		// coop: vanilla draws a walker from the tile it stands on onto each tile of its step, at ONE screen
+		// position, each pass clipped to its own tile. The ghost's sprite stands on its view's tile, so the pass
+		// over the tile it left draws from there too (same position, this tile's clip), never from the left tile.
+		unitTile = _save->getTile(view.pos);
+		if (!unitTile)
+		{
+			return;
+		}
+	}
 
 	unitOffset.x = unitTile->getPosition().x - view.pos.x;
 	unitOffset.y = unitTile->getPosition().y - view.pos.y;
@@ -756,6 +783,7 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	{
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
+	coopDrawProbeUnit(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y); // coop: TEST-ONLY draw probe
 	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed, &view);
 }
 
@@ -769,6 +797,7 @@ void Map::drawTerrain(Surface *surface)
 	_isAltPressed = _game->isAltPressed(true);
 	_isCtrlPressed = _game->isCtrlPressed(true);
 	coopDrawProbeFrame(); // coop: TEST-ONLY draw probe (one drawTerrain frame)
+	CoopGhost::beginDraw(SDL_GetTicks()); // coop: one ghost clock per frame (no-op reads in SP)
 	int frameNumber = 0;
 	SurfaceRaw<const Uint8> tmpSurface;
 	Tile *tile;
@@ -819,6 +848,7 @@ void Map::drawTerrain(Surface *surface)
 		// if the projectile is outside the viewport - center it back on it
 		_camera->convertVoxelToScreen(_projectile->getPosition(), &bulletPositionScreen);
 
+		const Position coopCamBefore = _camera->getMapOffset(); // coop: TEST-ONLY draw probe
 		if (_projectileInFOV && _followProjectile)
 		{
 			Position newCam = _camera->getMapOffset();
@@ -887,6 +917,7 @@ void Map::drawTerrain(Surface *surface)
 				while (!enough);
 			}
 		}
+		coopDrawProbeFollow(_camera->getMapOffset() != coopCamBefore, Position(bulletLowX, bulletLowY, bulletHighZ)); // coop: TEST-ONLY draw probe
 	}
 
 	// get corner map coordinates to give rough boundaries in which tiles to redraw are

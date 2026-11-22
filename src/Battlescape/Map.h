@@ -130,6 +130,9 @@ public:
 	/// TRUE => drawTerrain(); FALSE => the HIDDEN MOVEMENT message.
 	bool hiddenMovementShown() const;
 	void refreshAIProgress(int progress);
+	/// coop: the HIDDEN MOVEMENT screen's progress bar value and colour (TEST-ONLY battle_state probe).
+	int getAIProgressValue() const;
+	int getAIProgressColor() const;
 	/// Sets the palette.
 	void setPalette(const SDL_Color *colors, int firstcolor = 0, int ncolors = 256) override;
 	void refreshHiddenMovementBackground();

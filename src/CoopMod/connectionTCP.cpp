@@ -21,6 +21,7 @@
 #include "connectionTCP.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -5771,7 +5772,63 @@ void coopSideSeenApplyFrom(const Json::Value& ev)
 	g_coopSideSeen.have = true;
 }
 
+// ---------------------------------------------------------------------------
+// The HIDDEN MOVEMENT screen's AI progress bar on both machines. Vanilla feeds it from the AI loop only
+// (BattlescapeState::think -> Map::refreshAIProgress, after each BattlescapeGame::handleAI); a co-op client runs no AI,
+// so its bar never moves. The HOST notes each value its bar takes (coopNoteAiProgress); CoopEmit::sendEv's outermost
+// host call attaches the value as the envelope field `aip` when it changed since the last envelope that carried one;
+// the CLIENT applies it to its own bar in CoopDisplayQueue::onApplied() (Map::refreshAIProgress: vanilla's colour for
+// the side, then the value). Display only: not serialized, not hashed.
+// ---------------------------------------------------------------------------
+struct CoopAiProgressStore
+{
+	unsigned int gen = 0;
+	int value = -1; // the host bar's latest value this battle (-1: none yet)
+	int sent = -1;  // the value the last `aip` carried
+};
+CoopAiProgressStore g_coopAiProgress;
+
+void coopAiProgressSync()
+{
+	const unsigned int g = g_coopCombatGen.load();
+	if (g_coopAiProgress.gen != g)
+	{
+		g_coopAiProgress = CoopAiProgressStore();
+		g_coopAiProgress.gen = g;
+	}
+}
+
+/// HOST, CoopEmit::sendEv's outermost `hostAuthoring` call (beside the hit-log attach).
+void coopAiProgressAttach(Json::Value& ev)
+{
+	coopAiProgressSync();
+	if (g_coopAiProgress.value < 0 || g_coopAiProgress.value == g_coopAiProgress.sent)
+		return;
+	ev["aip"] = g_coopAiProgress.value;
+	g_coopAiProgress.sent = g_coopAiProgress.value;
+}
+
+/// CLIENT, CoopDisplayQueue::onApplied() beside the hit-log apply. Presence-gated; a no-op on the host and with no live
+/// BattlescapeState.
+void coopAiProgressApplyFrom(SavedBattleGame* save, const Json::Value& ev)
+{
+	if (!ev.isObject() || !ev.isMember("aip") || !save || coopBattleAuthority().hostSim)
+		return;
+	BattlescapeState* bs = save->getBattleState();
+	if (!bs || !connectionTCP::isBattlescapeStateLive(bs) || !bs->getMap())
+		return;
+	bs->getMap()->refreshAIProgress(ev["aip"].asInt());
+}
+
 } // namespace
+
+void coopNoteAiProgress(int progress)
+{
+	if (!coopHitLogHostRecording())
+		return;
+	coopAiProgressSync();
+	g_coopAiProgress.value = progress;
+}
 
 // see BattleAuthority.h and the block above.
 bool coopSideSeesUnit(int faction, const BattleUnit* u)
@@ -6140,6 +6197,9 @@ void sendEv(Json::Value ev)
 	// ride this envelope as `hitLog` - the same host, outermost-call test as the delta (coopHitLogAttach()).
 	if (hostAuthoring && g_sendEvDepth == 1)
 		coopHitLogAttach(ev);
+	// the host's AI progress bar value rides this envelope as `aip` when it changed (coopAiProgressAttach()).
+	if (hostAuthoring && g_sendEvDepth == 1)
+		coopAiProgressAttach(ev);
 	// the units the human-commanded hostile side sees now ride this envelope as `seen` (gm2 / gm3
 	// only; absent in classic / SHARED co-op) - the same host, outermost-call test as the delta (coopSideSeenAttach()).
 	if (hostAuthoring && g_sendEvDepth == 1)
@@ -9657,8 +9717,12 @@ bool coopTileSeenHere(const Tile* t)
 	if (!isCoopBattle() || !coopBattleAuthority().visibilityRuleOn.load())
 		return t->getVisible() != 0;
 	const int mine = coopBattleAuthority().factionOf(coopBattleAuthority().localSeat.load());
-	if (mine == (int)FACTION_PLAYER)
+	if (mine == (int)FACTION_PLAYER && coopBattleAuthority().hostSim)
 		return t->getVisible() != 0;
+	// A co-op CLIENT never counts tile sight (TileEngine::calculateTilesInFOV leaves it to the host), so its counter
+	// holds only the tiles of units its side spots: a player-side client keeps those and adds its side's tile sight below.
+	if (mine == (int)FACTION_PLAYER && t->getVisible() != 0)
+		return true;
 	SavedBattleGame* save = connectionTCP::getStaticBattle();
 	TileEngine* te = save ? save->getTileEngine() : nullptr;
 	if (!te)
@@ -9713,6 +9777,14 @@ struct CoopDrawProbe
 	int arrowUnit = -1;
 	unsigned int arrowFrame = 0;
 	std::map<int, std::pair<bool, unsigned int>> marks; // unit id -> (motion scan, the frame it was drawn in)
+	std::map<int, std::array<int, 3>> unitFirst; // this frame: unit id -> its first draw's {part, x, y}
+	unsigned int unitDraws = 0;
+	unsigned int unitSplitDraws = 0;
+	Json::Value unitSplitLast; // null until the first split draw
+	unsigned int projFrames = 0;
+	unsigned int projInFovFrames = 0;
+	unsigned int followFrames = 0;
+	std::deque<std::array<int, 4>> followTiles; // the last 32 follow moves: {n, x, y, z}
 };
 CoopDrawProbe g_coopDrawProbe;
 
@@ -9721,6 +9793,50 @@ CoopDrawProbe g_coopDrawProbe;
 void coopDrawProbeFrame()
 {
 	++g_coopDrawProbe.frame;
+	g_coopDrawProbe.unitFirst.clear();
+}
+
+void coopDrawProbeUnit(const BattleUnit* u, int part, int x, int y)
+{
+	if (!u)
+		return;
+	++g_coopDrawProbe.unitDraws;
+	const std::array<int, 3> now = { part, x, y };
+	auto ins = g_coopDrawProbe.unitFirst.emplace(u->getId(), now);
+	if (ins.second || u->getArmor()->getSize() != 1)
+		return;
+	const std::array<int, 3>& first = ins.first->second;
+	if (first[1] == x && first[2] == y)
+		return;
+	++g_coopDrawProbe.unitSplitDraws;
+	Json::Value r(Json::objectValue);
+	r["frame"] = g_coopDrawProbe.frame;
+	r["unit"] = u->getId();
+	Json::Value a(Json::arrayValue), b(Json::arrayValue);
+	for (int v : first)
+		a.append(v);
+	for (int v : now)
+		b.append(v);
+	r["first"] = a;
+	r["other"] = b;
+	g_coopDrawProbe.unitSplitLast = r;
+}
+
+void coopDrawProbeProjectile(bool inFov)
+{
+	++g_coopDrawProbe.projFrames;
+	if (inFov)
+		++g_coopDrawProbe.projInFovFrames;
+}
+
+void coopDrawProbeFollow(bool moved, const Position& bulletTile)
+{
+	if (!moved)
+		return;
+	++g_coopDrawProbe.followFrames;
+	g_coopDrawProbe.followTiles.push_back({ (int)g_coopDrawProbe.followFrames, bulletTile.x, bulletTile.y, bulletTile.z });
+	while (g_coopDrawProbe.followTiles.size() > 32)
+		g_coopDrawProbe.followTiles.pop_front();
 }
 
 void coopDrawProbeArrow(const BattleUnit* u)
@@ -9751,6 +9867,21 @@ Json::Value coopDrawProbe()
 		marks.append(e);
 	}
 	r["marks"] = marks;
+	r["unitDraws"] = g_coopDrawProbe.unitDraws;
+	r["unitSplitDraws"] = g_coopDrawProbe.unitSplitDraws;
+	r["unitSplitLast"] = g_coopDrawProbe.unitSplitLast;
+	r["projFrames"] = g_coopDrawProbe.projFrames;
+	r["projInFovFrames"] = g_coopDrawProbe.projInFovFrames;
+	r["followFrames"] = g_coopDrawProbe.followFrames;
+	Json::Value ft(Json::arrayValue);
+	for (const auto& f : g_coopDrawProbe.followTiles)
+	{
+		Json::Value e(Json::arrayValue);
+		for (int v : f)
+			e.append(v);
+		ft.append(e);
+	}
+	r["followTiles"] = ft;
 	return r;
 }
 
@@ -24331,6 +24462,19 @@ struct GhostReplay
 // CoopPump::reset()'s battle-teardown chokepoint, alongside CoopReveal's own
 // battle-scoped storage).
 std::map<int, GhostReplay> g_coopGhosts;
+// The display clock of the frame Map::drawTerrain is drawing (CoopGhost::beginDraw); 0 before the first frame. Every
+// ghost view of one frame reads it, so all passes of one unit in a frame draw the same pose.
+std::uint32_t g_ghostDrawNowMs = 0;
+std::uint32_t ghostDrawClock()
+{
+	return g_ghostDrawNowMs ? g_ghostDrawNowMs : SDL_GetTicks();
+}
+/// The time a ghost started at @a startedAtMs has run by this frame's clock (0 for one started after the frame's stamp).
+std::uint32_t ghostDrawElapsed(std::uint32_t startedAtMs)
+{
+	const std::uint32_t now = ghostDrawClock();
+	return now > startedAtMs ? now - startedAtMs : 0u;
+}
 std::atomic<unsigned int> g_ghostEnqueued{0};
 std::atomic<unsigned int> g_ghostCompleted{0};
 
@@ -26855,7 +26999,7 @@ bool fallView(const BattleUnit* u, CoopUnitDrawView* io)
 	const Position canon = u->getPosition();
 	if (canon.x != g->from.x || canon.y != g->from.y)
 		return false;
-	const FallPose f = fallPoseAt(*g, canon, SDL_GetTicks() - g->startedAtMs);
+	const FallPose f = fallPoseAt(*g, canon, ghostDrawElapsed(g->startedAtMs));
 	if (f.past)
 		return false;
 	io->status = (int)STATUS_FLYING;
@@ -27443,7 +27587,7 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 		return false;
 
 	const GhostReplay& g = it->second;
-	const std::uint32_t elapsed = SDL_GetTicks() - g.startedAtMs;
+	const std::uint32_t elapsed = ghostDrawElapsed(g.startedAtMs);
 	const std::uint32_t duration = g.durationMs; // fixed at enqueue, never recomputed
 	const float progress = duration > 0
 		? std::min(1.0f, (float)elapsed / (float)duration)
@@ -27486,6 +27630,11 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io)
 	}
 	io->ghostTrailing = true;
 	return true;
+}
+
+void beginDraw(std::uint32_t nowMs)
+{
+	g_ghostDrawNowMs = nowMs;
 }
 
 BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile)
@@ -28278,6 +28427,8 @@ void onApplied(const Json::Value& ev)
 	coopHitLogApplyFrom(save, ev);
 	// the hostile side's `seen` list this envelope carries replaces the kept one. Presence-gated.
 	coopSideSeenApplyFrom(ev);
+	// the host's AI progress bar value this envelope carries, on this machine's bar. Presence-gated.
+	coopAiProgressApplyFrom(save, ev);
 
 	const std::string state = ev.get("state", "").asString();
 

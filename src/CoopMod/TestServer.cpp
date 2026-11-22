@@ -15729,6 +15729,10 @@ std::string TestServer::execute(const std::string& line)
 					// own value on THIS machine. TRUE => the terrain is drawn; FALSE =>
 					// the HIDDEN MOVEMENT message is blitted instead. Read-only.
 					resp["hiddenMovementShown"] = bsForInput ? bsForInput->getMap()->hiddenMovementShown() : false;
+					// The HIDDEN MOVEMENT screen's AI progress bar on THIS machine: its value
+					// and colour (0 until Map::refreshAIProgress ran). Read-only.
+					resp["aiProgress"] = bsForInput ? bsForInput->getMap()->getAIProgressValue() : -1;
+					resp["aiProgressColor"] = bsForInput ? bsForInput->getMap()->getAIProgressColor() : -1;
 				}
 				// The _txtCoopWait deny/cancel/desync banner's current
 				// text (empty = hidden) - test introspection only, proves
