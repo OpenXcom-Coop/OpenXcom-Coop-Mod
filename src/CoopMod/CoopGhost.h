@@ -122,6 +122,17 @@ bool view(const BattleUnit* u, CoopUnitDrawView* io);
 /// ONLY - never touches @a save or @a tile.
 BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile);
 
+/// The unit of the walk ghost started last, when it stands on that step's destination (where the apply put it), or
+/// nullptr. Map::drawTerrain draws it with vanilla's moving-unit passes (the ones UnitWalkBState's
+/// TileEngine::addMovingUnit drives on the host): from the tile it stands on into the pass of every tile its sprite
+/// overlaps, a diagonal step's side tile included. trailingUnitOverTile() leaves this unit to them. READS ONLY.
+BattleUnit* walkingUnit(const SavedBattleGame* save);
+
+/// Map::drawTerrain, once per frame before any unit is drawn: @a nowMs (SDL ticks) is the clock every view() of this
+/// frame reads, so the passes that draw one unit onto the tiles of its step all draw the same pose (vanilla's walk phase
+/// is unit state that changes between frames, never inside one). Display only.
+void beginDraw(std::uint32_t nowMs);
+
 /// Enqueues the ghost for one applied `bt_ev` - called from
 /// CoopDisplayQueue::onApplied() (connectionTCP.cpp) for `ev.kind` in
 /// {"turn","kneel","walk_step"}, BEFORE CoopApply::applyEvPayload() mutates

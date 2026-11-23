@@ -926,6 +926,7 @@ void BattlescapeState::think()
 			if (ret > -1)
 			{
 				_map->refreshAIProgress(100 - ret); // progress = 100 - ret;
+				coopNoteAiProgress(100 - ret); // coop: the host's bar value rides to the client (no-op off the co-op host)
 			}
 			_animTimer->think(this, 0);
 			_gameTimer->think(this, 0);

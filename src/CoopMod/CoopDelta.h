@@ -668,6 +668,11 @@ void coopHitLogNote(HitLogEntryType type, UnitFaction faction);
 /// player FALSE with no side effect.
 bool coopHitLogPlayerFiring(const std::string& weaponType);
 
+/// BattlescapeState::think, beside vanilla's Map::refreshAIProgress: on the co-op HOST of a battle in phase Handshake or
+/// Active it keeps @a progress, the value its HIDDEN MOVEMENT progress bar now shows; the next outermost emit carries it
+/// as `aip` when it changed and the client applies it to its own bar. A no-op on a client and in single player.
+void coopNoteAiProgress(int progress);
+
 /// NextTurnState's environment block (it runs on the host only: the client skips the block): sets the pending message
 /// keys (the non-empty of `a`, `b`) for the NEW_TURN_WITH_MESSAGE entry the constructor appends next. A no-op off the
 /// co-op host.
@@ -731,7 +736,28 @@ bool coopSideIsOpponents(const SavedBattleGame* s);
 void coopDrawProbeFrame();
 void coopDrawProbeArrow(const BattleUnit* u);
 void coopDrawProbeMark(const BattleUnit* u, bool motionScan);
+/// Map::drawUnit, right before UnitSprite::draw: one sprite draw of @a u (part @a part at screen @a x, @a y). A one-tile
+/// unit is drawn at ONE screen position per frame (vanilla draws a walker from its own tile onto each tile of its step at
+/// the same position); a later draw of it in the same frame at another position counts `unitSplitDraws` and is kept as
+/// `unitSplitLast` {frame, unit, first: [part, x, y], other: [part, x, y]}. `unitDraws` counts every draw.
+/// A MOVING one-tile unit's draws also mark which pixels of its 32x40 sprite box lie inside the draw's mask; each
+/// finished frame keeps {frame, unit, covered permille} in `movingCover` (the last 512): how much of a walker the
+/// frame's passes can show at all.
+void coopDrawProbeUnit(const BattleUnit* u, int part, int x, int y, bool moving, int maskX0, int maskY0, int maskX1,
+	int maskY1);
+/// Map::draw, once per call while a projectile is on the Map: `projFrames` +1, and `projInFovFrames` +1 when the
+/// projectile counts as in this machine's field of view (vanilla's _projectileInFOV).
+void coopDrawProbeProjectile(bool inFov);
+/// Map::drawTerrain's projectile follow: `followFrames` +1 for each frame in which it moved the camera, and
+/// `followTiles` keeps the last 32 such moves {n (followFrames after it), x, y, z (the bullet's tile)}.
+void coopDrawProbeFollow(bool moved, const Position& bulletTile);
 Json::Value coopDrawProbe();
+
+// ----- TEST-ONLY side-change reveal probe. The host's side_transition emit records, right before it builds the
+// envelope's hash, which reveal sets still hold bits the client has not been sent (the last 8: {turn, newSide, hostile,
+// player}); coopSideChangeRevealProbe() reads them (event_state `sideChangeReveal`). Probe storage only; never reset.
+void coopNoteSideChangeReveal(SavedBattleGame* save);
+Json::Value coopSideChangeRevealProbe();
 
 // ----- TEST-ONLY walk-pace probe. UnitWalkBState counts, per
 // walking unit, each step it starts animated (setNormalWalkSpeed) or instant (state interval 0); coopWalkPace() reads it

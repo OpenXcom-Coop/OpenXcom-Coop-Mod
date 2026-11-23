@@ -286,8 +286,10 @@ def resume_loaded(host, client, key, ev, tag):
     client.ok({"cmd": "join_tcp", "ip": "127.0.0.1", "port": key, "player": CLIENT_NAME})
     client.wait_for("client resume lobby", lambda: session.has_state(client, "LobbyMenu"), timeout=60)
     session.resume_campaign_via_button(host, CLIENT_NAME)
-    both, s = wait_until(lambda: battle_state(host).get("inBattle") and battle_state(client).get("inBattle"),
-                         RESUME_S, 1.0)
+    # inBattle AND phase Active on both: a resuming host holds the battle (inBattle) while it waits for the second
+    # player's battle_ready, and turns Active only when it processes it
+    both, s = wait_until(lambda: all(bview(gc).get("inBattle") and bview(gc).get("phase") == "Active"
+                                     for gc in (host, client)), RESUME_S, 0.2)
     ev[f"{tag}InBattleS"] = s
     views = [bview(host), bview(client)]
     ev[f"{tag}AfterResume"] = views

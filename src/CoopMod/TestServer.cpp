@@ -6750,6 +6750,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 						}
 						row["fire"] = t->getFire();
 						row["smoke"] = t->getSmoke();
+						// coop: the alien side's reveal bits on this machine (1 west wall, 2 north wall, 4 floor) and
+						// whether this machine draws the floor as discovered (its seat's fog). Read-only.
+						row["hostileBits"] = CoopFog::allocated() ? (int)CoopFog::bits(sbg->getTileIndex(t->getPosition())) : -1;
+						row["discoveredHere"] = coopTileDiscoveredHere(t, O_FLOOR);
 						// coop: the floor part's special tile type; END_POINT 13 (MapData.h) = the exit area
 						row["special"] = (int)t->getFloorSpecialTileType();
 						tiles.append(row);
@@ -9265,6 +9269,7 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["projectileSkips"] = coopProjectileSkips();
 		// The TEST-ONLY draw probe (CoopDelta.h).
 		resp["drawProbe"] = coopDrawProbe();
+		resp["sideChangeReveal"] = coopSideChangeRevealProbe(); // the TEST-ONLY side-change reveal probe (CoopDelta.h)
 		resp["walkPace"] = coopWalkPace(); // the TEST-ONLY walk-pace probe (CoopDelta.h)
 		// Per-seat animation-pacing introspection. `local`
 		// is this machine's own raw dials; `seats` is this machine's current
@@ -13016,6 +13021,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		{
 			resp["error"] = "reveal_hostile_pass: no live battle";
 		}
+		else if (req.get("holdUntilSideChange", false).asBool())
+		{
+			CoopFog::holdSweepsUntilSideChange(); // unforced hostile sweeps wait for the next side change
+			resp["held"] = true;
+			resp["ok"] = true;
+		}
 		else if (req.get("arm", false).asBool() || req.get("republish", false).asBool())
 		{
 			// Deferred forms, both consumed by the NEXT emit rather than now, so
@@ -15729,6 +15740,10 @@ std::string TestServer::execute(const std::string& line)
 					// own value on THIS machine. TRUE => the terrain is drawn; FALSE =>
 					// the HIDDEN MOVEMENT message is blitted instead. Read-only.
 					resp["hiddenMovementShown"] = bsForInput ? bsForInput->getMap()->hiddenMovementShown() : false;
+					// The HIDDEN MOVEMENT screen's AI progress bar on THIS machine: its value
+					// and colour (0 until Map::refreshAIProgress ran). Read-only.
+					resp["aiProgress"] = bsForInput ? bsForInput->getMap()->getAIProgressValue() : -1;
+					resp["aiProgressColor"] = bsForInput ? bsForInput->getMap()->getAIProgressColor() : -1;
 				}
 				// The _txtCoopWait deny/cancel/desync banner's current
 				// text (empty = hidden) - test introspection only, proves

@@ -57,6 +57,9 @@ public:
 	void setText(const std::string &message, const std::string& message2);
 	/// Sets the progress bar value.
 	void setProgressValue(int progress);
+	/// coop: the progress bar's value and colour, for the TEST-ONLY battle_state probe.
+	int getProgressValue() const;
+	Uint8 getProgressColor() const;
 	/// Initializes the Battlescape message's resources.
 	void initText(Font *big, Font *small, Language *lang) override;
 	/// Sets the Battlescape message's palette.
