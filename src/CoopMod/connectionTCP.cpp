@@ -2686,45 +2686,72 @@ void drainApplyQueue()
 		bool gap = false;
 		uint32_t seq = 0;
 		uint32_t expected = 0;
+		std::size_t droppedBeforeTerminal = 0;
+		bool terminalAfterDesync = false;
 
 		{
 			std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
-
-			if (g_battleFrozen.load())
-				return; // frozen: cleared by BattleAuthority
 
 			// `battle_end` was applied - the stream is
 			// terminal, nothing after it is applied (anything still queued stays).
 			if (g_coopBattleEndTerminal.load())
 				return;
 
-			if (g_battleApplyQueue.empty())
+			if (g_battleFrozen.load())
+			{
+				// frozen: cleared by BattleAuthority. A DESYNC freeze still takes the
+				// host's `battle_end` / `stage_end`: the host skips its repair once that
+				// envelope is out (coopHostOnPeerDesync: phase no longer Active), so
+				// without it this machine would stay on its frozen battle for good. The
+				// envelopes in front of it belong to a battle that is ending and is
+				// already known to differ; they are dropped, not applied. A seq gap (a
+				// protocol bug) stays frozen.
+				if (!coopBattleAuthority().desyncFrozen.load())
+					return;
+				auto terminal = std::find_if(g_battleApplyQueue.begin(), g_battleApplyQueue.end(),
+					[](const Json::Value& e)
+					{
+						const std::string k = e.get("kind", "").asString();
+						return e.get("state", "").asString() == "bt_ev" && (k == "battle_end" || k == "stage_end");
+					});
+				if (terminal == g_battleApplyQueue.end())
+					return;
+				droppedBeforeTerminal = static_cast<std::size_t>(terminal - g_battleApplyQueue.begin());
+				seq = terminal->get("seq", 0u).asUInt();
+				ev = std::move(*terminal);
+				g_battleApplyQueue.erase(g_battleApplyQueue.begin(), terminal + 1);
+				terminalAfterDesync = true;
+			}
+			else if (g_battleApplyQueue.empty())
 				return;
 
-			seq = g_battleApplyQueue.front().get("seq", 0u).asUInt();
-			expected = g_battleLastSeqApplied.load() + 1;
+			if (!terminalAfterDesync)
+			{
+				seq = g_battleApplyQueue.front().get("seq", 0u).asUInt();
+				expected = g_battleLastSeqApplied.load() + 1;
 
-			if (seq != expected)
-			{
-				// Leave the offending entry queued (peek, not pop) - a later
-				// packet's desync report may want its payload. Never applied.
-				// Copy (not move) it into ev purely so the log line below can
-				// report its kind.
-				gap = true;
-				ev = g_battleApplyQueue.front();
-				g_battleFrozen.store(true);
-			}
-			else if (CoopGhost::holdsApply(g_battleApplyQueue.front(), SDL_GetTicks()))
-			{
-				// A co-op client's shot ghost is still drawing its flight: this envelope (the hit, or whatever
-				// comes next) and everything behind it stay queued, in order, until the flight has been drawn
-				// whole. A later pump pass applies them; the wait is bounded by the flight's own clock.
-				return;
-			}
-			else
-			{
-				ev = std::move(g_battleApplyQueue.front());
-				g_battleApplyQueue.pop_front();
+				if (seq != expected)
+				{
+					// Leave the offending entry queued (peek, not pop) - a later
+					// packet's desync report may want its payload. Never applied.
+					// Copy (not move) it into ev purely so the log line below can
+					// report its kind.
+					gap = true;
+					ev = g_battleApplyQueue.front();
+					g_battleFrozen.store(true);
+				}
+				else if (CoopGhost::holdsApply(g_battleApplyQueue.front(), SDL_GetTicks()))
+				{
+					// A co-op client's shot ghost is still drawing its flight: this envelope (the hit, or whatever
+					// comes next) and everything behind it stay queued, in order, until the flight has been drawn
+					// whole. A later pump pass applies them; the wait is bounded by the flight's own clock.
+					return;
+				}
+				else
+				{
+					ev = std::move(g_battleApplyQueue.front());
+					g_battleApplyQueue.pop_front();
+				}
 			}
 		}
 
@@ -2740,6 +2767,12 @@ void drainApplyQueue()
 				<< " (kind=" << ev.get("kind", "?").asString()
 				<< ") - freezing battle input (protocol bug; strict in-order apply)";
 			return;
+		}
+
+		if (terminalAfterDesync)
+		{
+			Log(LOG_WARNING) << "[coop-pump] desync-frozen: applying the host's " << ev.get("kind", "?").asString()
+				<< " seq=" << seq << ", " << droppedBeforeTerminal << " envelope(s) before it dropped unapplied";
 		}
 
 		g_battleLastSeqApplied.store(seq);

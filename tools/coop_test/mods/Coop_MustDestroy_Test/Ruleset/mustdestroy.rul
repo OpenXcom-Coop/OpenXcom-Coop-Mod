@@ -1,0 +1,10 @@
+# Test-only mod for the battle end on a destroyed objective.
+# Data only. Overrides the stock STR_MARS_THE_FINAL_ASSAULT deployment
+# (bin/standard/xcom1/alienDeployments.rul: objectiveType 14 = MUST_DESTROY): its
+# cutscenes are cleared, so finishBattle opens the debriefing instead of the
+# win slideshow. Everything else stays stock.
+alienDeployments:
+  - type: STR_MARS_THE_FINAL_ASSAULT
+    winCutscene: ""
+    loseCutscene: ""
+    abortCutscene: ""
