@@ -10861,6 +10861,12 @@ struct CoopClientInFlight
 	std::uint32_t sentTick = 0;
 };
 static CoopClientInFlight g_coopClientInFlight;
+// CLIENT: orders the single slot above was handed on from before they ended
+// (another unit's order went out first), keyed by iseq. Their own bt_ack still
+// registers them (actionId, actor, the running action) and their own
+// bt_action_end still runs their aftermath. Dropped at that end, at their deny
+// and at the battle reset. Main thread only.
+static std::map<std::uint32_t, CoopClientInFlight> g_coopClientDisplaced;
 
 // The PENDING slot
 // - a busy-denied intent held for auto-resubmit instead of a
@@ -11252,6 +11258,7 @@ static void resetCoopArbiterState()
 	g_coopClientNextIseq = 1;
 	g_coopPendingTurnInfo = CoopPendingTurnInfo();
 	g_coopClientInFlight = CoopClientInFlight();
+	g_coopClientDisplaced.clear();
 	g_coopClientLastDeny = Json::Value();
 	g_coopClientActionActor.clear();
 	g_coopClientOpenActor.clear();
@@ -16306,6 +16313,10 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	// This is now the one tracked in-flight intent (single
 	// slot, overwriting whatever a DIFFERENT unit's still-unresolved intent
 	// left behind - see the actor-lock check above for why that is safe).
+	// The order still in the slot has not ended: keep it aside so its own ack
+	// and its own bt_action_end still find it.
+	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq != iseq)
+		g_coopClientDisplaced[g_coopClientInFlight.iseq] = g_coopClientInFlight;
 	g_coopClientInFlight.iseq = iseq;
 	g_coopClientInFlight.kind = kindStr;
 	g_coopClientInFlight.actorId = actorId;
@@ -16390,6 +16401,21 @@ void onAck(const Json::Value& ack)
 		// deferred (never-acked) intent still times out.
 		g_coopClientInFlight.sentTick = 0;
 	}
+	else
+	{
+		// The ack of an order the slot was handed on from (another unit's order
+		// went out before this answer): the same registration, on its own record.
+		auto displaced = g_coopClientDisplaced.find(iseq);
+		if (displaced != g_coopClientDisplaced.end())
+		{
+			CoopClientInFlight& d = displaced->second;
+			d.actionId = ack.get("actionId", 0u).asUInt();
+			if (d.actionId != 0 && d.actorId >= 0)
+				g_coopClientActionActor[d.actionId] = d.actorId;
+			g_coopClientRunningActionId = d.actionId;
+			d.sentTick = 0;
+		}
+	}
 }
 
 void onDeny(const Json::Value& deny)
@@ -16416,6 +16442,7 @@ void onDeny(const Json::Value& deny)
 	ld["iseq"] = iseq;
 	ld["reason"] = reason;
 	g_coopClientLastDeny = ld;
+	g_coopClientDisplaced.erase(iseq); // a denied order never ends: nothing waits for it
 
 	const bool mine = (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq);
 
@@ -16501,6 +16528,9 @@ void onActionEndApplied(std::uint32_t actionId)
 	// the host's execution slot really is free again.
 	if (g_coopClientRunningActionId != 0 && g_coopClientRunningActionId == actionId)
 		g_coopClientRunningActionId = 0;
+
+	for (auto it = g_coopClientDisplaced.begin(); it != g_coopClientDisplaced.end();)
+		it = (actionId != 0 && it->second.actionId == actionId) ? g_coopClientDisplaced.erase(it) : std::next(it);
 
 	if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
 	{
@@ -28746,15 +28776,30 @@ void onApplied(const Json::Value& ev)
 		// here for the same reason as haltIsMine - onActionEndApplied() below
 		// clears the slot that names the kind), the ordering client's aftermath
 		// and its halt reason, presented at the very end of this branch.
+		// The order this end closes: the in-flight slot, or the record the slot was
+		// handed on from before this order ended (another unit's order went out first).
+		const CoopClientInFlight* ownOrder = nullptr;
+		if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
+			ownOrder = &g_coopClientInFlight;
+		else
+		{
+			for (const auto& d : g_coopClientDisplaced)
+			{
+				if (d.second.actionId == actionId)
+				{
+					ownOrder = &d.second;
+					break;
+				}
+			}
+		}
 		const bool ownCombatEnd = !walkRestate && actionId != 0
 			&& g_coopClientRunningActionId == actionId
-			&& g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId
-			&& g_coopClientInFlight.hasCombat;
-		const std::string ownCombatKind = ownCombatEnd ? g_coopClientInFlight.kind : std::string();
+			&& ownOrder && ownOrder->hasCombat;
+		const std::string ownCombatKind = ownCombatEnd ? ownOrder->kind : std::string();
 		// the order's plan and actor, for its per-kind
-		// aftermath (the slot is cleared below).
-		const CoopCombatIntentArgs ownCombatPlan = ownCombatEnd ? g_coopClientInFlight.combat : CoopCombatIntentArgs();
-		const int ownCombatActor = ownCombatEnd ? g_coopClientInFlight.actorId : -1;
+		// aftermath (the slot and the record are cleared below).
+		const CoopCombatIntentArgs ownCombatPlan = ownCombatEnd ? ownOrder->combat : CoopCombatIntentArgs();
+		const int ownCombatActor = ownCombatEnd ? ownOrder->actorId : -1;
 		if (!walkRestate)
 			CoopArbiter::noteLastActionHalt(ev);
 		if (walkRestate)
