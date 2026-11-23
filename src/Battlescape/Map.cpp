@@ -783,7 +783,8 @@ void Map::drawUnit(UnitSprite &unitSprite, Tile *unitTile, Tile *currTile, Posit
 	{
 		shade = std::min(+NIGHT_VISION_SHADE, shade);
 	}
-	coopDrawProbeUnit(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y); // coop: TEST-ONLY draw probe
+	coopDrawProbeUnit(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y,
+		moving, mask.beg_x, mask.beg_y, mask.end_x, mask.end_y); // coop: TEST-ONLY draw probe
 	unitSprite.draw(bu, part, tileScreenPosition.x + offsets.ScreenOffset.x, tileScreenPosition.y + offsets.ScreenOffset.y, shade, mask, _isAltPressed && !_isCtrlPressed, &view);
 }
 
@@ -808,6 +809,10 @@ void Map::drawTerrain(Surface *surface)
 	int bulletLowX=16000, bulletLowY=16000, bulletLowZ=16000, bulletHighX=0, bulletHighY=0, bulletHighZ=0;
 	int dummy;
 	BattleUnit *movingUnit = _save->getTileEngine()->getMovingUnit();
+	if (!movingUnit)
+	{
+		movingUnit = CoopGhost::walkingUnit(_save); // coop: a client's walk replay takes the same passes (no-op in SP)
+	}
 	int tileShade, tileColor, obstacleShade;
 	UnitSprite unitSprite(surface, _game->getMod(), _save, _animFrame, _save->getDepth() != 0,
 		_isTFTD ? ArrowColorsTFTD[1] : ArrowColorsUFO[1], _isTFTD ? ArrowColorsTFTD[2] : ArrowColorsUFO[2]);

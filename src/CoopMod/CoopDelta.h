@@ -740,7 +740,11 @@ void coopDrawProbeMark(const BattleUnit* u, bool motionScan);
 /// unit is drawn at ONE screen position per frame (vanilla draws a walker from its own tile onto each tile of its step at
 /// the same position); a later draw of it in the same frame at another position counts `unitSplitDraws` and is kept as
 /// `unitSplitLast` {frame, unit, first: [part, x, y], other: [part, x, y]}. `unitDraws` counts every draw.
-void coopDrawProbeUnit(const BattleUnit* u, int part, int x, int y);
+/// A MOVING one-tile unit's draws also mark which pixels of its 32x40 sprite box lie inside the draw's mask; each
+/// finished frame keeps {frame, unit, covered permille} in `movingCover` (the last 512): how much of a walker the
+/// frame's passes can show at all.
+void coopDrawProbeUnit(const BattleUnit* u, int part, int x, int y, bool moving, int maskX0, int maskY0, int maskX1,
+	int maskY1);
 /// Map::draw, once per call while a projectile is on the Map: `projFrames` +1, and `projInFovFrames` +1 when the
 /// projectile counts as in this machine's field of view (vanilla's _projectileInFOV).
 void coopDrawProbeProjectile(bool inFov);

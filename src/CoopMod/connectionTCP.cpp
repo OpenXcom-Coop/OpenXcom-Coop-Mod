@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -9823,6 +9824,8 @@ struct CoopDrawProbe
 	unsigned int projInFovFrames = 0;
 	unsigned int followFrames = 0;
 	std::deque<std::array<int, 4>> followTiles; // the last 32 follow moves: {n, x, y, z}
+	std::map<int, std::bitset<32 * 40>> frameCover; // this frame: moving unit id -> sprite-box pixels inside a draw's mask
+	std::deque<std::array<int, 3>> movingCover; // the last 512 finished frames: {frame, unit, covered permille}
 };
 CoopDrawProbe g_coopDrawProbe;
 
@@ -9830,15 +9833,30 @@ CoopDrawProbe g_coopDrawProbe;
 
 void coopDrawProbeFrame()
 {
+	for (const auto& c : g_coopDrawProbe.frameCover)
+	{
+		g_coopDrawProbe.movingCover.push_back({ (int)g_coopDrawProbe.frame, c.first, (int)(c.second.count() * 1000 / c.second.size()) });
+		while (g_coopDrawProbe.movingCover.size() > 512)
+			g_coopDrawProbe.movingCover.pop_front();
+	}
+	g_coopDrawProbe.frameCover.clear();
 	++g_coopDrawProbe.frame;
 	g_coopDrawProbe.unitFirst.clear();
 }
 
-void coopDrawProbeUnit(const BattleUnit* u, int part, int x, int y)
+void coopDrawProbeUnit(const BattleUnit* u, int part, int x, int y, bool moving, int maskX0, int maskY0, int maskX1,
+	int maskY1)
 {
 	if (!u)
 		return;
 	++g_coopDrawProbe.unitDraws;
+	if (moving && u->getArmor()->getSize() == 1)
+	{
+		std::bitset<32 * 40>& cover = g_coopDrawProbe.frameCover[u->getId()];
+		for (int py = std::max(y, maskY0); py < std::min(y + 40, maskY1); ++py)
+			for (int px = std::max(x, maskX0); px < std::min(x + 32, maskX1); ++px)
+				cover.set((std::size_t)((py - y) * 32 + (px - x)));
+	}
 	const std::array<int, 3> now = { part, x, y };
 	auto ins = g_coopDrawProbe.unitFirst.emplace(u->getId(), now);
 	if (ins.second || u->getArmor()->getSize() != 1)
@@ -9920,6 +9938,15 @@ Json::Value coopDrawProbe()
 		ft.append(e);
 	}
 	r["followTiles"] = ft;
+	Json::Value mc(Json::arrayValue);
+	for (const auto& c : g_coopDrawProbe.movingCover)
+	{
+		Json::Value e(Json::arrayValue);
+		for (int v : c)
+			e.append(v);
+		mc.append(e);
+	}
+	r["movingCover"] = mc;
 	return r;
 }
 
@@ -27706,15 +27733,39 @@ void beginDraw(std::uint32_t nowMs)
 	g_ghostDrawNowMs = nowMs;
 }
 
+BattleUnit* walkingUnit(const SavedBattleGame* save)
+{
+	if (!save || g_coopGhosts.empty())
+		return nullptr;
+	const GhostReplay* latest = nullptr;
+	for (const auto& kv : g_coopGhosts)
+	{
+		if (kv.second.kind == "walk_step" && (!latest || kv.second.startedAtMs >= latest->startedAtMs))
+			latest = &kv.second;
+	}
+	if (!latest)
+		return nullptr;
+	BattleUnit* u = CoopIdMaps::unit(latest->unitId);
+	// vanilla's passes draw the walker from the tile it stands on: the step's destination, where the apply put it
+	if (!u || u->isOut() || !u->getTile() || u->getPosition() != latest->toPos)
+		return nullptr;
+	return u;
+}
+
 BattleUnit* trailingUnitOverTile(const SavedBattleGame* save, const Tile* tile)
 {
 	if (!save || !tile || g_coopGhosts.empty())
 		return nullptr;
+	const BattleUnit* moving = walkingUnit(save); // drawn by vanilla's moving-unit passes instead
 	const Position p = tile->getPosition();
 	for (const auto& kv : g_coopGhosts)
 	{
 		if (kv.second.kind == "walk_step" && kv.second.fromPos == p)
-			return CoopIdMaps::unit(kv.second.unitId);
+		{
+			BattleUnit* u = CoopIdMaps::unit(kv.second.unitId);
+			if (u && u != moving)
+				return u;
+		}
 	}
 	return nullptr;
 }
