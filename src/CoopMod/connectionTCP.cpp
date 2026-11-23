@@ -17886,6 +17886,22 @@ bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int e
 	return true;
 }
 
+bool coopTurnReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu)
+{
+	if (!bg || !unit)
+		return false;
+	// The host does NOT apply ITS OWN reserve to a CLIENT-ORIGIN turn, the rule
+	// the walk (coopWalkReserveRefuses) and the door (coopUnitOpensDoor) already
+	// follow: tuReserved/kneelReserved are machine-local, so the value in force
+	// here would be the host player's.
+	if (isCoopBattle() && coopBattleAuthority().hostSim
+		&& std::strcmp(CoopArbiter::currentActionOrigin(), "intent") == 0)
+	{
+		return false;
+	}
+	return !bg->checkReservedTU(unit, tu, 0);
+}
+
 bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 	bool strafe, bool sneak, bool ignoreSpotted, SavedBattleGame* save)
 {
