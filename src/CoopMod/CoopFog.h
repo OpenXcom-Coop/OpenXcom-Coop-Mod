@@ -205,6 +205,18 @@ int authorHostilePass(SavedBattleGame* battle, bool force);
 /// than by whichever pump tick happened to win a race.
 void armForcedPass();
 
+/// HOST: @a u (a hostile unit) is swept again by the next authorHostilePass() even though it has not moved or turned.
+/// TileEngine::calculateTilesInFOV calls it where vanilla re-derives a unit's sight of tiles after an event that
+/// can change it (terrain destroyed, a door, an explosion) and returns at once for every non-player unit: the
+/// alien side's sight of tiles is this sweep. A no-op on a client and outside a co-op battle.
+void markForSweep(const BattleUnit* u);
+
+/// TEST-ONLY (reveal_hostile_pass {holdUntilSideChange}): every unforced authorHostilePass() does nothing until the
+/// host's next side change, whose flush (coopEmitSideTransition) calls releaseHeldSweeps() first - so an alien's
+/// new sight is swept at that side change, as one that changed inside endTurn is. Never armed in a game.
+void holdSweepsUntilSideChange();
+void releaseHeldSweeps();
+
 /// Returns and CLEARS the armForcedPass() flag. Called only from the emit choke.
 bool consumeArmedPass();
 

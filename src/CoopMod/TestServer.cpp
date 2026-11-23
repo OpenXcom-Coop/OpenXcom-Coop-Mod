@@ -6750,6 +6750,10 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 						}
 						row["fire"] = t->getFire();
 						row["smoke"] = t->getSmoke();
+						// coop: the alien side's reveal bits on this machine (1 west wall, 2 north wall, 4 floor) and
+						// whether this machine draws the floor as discovered (its seat's fog). Read-only.
+						row["hostileBits"] = CoopFog::allocated() ? (int)CoopFog::bits(sbg->getTileIndex(t->getPosition())) : -1;
+						row["discoveredHere"] = coopTileDiscoveredHere(t, O_FLOOR);
 						// coop: the floor part's special tile type; END_POINT 13 (MapData.h) = the exit area
 						row["special"] = (int)t->getFloorSpecialTileType();
 						tiles.append(row);
@@ -13016,6 +13020,12 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		if (!bg)
 		{
 			resp["error"] = "reveal_hostile_pass: no live battle";
+		}
+		else if (req.get("holdUntilSideChange", false).asBool())
+		{
+			CoopFog::holdSweepsUntilSideChange(); // unforced hostile sweeps wait for the next side change
+			resp["held"] = true;
+			resp["ok"] = true;
 		}
 		else if (req.get("arm", false).asBool() || req.get("republish", false).asBool())
 		{

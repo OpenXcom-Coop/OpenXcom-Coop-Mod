@@ -1327,6 +1327,7 @@ std::mutex g_fogMutex;
 // `reveal_hostile_pass` probe so a fixture can prove its own premise (that
 // there were aliens to sweep at all) instead of inferring it from a tile count.
 bool g_forceNextPass = false;
+bool g_holdSweeps = false; // TEST-ONLY: unforced sweeps wait for the next side change (holdSweepsUntilSideChange)
 int g_lastPassHostileUnits = 0;
 int g_lastPassCandidates = 0;
 int g_lastPassSwept = 0;
@@ -1634,6 +1635,7 @@ void reset()
 	g_hostileReveal.clear();
 	g_hostileFovKey.clear();
 	g_forceNextPass = false;
+	g_holdSweeps = false;
 	g_lastPassHostileUnits = 0;
 	g_lastPassCandidates = 0;
 	g_lastPassSwept = 0;
@@ -1650,6 +1652,8 @@ int authorHostilePass(SavedBattleGame* battle, bool force)
 	std::lock_guard<std::mutex> lock(g_fogMutex);
 	if (g_hostileReveal.empty())
 		return 0;
+	if (g_holdSweeps && !force)
+		return 0; // test hook: the side change's flush releases it
 
 	int discovered = 0;
 	int swept = 0;
@@ -1682,6 +1686,26 @@ int authorHostilePass(SavedBattleGame* battle, bool force)
 			<< " tile part(s) newly discovered for the HOSTILE side";
 	}
 	return discovered;
+}
+
+void holdSweepsUntilSideChange()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	g_holdSweeps = true;
+}
+
+void releaseHeldSweeps()
+{
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	g_holdSweeps = false;
+}
+
+void markForSweep(const BattleUnit* u)
+{
+	if (!u || !isCoopBattle() || !coopBattleAuthority().hostSim)
+		return;
+	std::lock_guard<std::mutex> lock(g_fogMutex);
+	g_hostileFovKey.erase(u->getId()); // the next authorHostilePass sweeps it whatever its key
 }
 
 void armForcedPass()
@@ -19466,6 +19490,7 @@ void coopEmitSideTransition(SavedBattleGame* save)
 	// CoopEmit::sendEv()'s own authorHostilePass() call for the SAME
 	// envelope. Dirty-tracked (sweeps only units that moved/turned since the
 	// last sweep), so sendEv()'s later call finds nothing new and is a no-op.
+	CoopFog::releaseHeldSweeps(); // test hook (holdSweepsUntilSideChange); a no-op in every game
 	CoopFog::authorHostilePass(save, /*force=*/false);
 
 	Json::Value ev = CoopWire::makeEv(0u, CoopArbiter::currentActionId(), "side_transition");

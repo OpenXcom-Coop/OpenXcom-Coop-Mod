@@ -44,6 +44,7 @@
 #include "MeleeAttackBState.h"
 #include "../CoopMod/BattleAuthority.h"
 #include "../CoopMod/CoopDelta.h"
+#include "../CoopMod/CoopFog.h"
 #include "../CoopMod/CoopScriptOwner.h" // coop: battle mod scripts read the script owner's research
 #include "../fmath.h"
 
@@ -1558,6 +1559,12 @@ void TileEngine::calculateTilesInFOV(BattleUnit *unit, const Position eventPos, 
 	if (unit->getFaction() != FACTION_PLAYER || (eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)))
 	{
 		//The event wasn't meant for us and/or visible for us.
+		// coop: an alien's sight of tiles is the co-op alien side's map, swept by the host per alien and cached by
+		// position and facing; an event it could see (the same test as a soldier's) has it swept again.
+		if (unit->getFaction() == FACTION_HOSTILE && !(eventRadius == 1 && !unit->checkViewSector(eventPos, useTurretDirection)))
+		{
+			CoopFog::markForSweep(unit);
+		}
 		return;
 	}
 	else if (unit->isOut())

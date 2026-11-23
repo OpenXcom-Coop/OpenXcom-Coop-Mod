@@ -1,26 +1,27 @@
 """test_alien_side_end_reveal.py: the two machines stay in sync when the alien side ends with alien sight the client
 has not been sent yet.
 
-Vanilla's SavedBattleGame::endTurn turns every alien's turret back to its body facing. An alien that turned during its
-side therefore looks new to the host's alien-sight cache at the side change, the host sweeps it again, and when that
-sweep finds tiles (here: ground the alien's plasma shots opened up) the side change's hash already counts them. Those
-bits must reach the client with the side change itself; sent in a later envelope, the client checks the side change's
+A side change's hash covers the alien side's explored map (`revealHostile`). The host sweeps the aliens' sight again at
+the side change (CoopFog::authorHostilePass; in a game, for an alien whose sight changed after its side's last
+envelope: vanilla's endTurn turning the aliens' turrets back, terrain burning at the turn's end). Those new bits must
+reach the client with the side change itself; sent in a later envelope, the client checks the side change's
 `revealHostile` hash without them, reports a desync and halts the battle.
 
 Probe: event_state `sideChangeReveal` (host, TEST-ONLY): for each side change, which reveal sets still held bits the
 client had not been sent when its hash was built ({turn, newSide, hostile, player}).
 
-ONE boot: test_follow_camera's terror skirmish (STR_TERROR_MISSION, map seed 1, night), lobby key 47731, aliens pinned,
-X-COM reactions 0. Staging: alien A (1000000) un-pinned (tu 60, refilled), client soldier 8 on (20,24,0) facing 2, A on
-(34,24,0) facing 6. One END TURN cycle with host set_seed 3 right before its press: A turns and fires three plasma snap
-shots (measured: hits at (32,14,2) and nearby), then the side changes to the civilians.
+ONE boot: test_follow_camera's terror skirmish (STR_TERROR_MISSION, map seed 1, night), lobby key 47731, every alien
+pinned (none acts), X-COM reactions 0. One END TURN cycle (the client first, then the host); while the host's alien-side
+turn screen is up, the host's alien sweeps are held until the next side change (TEST-ONLY reveal_hostile_pass
+{holdUntilSideChange}: as for sight that changes inside endTurn, after the side's last envelope) and alien A (1000000)
+is moved (battle_teleport_unit on both) to (34,24,0) facing 6, where it sees ground its side has not explored; then the
+host's screen closes, the alien side ends at once and the side change to the civilians sweeps A's new sight.
 
 Cells:
-  shot      (precondition) the host emitted >= 1 `shot` cue in the cycle (its own openxcom.log `[coop-cue] shot`
-            lines: a desync repair reloads the battle and clears the event log).
   pending   (precondition) at this cycle's side change to the civilian side (newSide 2) the host's hostile set held
             bits the client had not been sent when the hash was built.
-  in_sync   the client reported no desync through the cycle (event_state desyncSeen false).
+  in_sync   the client reported no desync through the cycle (event_state desyncSeen false) and both machines are back on
+            the player side, turn 2.
   common    hash_now full: every bucket EQUAL (revealHostile included); desyncSeen false on both; no new crash file.
 
 One EVIDENCE line, one PASS / FAIL line per cell. One run is the result, no skip path. Exit 0 only when every cell
@@ -38,18 +39,26 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import GameClient, make_user_dir  # noqa: E402
 import session  # noqa: E402
 from session import battle_state, event_state, assert_hash_clean  # noqa: E402
-import test_client_alien_sight as AS  # noqa: E402  (alien_cycle and its per-GameClient lock)
 import test_host_combat as HC  # noqa: E402
 from test_delta_core import both, tele_both  # noqa: E402
 
 KEY = "47731"                     # this file's lobby key
-A_ID, V_ID = 1000000, 8           # the alien, the client soldier
-A_TU = 60
-V_TILE, V_DIR = (20, 24, 0), 2
+A_ID = 1000000                    # the alien moved during its side's turn screen
 A_TILE, A_DIR = (34, 24, 0), 6
-SEED = 3                          # host set_seed right before its END TURN press
 NEUTRAL = 2
-CELLS = ("shot", "pending", "in_sync", "common")
+CELLS = ("pending", "in_sync", "common")
+
+
+def top(gc):
+    return ((gc.cmd({"cmd": "get_state"}).get("states") or [None])[-1] or "").replace("class OpenXcom::", "")
+
+
+def close_turn_screens(gc):
+    for _ in range(4):
+        if "NextTurnState" not in top(gc):
+            return
+        gc.cmd({"cmd": "close_nextturn"})
+        time.sleep(0.2)
 
 
 def bring_up(host, client):
@@ -67,12 +76,8 @@ def bring_up(host, client):
         if x.get("faction") == 0 and not x.get("isOut"):
             both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": x["id"], "stat": "reactions",
                                 "value": 0}, ("tu",))
-    both(host, client, {"cmd": "battle_action", "action": "set_stat", "unit": A_ID, "stat": "tu", "value": A_TU,
-                        "refill": True}, ("tu",))
-    tele_both(host, client, V_ID, V_TILE, V_DIR)
-    tele_both(host, client, A_ID, A_TILE, A_DIR)
     print(f"[alien_side_end_reveal] boot ok: MAP_FP {fps[0]!r} seated {seated.get('soldierIds')} pinned "
-          f"{len(pinned)}; A on {A_TILE} facing {A_DIR}, soldier {V_ID} on {V_TILE} facing {V_DIR}", flush=True)
+          f"{len(pinned)}", flush=True)
 
 
 def common(host, client, crash0):
@@ -87,49 +92,45 @@ def common(host, client, crash0):
             f"hash {hashed}; desyncSeen host/client {ds} (want False/False); new crash files {crash} (want none)")
 
 
-def host_log_size(host):
-    try:
-        return os.path.getsize(os.path.join(host.user_dir, "openxcom.log"))
-    except OSError:
-        return 0
-
-
-def host_log_since(host, offset):
-    try:
-        with open(os.path.join(host.user_dir, "openxcom.log"), "rb") as f:
-            f.seek(offset)
-            return f.read().decode("utf-8", errors="replace").splitlines()
-    except OSError:
-        return []
-
-
 def run(host, client, crash0):
-    log0 = host_log_size(host)
-    seq0 = event_state(host).get("lastSeqEmitted") or 0
     turn0 = battle_state(host).get("turn")
     n0 = len(event_state(host).get("sideChangeReveal") or [])
-    ev = {"seq0": seq0, "turn0": turn0}
-    try:
-        rec = AS.alien_cycle(host, client, SEED, 1.0)
-        ev["cycle"] = "done"
-    except Exception as e:  # a client halted by a desync never gets back to its battlescape
-        rec = None
-        ev["cycle"] = f"{type(e).__name__}: {str(e)[:300]}"
-    time.sleep(1.0)  # the host's log flush
-    cues = [ln.split("[coop-cue] ", 1)[1][:60] for ln in host_log_since(host, log0) if "[coop-cue] shot seq" in ln]
+    ev = {"turn0": turn0}
+    client.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    host.wait_for("host END TURN 1/2", lambda: battle_state(host).get("coopEndTurnText") == "END TURN 1/2" or None,
+                  timeout=20)
+    host.ok({"cmd": "battle_action", "action": "end_turn_button"})
+    host.wait_for("alien side on both, the host held on its turn screen",
+                  lambda: (battle_state(host).get("side") == 1 and "NextTurnState" in top(host)
+                           and battle_state(client).get("side") == 1) or None, timeout=30)
+    close_turn_screens(client)
+    ev["hold"] = host.cmd({"cmd": "reveal_hostile_pass", "holdUntilSideChange": True})
+    ev["moved"] = tele_both(host, client, A_ID, A_TILE, A_DIR)
+    close_turn_screens(host)
+    t0 = time.time()
+    while time.time() - t0 < 40:
+        close_turn_screens(host)
+        close_turn_screens(client)
+        hs, cs = battle_state(host), battle_state(client)
+        if (event_state(client).get("desyncSeen") or (hs.get("side") == 0 and cs.get("side") == 0
+                                                       and (hs.get("turn") or 0) > turn0 and (cs.get("turn") or 0) > turn0)):
+            break
+        time.sleep(0.2)
+    time.sleep(0.5)
     ring = event_state(host).get("sideChangeReveal") or []
     changes = [r for r in ring if r.get("turn") == turn0 and r.get("newSide") == NEUTRAL]
     ces = event_state(client)
-    ev.update(shotCues=cues, sideChangeReveal=ring[-4:], ringGrew=len(ring) - n0,
-              clientDesync={k: ces.get(k) for k in ("desyncSeen", "desyncBucket", "desyncSeq")},
-              clientTop=(client.cmd({"cmd": "get_state"}).get("states") or [None])[-1])
+    back = [(battle_state(gc).get("side"), battle_state(gc).get("turn")) for gc in (host, client)]
+    ev.update(sideChangeReveal=ring[-4:], ringGrew=len(ring) - n0, back=back,
+              clientDesyncSeen=ces.get("desyncSeen"), clientTop=top(client))
     print(f"EVIDENCE alien_side_end: {json.dumps(ev, sort_keys=True, default=str)}", flush=True)
-    cells = {"shot": (bool(cues), f"host `shot` cues in the cycle {cues} (want >= 1)"),
-             "pending": (bool(changes) and changes[-1].get("hostile") is True,
-                         f"side change to the civilian side on turn {turn0}: {changes} (want hostile True: the alien "
-                         f"sight swept at the side change was not yet sent when its hash was built)"),
-             "in_sync": (ces.get("desyncSeen") is False,
-                         f"client desyncSeen {ces.get('desyncSeen')} (want False)")}
+    cells = {"pending": (bool(changes) and changes[-1].get("hostile") is True,
+                         f"side change to the civilian side on turn {turn0}: {changes} (want hostile True: A's new "
+                         f"sight was swept at the side change, after its side's last envelope)"),
+             "in_sync": (ces.get("desyncSeen") is False and back == [(0, turn0 + 1)] * 2,
+                         f"client desyncSeen {ces.get('desyncSeen')} (want False); side/turn host/client {back} "
+                         f"(want 0/{turn0 + 1} on both)")}
+    session.wait_host_idle(host, client, timeout=30)
     cells["common"] = common(host, client, crash0)
     return cells
 
