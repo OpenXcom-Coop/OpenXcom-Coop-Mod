@@ -18101,7 +18101,16 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 	// pick stay allowed off-turn (the host is refused here too, as the action
 	// menu does not refuse it).
 	if (coopRefuseIfNotMayCommand(action->actor, save))
+	{
+		// A refused melee pushes no MeleeAttackBState, the state that clears
+		// BA_HIT in vanilla, so clear it here (vanilla's ActionMenuState does the
+		// same for a melee it refuses). Left set, every later popup close runs
+		// the old melee again, and once the player may command it attacks the
+		// old target.
+		if (melee)
+			action->type = BA_NONE;
 		return true;
+	}
 
 	// HOST: vanilla's prime / unprime block runs; coopHostPrime() wraps it in a
 	// `host` context. A melee: vanilla's BA_HIT branch pushes the
