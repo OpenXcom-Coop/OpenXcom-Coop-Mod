@@ -480,6 +480,25 @@ void expand(Box& box)
 	}
 }
 
+/**
+ * Same as calling `expand` @a n times (none when @a n <= 0), written without a loop: MSVC 14.52 (Visual Studio 2026)
+ * compiles `while (n-- > 0) expand(box);` with its index one slot off, adding to box[1..6] instead of box[0..5], and
+ * box[6] is the stack guard, so every call with a radius of 2 or more ended the game with a stack-overrun fail-fast.
+ */
+void expandBy(Box& box, int n)
+{
+	if (n <= 0)
+	{
+		return;
+	}
+	box[B_X] -= n;
+	box[B_Y] -= n;
+	box[B_Z] -= n;
+	box[E_X] += n;
+	box[E_Y] += n;
+	box[E_Z] += n;
+}
+
 constexpr std::array diffToAxis =
 {
 	AxisInvalid,
@@ -689,10 +708,7 @@ void iterateVolume(Pos start, int eventRadius, int range, MapSubset gs, int end_
 		//expanding range without update as it should be already updated, only edge need processing, this is why we "transfer" one step to next loop.
 		range++;
 		eventRadius--;
-		while (eventRadius-- > 0)
-		{
-			expand(b);
-		}
+		expandBy(b, eventRadius);
 	}
 
 	while (range-- > 0)
