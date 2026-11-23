@@ -112,7 +112,10 @@ void UnitTurnBState::think()
 {
 	const int tu = _chargeTUs ? (_turret ? 1 :_unit->getTurnCost()) : 0;
 
-	if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && !_action.targeting && !_parent->checkReservedTU(_unit, tu, 0))
+	// coop: ONE guarded coop call REPLACING the `!_parent->checkReservedTU(_unit, tu, 0)`
+	// sub-expression: the vanilla predicate, except that the co-op host does not apply
+	// its own reserve to a client's turn order (see CoopArbiter.h).
+	if (_chargeTUs && _unit->getFaction() == _parent->getSave()->getSide() && _parent->getPanicHandled() && !_action.targeting && coopTurnReserveRefuses(_parent, _unit, tu))
 	{
 		_unit->abortTurn();
 		// coop: THIN

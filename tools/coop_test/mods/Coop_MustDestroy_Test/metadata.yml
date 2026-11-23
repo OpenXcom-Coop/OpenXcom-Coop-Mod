@@ -1,0 +1,9 @@
+name: "Coop must-destroy probe"
+version: 1.0
+description: "Test-only fixture (battle end on a destroyed objective). Data only. The stock
+  STR_MARS_THE_FINAL_ASSAULT deployment (objectiveType 14, MUST_DESTROY) with its win, lose and abort
+  cutscenes removed, so the battle that BattlescapeGame::endTurn ends on its destroyed objective goes
+  to the debriefing as a mod's must-destroy mission does. Both machines in a co-op pair must load it."
+author: coop harness
+
+master: xcom1

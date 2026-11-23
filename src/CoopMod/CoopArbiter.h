@@ -1015,6 +1015,15 @@ void coopNoteWalkHalt(BattleUnit* unit, const std::string& vanillaResult,
 /// byte-identical.
 bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int energy);
 
+/// The turn's twin of coopWalkReserveRefuses(): replaces UnitTurnBState::think()'s
+/// `!_parent->checkReservedTU(_unit, tu, 0)` sub-expression. On the co-op host,
+/// inside a CLIENT-ORIGIN action (context origin "intent") it returns FALSE: the
+/// host's reserve is the host player's own setting (machine-local,
+/// saveBlob-excluded) and must not stop another seat's turn. Everywhere else it
+/// is exactly `!bg->checkReservedTU(unit, tu, 0)`, warning surface included, so
+/// single player is byte-identical.
+bool coopTurnReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu);
+
 // =============================================================================
 // The spotting halt as a FIRST-CLASS EV (`ev spot`). One more thin hook
 // in src/Battlescape/UnitWalkBState.cpp, called at BOTH of vanilla's LIVE

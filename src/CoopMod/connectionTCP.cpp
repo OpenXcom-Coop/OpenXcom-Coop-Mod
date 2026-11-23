@@ -895,8 +895,15 @@ std::string current_ping = "";
 // out-of-order queue, so CoopPump::drainApplyQueue() logs that expected gap at INFO; every real gap keeps ERROR.
 static bool g_coopPumpSelfTestGap = false;
 
+// TEST-ONLY probe (CoopPump::resetsOnMain/OffMain, event_state battleResets): the thread that built
+// connectionTCP (the game's main thread) and the CoopPump::reset() calls split by the thread that ran them.
+static std::thread::id g_coopMainThreadId;
+static std::atomic<std::uint32_t> g_coopResetsOnMain{0};
+static std::atomic<std::uint32_t> g_coopResetsOffMain{0};
+
 connectionTCP::connectionTCP(Game* game) : _game(game)
 {
+	g_coopMainThreadId = std::this_thread::get_id(); // the resets probe's main thread (Game builds this object)
 	// PRD-J01: publish the process-single Game for the static seat accessors.
 	_staticGame = game;
 	// PRD-J03: register the SHARED economy command handlers (idempotent).
@@ -2686,45 +2693,72 @@ void drainApplyQueue()
 		bool gap = false;
 		uint32_t seq = 0;
 		uint32_t expected = 0;
+		std::size_t droppedBeforeTerminal = 0;
+		bool terminalAfterDesync = false;
 
 		{
 			std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
-
-			if (g_battleFrozen.load())
-				return; // frozen: cleared by BattleAuthority
 
 			// `battle_end` was applied - the stream is
 			// terminal, nothing after it is applied (anything still queued stays).
 			if (g_coopBattleEndTerminal.load())
 				return;
 
-			if (g_battleApplyQueue.empty())
+			if (g_battleFrozen.load())
+			{
+				// frozen: cleared by BattleAuthority. A DESYNC freeze still takes the
+				// host's `battle_end` / `stage_end`: the host skips its repair once that
+				// envelope is out (coopHostOnPeerDesync: phase no longer Active), so
+				// without it this machine would stay on its frozen battle for good. The
+				// envelopes in front of it belong to a battle that is ending and is
+				// already known to differ; they are dropped, not applied. A seq gap (a
+				// protocol bug) stays frozen.
+				if (!coopBattleAuthority().desyncFrozen.load())
+					return;
+				auto terminal = std::find_if(g_battleApplyQueue.begin(), g_battleApplyQueue.end(),
+					[](const Json::Value& e)
+					{
+						const std::string k = e.get("kind", "").asString();
+						return e.get("state", "").asString() == "bt_ev" && (k == "battle_end" || k == "stage_end");
+					});
+				if (terminal == g_battleApplyQueue.end())
+					return;
+				droppedBeforeTerminal = static_cast<std::size_t>(terminal - g_battleApplyQueue.begin());
+				seq = terminal->get("seq", 0u).asUInt();
+				ev = std::move(*terminal);
+				g_battleApplyQueue.erase(g_battleApplyQueue.begin(), terminal + 1);
+				terminalAfterDesync = true;
+			}
+			else if (g_battleApplyQueue.empty())
 				return;
 
-			seq = g_battleApplyQueue.front().get("seq", 0u).asUInt();
-			expected = g_battleLastSeqApplied.load() + 1;
+			if (!terminalAfterDesync)
+			{
+				seq = g_battleApplyQueue.front().get("seq", 0u).asUInt();
+				expected = g_battleLastSeqApplied.load() + 1;
 
-			if (seq != expected)
-			{
-				// Leave the offending entry queued (peek, not pop) - a later
-				// packet's desync report may want its payload. Never applied.
-				// Copy (not move) it into ev purely so the log line below can
-				// report its kind.
-				gap = true;
-				ev = g_battleApplyQueue.front();
-				g_battleFrozen.store(true);
-			}
-			else if (CoopGhost::holdsApply(g_battleApplyQueue.front(), SDL_GetTicks()))
-			{
-				// A co-op client's shot ghost is still drawing its flight: this envelope (the hit, or whatever
-				// comes next) and everything behind it stay queued, in order, until the flight has been drawn
-				// whole. A later pump pass applies them; the wait is bounded by the flight's own clock.
-				return;
-			}
-			else
-			{
-				ev = std::move(g_battleApplyQueue.front());
-				g_battleApplyQueue.pop_front();
+				if (seq != expected)
+				{
+					// Leave the offending entry queued (peek, not pop) - a later
+					// packet's desync report may want its payload. Never applied.
+					// Copy (not move) it into ev purely so the log line below can
+					// report its kind.
+					gap = true;
+					ev = g_battleApplyQueue.front();
+					g_battleFrozen.store(true);
+				}
+				else if (CoopGhost::holdsApply(g_battleApplyQueue.front(), SDL_GetTicks()))
+				{
+					// A co-op client's shot ghost is still drawing its flight: this envelope (the hit, or whatever
+					// comes next) and everything behind it stay queued, in order, until the flight has been drawn
+					// whole. A later pump pass applies them; the wait is bounded by the flight's own clock.
+					return;
+				}
+				else
+				{
+					ev = std::move(g_battleApplyQueue.front());
+					g_battleApplyQueue.pop_front();
+				}
 			}
 		}
 
@@ -2740,6 +2774,12 @@ void drainApplyQueue()
 				<< " (kind=" << ev.get("kind", "?").asString()
 				<< ") - freezing battle input (protocol bug; strict in-order apply)";
 			return;
+		}
+
+		if (terminalAfterDesync)
+		{
+			Log(LOG_WARNING) << "[coop-pump] desync-frozen: applying the host's " << ev.get("kind", "?").asString()
+				<< " seq=" << seq << ", " << droppedBeforeTerminal << " envelope(s) before it dropped unapplied";
 		}
 
 		g_battleLastSeqApplied.store(seq);
@@ -2764,6 +2804,16 @@ uint32_t lastSeqApplied()
 	return g_battleLastSeqApplied.load();
 }
 
+std::uint32_t resetsOnMain()
+{
+	return g_coopResetsOnMain.load();
+}
+
+std::uint32_t resetsOffMain()
+{
+	return g_coopResetsOffMain.load();
+}
+
 uint32_t queueDepth()
 {
 	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
@@ -2772,6 +2822,7 @@ uint32_t queueDepth()
 
 void reset(bool resetChainState)
 {
+	(std::this_thread::get_id() == g_coopMainThreadId ? g_coopResetsOnMain : g_coopResetsOffMain).fetch_add(1u);
 	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
 	g_battleApplyQueue.clear();
 	g_battleLastSeqApplied.store(0u);
@@ -10828,6 +10879,12 @@ struct CoopClientInFlight
 	std::uint32_t sentTick = 0;
 };
 static CoopClientInFlight g_coopClientInFlight;
+// CLIENT: orders the single slot above was handed on from before they ended
+// (another unit's order went out first), keyed by iseq. Their own bt_ack still
+// registers them (actionId, actor, the running action) and their own
+// bt_action_end still runs their aftermath. Dropped at that end, at their deny
+// and at the battle reset. Main thread only.
+static std::map<std::uint32_t, CoopClientInFlight> g_coopClientDisplaced;
 
 // The PENDING slot
 // - a busy-denied intent held for auto-resubmit instead of a
@@ -11219,6 +11276,7 @@ static void resetCoopArbiterState()
 	g_coopClientNextIseq = 1;
 	g_coopPendingTurnInfo = CoopPendingTurnInfo();
 	g_coopClientInFlight = CoopClientInFlight();
+	g_coopClientDisplaced.clear();
 	g_coopClientLastDeny = Json::Value();
 	g_coopClientActionActor.clear();
 	g_coopClientOpenActor.clear();
@@ -16273,6 +16331,10 @@ std::uint32_t sendClientIntent(const char* kind, int actorId, int toDir,
 	// This is now the one tracked in-flight intent (single
 	// slot, overwriting whatever a DIFFERENT unit's still-unresolved intent
 	// left behind - see the actor-lock check above for why that is safe).
+	// The order still in the slot has not ended: keep it aside so its own ack
+	// and its own bt_action_end still find it.
+	if (g_coopClientInFlight.active && g_coopClientInFlight.iseq != iseq)
+		g_coopClientDisplaced[g_coopClientInFlight.iseq] = g_coopClientInFlight;
 	g_coopClientInFlight.iseq = iseq;
 	g_coopClientInFlight.kind = kindStr;
 	g_coopClientInFlight.actorId = actorId;
@@ -16357,6 +16419,21 @@ void onAck(const Json::Value& ack)
 		// deferred (never-acked) intent still times out.
 		g_coopClientInFlight.sentTick = 0;
 	}
+	else
+	{
+		// The ack of an order the slot was handed on from (another unit's order
+		// went out before this answer): the same registration, on its own record.
+		auto displaced = g_coopClientDisplaced.find(iseq);
+		if (displaced != g_coopClientDisplaced.end())
+		{
+			CoopClientInFlight& d = displaced->second;
+			d.actionId = ack.get("actionId", 0u).asUInt();
+			if (d.actionId != 0 && d.actorId >= 0)
+				g_coopClientActionActor[d.actionId] = d.actorId;
+			g_coopClientRunningActionId = d.actionId;
+			d.sentTick = 0;
+		}
+	}
 }
 
 void onDeny(const Json::Value& deny)
@@ -16383,6 +16460,7 @@ void onDeny(const Json::Value& deny)
 	ld["iseq"] = iseq;
 	ld["reason"] = reason;
 	g_coopClientLastDeny = ld;
+	g_coopClientDisplaced.erase(iseq); // a denied order never ends: nothing waits for it
 
 	const bool mine = (g_coopClientInFlight.active && g_coopClientInFlight.iseq == iseq);
 
@@ -16468,6 +16546,9 @@ void onActionEndApplied(std::uint32_t actionId)
 	// the host's execution slot really is free again.
 	if (g_coopClientRunningActionId != 0 && g_coopClientRunningActionId == actionId)
 		g_coopClientRunningActionId = 0;
+
+	for (auto it = g_coopClientDisplaced.begin(); it != g_coopClientDisplaced.end();)
+		it = (actionId != 0 && it->second.actionId == actionId) ? g_coopClientDisplaced.erase(it) : std::next(it);
 
 	if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
 	{
@@ -17886,6 +17967,22 @@ bool coopWalkReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu, int e
 	return true;
 }
 
+bool coopTurnReserveRefuses(BattlescapeGame* bg, BattleUnit* unit, int tu)
+{
+	if (!bg || !unit)
+		return false;
+	// The host does NOT apply ITS OWN reserve to a CLIENT-ORIGIN turn, the rule
+	// the walk (coopWalkReserveRefuses) and the door (coopUnitOpensDoor) already
+	// follow: tuReserved/kneelReserved are machine-local, so the value in force
+	// here would be the host player's.
+	if (isCoopBattle() && coopBattleAuthority().hostSim
+		&& std::strcmp(CoopArbiter::currentActionOrigin(), "intent") == 0)
+	{
+		return false;
+	}
+	return !bg->checkReservedTU(unit, tu, 0);
+}
+
 bool coopInterceptWalkConfirm(BattleUnit* actor, Position dest, bool run,
 	bool strafe, bool sneak, bool ignoreSpotted, SavedBattleGame* save)
 {
@@ -18101,7 +18198,16 @@ bool coopInterceptNonTargetAction(BattleAction* action, SavedBattleGame* save)
 	// pick stay allowed off-turn (the host is refused here too, as the action
 	// menu does not refuse it).
 	if (coopRefuseIfNotMayCommand(action->actor, save))
+	{
+		// A refused melee pushes no MeleeAttackBState, the state that clears
+		// BA_HIT in vanilla, so clear it here (vanilla's ActionMenuState does the
+		// same for a melee it refuses). Left set, every later popup close runs
+		// the old melee again, and once the player may command it attacks the
+		// old target.
+		if (melee)
+			action->type = BA_NONE;
 		return true;
+	}
 
 	// HOST: vanilla's prime / unprime block runs; coopHostPrime() wraps it in a
 	// `host` context. A melee: vanilla's BA_HIT branch pushes the
@@ -28688,15 +28794,30 @@ void onApplied(const Json::Value& ev)
 		// here for the same reason as haltIsMine - onActionEndApplied() below
 		// clears the slot that names the kind), the ordering client's aftermath
 		// and its halt reason, presented at the very end of this branch.
+		// The order this end closes: the in-flight slot, or the record the slot was
+		// handed on from before this order ended (another unit's order went out first).
+		const CoopClientInFlight* ownOrder = nullptr;
+		if (g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId)
+			ownOrder = &g_coopClientInFlight;
+		else
+		{
+			for (const auto& d : g_coopClientDisplaced)
+			{
+				if (d.second.actionId == actionId)
+				{
+					ownOrder = &d.second;
+					break;
+				}
+			}
+		}
 		const bool ownCombatEnd = !walkRestate && actionId != 0
 			&& g_coopClientRunningActionId == actionId
-			&& g_coopClientInFlight.active && g_coopClientInFlight.actionId == actionId
-			&& g_coopClientInFlight.hasCombat;
-		const std::string ownCombatKind = ownCombatEnd ? g_coopClientInFlight.kind : std::string();
+			&& ownOrder && ownOrder->hasCombat;
+		const std::string ownCombatKind = ownCombatEnd ? ownOrder->kind : std::string();
 		// the order's plan and actor, for its per-kind
-		// aftermath (the slot is cleared below).
-		const CoopCombatIntentArgs ownCombatPlan = ownCombatEnd ? g_coopClientInFlight.combat : CoopCombatIntentArgs();
-		const int ownCombatActor = ownCombatEnd ? g_coopClientInFlight.actorId : -1;
+		// aftermath (the slot and the record are cleared below).
+		const CoopCombatIntentArgs ownCombatPlan = ownCombatEnd ? ownOrder->combat : CoopCombatIntentArgs();
+		const int ownCombatActor = ownCombatEnd ? ownOrder->actorId : -1;
 		if (!walkRestate)
 			CoopArbiter::noteLastActionHalt(ev);
 		if (walkRestate)
@@ -30591,7 +30712,7 @@ bool enqueueTx(std::string&& s)
 	return true;
 }
 
-void clearNetworkSessionQueues(bool resetAuthority)
+void clearNetworkTransportQueues()
 {
 	// Reset all shared packet queues so a new session starts like a fresh game launch.
 	// This clears stale packets left by the previous TCP/UDP session, including
@@ -30613,6 +30734,11 @@ void clearNetworkSessionQueues(bool resetAuthority)
 	}
 
 	clearSnapshotSlots();
+}
+
+void clearNetworkSessionQueues(bool resetAuthority)
+{
+	clearNetworkTransportQueues();
 
 	// The #82 GoToMainMenuState invariant:
 	// this is the single teardown chokepoint for BOTH transports (the TCP

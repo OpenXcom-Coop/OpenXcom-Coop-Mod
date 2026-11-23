@@ -98,6 +98,12 @@ std::uint32_t queueDepth();
 /// spare path keeps it and arms its base restate).
 void reset(bool resetChainState = true);
 
+/// TEST-ONLY probe (event_state `battleResets`): the reset() calls so far, split by
+/// whether the game's main thread (the one that built connectionTCP) ran them. The
+/// battle state reset() clears is main-thread state; another thread must not run it.
+std::uint32_t resetsOnMain();
+std::uint32_t resetsOffMain();
+
 } // namespace CoopPump
 
 /**

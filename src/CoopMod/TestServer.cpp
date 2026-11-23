@@ -6683,6 +6683,7 @@ bool TestServer::executeBattle12(const std::string& cmd, const Json::Value& req,
 				part["isUfoDoor"] = t->isUfoDoor(tp);
 				part["isUfoDoorOpen"] = t->isUfoDoorOpen(tp);
 				part["isDiscovered"] = t->isDiscovered(tp);
+				part["tuWalk"] = t->getTUCost(tp, MT_WALK); // the part's walking TU cost (a door's open check)
 				int did = -1, dsid = -1;
 				t->getMapData(&did, &dsid, tp);
 				part["mapDataID"] = did;
@@ -9226,6 +9227,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["ghostEnqueued"] = (int)CoopGhost::enqueuedCount();
 		resp["ghostCompleted"] = (int)CoopGhost::completedCount();
 		resp["ghostQueueDepth"] = (int)CoopGhost::queueDepth();
+		// CoopPump::reset() calls by the thread that ran them (BattlePump.h).
+		resp["battleResets"]["onMain"] = CoopPump::resetsOnMain();
+		resp["battleResets"]["offMain"] = CoopPump::resetsOffMain();
 		// The last ghost this machine enqueued - kind/
 		// frames/fixed-duration/owning-seat, proving the per-seat pacing
 		// derivation delivered
@@ -16638,6 +16642,12 @@ std::string TestServer::execute(const std::string& line)
 										   unit->getPosition().y + dy[d],
 										   unit->getPosition().z);
 					}
+					// Optional `hostClick`: open the host's coop action context first, as the host's own
+					// right-click does (BattlescapeGame.cpp, "turn to or open door"), so the open ends
+					// with its bt_action_end. On the alien side this is an alien's door open that ends
+					// with that envelope.
+					if (req.get("hostClick", false).asBool())
+						CoopArbiter::beginHostLocalTurn(unit, false);
 					bg->statePushBack(new UnitTurnBState(bg, a));
 					resp["ok"] = true;
 				}
