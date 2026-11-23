@@ -895,8 +895,15 @@ std::string current_ping = "";
 // out-of-order queue, so CoopPump::drainApplyQueue() logs that expected gap at INFO; every real gap keeps ERROR.
 static bool g_coopPumpSelfTestGap = false;
 
+// TEST-ONLY probe (CoopPump::resetsOnMain/OffMain, event_state battleResets): the thread that built
+// connectionTCP (the game's main thread) and the CoopPump::reset() calls split by the thread that ran them.
+static std::thread::id g_coopMainThreadId;
+static std::atomic<std::uint32_t> g_coopResetsOnMain{0};
+static std::atomic<std::uint32_t> g_coopResetsOffMain{0};
+
 connectionTCP::connectionTCP(Game* game) : _game(game)
 {
+	g_coopMainThreadId = std::this_thread::get_id(); // the resets probe's main thread (Game builds this object)
 	// PRD-J01: publish the process-single Game for the static seat accessors.
 	_staticGame = game;
 	// PRD-J03: register the SHARED economy command handlers (idempotent).
@@ -2797,6 +2804,16 @@ uint32_t lastSeqApplied()
 	return g_battleLastSeqApplied.load();
 }
 
+std::uint32_t resetsOnMain()
+{
+	return g_coopResetsOnMain.load();
+}
+
+std::uint32_t resetsOffMain()
+{
+	return g_coopResetsOffMain.load();
+}
+
 uint32_t queueDepth()
 {
 	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
@@ -2805,6 +2822,7 @@ uint32_t queueDepth()
 
 void reset(bool resetChainState)
 {
+	(std::this_thread::get_id() == g_coopMainThreadId ? g_coopResetsOnMain : g_coopResetsOffMain).fetch_add(1u);
 	std::lock_guard<std::mutex> lock(g_battleApplyQueueMutex);
 	g_battleApplyQueue.clear();
 	g_battleLastSeqApplied.store(0u);
@@ -30694,7 +30712,7 @@ bool enqueueTx(std::string&& s)
 	return true;
 }
 
-void clearNetworkSessionQueues(bool resetAuthority)
+void clearNetworkTransportQueues()
 {
 	// Reset all shared packet queues so a new session starts like a fresh game launch.
 	// This clears stale packets left by the previous TCP/UDP session, including
@@ -30716,6 +30734,11 @@ void clearNetworkSessionQueues(bool resetAuthority)
 	}
 
 	clearSnapshotSlots();
+}
+
+void clearNetworkSessionQueues(bool resetAuthority)
+{
+	clearNetworkTransportQueues();
 
 	// The #82 GoToMainMenuState invariant:
 	// this is the single teardown chokepoint for BOTH transports (the TCP

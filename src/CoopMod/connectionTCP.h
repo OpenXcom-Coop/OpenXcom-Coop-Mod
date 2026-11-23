@@ -186,6 +186,12 @@ bool enqueueTx(std::string&& s);
 // callers that ever pass false, on the one mid-`Active`-battle peer-leave
 // path where the co-op battle authority must survive the drop.
 void clearNetworkSessionQueues(bool resetAuthority = true);
+// The packet-queue half of clearNetworkSessionQueues() alone: no battle or session
+// state. The UDP ping thread's partner loss on a CLIENT calls only this
+// (handleUdpRemotePeerLost): the battle state is main-thread state that the main
+// thread reads every frame without a lock, and the main thread's own teardown
+// (disconnectTCP, from the "Server connection lost" dialog) resets it.
+void clearNetworkTransportQueues();
 
 class Game;
 class Ufo;

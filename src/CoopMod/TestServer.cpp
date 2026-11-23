@@ -9226,6 +9226,9 @@ bool TestServer::executeIntrospect13(const std::string& cmd, const Json::Value& 
 		resp["ghostEnqueued"] = (int)CoopGhost::enqueuedCount();
 		resp["ghostCompleted"] = (int)CoopGhost::completedCount();
 		resp["ghostQueueDepth"] = (int)CoopGhost::queueDepth();
+		// CoopPump::reset() calls by the thread that ran them (BattlePump.h).
+		resp["battleResets"]["onMain"] = CoopPump::resetsOnMain();
+		resp["battleResets"]["offMain"] = CoopPump::resetsOffMain();
 		// The last ghost this machine enqueued - kind/
 		// frames/fixed-duration/owning-seat, proving the per-seat pacing
 		// derivation delivered

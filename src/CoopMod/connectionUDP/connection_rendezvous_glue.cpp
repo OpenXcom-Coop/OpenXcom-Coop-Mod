@@ -761,7 +761,13 @@ void handleUdpRemotePeerLost()
     // it, so the main thread's disconnectTCP() still unwinds it as a failed start (the TCP path reads it before its reset).
     if (connectionTCP::getServerOwner() && onConnect != -1)
         CoopHandshake::latchFreshStartLostUdp();
-    clearNetworkSessionQueues(!sparePeerAbsentUdp);
+    // A client resets only the packet queues here (this can be the UDP ping
+    // thread): its battle state is the main thread's, and the main thread's
+    // disconnectTCP resets it once it sees onConnect -2 below.
+    if (connectionTCP::getServerOwner())
+        clearNetworkSessionQueues(!sparePeerAbsentUdp);
+    else
+        clearNetworkTransportQueues();
     if (sparePeerAbsentUdp)
     {
         coopBattleAuthority().peerAbsent = true;
