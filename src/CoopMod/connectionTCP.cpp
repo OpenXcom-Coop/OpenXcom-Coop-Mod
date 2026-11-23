@@ -28960,9 +28960,14 @@ std::string waitBannerText(BattlescapeState* bs)
 
 	// the persistent OFF-TURN banner. Evaluated
 	// first: while the baton is someone else's, that is what this seat is
-	// waiting on, and it outranks any busy-chain wording.
+	// waiting on, and it outranks any busy-chain wording. Only while the baton
+	// holder's side is the side playing: the baton stays with its last holder
+	// through the other sides (the aliens', the civilians'), when it is nobody's turn.
+	SavedBattleGame* bannerSave = connectionTCP::getStaticBattle();
 	if (coopBattleAuthority().turnMode.load() == CoopTurnMode::Traditional
-		&& coopBattleAuthority().activeSeat.load() != me)
+		&& coopBattleAuthority().activeSeat.load() != me
+		&& bannerSave
+		&& coopBattleAuthority().factionOf(coopBattleAuthority().activeSeat.load()) == (int)bannerSave->getSide())
 	{
 		const std::string batonName = seatDisplayName(bs, coopBattleAuthority().activeSeat.load());
 		if (!batonName.empty())
